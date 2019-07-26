@@ -1,4 +1,27 @@
-import argparse
+# MIT License
+#
+# Copyright (c) 2019 Anthony Wilder Wohns
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+"""
+Infer the age of nodes conditional on a tree sequence topology.
+"""
 from collections import defaultdict
 
 import pandas as pd
@@ -6,13 +29,10 @@ import numpy as np
 import scipy.stats
 from scipy.special import comb
 
-import msprime
-import tsinfer
-
 
 def alpha_prob(m, i, n):
     """
-    This is corollary 2 in Wiuf and Donnelly. j equals 1. j
+    Corollary 2 in Wiuf and Donnelly. j equals 1. j
     is ancestors of D (which has i samples). m is the number
     of ancestors of the entire sample. let alpha*(1) be the
     number of ancestors to the whole sample at time tau
@@ -121,9 +141,7 @@ def create_time_grid(age_prior, del_p=0.05):
 
             if len(wd[0]) > 0:
                 t_set = np.concatenate(
-                    [t_set, np.array(scipy.stats.gamma.ppf(percentiles[wd],
-                                     age_prior.loc[i]["Alpha"],
-                                     scale=1 / age_prior.loc[i]["Beta"]))])
+                    [t_set, np.array(scipy.stats.gamma.ppf(percentiles[wd], age_prior.loc[i]["Alpha"], scale=1 / age_prior.loc[i]["Beta"]))])
 
     t_set = sorted(t_set)
     return(np.insert(t_set, 0, 0))
@@ -218,8 +236,8 @@ def get_prior_values(mixture_prior, time_grid, ts):
                 scale=1 / mixture_prior.loc[node.id]["Beta"])
             prior_node = prior_node / max(prior_node)
             # density of proposal in each epoch
-            prior_intervals = np.concatenate([np.array([0]),
-                                             np.diff(prior_node)])
+            prior_intervals = np.concatenate(
+                [np.array([0]), np.diff(prior_node)])
 
             # normalize so max value is 1
             prior_intervals = prior_intervals / max(prior_intervals[1:])
@@ -299,47 +317,33 @@ def get_approx_post(ts, prior_values, time_grid, eps=1e-6, clock="combined",
     approx_post = np.insert(approx_post, 0, time_grid, 0)
     return(approx_post)
 
+def approx_post_mean_var(ts, time_grid, approx_post):
+    # Mean and variance of node age
+    mn_post = np.zeros(ts.num_nodes)
+    vr_post = np.zeros(ts.num_nodes)
 
-def main():
-    parser = argparse.ArgumentParser(
-        description="Set up base data, generate inferred datasets,\
-                     and process datasets.")
-    parser.add_argument('--ts', dest='ts', type=str,
-                        help="path to the the tree sequence file")
-    parser.add_argument('--clock', dest='clock', type=str,
-                        help="mutation, recombination, or combination")
-    parser.add_argument('--grid', dest='grid', type=str, default="union",
-                        help="union or uniform based time grid")
-    parser.add_argument('--theta', dest='theta', type=float, default=0.0004,
-                        help="population scaled mutation rate")
-    parser.add_argument('--rho', dest='rho', type=float, default=0.0004,
-                        help="population scaled recombination rate")
-    parser.add_argument('--del_p', dest='del_p', type=float, default=0.02,
-                        help="intervals in time grid")
-    parser.add_argument('--output', dest='output', type=str, default="output",
-                        help="name of output csv")
-    args = parser.parse_args()
+    for i in np.arange(ts.num_samples, ts.num_nodes):
+        mn_post[i] = sum(approx_post[i, ] * time_grid) / sum(approx_post[i, ])
+        vr_post[i] = sum(approx_post[i, ] * time_grid ** 2) / sum(approx_post[i, ]) - mn_post[i] ** 2
+    return(mn_post, vr_post)
 
-    # Load tree sequence
-    try:
-        ts = tsinfer.load(args['ts'])
-    except KeyboardInterrupt:
-        print("Cannot open tree sequence file")
-
+def age_inference(ts, grid, clock, theta, rho, del_p, output):
     # Run inference
     tip_weights = find_node_tip_weights_ts(ts)
     prior = make_prior(n=ts.num_samples)
 
-    if args['grid'] == 'uniform':
-        time_grid = np.arange(0, 8, args['del_p'])
-    elif args['grid'] == 'union':
-        time_grid = create_time_grid(prior, del_p=args['del_p'])
+    if grid == 'uniform':
+        time_grid = np.arange(0, 8, del_p)
+    elif grid == 'union':
+        time_grid = create_time_grid(prior, del_p=del_p)
     else:
         print("Must enter union or uniform for time grid")
 
     mixture_prior = get_mixture_prior_ts_new(tip_weights, prior)
     prior_vals = get_prior_values(mixture_prior, time_grid, ts)
     approx_post = get_approx_post(ts, prior_vals, time_grid,
-                                  clock=args['clock'], theta=args['theta'],
-                                  rho=args['rho'], del_p=args['del_p'])
-    np.savetxt(args['output'], approx_post, delimiter=",")
+                                  clock=clock, theta=theta,
+                                  rho=rho, del_p=del_p)
+    
+    return(approx_post_mean_var(ts, time_grid, approx_post))
+    #np.savetxt(output, approx_post, delimiter=",")

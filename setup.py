@@ -11,7 +11,11 @@ setuptools.setup(
     description="Infer node ages from a tree sequence topology",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    url="https://github.com/pypa/sampleproject",
+    url="",
+    project_urls={
+        'Source': 'https://github.com/awohns/tstime',
+        'Bug Reports': 'https://github.com/awohns/tstime/issues',
+    },
     packages=setuptools.find_packages(),
     classifiers=[
         "Programming Language :: Python :: 3",
