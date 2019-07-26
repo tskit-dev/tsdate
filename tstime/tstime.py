@@ -141,7 +141,10 @@ def create_time_grid(age_prior, del_p=0.05):
 
             if len(wd[0]) > 0:
                 t_set = np.concatenate(
-                    [t_set, np.array(scipy.stats.gamma.ppf(percentiles[wd], age_prior.loc[i]["Alpha"], scale=1 / age_prior.loc[i]["Beta"]))])
+                    [t_set, np.array(
+                        scipy.stats.gamma.ppf(
+                            percentiles[wd], age_prior.loc[i]["Alpha"],
+                            scale=1 / age_prior.loc[i]["Beta"]))])
 
     t_set = sorted(t_set)
     return(np.insert(t_set, 0, 0))
@@ -293,21 +296,25 @@ def get_approx_post(ts, prior_values, time_grid, eps=1e-6, clock="combined",
                         mut_edges[edge_index], dt * (theta / 2 * span))
                     b_l = (edge.left != 0)
                     b_r = (edge.right != ts.get_sequence_length())
-                    lk_rec = np.power(dt, b_l + b_r) * np.exp(-(dt * rho * span * 2))
+                    lk_rec = np.power(
+                        dt, b_l + b_r) * np.exp(-(dt * rho * span * 2))
                     vv = sum(approx_post[edge.child, 0:time + 1] * (
                         lk_mut * lk_rec))
                 elif clock == "mutation":
-                    lk_mut = scipy.stats.poisson.pmf(mut_edges[edge_index], dt * (theta / 2 * span))
+                    lk_mut = scipy.stats.poisson.pmf(
+                        mut_edges[edge_index], dt * (theta / 2 * span))
                     vv = sum(approx_post[edge.child, 0:time + 1] * lk_mut)
                 elif clock == "recombination":
                     b_l = (edge.left != 0)
                     b_r = (edge.right != ts.get_sequence_length())
-                    lk_rec = np.power(dt, b_l + b_r) * np.exp(-(dt *
-                        rho * span * 2))
+                    lk_rec = np.power(
+                        dt, b_l + b_r) * np.exp(-(dt * rho * span * 2))
                     vv = sum(approx_post[edge.child, 0:time + 1] * lk_rec)
 
                 elif clock == "topo":
-                    vv = sum(approx_post[edge.child, 0:time + 1] * 1 / len(time_grid))
+                    vv = sum(
+                        approx_post[edge.child, 0:time + 1] * 1 / len(
+                            time_grid))
 
                 val = val * vv
             approx_post[parent, time] = val
@@ -317,15 +324,21 @@ def get_approx_post(ts, prior_values, time_grid, eps=1e-6, clock="combined",
     approx_post = np.insert(approx_post, 0, time_grid, 0)
     return(approx_post)
 
+
 def approx_post_mean_var(ts, time_grid, approx_post):
-    # Mean and variance of node age
+    """
+    Mean and variance of node age in scaled time 
+    """
     mn_post = np.zeros(ts.num_nodes)
     vr_post = np.zeros(ts.num_nodes)
 
     for i in np.arange(ts.num_samples, ts.num_nodes):
         mn_post[i] = sum(approx_post[i, ] * time_grid) / sum(approx_post[i, ])
-        vr_post[i] = sum(approx_post[i, ] * time_grid ** 2) / sum(approx_post[i, ]) - mn_post[i] ** 2
+        vr_post[i] = sum(
+            approx_post[i, ] * time_grid ** 2) / sum(
+            approx_post[i, ]) - mn_post[i] ** 2
     return(mn_post, vr_post)
+
 
 def age_inference(ts, grid, clock, theta, rho, del_p, output):
     # Run inference
@@ -344,6 +357,40 @@ def age_inference(ts, grid, clock, theta, rho, del_p, output):
     approx_post = get_approx_post(ts, prior_vals, time_grid,
                                   clock=clock, theta=theta,
                                   rho=rho, del_p=del_p)
-    
-    return(approx_post_mean_var(ts, time_grid, approx_post))
-    #np.savetxt(output, approx_post, delimiter=",")
+
+    return(approx_post)
+    # np.savetxt(output, approx_post, delimiter=",")
+
+
+def restrict_ages_topo(ts, approx_post_mn, time_grid):
+    """
+    If predicted node times violate topology, restrict node ages so that they
+    must be older than all their children.
+    """
+    new_mn_post = np.copy(approx_post_mn)
+    tables = ts.tables
+    for node in np.arange(ts.num_samples, ts.num_nodes):
+        children = tables.edges.child[tables.edges.parent == node]
+        time = new_mn_post[children]
+
+        if np.any(new_mn_post[node] <= time):
+            closest_time = (np.abs(time_grid - max(time))).argmin()
+            new_mn_post[node] = time_grid[closest_time + 1]
+    return(new_mn_post)
+
+
+def return_ts(ts, time_grid, vals, Ne):
+    """
+    Output new inferred tree sequence with node ages assigned.
+    """
+    tables = ts.dump_tables()
+    tables.nodes.set_columns(
+        flags=tables.nodes.flags,
+        time=vals * 2 * Ne,
+        population=tables.nodes.population,
+        individual=tables.nodes.individual,
+        metadata=tables.nodes.metadata,
+        metadata_offset=tables.nodes.metadata_offset)
+    tables.sort()
+    return(tables.tree_sequence())
+
