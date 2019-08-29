@@ -29,6 +29,8 @@ import numpy as np
 import scipy.stats
 from scipy.special import comb
 
+FORMAT_NAME = "tsdate"
+FORMAT_VERSION = [1, 0]
 
 def alpha_prob(m, i, n):
     """

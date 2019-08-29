@@ -1,8 +1,8 @@
-import tszip.cli as cli
+import tsdate.cli as cli
 
 
 def main():
-    python tstime.py
+	cli.tsdate_main()
 
 
 if __name__ == "__main__":

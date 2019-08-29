@@ -5,13 +5,17 @@ with open("README.md", "r") as fh:
 
 setuptools.setup(
     name="tstime-awohns",
-    version="0.0.1",
     author="Anthony Wilder Wohns",
     author_email="awohns@gmail.com",
     description="Infer node ages from a tree sequence topology",
     long_description=long_description,
     long_description_content_type="text/markdown",
     url="",
+    setup_requires=['setuptools_scm'],
+    install_requires=[
+        "numpy",
+        "tskit"
+    ],
     project_urls={
         'Source': 'https://github.com/awohns/tstime',
         'Bug Reports': 'https://github.com/awohns/tstime/issues',
@@ -22,4 +26,5 @@ setuptools.setup(
         "License :: OSI Approved :: MIT License",
         "Operating System :: OS Independent",
     ],
+    use_scm_version={"write_to": "tstime/_version.py"},
 )

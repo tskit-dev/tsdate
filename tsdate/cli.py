@@ -20,39 +20,42 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 """
-Command line interface for tstime.
+Command line interface for tsdate.
 """
 import argparse
 
 import tskit
 
-import tstime
+import tsdate
 
 
-def tstime_cli_parser():
+def tsdate_cli_parser():
     parser = argparse.ArgumentParser(
         description="Set up base data, generate inferred datasets,\
                      and process datasets.")
-    parser.add_argument('--ts', dest='ts', type=str,
-                        help="path to the the tree sequence file")
-    parser.add_argument('--clock', dest='clock', type=str,
+    parser.add_argument(
+        "-V", "--version", action='version',
+        version='%(prog)s {}'.format(tsdate.__version__))
+    parser.add_argument('ts', type=str,
+                        help="Tree sequence from which we estimate age")
+    parser.add_argument('-c', '--clock', type=str, default='mutation',
                         help="mutation, recombination, or combination")
-    parser.add_argument('--grid', dest='grid', type=str, default="union",
-                        help="union or uniform based time grid")
-    parser.add_argument('--theta', dest='theta', type=float, default=0.0004,
+    parser.add_argument('-u', '--uniform', action='store_true',
+                        help="specify a uniform time grid")
+    parser.add_argument('-t', '--theta', type=float, default=0.0004,
                         help="population scaled mutation rate")
-    parser.add_argument('--rho', dest='rho', type=float, default=0.0004,
+    parser.add_argument('-r', '--rho', type=float, default=0.0004,
                         help="population scaled recombination rate")
-    parser.add_argument('--del_p', dest='del_p', type=float, default=0.02,
+    parser.add_argument('-d', '--del_p', type=float, default=0.02,
                         help="intervals in time grid")
-    parser.add_argument('--output', dest='output', type=str, default="output",
+    parser.add_argument('-o', '--output', type=str, default="output",
                         help="name of output csv")
     group = parser.add_mutually_exclusive_group()
     group.add_argument(
-        "--output_ts", action='store_true',
-        help="Output a tree sequence with point estimates for node age")
+        '-s', '--save_ts', action='store_true',
+        help="Save a tree sequence with point estimates for node age")
     group.add_argument(
-        "--node_dist", action='store_true',
+        '-n', '--node_dist', action='store_true',
         help="Output distributions of node ages")
     return parser
 
@@ -64,12 +67,12 @@ def main(args):
     except KeyboardInterrupt:
         print("Cannot open tree sequence file")
     if args.output_ts:
-        tstime.age_inference(
+        tsdate.age_inference(
             ts, args['grid'], args['clock'], args['theta'], args['rho'],
             args['del_p'], args['output'])
 
 
-def ts_time(arg_list=None):
-    parser = tstime_cli_parser()
+def tsdate_main(arg_list=None):
+    parser = tsdate_cli_parser()
     args = parser.parse_args(arg_list)
     main(args)
