@@ -20,6 +20,7 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-from .age_inference import age_inference
+from .age_inference import age_inference, restrict_ages_topo, return_ts
+
 
 from .provenance import __version__  # NOQA

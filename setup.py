@@ -4,7 +4,7 @@ with open("README.md", "r") as fh:
     long_description = fh.read()
 
 setuptools.setup(
-    name="tstime-awohns",
+    name="tsdate",
     author="Anthony Wilder Wohns",
     author_email="awohns@gmail.com",
     description="Infer node ages from a tree sequence topology",
@@ -17,8 +17,8 @@ setuptools.setup(
         "tskit"
     ],
     project_urls={
-        'Source': 'https://github.com/awohns/tstime',
-        'Bug Reports': 'https://github.com/awohns/tstime/issues',
+        'Source': 'https://github.com/awohns/tsdate',
+        'Bug Reports': 'https://github.com/awohns/tsdate/issues',
     },
     packages=setuptools.find_packages(),
     classifiers=[
@@ -26,5 +26,5 @@ setuptools.setup(
         "License :: OSI Approved :: MIT License",
         "Operating System :: OS Independent",
     ],
-    use_scm_version={"write_to": "tstime/_version.py"},
+    use_scm_version={"write_to": "tsdate/_version.py"},
 )

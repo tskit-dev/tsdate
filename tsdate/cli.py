@@ -27,7 +27,13 @@ import argparse
 import tskit
 
 import tsdate
+from . import exceptions
 
+def exit(message):
+    """
+    Exit with the specified error message, setting error status.
+    """
+    sys.exit("{}: {}".format(sys.argv[0], message))
 
 def tsdate_cli_parser():
     parser = argparse.ArgumentParser(
@@ -40,36 +46,44 @@ def tsdate_cli_parser():
                         help="Tree sequence from which we estimate age")
     parser.add_argument('-c', '--clock', type=str, default='mutation',
                         help="mutation, recombination, or combination")
+    parser.add_argument('-n', '--Ne', type=float, default=10000,
+                        help="effective population size")
     parser.add_argument('-u', '--uniform', action='store_true',
                         help="specify a uniform time grid")
     parser.add_argument('-t', '--theta', type=float, default=0.0004,
                         help="population scaled mutation rate")
     parser.add_argument('-r', '--rho', type=float, default=0.0004,
                         help="population scaled recombination rate")
-    parser.add_argument('-d', '--del_p', type=float, default=0.02,
+    parser.add_argument('-i', '--del_p', type=float, default=0.02,
                         help="intervals in time grid")
     parser.add_argument('-o', '--output', type=str, default="output",
-                        help="name of output csv")
+                        help="name of output file")
     group = parser.add_mutually_exclusive_group()
     group.add_argument(
         '-s', '--save_ts', action='store_true',
         help="Save a tree sequence with point estimates for node age")
     group.add_argument(
-        '-n', '--node_dist', action='store_true',
+        '-d', '--node_dist', action='store_true',
         help="Output distributions of node ages")
     return parser
 
 
+def run_age_inference(args):
+    try:
+        ts = tskit.load(args.ts)
+    except exceptions.FileFormatError as ffe:
+        exit("Error loading '{}: {}".format(args.ts, ffe))
+    posterior, time_grid, mn_post = tsdate.age_inference(
+        ts, args.uniform, args.clock, args.Ne, args.theta, args.rho,
+        args.del_p, args.output)
+    new_mn_post = tsdate.restrict_ages_topo(ts, mn_post, time_grid)
+    dated_ts = tsdate.return_ts(ts, time_grid, new_mn_post, args.Ne)
+    print(dated_ts)
+
 def main(args):
     # Load tree sequence
-    try:
-        ts = tskit.load(args['ts'])
-    except KeyboardInterrupt:
-        print("Cannot open tree sequence file")
-    if args.output_ts:
-        tsdate.age_inference(
-            ts, args['grid'], args['clock'], args['theta'], args['rho'],
-            args['del_p'], args['output'])
+    if args.output:
+        run_age_inference(args)
 
 
 def tsdate_main(arg_list=None):

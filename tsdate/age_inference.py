@@ -342,25 +342,23 @@ def approx_post_mean_var(ts, time_grid, approx_post):
     return(mn_post, vr_post)
 
 
-def age_inference(ts, grid, clock, theta, rho, del_p, output):
+def age_inference(ts, uniform, clock, Ne, theta, rho, del_p, output):
     # Run inference
     tip_weights = find_node_tip_weights_ts(ts)
-    prior = make_prior(n=ts.num_samples)
+    prior = make_prior(ts.num_samples, Ne)
 
-    if grid == 'uniform':
+    if uniform:
         time_grid = np.arange(0, 8, del_p)
-    elif grid == 'union':
-        time_grid = create_time_grid(prior, del_p=del_p)
     else:
-        print("Must enter union or uniform for time grid")
+        time_grid = create_time_grid(prior, del_p=del_p)
 
     mixture_prior = get_mixture_prior_ts_new(tip_weights, prior)
     prior_vals = get_prior_values(mixture_prior, time_grid, ts)
     approx_post = get_approx_post(ts, prior_vals, time_grid,
                                   clock=clock, theta=theta,
                                   rho=rho, del_p=del_p)
-
-    return(approx_post)
+    mn_post, _ = approx_post_mean_var(ts, time_grid, approx_post)
+    return(approx_post, time_grid, mn_post)
     # np.savetxt(output, approx_post, delimiter=",")
 
 
