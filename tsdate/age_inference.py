@@ -1,4 +1,4 @@
-# MIT License
+#MIT License
 #
 # Copyright (c) 2019 Anthony Wilder Wohns
 #
@@ -28,6 +28,7 @@ import pandas as pd
 import numpy as np
 import scipy.stats
 from scipy.special import comb
+from tqdm import tqdm
 
 FORMAT_NAME = "tsdate"
 FORMAT_VERSION = [1, 0]
@@ -252,8 +253,8 @@ def get_prior_values(mixture_prior, time_grid, ts):
     return(prior_times)
 
 
-def get_approx_post(ts, prior_values, time_grid, eps=1e-6, clock="combined",
-                theta=1, rho=1, del_p=0.02):
+def get_approx_post(ts, prior_values, time_grid, clock="combined",
+                    theta=1, rho=1, del_p=0.02, eps=1e-6, progress=False):
     """
     Use dynamic programming to find approximate posterior to sample from
     """
@@ -274,7 +275,7 @@ def get_approx_post(ts, prior_values, time_grid, eps=1e-6, clock="combined",
 
     parent_group = iterate_parent_edges(ts)
     # Iterate through the nodes via groupby on parent node
-    for parent_group in iterate_parent_edges(ts):
+    for parent_group in tqdm(iterate_parent_edges(ts), disable=not progress):
         """
         for each node, find the conditional prob of age at every time
         in time grid
@@ -329,7 +330,7 @@ def get_approx_post(ts, prior_values, time_grid, eps=1e-6, clock="combined",
 
 def approx_post_mean_var(ts, time_grid, approx_post):
     """
-    Mean and variance of node age in scaled time 
+    Mean and variance of node age in scaled time
     """
     mn_post = np.zeros(ts.num_nodes)
     vr_post = np.zeros(ts.num_nodes)
@@ -340,26 +341,6 @@ def approx_post_mean_var(ts, time_grid, approx_post):
             approx_post[i, ] * time_grid ** 2) / sum(
             approx_post[i, ]) - mn_post[i] ** 2
     return(mn_post, vr_post)
-
-
-def age_inference(ts, uniform, clock, Ne, theta, rho, del_p, output):
-    # Run inference
-    tip_weights = find_node_tip_weights_ts(ts)
-    prior = make_prior(ts.num_samples, Ne)
-
-    if uniform:
-        time_grid = np.arange(0, 8, del_p)
-    else:
-        time_grid = create_time_grid(prior, del_p=del_p)
-
-    mixture_prior = get_mixture_prior_ts_new(tip_weights, prior)
-    prior_vals = get_prior_values(mixture_prior, time_grid, ts)
-    approx_post = get_approx_post(ts, prior_vals, time_grid,
-                                  clock=clock, theta=theta,
-                                  rho=rho, del_p=del_p)
-    mn_post, _ = approx_post_mean_var(ts, time_grid, approx_post)
-    return(approx_post, time_grid, mn_post)
-    # np.savetxt(output, approx_post, delimiter=",")
 
 
 def restrict_ages_topo(ts, approx_post_mn, time_grid):
@@ -394,3 +375,27 @@ def return_ts(ts, time_grid, vals, Ne):
     tables.sort()
     return(tables.tree_sequence())
 
+
+def age_inference(
+        ts, uniform=False, clock='mutation', Ne=10000,
+        theta=0.0004, rho=0.0004, del_p=0.02, eps=1e-6, progress=False):
+    """
+    Run full inference algorithm and output tree sequence
+    """
+    tip_weights = find_node_tip_weights_ts(ts)
+    prior = make_prior(ts.num_samples, Ne)
+
+    if uniform:
+        time_grid = np.arange(0, 8, del_p)
+    else:
+        time_grid = create_time_grid(prior, del_p=del_p)
+
+    mixture_prior = get_mixture_prior_ts_new(tip_weights, prior)
+    prior_vals = get_prior_values(mixture_prior, time_grid, ts)
+    approx_post = get_approx_post(ts, prior_vals, time_grid,
+                                  clock, theta,
+                                  rho, del_p, eps, progress)
+    mn_post, _ = approx_post_mean_var(ts, time_grid, approx_post)
+    new_mn_post = restrict_ages_topo(ts, mn_post, time_grid)
+    dated_ts = return_ts(ts, time_grid, new_mn_post, Ne)
+    return(dated_ts)

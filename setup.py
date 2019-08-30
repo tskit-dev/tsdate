@@ -14,7 +14,8 @@ setuptools.setup(
     setup_requires=['setuptools_scm'],
     install_requires=[
         "numpy",
-        "tskit"
+        "tskit",
+        "tqdm"
     ],
     project_urls={
         'Source': 'https://github.com/awohns/tsdate',
