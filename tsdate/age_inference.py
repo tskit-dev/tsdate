@@ -1,4 +1,4 @@
-#MIT License
+# MIT License
 #
 # Copyright (c) 2019 Anthony Wilder Wohns
 #
@@ -32,6 +32,7 @@ from tqdm import tqdm
 
 FORMAT_NAME = "tsdate"
 FORMAT_VERSION = [1, 0]
+
 
 def alpha_prob(m, i, n):
     """

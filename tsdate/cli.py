@@ -28,13 +28,14 @@ import sys
 import tskit
 
 import tsdate
-from . import exceptions
+
 
 def exit(message):
     """
     Exit with the specified error message, setting error status.
     """
     sys.exit("{}: {}".format(sys.argv[0], message))
+
 
 def tsdate_cli_parser():
     parser = argparse.ArgumentParser(
@@ -43,10 +44,10 @@ def tsdate_cli_parser():
     parser.add_argument(
         "-V", "--version", action='version',
         version='%(prog)s {}'.format(tsdate.__version__))
-    parser.add_argument('ts', 
+    parser.add_argument('ts',
                         help="Tree sequence from which we estimate age")
     parser.add_argument('output',
-                        help="path and name of output file") 
+                        help="path and name of output file")
     parser.add_argument('-c', '--clock', type=str, default='mutation',
                         help="mutation, recombination, or combination")
     parser.add_argument('-n', '--Ne', type=float, default=10000,
@@ -76,12 +77,13 @@ def run_age_inference(args):
         args.del_p, args.epsilon, args.progress)
     dated_ts.dump(args.output)
 
+
 def main(args):
     # Load tree sequence
     run_age_inference(args)
+
 
 def tsdate_main(arg_list=None):
     parser = tsdate_cli_parser()
     args = parser.parse_args(arg_list)
     main(args)
-
