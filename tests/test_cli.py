@@ -33,7 +33,7 @@ import tskit
 import msprime
 import numpy as np
 
-import tsdate 
+import tsdate
 import tsdate.cli as cli
 
 
@@ -86,7 +86,7 @@ class TestTsdateArgumentParser(unittest.TestCase):
         self.assertEqual(args.del_p, 0.02)
         self.assertEqual(args.output, "output")
         self.assertEqual(args.save_ts, False)
-        self.assertEqual(args.node_dist, False) 
+        self.assertEqual(args.node_dist, False)
 
     def test_uniform(self):
         parser = cli.tsdate_cli_parser()
