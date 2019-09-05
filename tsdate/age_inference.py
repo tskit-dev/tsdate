@@ -374,15 +374,9 @@ def return_ts(ts, vals, Ne):
     Output new inferred tree sequence with node ages assigned.
     """
     tables = ts.dump_tables()
-    tables.nodes.set_columns(
-        flags=tables.nodes.flags,
-        time=vals * 2 * Ne,
-        population=tables.nodes.population,
-        individual=tables.nodes.individual,
-        metadata=tables.nodes.metadata,
-        metadata_offset=tables.nodes.metadata_offset)
+    tables.nodes.time = vals * 2 * Ne
     tables.sort()
-    return(tables.tree_sequence())
+    return tables.tree_sequence()
 
 
 def age_inference(
