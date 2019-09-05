@@ -383,7 +383,7 @@ def age_inference(
     Run full inference algorithm and output tree sequence
     """
     tip_weights = find_node_tip_weights_ts(ts)
-    prior = make_prior(ts.num_samples, Ne)
+    prior = make_prior(ts.num_samples)
 
     if uniform:
         time_grid = np.arange(0, 8, del_p)
