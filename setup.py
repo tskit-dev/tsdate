@@ -13,8 +13,8 @@ setuptools.setup(
     url="",
     setup_requires=['setuptools_scm'],
     install_requires=[
-        "numpy",
-        "tskit",
+        "numpy>=1.17.0",
+        "tskit>=0.2.1",
         "tqdm"
     ],
     project_urls={
