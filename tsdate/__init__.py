@@ -22,7 +22,7 @@
 
 from .age_inference import (  # NOQA
     age_inference, restrict_ages_topo, return_ts,
-    find_node_tip_weights_ts, make_prior, get_mixture_prior_ts_new)
+    find_node_tip_weights, make_prior, get_mixture_prior_ts_new)
 
 
 from .provenance import __version__  # NOQA
