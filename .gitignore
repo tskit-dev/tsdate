@@ -4,3 +4,5 @@ __pycache__/
 _build/
 .eggs
 tmp/
+tsdate/_version.py
+tsdate.egg-info
