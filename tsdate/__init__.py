@@ -20,8 +20,8 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-from .age_inference import (  # NOQA
-    age_inference, restrict_ages_topo, return_ts,
+from .date import (  # NOQA
+    date, restrict_ages_topo, return_ts,
     find_node_tip_weights, make_prior, get_mixture_prior_ts_new)
 
 

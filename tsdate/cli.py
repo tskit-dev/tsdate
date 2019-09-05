@@ -23,11 +23,15 @@
 Command line interface for tsdate.
 """
 import argparse
+import logging
 import sys
 
 import tskit
 
 import tsdate
+
+logger = logging.getLogger(__name__)
+log_format = '%(asctime)s %(levelname)s %(message)s'
 
 
 def exit(message):
@@ -35,6 +39,15 @@ def exit(message):
     Exit with the specified error message, setting error status.
     """
     sys.exit("{}: {}".format(sys.argv[0], message))
+
+
+def setup_logging(args):
+    log_level = "WARN"
+    if args.verbosity > 0:
+        log_level = "INFO"
+    if args.verbosity > 1:
+        log_level = "DEBUG"
+    logging.basicConfig(level=log_level, format=log_format)
 
 
 def tsdate_cli_parser():
@@ -67,12 +80,13 @@ def tsdate_cli_parser():
     return parser
 
 
-def run_age_inference(args):
+def run_date(args):
+    setup_logging(args) 
     try:
         ts = tskit.load(args.ts)
     except tskit.FileFormatError as ffe:
         exit("Error loading '{}: {}".format(args.ts, ffe))
-    dated_ts = tsdate.age_inference(
+    dated_ts = tsdate.date(
         ts, args.Ne, args.mutation_rate, args.recombination_rate,
         args.time_grid, args.slices, args.epsilon, args.num_threads,
         args.progress)
@@ -81,7 +95,7 @@ def run_age_inference(args):
 
 def main(args):
     # Load tree sequence
-    run_age_inference(args)
+    run_date(args)
 
 
 def tsdate_main(arg_list=None):
