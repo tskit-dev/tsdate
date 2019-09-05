@@ -41,18 +41,18 @@ def alpha_prob(m, i, n):
     of ancestors of the entire sample. let alpha*(1) be the
     number of ancestors to the whole sample at time tau
     """
-    return((comb(n - m - 1, i - 2) * comb(m, 2)) / comb(n, i + 1))
+    return (comb(n - m - 1, i - 2) * comb(m, 2)) / comb(n, i + 1)
 
 
 def tau_expect(i, n):
     if i == n:
-        return(2 * (1 - (1 / n)))
+        return 2 * (1 - (1 / n))
     else:
-        return((i - 1) / n)
+        return (i - 1) / n
 
 
 def expect_tau_cond_alpha(alpha, n):
-    return(2 * ((1 / alpha) - (1 / n)))
+    return 2 * ((1 / alpha) - (1 / n))
 
 
 def tau_squared_conditional(alpha, n):
@@ -62,7 +62,7 @@ def tau_squared_conditional(alpha, n):
     j_sum = 0
     for j in range(alpha, n + 1):
         j_sum += ((1 / (j ** 2)))
-    return(8 * j_sum + (8 / n) - (8 / alpha) - (8 / (n * alpha)))
+    return 8 * j_sum + (8 / n) - (8 / alpha) - (8 / (n * alpha))
 
 
 def tau_var(i, n):
@@ -73,13 +73,13 @@ def tau_var(i, n):
         var = 0
         for value in range(2, n + 1):
             var += 1 / ((value ** 2) * ((value - 1) ** 2))
-        return(abs(4 * var))
+        return abs(4 * var)
     else:
         tau_square_sum = 0
         for alpha in range(2, n - i + 2):
             tau_square_sum += (alpha_prob(alpha, i, n) *
                                tau_squared_conditional(alpha, n))
-        return(np.abs((tau_expect(i, n) ** 2) - (tau_square_sum)))
+        return np.abs((tau_expect(i, n) ** 2) - (tau_square_sum))
 
 
 def gamma_approx(mean, variance, ne=1):
@@ -89,7 +89,7 @@ def gamma_approx(mean, variance, ne=1):
     if ne != 1:
         mean = mean * 2 * ne
         variance = variance * 4 * ne * ne
-    return(((mean ** 2) / variance), mean / variance)
+    return mean ** 2 / variance, mean / variance
 
 
 def make_prior(n=10, ne=1):
@@ -106,7 +106,7 @@ def make_prior(n=10, ne=1):
         alpha, beta = gamma_approx(expectation, var, ne)
         prior.loc[tips - 1] = [tips, expectation, var, alpha, beta]
     prior = prior.set_index('Num_Tips')
-    return(prior)
+    return prior
 
 
 def create_time_grid(age_prior, n_points=21):
@@ -153,7 +153,7 @@ def create_time_grid(age_prior, n_points=21):
                             scale=1 / age_prior.loc[i]["Beta"]))])
 
     t_set = sorted(t_set)
-    return(np.insert(t_set, 0, 0))
+    return np.insert(t_set, 0, 0)
 
 
 def find_node_tip_weights(tree_sequence):
@@ -198,8 +198,8 @@ def get_mixture_prior_ts_new(node_mixtures, age_prior):
                               node_mixtures[node].keys()))]["Alpha"]
         beta = age_prior.loc[np.array(list(
                              node_mixtures[node].keys()))]["Beta"]
-        return(sum((alpha / beta) *
-               np.array(list(node_mixtures[node].values()))))
+        return sum(
+           (alpha / beta) * np.array(list(node_mixtures[node].values())))
 
     def mix_var(node):
         alpha = age_prior.loc[np.array(list(
@@ -212,7 +212,7 @@ def get_mixture_prior_ts_new(node_mixtures, age_prior):
                      2 * np.array(list(node_mixtures[node].values())))
         third = sum((alpha / beta) *
                     np.array(list(node_mixtures[node].values()))) ** 2
-        return(first + second - third)
+        return first + second - third
 
     expect_var = {node: (mix_expect(node), mix_var(node))
                   for node in node_mixtures}
@@ -224,7 +224,7 @@ def get_mixture_prior_ts_new(node_mixtures, age_prior):
     for index, (node, (expect, var, alpha, beta)) in enumerate(alpha_beta.items()):
         prior.loc[index] = [node, expect, var, alpha, beta]
     prior = prior.set_index("Node")
-    return(prior)
+    return prior
 
 
 def iterate_parent_edges(ts):
@@ -260,7 +260,7 @@ def get_prior_values(mixture_prior, grid, ts):
             prior_times[node.id, :] = prior_intervals
         else:
             prior_times[node.id, 0] = 1
-    return(prior_times)
+    return prior_times
 
 
 def get_approx_post(ts, prior_values, grid, mutation_rate, recombination_rate,
@@ -337,7 +337,7 @@ def get_approx_post(ts, prior_values, grid, mutation_rate, recombination_rate,
         norm[parent] = max(approx_post[parent, :])
         approx_post[parent, :] = approx_post[parent, :] / norm[parent]
     approx_post = np.insert(approx_post, 0, grid, 0)
-    return(approx_post)
+    return approx_post
 
 
 def approx_post_mean_var(ts, grid, approx_post):
@@ -354,7 +354,7 @@ def approx_post_mean_var(ts, grid, approx_post):
         vr_post[nd] = (
             sum(approx_post[nd, ] * grid ** 2) /
             sum(approx_post[nd, ]) - mn_post[nd] ** 2)
-    return(mn_post, vr_post)
+    return mn_post, vr_post
 
 
 def restrict_ages_topo(ts, approx_post_mn, grid):
