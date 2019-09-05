@@ -59,5 +59,9 @@ class TestSimulated(unittest.TestCase):
         ts = msprime.simulate(8, mutation_rate=5, random_seed=2)
         dated_ts = tsdate.age_inference(ts, Ne=1, mutation_rate=5)
         self.ts_equal_except_times(ts, dated_ts)
-#    def test_simple_sim_2_tree(self):
-#        ts = msprime.simulate(8, mutation_rate=5, recombination_rate=5)
+
+    def test_simple_sim_multi_tree(self):
+        ts = msprime.simulate(8, mutation_rate=5, recombination_rate=5, random_seed=2)
+        self.assertGreater(ts.num_trees, 1)
+        dated_ts = tsdate.age_inference(ts, Ne=1, mutation_rate=5)
+        self.ts_equal_except_times(ts, dated_ts)
