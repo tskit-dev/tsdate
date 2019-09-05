@@ -77,49 +77,84 @@ class TestTsdateArgParser(unittest.TestCase):
 
     def test_default_values(self):
         parser = cli.tsdate_cli_parser()
-        args = parser.parse_args([TestTsdateArgParser.infile, TestTsdateArgParser.output])
-        self.assertEqual(args.ts, TestTsdateArgParser.infile)
-        self.assertEqual(args.output, TestTsdateArgParser.output)
+        args = parser.parse_args([self.infile,
+                                 self.output])
+        self.assertEqual(args.ts, self.infile)
+        self.assertEqual(args.output, self.output)
         self.assertEqual(args.Ne, 10000)
         self.assertEqual(args.time_grid, "adaptive")
         self.assertEqual(args.mutation_rate, None)
         self.assertEqual(args.recombination_rate, None)
         self.assertEqual(args.slices, 50)
+        self.assertEqual(args.epsilon, 1e-6)
+        self.assertEqual(args.num_threads, 0)
+        self.assertFalse(args.progress)
 
     def test_Ne(self):
         parser = cli.tsdate_cli_parser()
-        args = parser.parse_args([TestTsdateArgParser.infile, TestTsdateArgParser.output, "-n", "10000"])
+        args = parser.parse_args(
+            [self.infile, self.output,
+                "-n", "10000"])
         self.assertEqual(args.Ne, 10000)
-        args = parser.parse_args([TestTsdateArgParser.infile, TestTsdateArgParser.output,  "--Ne", "10000"])
+        args = parser.parse_args(
+            [self.infile, self.output,
+                "--Ne", "10000"])
         self.assertEqual(args.Ne, 10000)
 
     def test_time_grid(self):
         parser = cli.tsdate_cli_parser()
-        args = parser.parse_args([TestTsdateArgParser.infile, TestTsdateArgParser.output, "-g", "adaptive"])
+        args = parser.parse_args(
+            [TestTsdateArgParser.infile, TestTsdateArgParser.output,
+                "-g", "adaptive"])
         self.assertEqual(args.time_grid, "adaptive")
-        args = parser.parse_args([TestTsdateArgParser.infile, TestTsdateArgParser.output, "--time-grid", "uniform"])
+        args = parser.parse_args(
+            [TestTsdateArgParser.infile, TestTsdateArgParser.output,
+                "--time-grid", "uniform"])
         self.assertEqual(args.time_grid, "uniform")
 
     def test_mutation_rate(self):
         parser = cli.tsdate_cli_parser()
-        args = parser.parse_args([TestTsdateArgParser.infile, TestTsdateArgParser.output, "-m", "1e10"])
+        args = parser.parse_args(
+            [TestTsdateArgParser.infile, TestTsdateArgParser.output,
+                "-m", "1e10"])
         self.assertEqual(args.mutation_rate, 1e10)
-        args = parser.parse_args([TestTsdateArgParser.infile, TestTsdateArgParser.output, "--mutation-rate", "1e10"])
+        args = parser.parse_args(
+            [TestTsdateArgParser.infile, TestTsdateArgParser.output,
+                "--mutation-rate", "1e10"])
         self.assertEqual(args.mutation_rate, 1e10)
 
     def test_recombination_rate(self):
         parser = cli.tsdate_cli_parser()
-        args = parser.parse_args([TestTsdateArgParser.infile, TestTsdateArgParser.output, "-r", "1e-100"]) 
+        args = parser.parse_args(
+            [TestTsdateArgParser.infile, TestTsdateArgParser.output,
+                "-r", "1e-100"])
         self.assertEqual(args.recombination_rate, 1e-100)
-        args = parser.parse_args([TestTsdateArgParser.infile, TestTsdateArgParser.output, "--recombination-rate", "1e-100"])
+        args = parser.parse_args(
+            [TestTsdateArgParser.infile, TestTsdateArgParser.output,
+                "--recombination-rate", "1e-100"])
         self.assertEqual(args.recombination_rate, 1e-100)
 
     def test_slices(self):
         parser = cli.tsdate_cli_parser()
-        args = parser.parse_args([TestTsdateArgParser.infile, TestTsdateArgParser.output, "-s", "100"]) 
+        args = parser.parse_args(
+            [TestTsdateArgParser.infile, TestTsdateArgParser.output,
+                "-s", "100"])
         self.assertEqual(args.slices, 100)
-        args = parser.parse_args([TestTsdateArgParser.infile, TestTsdateArgParser.output, "--slices", "100"])
+        args = parser.parse_args(
+            [TestTsdateArgParser.infile, TestTsdateArgParser.output,
+                "--slices", "100"])
         self.assertEqual(args.slices, 100)
+
+    def test_epsilon(self):
+        parser = cli.tsdate_cli_parser()
+        args = parser.parse_args([TestTsdateArgParser.infile,
+                                 TestTsdateArgParser.output, "-e", "123"])
+        self.assertEqual(args.epsilon, 123)
+        args = parser.parse_args(
+            [TestTsdateArgParser.infile, TestTsdateArgParser.output,
+                "--epsilon", "321"])
+        self.assertEqual(args.epsilon, 321)
+
 
 class TestCli(unittest.TestCase):
     """
