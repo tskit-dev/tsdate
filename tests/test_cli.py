@@ -58,44 +58,68 @@ def capture_output(func, *args, **kwargs):
 
     try:
         func(*args, **kwargs)
-        stdout_output = sys.stdout.getvalue()
-        stderr_output = sys.stderr.getvalue()
+        stdout_TestTsdateArgParser.output = sys.stdout.getvalue()
+        stderr_TestTsdateArgParser.output = sys.stderr.getvalue()
     finally:
         sys.stdout.close()
         sys.stdout = stdout
         sys.stderr.close()
         sys.stderr = stderr
-    return stdout_output, stderr_output
+    return stdout_TestTsdateArgParser.output, stderr_TestTsdateArgParser.output
 
 
-class TestTsdateArgumentParser(unittest.TestCase):
+class TestTsdateArgParser(unittest.TestCase):
     """
     Tests for the tsdate argument parser.
     """
+    infile = "tmp.trees"
+    output = "output.trees"
 
     def test_default_values(self):
         parser = cli.tsdate_cli_parser()
-        infile = "tmp.trees"
-        args = parser.parse_args(infile)
-        self.assertEqual(args.ts, infile)
-        self.assertEqual(args.clock, 'mutation')
+        args = parser.parse_args([TestTsdateArgParser.infile, TestTsdateArgParser.output])
+        self.assertEqual(args.ts, TestTsdateArgParser.infile)
+        self.assertEqual(args.output, TestTsdateArgParser.output)
         self.assertEqual(args.Ne, 10000)
-        self.assertEqual(args.uniform, False)
-        self.assertEqual(args.theta, 0.0004)
-        self.assertEqual(args.rho, 0.0004)
-        self.assertEqual(args.del_p, 0.02)
-        self.assertEqual(args.output, "output")
-        self.assertEqual(args.save_ts, False)
-        self.assertEqual(args.node_dist, False)
+        self.assertEqual(args.time_grid, "adaptive")
+        self.assertEqual(args.mutation_rate, None)
+        self.assertEqual(args.recombination_rate, None)
+        self.assertEqual(args.slices, 50)
 
-    def test_uniform(self):
+    def test_Ne(self):
         parser = cli.tsdate_cli_parser()
-        infile = "tmp.trees"
-        args = parser.parse_args([infile, '-u'])
-        self.assertTrue(args.uniform)
-        args = parser.parse_args([infile, "--uniform"])
-        self.assertTrue(args.uniform)
+        args = parser.parse_args([TestTsdateArgParser.infile, TestTsdateArgParser.output, "-n", "10000"])
+        self.assertEqual(args.Ne, 10000)
+        args = parser.parse_args([TestTsdateArgParser.infile, TestTsdateArgParser.output,  "--Ne", "10000"])
+        self.assertEqual(args.Ne, 10000)
 
+    def test_time_grid(self):
+        parser = cli.tsdate_cli_parser()
+        args = parser.parse_args([TestTsdateArgParser.infile, TestTsdateArgParser.output, "-g", "adaptive"])
+        self.assertEqual(args.time_grid, "adaptive")
+        args = parser.parse_args([TestTsdateArgParser.infile, TestTsdateArgParser.output, "--time-grid", "uniform"])
+        self.assertEqual(args.time_grid, "uniform")
+
+    def test_mutation_rate(self):
+        parser = cli.tsdate_cli_parser()
+        args = parser.parse_args([TestTsdateArgParser.infile, TestTsdateArgParser.output, "-m", "1e10"])
+        self.assertEqual(args.mutation_rate, 1e10)
+        args = parser.parse_args([TestTsdateArgParser.infile, TestTsdateArgParser.output, "--mutation-rate", "1e10"])
+        self.assertEqual(args.mutation_rate, 1e10)
+
+    def test_recombination_rate(self):
+        parser = cli.tsdate_cli_parser()
+        args = parser.parse_args([TestTsdateArgParser.infile, TestTsdateArgParser.output, "-r", "1e-100"]) 
+        self.assertEqual(args.recombination_rate, 1e-100)
+        args = parser.parse_args([TestTsdateArgParser.infile, TestTsdateArgParser.output, "--recombination-rate", "1e-100"])
+        self.assertEqual(args.recombination_rate, 1e-100)
+
+    def test_slices(self):
+        parser = cli.tsdate_cli_parser()
+        args = parser.parse_args([TestTsdateArgParser.infile, TestTsdateArgParser.output, "-s", "100"]) 
+        self.assertEqual(args.slices, 100)
+        args = parser.parse_args([TestTsdateArgParser.infile, TestTsdateArgParser.output, "--slices", "100"])
+        self.assertEqual(args.slices, 100)
 
 class TestCli(unittest.TestCase):
     """
@@ -107,294 +131,4 @@ class TestCli(unittest.TestCase):
         self.assertEqual(stdout, "")
 
 
-class TestBadFiles(TestCli):
-    """
-    Tests that we deal with IO errors appropriately.
-    """
-    def test_sys_exit(self):
-        # We test for cli.exit elsewhere as it's easier, but test that sys.exit
-        # is called here, so we get coverage.
-        with mock.patch("sys.exit", side_effect=TestException) as mocked_exit:
-            with self.assertRaises(TestException):
-                self.run_tsdate(["/no/such/file"])
-            mocked_exit.assert_called_once()
-            args = mocked_exit.call_args[0]
-            self.assertEqual(len(args), 1)
-            self.assertIn("Error loading", args[0])
 
-    def test_compress_missing(self):
-        with mock.patch("tsdate.cli.exit", side_effect=TestException) as mocked_exit:
-            with self.assertRaises(TestException):
-                self.run_tsdate(["/no/such/file"])
-            mocked_exit.assert_called_once()
-            args = mocked_exit.call_args[0]
-            self.assertEqual(len(args), 1)
-            self.assertTrue(args[0].startswith("Error loading"))
-
-    def test_decompress_missing(self):
-        with mock.patch("tsdate.cli.exit", side_effect=TestException) as mocked_exit:
-            with self.assertRaises(TestException):
-                self.run_tsdate(["-d", "/no/such/file.tsz"])
-            mocked_exit.assert_called_once()
-            args = mocked_exit.call_args[0]
-            self.assertEqual(len(args), 1)
-            self.assertTrue(args[0].startswith("[Errno 2] No such file or directory"))
-
-    def test_list_missing(self):
-        with mock.patch("tsdate.cli.exit", side_effect=TestException) as mocked_exit:
-            with self.assertRaises(TestException):
-                self.run_tsdate(["-l", "/no/such/file.tsz"])
-            mocked_exit.assert_called_once()
-            args = mocked_exit.call_args[0]
-            self.assertEqual(len(args), 1)
-            self.assertTrue(args[0].startswith("[Errno 2] No such file or directory"))
-
-
-class TestCompressSemantics(TestCli):
-    """
-    Tests that the semantics of the CLI work as expected.
-    """
-    def setUp(self):
-        self.tmpdir = tempfile.TemporaryDirectory(prefix="tsdate_cli_")
-        self.trees_path = pathlib.Path(self.tmpdir.name) / "msprime.trees"
-        self.ts = msprime.simulate(10, mutation_rate=10, random_seed=1)
-        self.ts.dump(str(self.trees_path))
-
-    def tearDown(self):
-        del self.tmpdir
-
-    def test_simple(self):
-        self.assertTrue(self.trees_path.exists())
-        self.run_tsdate([str(self.trees_path)])
-        self.assertFalse(self.trees_path.exists())
-        outpath = pathlib.Path(str(self.trees_path) + ".tsz")
-        self.assertTrue(outpath.exists())
-        ts = tsdate.decompress(outpath)
-        self.assertEqual(ts.tables, self.ts.tables)
-
-    def test_suffix(self):
-        self.assertTrue(self.trees_path.exists())
-        self.run_tsdate([str(self.trees_path), "-S", ".XYZasdf"])
-        self.assertFalse(self.trees_path.exists())
-        outpath = pathlib.Path(str(self.trees_path) + ".XYZasdf")
-        self.assertTrue(outpath.exists())
-        ts = tsdate.decompress(outpath)
-        self.assertEqual(ts.tables, self.ts.tables)
-
-    def test_variants_only(self):
-        self.assertTrue(self.trees_path.exists())
-        self.run_tsdate([str(self.trees_path), "--variants-only"])
-        self.assertFalse(self.trees_path.exists())
-        outpath = pathlib.Path(str(self.trees_path) + ".tsz")
-        self.assertTrue(outpath.exists())
-        ts = tsdate.decompress(outpath)
-        self.assertNotEqual(ts.tables, self.ts.tables)
-        G1 = ts.genotype_matrix()
-        G2 = self.ts.genotype_matrix()
-        self.assertTrue(np.array_equal(G1, G2))
-
-    def test_keep(self):
-        self.assertTrue(self.trees_path.exists())
-        self.run_tsdate([str(self.trees_path), "--keep"])
-        self.assertTrue(self.trees_path.exists())
-        outpath = pathlib.Path(str(self.trees_path) + ".tsz")
-        self.assertTrue(outpath.exists())
-        ts = tsdate.decompress(outpath)
-        self.assertEqual(ts.tables, self.ts.tables)
-
-    def test_overwrite(self):
-        self.assertTrue(self.trees_path.exists())
-        outpath = pathlib.Path(str(self.trees_path) + ".tsz")
-        outpath.touch()
-        self.assertTrue(self.trees_path.exists())
-        self.run_tsdate([str(self.trees_path), "--force"])
-        self.assertFalse(self.trees_path.exists())
-        self.assertTrue(outpath.exists())
-        ts = tsdate.decompress(outpath)
-        self.assertEqual(ts.tables, self.ts.tables)
-
-    def test_no_overwrite(self):
-        self.assertTrue(self.trees_path.exists())
-        outpath = pathlib.Path(str(self.trees_path) + ".tsz")
-        outpath.touch()
-        self.assertTrue(self.trees_path.exists())
-        with mock.patch("tsdate.cli.exit", side_effect=TestException) as mocked_exit:
-            with self.assertRaises(TestException):
-                self.run_tsdate([str(self.trees_path)])
-            mocked_exit.assert_called_once_with(
-                "'{}' already exists; use --force to overwrite".format(outpath))
-
-    def test_bad_file_format(self):
-        self.assertTrue(self.trees_path.exists())
-        with open(str(self.trees_path), "w") as f:
-            f.write("xxx")
-        with mock.patch("tsdate.cli.exit", side_effect=TestException) as mocked_exit:
-            with self.assertRaises(TestException):
-                self.run_tsdate([str(self.trees_path)])
-            mocked_exit.assert_called_once_with(
-                "Error loading '{}': File not in KAS format".format(self.trees_path))
-
-
-class DecompressSemanticsMixin(object):
-    """
-    Tests that the decompress semantics of the CLI work as expected.
-    """
-    def setUp(self):
-        self.tmpdir = tempfile.TemporaryDirectory(prefix="tsdate_cli_")
-        self.trees_path = pathlib.Path(self.tmpdir.name) / "msprime.trees"
-        self.ts = msprime.simulate(10, mutation_rate=10, random_seed=1)
-        self.compressed_path = pathlib.Path(self.tmpdir.name) / "msprime.trees.tsz"
-        tsdate.compress(self.ts, self.compressed_path)
-
-    def tearDown(self):
-        del self.tmpdir
-
-    def test_simple(self):
-        self.assertTrue(self.compressed_path.exists())
-        self.run_decompress([str(self.compressed_path)])
-        self.assertFalse(self.compressed_path.exists())
-        outpath = self.trees_path
-        self.assertTrue(outpath.exists())
-        ts = tskit.load(str(outpath))
-        self.assertEqual(ts.tables, self.ts.tables)
-
-    def test_suffix(self):
-        suffix = ".XYGsdf"
-        self.compressed_path = self.compressed_path.with_suffix(suffix)
-        tsdate.compress(self.ts, self.compressed_path)
-        self.assertTrue(self.compressed_path.exists())
-        self.run_decompress([str(self.compressed_path), "-S", suffix])
-        self.assertFalse(self.compressed_path.exists())
-        outpath = self.trees_path
-        self.assertTrue(outpath.exists())
-        ts = tskit.load(str(outpath))
-        self.assertEqual(ts.tables, self.ts.tables)
-
-    def test_keep(self):
-        self.assertTrue(self.compressed_path.exists())
-        self.run_decompress([str(self.compressed_path), "--keep"])
-        self.assertTrue(self.compressed_path.exists())
-        outpath = self.trees_path
-        self.assertTrue(outpath.exists())
-        ts = tskit.load(str(outpath))
-        self.assertEqual(ts.tables, self.ts.tables)
-
-    def test_overwrite(self):
-        self.assertTrue(self.compressed_path.exists())
-        outpath = self.trees_path
-        outpath.touch()
-        self.run_decompress([str(self.compressed_path), "-f"])
-        self.assertFalse(self.compressed_path.exists())
-        self.assertTrue(outpath.exists())
-        ts = tskit.load(str(outpath))
-        self.assertEqual(ts.tables, self.ts.tables)
-
-    def test_no_overwrite(self):
-        self.assertTrue(self.compressed_path.exists())
-        outpath = self.trees_path
-        outpath.touch()
-        with mock.patch("tsdate.cli.exit", side_effect=TestException) as mocked_exit:
-            with self.assertRaises(TestException):
-                self.run_decompress([str(self.compressed_path)])
-            mocked_exit.assert_called_once_with(
-                "'{}' already exists; use --force to overwrite".format(outpath))
-
-    def test_decompress_bad_suffix(self):
-        with mock.patch("tsdate.cli.exit", side_effect=TestException) as mocked_exit:
-            with self.assertRaises(TestException):
-                self.run_decompress([str(self.compressed_path), "-S", "asdf"])
-            mocked_exit.assert_called_once_with(
-                "Compressed file must have 'asdf' suffix")
-
-    def test_bad_file_format(self):
-        self.assertTrue(self.compressed_path.exists())
-        with open(str(self.compressed_path), "w") as f:
-            f.write("xxx")
-        with mock.patch("tsdate.cli.exit", side_effect=TestException) as mocked_exit:
-            with self.assertRaises(TestException):
-                self.run_decompress([str(self.compressed_path)])
-            mocked_exit.assert_called_once_with(
-                "Error reading '{}': File is not in tgzip format".format(
-                    self.compressed_path))
-
-
-class TestDecompressSemanticsTszip(DecompressSemanticsMixin, TestCli):
-    def run_decompress(self, args):
-        self.run_tsdate(["-d"] + args)
-
-
-class TestDecompressSemanticsTsunzip(DecompressSemanticsMixin, TestCli):
-    def run_decompress(self, args):
-        self.run_tsunzip(args)
-
-
-class TestList(unittest.TestCase):
-    """
-    Tests that the --list option works as expected.
-
-    We don't need to mock out setup_logging here because it's not called for list.
-    """
-    def setUp(self):
-        self.tmpdir = tempfile.TemporaryDirectory(prefix="tsdate_cli_")
-        self.trees_path = pathlib.Path(self.tmpdir.name) / "msprime.trees"
-        self.ts = msprime.simulate(10, mutation_rate=10, random_seed=1)
-        self.compressed_path = pathlib.Path(self.tmpdir.name) / "msprime.trees.tsz"
-        tsdate.compress(self.ts, self.compressed_path)
-
-    def tearDown(self):
-        del self.tmpdir
-
-    def test_simple(self):
-        stdout, stderr = capture_output(
-            cli.tsdate_main, ["--list", str(self.compressed_path)])
-        self.assertEqual(stderr, "")
-        lines = stdout.splitlines()
-        self.assertTrue(lines[0].startswith("File: {}".format(self.compressed_path)))
-        for line in lines:
-            self.assertGreater(len(line), 0)
-
-    def test_verbose(self):
-        stdout, stderr = capture_output(
-            cli.tsdate_main, ["--list", "-v", str(self.compressed_path)])
-        self.assertEqual(stderr, "")
-        lines = stdout.splitlines()
-        self.assertTrue(lines[0].startswith("File: {}".format(self.compressed_path)))
-        for line in lines:
-            self.assertGreater(len(line), 0)
-
-    def test_bad_file_format(self):
-        self.assertTrue(self.compressed_path.exists())
-        with open(str(self.compressed_path), "w") as f:
-            f.write("xxx")
-        with mock.patch("tsdate.cli.exit", side_effect=TestException) as mocked_exit:
-            with self.assertRaises(TestException):
-                cli.tsdate_main([str(self.compressed_path), "-l"])
-            mocked_exit.assert_called_once_with(
-                "Error reading '{}': File is not in tgzip format".format(
-                    self.compressed_path))
-
-
-class TestSetupLogging(unittest.TestCase):
-    """
-    Tests that setup logging has the desired effect.
-    """
-    def test_default(self):
-        parser = cli.tsdate_cli_parser()
-        args = parser.parse_args(["afile"])
-        with mock.patch("logging.basicConfig") as mocked_setup:
-            cli.setup_logging(args)
-            mocked_setup.assert_called_once_with(level="WARN", format=cli.log_format)
-
-    def test_verbose(self):
-        parser = cli.tsdate_cli_parser()
-        args = parser.parse_args(["afile", "-v"])
-        with mock.patch("logging.basicConfig") as mocked_setup:
-            cli.setup_logging(args)
-            mocked_setup.assert_called_once_with(level="INFO", format=cli.log_format)
-
-    def test_very_verbose(self):
-        parser = cli.tsdate_cli_parser()
-        args = parser.parse_args(["afile", "-vv"])
-        with mock.patch("logging.basicConfig") as mocked_setup:
-            cli.setup_logging(args)
-            mocked_setup.assert_called_once_with(level="DEBUG", format=cli.log_format)
