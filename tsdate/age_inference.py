@@ -109,18 +109,19 @@ def make_prior(n=10, ne=1):
     return(prior)
 
 
-def create_time_grid(age_prior, del_p=0.05):
+def create_time_grid(age_prior, n_points=21):
     """
     Create the time grid by finding union of the quantiles of the gammas
-    For a node with k descendenants we have gamma approxs.
+    For a node with k descendants we have gamma approxs.
     Natural grid would be to take all the distributions
     quantile them up, and then take the union of the quantiles.
     Then thin this, making it no more than 0.05 of a quantile apart.
     Takes all the gamma distributions, finds quantiles, takes union,
     and thins them. Does this in an iterative way.
     """
-    # Percentages
-    percentiles = np.arange(del_p, 1, del_p)
+    # Percentages - current day samples should be at time 0, so we omit this
+    # We can't include the top end point, as this leads to NaNs
+    percentiles = np.linspace(0, 1, n_points+1)[1:-1]
 
     """
     get the set of times from gamma percent point function at the given
@@ -131,6 +132,7 @@ def create_time_grid(age_prior, del_p=0.05):
                                   scale=1 / age_prior.loc[2]["Beta"])
 
     # progressively add values to the grid
+    max_sep = 1.0/(n_points-1)
     if age_prior.shape[0] > 2:
         for i in np.arange(3, age_prior.shape[0] + 1):
             # gamma percentiles of existing times in grid
@@ -138,10 +140,10 @@ def create_time_grid(age_prior, del_p=0.05):
                                          scale=1 / age_prior.loc[i]["Beta"])
             """
             thin the grid, only add additional quantiles if they're more than
-            0.05 from another quantile
+            a certain max_sep fraction (e.g. 0.05) from another quantile
             """
             tmp = np.asarray([min(abs(val - proj)) for val in percentiles])
-            wd = np.where(tmp > del_p)
+            wd = np.where(tmp > max_sep)
 
             if len(wd[0]) > 0:
                 t_set = np.concatenate(
@@ -161,7 +163,9 @@ def find_node_tip_weights_ts(ts):
     """
     all_tip_weights = dict()
 
-    for node in np.arange(ts.num_samples, ts.num_nodes):
+    nonsample_nodes = np.arange(ts.num_nodes)
+    nonsample_nodes = nonsample_nodes[~np.isin(nonsample_nodes, ts.samples())]
+    for node in nonsample_nodes:
         tip_length_dict = defaultdict(list)
         total_length = 0
         for tree in ts.trees():
@@ -173,7 +177,6 @@ def find_node_tip_weights_ts(ts):
         tip_length_dict = {tip: sum(lengths) / total_length
                            for tip, lengths in tip_length_dict.items()}
         all_tip_weights[node] = tip_length_dict
-
     return(all_tip_weights)
 
 
@@ -234,12 +237,12 @@ def iterate_parent_edges(ts):
         yield parent_edges
 
 
-def get_prior_values(mixture_prior, time_grid, ts):
-    prior_times = np.zeros((ts.num_nodes, len(time_grid)))
+def get_prior_values(mixture_prior, grid, ts):
+    prior_times = np.zeros((ts.num_nodes, len(grid)))
     for node in ts.nodes():
         if node.flags != 1:
             prior_node = scipy.stats.gamma.cdf(
-                time_grid, mixture_prior.loc[node.id]["Alpha"],
+                grid, mixture_prior.loc[node.id]["Alpha"],
                 scale=1 / mixture_prior.loc[node.id]["Beta"])
             prior_node = prior_node / max(prior_node)
             # density of proposal in each epoch
@@ -254,18 +257,19 @@ def get_prior_values(mixture_prior, time_grid, ts):
     return(prior_times)
 
 
-def get_approx_post(ts, prior_values, time_grid, clock="combined",
-                    theta=1, rho=1, del_p=0.02, eps=1e-6, progress=False):
+def get_approx_post(ts, prior_values, grid, mutation_rate, recombination_rate,
+                    eps, progress):
     """
     Use dynamic programming to find approximate posterior to sample from
     """
 
-    approx_post = np.zeros((ts.num_nodes,
-                            len(time_grid)))  # store forward matrix
-    approx_post[0:ts.num_samples, 0] = 1  # initalize tips to time 0
+    approx_post = np.zeros((ts.num_nodes, len(grid)))  # store forward matrix
+    # initialize tips at time 0 to prob=1
+    # TODO - account for ancient samples at different ages
+    approx_post[ts.samples(), 0] = 1
 
     norm = np.zeros((ts.num_nodes))  # normalizing constants
-    norm[0:ts.num_samples] = 1  # set all tips normalizing constants to 1
+    norm[ts.samples()] = 1  # set all tips normalizing constants to 1
 
     mut_edges = np.empty(ts.num_edges)
     for index, edge in enumerate(ts.tables.edges):
@@ -285,118 +289,154 @@ def get_approx_post(ts, prior_values, time_grid, clock="combined",
 
         # For each node iterate through the time grid...
         # Internal nodes can ONLY start at 2nd t_grid point
-        for time in np.arange(1, len(time_grid)):
+        for time in np.arange(1, len(grid)):
             # get list of time differences for possible t'primes
-            dt = time_grid[time] - time_grid[0:time + 1] + eps
-            # how much does prior change over that interval in time_grid
+            dt = grid[time] - grid[0:time + 1] + eps
+            # how much does prior change over that interval in grid
             val = prior_values[parent, time]
 
             for edge_index, edge in parent_group:
                 # Calculate vals for each edge
                 span = edge.right - edge.left
 
-                if clock == "combined":
+                if mutation_rate is not None and recombination_rate is not None:
                     lk_mut = scipy.stats.poisson.pmf(
-                        mut_edges[edge_index], dt * (theta / 2 * span))
+                        mut_edges[edge_index], dt * (mutation_rate / 2 * span))
                     b_l = (edge.left != 0)
                     b_r = (edge.right != ts.get_sequence_length())
                     lk_rec = np.power(
-                        dt, b_l + b_r) * np.exp(-(dt * rho * span * 2))
+                        dt, b_l + b_r) * np.exp(-(dt * recombination_rate * span * 2))
                     vv = sum(approx_post[edge.child, 0:time + 1] * (
                         lk_mut * lk_rec))
-                elif clock == "mutation":
+                elif mutation_rate is not None:
                     lk_mut = scipy.stats.poisson.pmf(
-                        mut_edges[edge_index], dt * (theta / 2 * span))
+                        mut_edges[edge_index], dt * (mutation_rate / 2 * span))
                     vv = sum(approx_post[edge.child, 0:time + 1] * lk_mut)
-                elif clock == "recombination":
+                elif recombination_rate is not None:
                     b_l = (edge.left != 0)
                     b_r = (edge.right != ts.get_sequence_length())
                     lk_rec = np.power(
-                        dt, b_l + b_r) * np.exp(-(dt * rho * span * 2))
+                        dt, b_l + b_r) * np.exp(-(dt * recombination_rate * span * 2))
                     vv = sum(approx_post[edge.child, 0:time + 1] * lk_rec)
 
-                elif clock == "topo":
+                else:
+                    # Topology-only clock
                     vv = sum(
                         approx_post[edge.child, 0:time + 1] * 1 / len(
-                            time_grid))
+                            grid))
 
                 val = val * vv
             approx_post[parent, time] = val
 
         norm[parent] = max(approx_post[parent, :])
         approx_post[parent, :] = approx_post[parent, :] / norm[parent]
-    approx_post = np.insert(approx_post, 0, time_grid, 0)
+    approx_post = np.insert(approx_post, 0, grid, 0)
     return(approx_post)
 
 
-def approx_post_mean_var(ts, time_grid, approx_post):
+def approx_post_mean_var(ts, grid, approx_post):
     """
     Mean and variance of node age in scaled time
     """
     mn_post = np.zeros(ts.num_nodes)
     vr_post = np.zeros(ts.num_nodes)
 
-    for i in np.arange(ts.num_samples, ts.num_nodes):
-        mn_post[i] = sum(approx_post[i, ] * time_grid) / sum(approx_post[i, ])
-        vr_post[i] = sum(
-            approx_post[i, ] * time_grid ** 2) / sum(
-            approx_post[i, ]) - mn_post[i] ** 2
+    nonsample_nodes = np.arange(ts.num_nodes)
+    nonsample_nodes = nonsample_nodes[~np.isin(nonsample_nodes, ts.samples())]
+    for nd in nonsample_nodes:
+        mn_post[nd] = sum(approx_post[nd, ] * grid) / sum(approx_post[nd, ])
+        vr_post[nd] = (
+            sum(approx_post[nd, ] * grid ** 2) /
+            sum(approx_post[nd, ]) - mn_post[nd] ** 2)
     return(mn_post, vr_post)
 
 
-def restrict_ages_topo(ts, approx_post_mn, time_grid):
+def restrict_ages_topo(ts, approx_post_mn, grid):
     """
     If predicted node times violate topology, restrict node ages so that they
     must be older than all their children.
     """
     new_mn_post = np.copy(approx_post_mn)
     tables = ts.tables
-    for node in np.arange(ts.num_samples, ts.num_nodes):
-        children = tables.edges.child[tables.edges.parent == node]
+    nonsample_nodes = np.arange(ts.num_nodes)
+    nonsample_nodes = nonsample_nodes[~np.isin(nonsample_nodes, ts.samples())]
+    for nd in nonsample_nodes:
+        children = tables.edges.child[tables.edges.parent == nd]
         time = new_mn_post[children]
+        if np.any(new_mn_post[nd] <= time):
+            closest_time = (np.abs(grid - max(time))).argmin()
+            new_mn_post[nd] = grid[closest_time + 1]
+    return new_mn_post
 
-        if np.any(new_mn_post[node] <= time):
-            closest_time = (np.abs(time_grid - max(time))).argmin()
-            new_mn_post[node] = time_grid[closest_time + 1]
-    return(new_mn_post)
 
-
-def return_ts(ts, time_grid, vals, Ne):
+def return_ts(ts, vals, Ne):
     """
     Output new inferred tree sequence with node ages assigned.
     """
     tables = ts.dump_tables()
-    tables.nodes.set_columns(
-        flags=tables.nodes.flags,
-        time=vals * 2 * Ne,
-        population=tables.nodes.population,
-        individual=tables.nodes.individual,
-        metadata=tables.nodes.metadata,
-        metadata_offset=tables.nodes.metadata_offset)
+    tables.nodes.time = vals * 2 * Ne
     tables.sort()
-    return(tables.tree_sequence())
+    return tables.tree_sequence()
 
 
 def age_inference(
-        ts, uniform=False, clock='mutation', Ne=10000,
-        theta=0.0004, rho=0.0004, del_p=0.02, eps=1e-6, progress=False):
+        tree_sequence, Ne, mutation_rate=None, recombination_rate=None,
+        time_grid='adaptive', grid_slices=50, eps=1e-6, num_threads=0, progress=False):
     """
-    Run full inference algorithm and output tree sequence
-    """
-    tip_weights = find_node_tip_weights_ts(ts)
-    prior = make_prior(ts.num_samples)
+    Take a tree sequence with arbitrary node times and recalculate node times using
+    the `tsdate` algorithm. If both a mutation_rate and recombination_rate are given, a
+    joint mutation and recombination clock is used to date the tree sequence. If only
+    mutation_rate is given, only the mutation clock is used; similarly if only
+    recombination_rate is given, only the recombination clock is used. If neither are
+    given, a topology-only clock is used (**details***).
 
-    if uniform:
-        time_grid = np.arange(0, 8, del_p)
+    :param TreeSequence tree_sequence: The input :class:`tskit.TreeSequence`, treated as
+        undated.
+    :param float Ne: The estimated effective population size
+    :param float mutation_rate: The estimated mutation rate per unit of genome. If
+        provided, the dating algorithm will use a mutation rate clock to help estimate
+        node dates
+    :param float recombination_rate: The estimated recombination rate per unit of genome.
+        If provided, the dating algorithm will use a recombination rate clock to help
+        estimate node dates
+    :param string time_grid: How to space out the time grid. Currently can be either
+        "adaptive" (the default) or "uniform". The adaptive time grid spaces out time
+        points in even quantiles over the expected prior.
+    :param int grid_slices: The number of slices used in the time grid
+    :param float eps: The precision required (** deeper explanation required **)
+    :param int num_threads: The number of threads to use. If
+        this is <= 0 then a simpler sequential algorithm is used (default).
+    :param bool progress: Whether to display a progress bar.
+    :return: A tree sequence with inferred node times.
+    :rtype: tskit.TreeSequence
+    """
+    if grid_slices < 2:
+        raise ValueError("You must have at least 2 slices in the time grid")
+
+    # Stuff yet to be implemented. These can be deleted once fixed
+    if recombination_rate is not None:
+        raise NotImplementedError(
+            "Using the recombination clock is not currently supported"
+            ". See https://github.com/awohns/tsdate/issues/5 for details")
+    if num_threads > 0:
+        raise NotImplementedError(
+            "Using multiple threads is not yet implemented")
+
+    tip_weights = find_node_tip_weights_ts(tree_sequence)
+    prior = make_prior(tree_sequence.num_samples, Ne)
+
+    if time_grid == 'uniform':
+        grid = np.linspace(0, 8, grid_slices+1)
+    elif time_grid == 'adaptive':
+        grid = create_time_grid(prior, grid_slices+1)
     else:
-        time_grid = create_time_grid(prior, del_p=del_p)
+        raise ValueError("time_grid must be either 'adaptive' or 'uniform'")
 
     mixture_prior = get_mixture_prior_ts_new(tip_weights, prior)
-    prior_vals = get_prior_values(mixture_prior, time_grid, ts)
-    approx_post = get_approx_post(ts, prior_vals, time_grid,
-                                  clock, theta,
-                                  rho, del_p, eps, progress)
-    mn_post, _ = approx_post_mean_var(ts, time_grid, approx_post)
-    new_mn_post = restrict_ages_topo(ts, mn_post, time_grid)
-    dated_ts = return_ts(ts, time_grid, new_mn_post, Ne)
-    return(dated_ts)
+    prior_vals = get_prior_values(mixture_prior, grid, tree_sequence)
+    approx_post = get_approx_post(tree_sequence, prior_vals, grid,
+                                  mutation_rate, recombination_rate, eps, progress)
+    mn_post, _ = approx_post_mean_var(tree_sequence, grid, approx_post)
+    new_mn_post = restrict_ages_topo(tree_sequence, mn_post, grid)
+    dated_ts = return_ts(tree_sequence, new_mn_post, Ne)
+    return dated_ts
