@@ -23,21 +23,16 @@
 Test cases for the python API for tsdate.
 """
 import io
-import sys
-import tempfile
-import pathlib
 import unittest
-from unittest import mock
 
 import tskit
 import msprime
-import numpy as np
 
 import tsdate
 
 
 def single_tree_ts():
-    """
+    r"""
     Simple case where we have n = 3 and one tree.
             4
            / \
@@ -61,7 +56,7 @@ def single_tree_ts():
     return tskit.load_text(nodes=nodes, edges=edges, strict=False)
 
 def polytomy_tree_ts():
-    """
+    r"""
     Simple case where we have n = 3 and a polytomy.
           3
          /|\
@@ -81,7 +76,7 @@ def polytomy_tree_ts():
     return tskit.load_text(nodes=nodes, edges=edges, strict=False)
 
 def two_tree_ts():
-    """
+    r"""
     Simple case where we have n = 3 and 2 trees.
                    .    5
                    .   / \
@@ -102,16 +97,16 @@ def two_tree_ts():
     """)
     edges = io.StringIO("""\
     left    right   parent  child
-    0       0.1     3       0,1
+    0       0.2     3       0,1
     0       1       4       2
-    0       0.1     4       3
-    0.1     1       4       1
-    0.1     1       5       0,4
+    0       0.2     4       3
+    0.2     1       4       1
+    0.2     1       5       0,4
     """)
     return tskit.load_text(nodes=nodes, edges=edges, strict=False)
 
 def single_tree_ts_with_unary():
-    """
+    r"""
     Simple case where we have n = 3 and some unary nodes.
             6
            / 5
@@ -138,7 +133,6 @@ def single_tree_ts_with_unary():
     0       1       6       4,5
     """)
     return tskit.load_text(nodes=nodes, edges=edges, strict=False)
-    
 
 class TestBasicFunctions(unittest.TestCase):
     """
@@ -176,15 +170,20 @@ class TestBasicFunctions(unittest.TestCase):
     def test_create_time_grid(self):
         raise NotImplementedError
 
+
 class TestNodeTipWeights(unittest.TestCase):
     def verify_weights(self, ts):
-        weights_by_node = tsdate.find_node_tip_weights_ts(ts)
-        for n in ts.nodes():
-            if not n.is_sample():  # Check all non-sample nodes are represented
-                self.assertTrue(n.id in weights_by_node)
+        weights_by_node = tsdate.find_node_tip_weights(ts)
+        # Check all internal nodes in a tree are represented
+        internal_nodes = set()
+        for tree in ts.trees():
+            for n in tree.nodes():
+                if tree.is_internal(n):
+                    internal_nodes.add(n)
+        self.assertEqual(set(weights_by_node.keys()), internal_nodes)
         for focal_node, weights in weights_by_node.items():
             self.assertTrue(0 <= focal_node < ts.num_nodes)
-            self.assertAlmostEqual(1.0, sum(weights.values()))
+            self.assertAlmostEqual(sum(weights.values()), 1.0)
             self.assertLessEqual(max(weights.keys()), ts.num_samples)
         return weights_by_node
 
@@ -200,10 +199,19 @@ class TestNodeTipWeights(unittest.TestCase):
     def test_two_trees(self):
         ts = two_tree_ts()
         weights = self.verify_weights(ts)
-        self.assertEqual(weights[5][3], 1.0)  # Root at right
-        self.assertEqual(weights[4][3], 0.1)  # Root at left
-        self.assertEqual(weights[4][2], 0.9)  # But internal node at right
-        self.assertEqual(weights[3][2], 1.0)  # Internal node at left
+        self.assertEqual(weights[5][3], 1.0)  # Root on right tree
+        self.assertEqual(weights[4][3], 0.2)  # Root on left tree ...
+        self.assertEqual(weights[4][2], 0.8)  # ... but internal node on right tree
+        self.assertEqual(weights[3][2], 1.0)  # Internal node on left tree
+
+    def test_missing_tree(self):
+        tables = two_tree_ts().tables.keep_intervals([(0, 0.2)], simplify=False)
+        ts = tables.tree_sequence()
+        weights = self.verify_weights(ts)
+        self.assertTrue(5 not in weights)    # Root on (deleted) right tree
+        self.assertEqual(weights[4][3], 1.0)  # Root on left tree ...
+        self.assertTrue(2 not in weights[4])  # ... but internal node on (deleted) r tree
+        self.assertEqual(weights[3][2], 1.0)  # Internal node on left tree
 
     def test_tree_with_unary_nodes(self):
         ts = single_tree_ts_with_unary()
@@ -220,4 +228,4 @@ class TestNodeTipWeights(unittest.TestCase):
     def test_larger_find_node_tip_weights(self):
         ts = msprime.simulate(10, recombination_rate=5, mutation_rate=5, random_seed=123)
         self.assertGreater(ts.num_trees, 1)
-        weights = self.verify_weights(ts)
+        self.verify_weights(ts)
