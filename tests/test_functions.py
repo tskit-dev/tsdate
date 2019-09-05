@@ -55,6 +55,7 @@ def single_tree_ts():
     """)
     return tskit.load_text(nodes=nodes, edges=edges, strict=False)
 
+
 def polytomy_tree_ts():
     r"""
     Simple case where we have n = 3 and a polytomy.
@@ -74,6 +75,7 @@ def polytomy_tree_ts():
     0       1       3       0,1,2
     """)
     return tskit.load_text(nodes=nodes, edges=edges, strict=False)
+
 
 def two_tree_ts():
     r"""
@@ -105,6 +107,7 @@ def two_tree_ts():
     """)
     return tskit.load_text(nodes=nodes, edges=edges, strict=False)
 
+
 def single_tree_ts_with_unary():
     r"""
     Simple case where we have n = 3 and some unary nodes.
@@ -133,6 +136,7 @@ def single_tree_ts_with_unary():
     0       1       6       4,5
     """)
     return tskit.load_text(nodes=nodes, edges=edges, strict=False)
+
 
 class TestBasicFunctions(unittest.TestCase):
     """
