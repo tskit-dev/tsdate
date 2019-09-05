@@ -156,28 +156,34 @@ def create_time_grid(age_prior, n_points=21):
     return(np.insert(t_set, 0, 0))
 
 
-def find_node_tip_weights_ts(ts):
+def find_node_tip_weights(tree_sequence):
     """
-    Given a tree sequence, calculate the weights for the number of tips below
-    each node
-    """
-    all_tip_weights = dict()
+    Given a tree sequence, for each internal node, calculate the fraction of the sequence
+    with 1 descendant sample, 2 descendant samples, 3 descendant samples etc.
 
-    nonsample_nodes = np.arange(ts.num_nodes)
-    nonsample_nodes = nonsample_nodes[~np.isin(nonsample_nodes, ts.samples())]
-    for node in nonsample_nodes:
-        tip_length_dict = defaultdict(list)
-        total_length = 0
-        for tree in ts.trees():
-            if tree.is_internal(node):
-                length = tree.get_interval()[1] - tree.get_interval()[0]
-                tip_length_dict[len(list(tree.get_leaves(node)))].append(
-                    length)
-                total_length += length
-        tip_length_dict = {tip: sum(lengths) / total_length
-                           for tip, lengths in tip_length_dict.items()}
-        all_tip_weights[node] = tip_length_dict
-    return(all_tip_weights)
+    :param TreeSequence tree_sequence: The input :class:`tskit.TreeSequence`.
+    :returns: a dict, keyed by node id, of dictionaries. The values for each inner dict
+        sum to one, and the keys give the number of samples under the relevant node.
+    :rtype: dict
+    """
+    result = defaultdict(lambda: defaultdict(float))
+    spans = defaultdict(float)
+    for tree in tree_sequence.trees():
+        # Here we could be more efficient by simultaneously iterating over edge_diffs()
+        # and traversing up the tree from the parents identified in edges_out / edges_in,
+        # revising the number of tips under each parent node
+        for node in tree.nodes():
+            if tree.is_internal(node):  # Note that a sample node could be internal
+                span = tree.span
+                n_samples = tree.num_samples(node)
+                if n_samples != 0:
+                    spans[node] += span
+                    result[node][n_samples] += span
+
+    for node in result.keys():
+        result[node] = {k: v/spans[node] for k, v in result[node].items()}
+
+    return result
 
 
 def get_mixture_prior_ts_new(node_mixtures, age_prior):
@@ -422,7 +428,7 @@ def age_inference(
         raise NotImplementedError(
             "Using multiple threads is not yet implemented")
 
-    tip_weights = find_node_tip_weights_ts(tree_sequence)
+    tip_weights = find_node_tip_weights(tree_sequence)
     prior = make_prior(tree_sequence.num_samples, Ne)
 
     if time_grid == 'uniform':
