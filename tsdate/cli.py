@@ -48,20 +48,20 @@ def tsdate_cli_parser():
                         help="Tree sequence from which we estimate age")
     parser.add_argument('output',
                         help="path and name of output file")
-    parser.add_argument('-c', '--clock', type=str, default='mutation',
-                        help="mutation, recombination, or combination")
     parser.add_argument('-n', '--Ne', type=float, default=10000,
                         help="effective population size")
-    parser.add_argument('-u', '--uniform', action='store_true',
+    parser.add_argument('-m', '--mutation-rate', type=float, default=None,
+                        help="mutation rate")
+    parser.add_argument('-r', '--recombination-rate', type=float,
+                        default=None, help="recombination rate")
+    parser.add_argument('-g', '--time-grid', type=str, default='adaptive',
                         help="specify a uniform time grid")
-    parser.add_argument('-t', '--theta', type=float, default=0.0004,
-                        help="population scaled mutation rate")
-    parser.add_argument('-r', '--rho', type=float, default=0.0004,
-                        help="population scaled recombination rate")
-    parser.add_argument('-i', '--del_p', type=float, default=0.02,
+    parser.add_argument('-s', '--slices', type=int, default=50,
                         help="intervals in time grid")
     parser.add_argument('-e', '--epsilon', type=float, default=1e-6,
                         help="value to add to dt")
+    parser.add_argument('-t', '--num-threads', type=int, default=0,
+                        help="number of threads to use")
     parser.add_argument('-p', '--progress', action='store_true',
                         help="show progress bar")
     return parser
@@ -73,8 +73,9 @@ def run_age_inference(args):
     except tskit.FileFormatError as ffe:
         exit("Error loading '{}: {}".format(args.ts, ffe))
     dated_ts = tsdate.age_inference(
-        ts, args.uniform, args.clock, args.Ne, args.theta, args.rho,
-        args.del_p, args.epsilon, args.progress)
+        ts, args.Ne, args.mutation_rate, args.recombination_rate,
+        args.time_grid, args.slices, args.epsilon, args.num_threads,
+        args.progress)
     dated_ts.dump(args.output)
 
 
