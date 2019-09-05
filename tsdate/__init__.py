@@ -20,7 +20,9 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-from .age_inference import age_inference, restrict_ages_topo, return_ts, find_node_tip_weights_ts, make_prior, get_mixture_prior_ts_new
+from .age_inference import (  # NOQA
+    age_inference, restrict_ages_topo, return_ts,
+    find_node_tip_weights_ts, make_prior, get_mixture_prior_ts_new)
 
 
 from .provenance import __version__  # NOQA
