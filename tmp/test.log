@@ -1,12 +1,12 @@
 Path: /Users/anthonywohns/Documents/mcvean_group/age_inference/importance_sampling/geva/geva_v1beta
-Call: --out tmp/test --rec 1e-08 --vcf tmp/test.vcf
+Call: --out /Users/anthonywohns/Documents/mcvean_group/age_inference/tsdate/tmp/test --rec 1e-09 --vcf /Users/anthonywohns/Documents/mcvean_group/age_inference/tsdate/tmp/test.vcf
 
 No genetic map provided
-Calculating genetic distances from constant recombination rate: 1e-08
+Calculating genetic distances from constant recombination rate: 1e-09
 
 Loading variant data from VCF file to binary file
-<< tmp/test.vcf
->> tmp/test.bin
+<< /Users/anthonywohns/Documents/mcvean_group/age_inference/tsdate/tmp/test.vcf
+>> /Users/anthonywohns/Documents/mcvean_group/age_inference/tsdate/tmp/test.bin
 
  Detected sample size: 50 individuals
  Buffer window size: 500000 variants (~23 Mb)
@@ -14,14 +14,14 @@ Loading variant data from VCF file to binary file
  Running
  Writing output file ... OK
  Done
-Process time: 746ms
-Elapsed time: 746ms
+Process time: 796ms
+Elapsed time: 796ms
 Loading data
-<< tmp/test.bin
+<< /Users/anthonywohns/Documents/mcvean_group/age_inference/tsdate/tmp/test.bin
 
  # individuals: 50 (50 phased)
- # variants:    161
+ # variants:    179
 
 This is the end!
-Process time: 770ms
-Elapsed time: 771ms
+Process time: 826ms
+Elapsed time: 825ms

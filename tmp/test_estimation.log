@@ -1,17 +1,17 @@
 Path: /Users/anthonywohns/Documents/mcvean_group/age_inference/importance_sampling/geva/./geva_v1beta
-Call: -i tmp/test.bin --positions tmp/test.positions.txt --hmm /Users/anthonywohns/Documents/mcvean_group/age_inference/importance_sampling/geva/hmm/hmm_initial_probs.txt /Users/anthonywohns/Documents/mcvean_group/age_inference/importance_sampling/geva/hmm/hmm_emission_probs.txt --Ne 10000 --mut 1e-08 --maxConcordant 200 --maxDiscordant 200 -o tmp/test_estimation
+Call: -i /Users/anthonywohns/Documents/mcvean_group/age_inference/tsdate/tmp/test.bin --positions /Users/anthonywohns/Documents/mcvean_group/age_inference/tsdate/tmp/test.positions.txt --hmm /Users/anthonywohns/Documents/mcvean_group/age_inference/importance_sampling/geva/hmm/hmm_initial_probs.txt /Users/anthonywohns/Documents/mcvean_group/age_inference/importance_sampling/geva/hmm/hmm_emission_probs.txt --Ne 10000 --mut 1e-08 --maxConcordant 200 --maxDiscordant 200 -o /Users/anthonywohns/Documents/mcvean_group/age_inference/tsdate/tmp/test_estimation
 
 Loading data
-<< tmp/test.bin
+<< /Users/anthonywohns/Documents/mcvean_group/age_inference/tsdate/tmp/test.bin
 
  # individuals: 50 (50 phased)
- # variants:    161
+ # variants:    179
 
 Scanning target positions
-<< tmp/test.positions.txt
+<< /Users/anthonywohns/Documents/mcvean_group/age_inference/tsdate/tmp/test.positions.txt
 
- # target sites: 159
- [28 positions not viable]
+ # target sites: 177
+ [35 positions not viable]
 
 Generating HMM probabilities from input files
 << /Users/anthonywohns/Documents/mcvean_group/age_inference/importance_sampling/geva/hmm/hmm_initial_probs.txt
@@ -23,12 +23,12 @@ Generating HMM probabilities from input files
  Transition probabilities ... OK
 
 Age estimation, using Hidden Markov Model (HMM)
->> tmp/test_estimation.pairs.txt
->> tmp/test_estimation.sites.txt
+>> /Users/anthonywohns/Documents/mcvean_group/age_inference/tsdate/tmp/test_estimation.pairs.txt
+>> /Users/anthonywohns/Documents/mcvean_group/age_inference/tsdate/tmp/test_estimation.sites.txt
 
- # pairwise analyses = 31509
+ # pairwise analyses = 37864
 
 
 This is the end!
-Process time: 9s 713ms
-Elapsed time: 9s 713ms
+Process time: 11s 768ms
+Elapsed time: 11s 768ms

@@ -3,3 +3,4 @@ testing/
 __pycache__/
 _build/
 .eggs
+tmp/
