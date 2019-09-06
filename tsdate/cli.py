@@ -81,7 +81,7 @@ def tsdate_cli_parser():
 
 
 def run_date(args):
-    setup_logging(args) 
+    setup_logging(args)
     try:
         ts = tskit.load(args.ts)
     except tskit.FileFormatError as ffe:
