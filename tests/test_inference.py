@@ -29,6 +29,7 @@ import tskit
 import msprime
 
 import tsdate
+import tsutil
 
 
 class TestSimulated(unittest.TestCase):
@@ -57,11 +58,23 @@ class TestSimulated(unittest.TestCase):
 
     def test_simple_sim_1_tree(self):
         ts = msprime.simulate(8, mutation_rate=5, random_seed=2)
-        dated_ts = tsdate.age_inference(ts, Ne=1, mutation_rate=5)
+        dated_ts = tsdate.date(ts, Ne=1, mutation_rate=5)
         self.ts_equal_except_times(ts, dated_ts)
 
     def test_simple_sim_multi_tree(self):
         ts = msprime.simulate(8, mutation_rate=5, recombination_rate=5, random_seed=2)
         self.assertGreater(ts.num_trees, 1)
-        dated_ts = tsdate.age_inference(ts, Ne=1, mutation_rate=5)
+        dated_ts = tsdate.date(ts, Ne=1, mutation_rate=5)
         self.ts_equal_except_times(ts, dated_ts)
+
+    @unittest.skip("Truncated sequences not currently accounted for")
+    def test_truncated_ts(self):
+        Ne = 1e2
+        mu = 2e-4
+        ts = msprime.simulate(
+            10, Ne=Ne, length=400, recombination_rate=1e-4, mutation_rate=mu,
+            random_seed=1)
+        truncated_ts = tsutil.truncate_ts_samples(ts, average_span=200, random_seed=123)
+        print("".join(["\n" + h for h in truncated_ts.haplotypes()]))
+        dated_ts = tsdate.date(truncated_ts, Ne=Ne, mutation_rate=mu)
+        self.ts_equal_except_times(truncated_ts, dated_ts)
