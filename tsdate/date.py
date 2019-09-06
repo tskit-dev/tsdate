@@ -89,12 +89,13 @@ def gamma_approx(mean, variance, ne=1):
     if ne != 1:
         mean = mean * 2 * ne
         variance = variance * 4 * ne * ne
-    return mean ** 2 / variance, mean / variance
+    return(((mean ** 2) / variance), mean / variance)
 
 
 def make_prior(n=10, ne=1):
     """
     Return a pandas dataframe of conditional prior on age of node
+    Note: estimated times are scaled by inputted Ne and are haploid
     """
     prior = pd.DataFrame(index=np.arange(0, n - 1),
                          columns=["Num_Tips", "Expected_Age",
@@ -106,7 +107,7 @@ def make_prior(n=10, ne=1):
         alpha, beta = gamma_approx(expectation, var, ne)
         prior.loc[tips - 1] = [tips, expectation, var, alpha, beta]
     prior = prior.set_index('Num_Tips')
-    return prior
+    return(prior)
 
 
 def create_time_grid(age_prior, n_points=21):
@@ -431,7 +432,7 @@ def date(
             "Using multiple threads is not yet implemented")
 
     tip_weights = find_node_tip_weights(tree_sequence)
-    prior = make_prior(tree_sequence.num_samples, Ne)
+    prior = make_prior(tree_sequence.num_samples)
 
     if time_grid == 'uniform':
         grid = np.linspace(0, 8, grid_slices+1)
