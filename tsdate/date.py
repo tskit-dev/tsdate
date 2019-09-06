@@ -24,6 +24,8 @@ Infer the age of nodes conditional on a tree sequence topology.
 """
 from collections import defaultdict
 
+import tskit
+
 import pandas as pd
 import numpy as np
 import scipy.stats
