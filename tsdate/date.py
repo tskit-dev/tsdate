@@ -431,6 +431,11 @@ def date(
         raise NotImplementedError(
             "Using multiple threads is not yet implemented")
 
+    for sample in tree_sequence.samples():
+        if tree_sequence.node(sample).time != 0:
+            raise NotImplementedError(
+                "Samples must all be at time 0")
+
     tip_weights = find_node_tip_weights(tree_sequence)
     prior = make_prior(tree_sequence.num_samples)
 
