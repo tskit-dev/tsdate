@@ -67,6 +67,16 @@ class TestSimulated(unittest.TestCase):
         dated_ts = tsdate.date(ts, Ne=1, mutation_rate=5)
         self.ts_equal_except_times(ts, dated_ts)
 
+    def test_non_contemporaneous(self):
+        samples = [
+            msprime.Sample(population=0, time=0),
+            msprime.Sample(population=0, time=0),
+            msprime.Sample(population=0, time=0),
+            msprime.Sample(population=0, time=1.0)
+        ]
+        ts = msprime.simulate(samples=samples, Ne=1, mutation_rate=2)
+        self.assertRaises(NotImplementedError, tsdate.date, ts, 1, 2)
+
     @unittest.skip("Truncated sequences not currently accounted for")
     def test_truncated_ts(self):
         Ne = 1e2
