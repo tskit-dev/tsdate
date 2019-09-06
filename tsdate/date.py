@@ -82,32 +82,32 @@ def tau_var(i, n):
         return np.abs((tau_expect(i, n) ** 2) - (tau_square_sum))
 
 
-def gamma_approx(mean, variance, ne=1):
+def gamma_approx(mean, variance):
     """
-    Returns alpha and beta for the mean and variance
+    Returns alpha and beta of a gamma distribution for a given mean and variance
     """
-    if ne != 1:
-        mean = mean * 2 * ne
-        variance = variance * 4 * ne * ne
-    return(((mean ** 2) / variance), mean / variance)
+    return (mean ** 2) / variance, mean / variance
 
 
-def make_prior(n=10, ne=1):
+def make_prior(n):
     """
     Return a pandas dataframe of conditional prior on age of node
     Note: estimated times are scaled by inputted Ne and are haploid
     """
-    prior = pd.DataFrame(index=np.arange(0, n - 1),
-                         columns=["Num_Tips", "Expected_Age",
-                         "Var_Age", "Alpha", "Beta"], dtype=float)
-    prior.loc[0] = [1, 0, 0, 0, 0]
-    for tips in np.arange(2, n + 1):
+    prior = pd.DataFrame(index=np.arange(1, n),
+                         columns=["Alpha", "Beta"], dtype=float)
+    # prior.loc[1] denotes the distribution of times for a "coalescence node" ending in a
+    # single sample - this is equivalent to the time of the sample itself, so it should
+    # have var = 0 and mean = sample.time
+    # Setting alpha = 0 and beta = 1 sets mean (a/b) == var (a / b^2) == 0
+    prior.loc[1] = [0, 1]
+    for tips in np.arange(2, n + 1):  # It should be possible to vectorize this in numpy
         expectation = tau_expect(tips, n)
         var = tau_var(tips, n)
-        alpha, beta = gamma_approx(expectation, var, ne)
-        prior.loc[tips - 1] = [tips, expectation, var, alpha, beta]
-    prior = prior.set_index('Num_Tips')
-    return(prior)
+        alpha, beta = gamma_approx(expectation, var)
+        prior.loc[tips] = [alpha, beta]
+    prior.index.name = 'Num_Tips'
+    return prior
 
 
 def create_time_grid(age_prior, n_points=21):
@@ -129,16 +129,16 @@ def create_time_grid(age_prior, n_points=21):
     percentiles specifies the value of the RV such that the prob of the var
     being less than or equal to that value equals the given probability
     """
-    t_set = scipy.stats.gamma.ppf(percentiles, age_prior.loc[2]["Alpha"],
-                                  scale=1 / age_prior.loc[2]["Beta"])
+    t_set = scipy.stats.gamma.ppf(percentiles, age_prior.loc[2, "Alpha"],
+                                  scale=1 / age_prior.loc[2, "Beta"])
 
     # progressively add values to the grid
     max_sep = 1.0/(n_points-1)
     if age_prior.shape[0] > 2:
         for i in np.arange(3, age_prior.shape[0] + 1):
             # gamma percentiles of existing times in grid
-            proj = scipy.stats.gamma.cdf(t_set, age_prior.loc[i]["Alpha"],
-                                         scale=1 / age_prior.loc[i]["Beta"])
+            proj = scipy.stats.gamma.cdf(t_set, age_prior.loc[i, "Alpha"],
+                                         scale=1 / age_prior.loc[i, "Beta"])
             """
             thin the grid, only add additional quantiles if they're more than
             a certain max_sep fraction (e.g. 0.05) from another quantile
@@ -150,8 +150,8 @@ def create_time_grid(age_prior, n_points=21):
                 t_set = np.concatenate(
                     [t_set, np.array(
                         scipy.stats.gamma.ppf(
-                            percentiles[wd], age_prior.loc[i]["Alpha"],
-                            scale=1 / age_prior.loc[i]["Beta"]))])
+                            percentiles[wd], age_prior.loc[i, "Alpha"],
+                            scale=1 / age_prior.loc[i, "Beta"]))])
 
     t_set = sorted(t_set)
     return np.insert(t_set, 0, 0)
@@ -198,17 +198,17 @@ def get_mixture_prior_ts_new(node_mixtures, age_prior):
 
     def mix_expect(node):
         alpha = age_prior.loc[np.array(list(
-                              node_mixtures[node].keys()))]["Alpha"]
+                              node_mixtures[node].keys())), "Alpha"]
         beta = age_prior.loc[np.array(list(
-                             node_mixtures[node].keys()))]["Beta"]
+                             node_mixtures[node].keys())), "Beta"]
         return sum(
            (alpha / beta) * np.array(list(node_mixtures[node].values())))
 
     def mix_var(node):
         alpha = age_prior.loc[np.array(list(
-                              node_mixtures[node].keys()))]["Alpha"]
+                              node_mixtures[node].keys())), "Alpha"]
         beta = age_prior.loc[np.array(list(
-                             node_mixtures[node].keys()))]["Beta"]
+                             node_mixtures[node].keys())), "Beta"]
         first = sum(alpha / (beta ** 2) *
                     np.array(list(node_mixtures[node].values())))
         second = sum((alpha / beta) **
@@ -217,16 +217,11 @@ def get_mixture_prior_ts_new(node_mixtures, age_prior):
                     np.array(list(node_mixtures[node].values()))) ** 2
         return first + second - third
 
-    expect_var = {node: (mix_expect(node), mix_var(node))
-                  for node in node_mixtures}
-    prior = pd.DataFrame(columns=["Node", "Expected_Age", "Var_Age",
-                                  "Alpha", "Beta"], dtype=float)
-    alpha_beta = {node: (expect, var, (expect ** 2) /
-                         var, expect / var)
-                  for node, (expect, var) in expect_var.items()}
-    for index, (node, (expect, var, alpha, beta)) in enumerate(alpha_beta.items()):
-        prior.loc[index] = [node, expect, var, alpha, beta]
-    prior = prior.set_index("Node")
+    prior = pd.DataFrame(
+        index=node_mixtures.keys(), columns=["Alpha", "Beta"], dtype=float)
+    for node in node_mixtures:
+        prior.loc[node] = gamma_approx(mix_expect(node), mix_var(node))
+    prior.index.name = "Node"
     return prior
 
 
@@ -251,8 +246,8 @@ def get_prior_values(mixture_prior, grid, ts):
     for node in ts.nodes():
         if node.flags != 1:
             prior_node = scipy.stats.gamma.cdf(
-                grid, mixture_prior.loc[node.id]["Alpha"],
-                scale=1 / mixture_prior.loc[node.id]["Beta"])
+                grid, mixture_prior.loc[node.id, "Alpha"],
+                scale=1 / mixture_prior.loc[node.id, "Beta"])
             prior_node = prior_node / max(prior_node)
             # density of proposal in each epoch
             prior_intervals = np.concatenate(
