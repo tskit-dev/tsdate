@@ -23,6 +23,7 @@
 Test cases for the python API for tsdate.
 """
 import io
+import math
 import unittest
 
 import tskit
@@ -196,28 +197,23 @@ class TestBasicFunctions(unittest.TestCase):
         self.assertEqual(alpha_prob(2, 2, 3), 1.)
         self.assertEqual(alpha_prob(2, 2, 4), 0.25)
 
-    @unittest.skip("Needs implementing")
     def test_tau_expect(self):
-        raise NotImplementedError
+        self.assertEqual(tau_expect(10, 10), 1.8)
+        self.assertEqual(tau_expect(10, 100), 0.09)
+        self.assertEqual(tau_expect(100, 100), 1.98)
+        self.assertEqual(tau_expect(5, 10), 0.4)
 
-    @unittest.skip("Needs implementing")
-    def test_expect_tau_cond_alpha(self):
-        raise NotImplementedError
-
-    @unittest.skip("Needs implementing")
     def test_tau_squared_conditional(self):
-        raise NotImplementedError
+        self.assertAlmostEqual(tau_squared_conditional(1, 10), 4.3981418)
+        self.assertAlmostEqual(tau_squared_conditional(100, 100), -4.87890977e-18)
 
-    @unittest.skip("Needs implementing")
     def test_tau_var(self):
-        raise NotImplementedError
+        self.assertEqual(tau_var(2, 2), 1)
+        self.assertAlmostEqual(tau_var(10, 20), 0.0922995960)
+        self.assertAlmostEqual(tau_var(50, 50), 1.15946186)
 
     @unittest.skip("Needs implementing")
     def test_gamma_approx(self):
-        raise NotImplementedError
-
-    @unittest.skip("Needs implementing")
-    def test_make_prior(self):
         raise NotImplementedError
 
     @unittest.skip("Needs implementing")
