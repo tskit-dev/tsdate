@@ -22,172 +22,15 @@
 """
 Test cases for the python API for tsdate.
 """
-import io
 import unittest
 
-import tskit
+import tskit  # NOQA
 import msprime
 
 import tsdate
 from tsdate.date import (alpha_prob, tau_expect, tau_squared_conditional,
                          tau_var, gamma_approx)
-
-
-def single_tree_ts_n2():
-    r"""
-    Simple case where we have n = 2 and one tree.
-         2
-        / \
-       0   1
-    """
-    nodes = io.StringIO("""\
-    id      is_sample   time
-    0       1           0
-    1       1           0
-    2       0           1
-    """)
-    edges = io.StringIO("""\
-    left    right   parent  child
-    0       1       2       0,1
-    """)
-    return(tskit.load_text(nodes=nodes, edges=edges, strict=False))
-
-
-def single_tree_ts_n3():
-    r"""
-    Simple case where we have n = 3 and one tree.
-            4
-           / \
-          3   \
-         / \   \
-        0   1   2
-    """
-    nodes = io.StringIO("""\
-    id      is_sample   time
-    0       1           0
-    1       1           0
-    2       1           0
-    3       0           1
-    4       0           2
-    """)
-    edges = io.StringIO("""\
-    left    right   parent  child
-    0       1       3       0,1
-    0       1       4       2,3
-    """)
-    return tskit.load_text(nodes=nodes, edges=edges, strict=False)
-
-
-def single_tree_ts_n4():
-    r"""
-    Simple case where we have n = 4 and one tree.
-              6
-             / \
-            5   \
-           / \   \
-          4   \   \
-         / \   \   \
-        0   1   2   3
-    """
-    nodes = io.StringIO("""\
-    id      is_sample   time
-    0       1           0
-    1       1           0
-    2       1           0
-    3       1           0
-    4       0           1
-    5       0           2
-    6       0           3
-    """)
-    edges = io.StringIO("""\
-    left    right   parent  child
-    0       1       4       0,1
-    0       1       5       2,4
-    0       1       6       3,5
-    """)
-    return tskit.load_text(nodes=nodes, edges=edges, strict=False)
-
-
-def polytomy_tree_ts():
-    r"""
-    Simple case where we have n = 3 and a polytomy.
-          3
-         /|\
-        0 1 2
-    """
-    nodes = io.StringIO("""\
-    id      is_sample   time
-    0       1           0
-    1       1           0
-    2       1           0
-    3       0           1
-    """)
-    edges = io.StringIO("""\
-    left    right   parent  child
-    0       1       3       0,1,2
-    """)
-    return tskit.load_text(nodes=nodes, edges=edges, strict=False)
-
-
-def two_tree_ts():
-    r"""
-    Simple case where we have n = 3 and 2 trees.
-                   .    5
-                   .   / \
-            4      .  |   4
-           / \     .  |   |\
-          3   \    .  |   | \
-         / \   \   .  |   |  \
-        0   1   2  .  0   1   2
-    """
-    nodes = io.StringIO("""\
-    id      is_sample   time
-    0       1           0
-    1       1           0
-    2       1           0
-    3       0           1
-    4       0           2
-    5       0           3
-    """)
-    edges = io.StringIO("""\
-    left    right   parent  child
-    0       0.2     3       0,1
-    0       1       4       2
-    0       0.2     4       3
-    0.2     1       4       1
-    0.2     1       5       0,4
-    """)
-    return tskit.load_text(nodes=nodes, edges=edges, strict=False)
-
-
-def single_tree_ts_with_unary():
-    r"""
-    Simple case where we have n = 3 and some unary nodes.
-            6
-           / 5
-          4   \
-          3    \
-         / \    \
-        0   1    2
-    """
-    nodes = io.StringIO("""\
-    id      is_sample   time
-    0       1           0
-    1       1           0
-    2       1           0
-    3       0           1
-    4       0           2
-    5       0           3
-    6       0           4
-    """)
-    edges = io.StringIO("""\
-    left    right   parent  child
-    0       1       3       0,1
-    0       1       5       2
-    0       1       4       3
-    0       1       6       4,5
-    """)
-    return tskit.load_text(nodes=nodes, edges=edges, strict=False)
+import utility_functions
 
 
 class TestBasicFunctions(unittest.TestCase):
@@ -225,13 +68,13 @@ class TestBasicFunctions(unittest.TestCase):
 class TestNodeTipWeights(unittest.TestCase):
     def verify_weights(self, ts):
         weights_by_node = tsdate.find_node_tip_weights(ts)
-        # Check all internal nodes in a tree are represented
-        internal_nodes = set()
+        # Check all non-sample nodes in a tree are represented
+        nonsample_nodes = set()
         for tree in ts.trees():
             for n in tree.nodes():
-                if tree.is_internal(n):
-                    internal_nodes.add(n)
-        self.assertEqual(set(weights_by_node.keys()), internal_nodes)
+                if not tree.is_sample(n):
+                    nonsample_nodes.add(n)
+        self.assertEqual(set(weights_by_node.keys()), nonsample_nodes)
         for focal_node, weights in weights_by_node.items():
             self.assertTrue(0 <= focal_node < ts.num_nodes)
             self.assertAlmostEqual(sum(weights.values()), 1.0)
@@ -239,7 +82,7 @@ class TestNodeTipWeights(unittest.TestCase):
         return weights_by_node
 
     def test_one_tree_n2(self):
-        ts = single_tree_ts_n2()
+        ts = utility_functions.single_tree_ts_n2()
         weights = self.verify_weights(ts)
         # with a single tree there should only be one weight
         for w in weights.values():
@@ -247,7 +90,7 @@ class TestNodeTipWeights(unittest.TestCase):
         self.assertTrue(2 in weights[2])  # Root
 
     def test_one_tree_n3(self):
-        ts = single_tree_ts_n3()
+        ts = utility_functions.single_tree_ts_n3()
         weights = self.verify_weights(ts)
         # with a single tree there should only be one weight
         for w in weights.values():
@@ -256,7 +99,7 @@ class TestNodeTipWeights(unittest.TestCase):
         self.assertTrue(2 in weights[3])  # 1st internal node
 
     def test_one_tree_n4(self):
-        ts = single_tree_ts_n4()
+        ts = utility_functions.single_tree_ts_n4()
         weights = self.verify_weights(ts)
         # with a single tree there should only be one weight
         for w in weights.values():
@@ -266,7 +109,7 @@ class TestNodeTipWeights(unittest.TestCase):
         self.assertTrue(2 in weights[4])  # 2nd internal node
 
     def test_two_trees(self):
-        ts = two_tree_ts()
+        ts = utility_functions.two_tree_ts()
         weights = self.verify_weights(ts)
         self.assertEqual(weights[5][3], 1.0)  # Root on right tree
         self.assertEqual(weights[4][3], 0.2)  # Root on left tree ...
@@ -274,7 +117,8 @@ class TestNodeTipWeights(unittest.TestCase):
         self.assertEqual(weights[3][2], 1.0)  # Internal node on left tree
 
     def test_missing_tree(self):
-        tables = two_tree_ts().tables.keep_intervals([(0, 0.2)], simplify=False)
+        tables = utility_functions.two_tree_ts().tables.keep_intervals(
+            [(0, 0.2)], simplify=False)
         ts = tables.tree_sequence()
         weights = self.verify_weights(ts)
         self.assertTrue(5 not in weights)    # Root on (deleted) right tree
@@ -283,14 +127,16 @@ class TestNodeTipWeights(unittest.TestCase):
         self.assertEqual(weights[3][2], 1.0)  # Internal node on left tree
 
     def test_tree_with_unary_nodes(self):
-        ts = single_tree_ts_with_unary()
+        ts = utility_functions.single_tree_ts_with_unary()
         weights = self.verify_weights(ts)
         self.assertEqual(weights[3][2], 1.0)
-        self.assertEqual(weights[4][2], 1.0)
-        self.assertEqual(weights[5][1], 1.0)
+        self.assertEqual(weights[4][2], 0.5)
+        self.assertEqual(weights[4][3], 0.5)
+        self.assertEqual(weights[5][1], 0.5)
+        self.assertEqual(weights[5][3], 0.5)
 
     def test_polytomy_tree(self):
-        ts = polytomy_tree_ts()
+        ts = utility_functions.polytomy_tree_ts()
         weights = self.verify_weights(ts)
         self.assertEqual(weights[3][3], 1.0)
 
@@ -310,14 +156,14 @@ class TestMakePrior(unittest.TestCase):
         return(prior)
 
     def test_one_tree_n2(self):
-        ts = single_tree_ts_n2()
+        ts = utility_functions.single_tree_ts_n2()
         prior = self.verify_prior(ts)
         [self.assertAlmostEqual(x, y)
          for x, y in zip(prior.loc[2].values,
                          [1., 1.])]
 
     def test_one_tree_n3(self):
-        ts = single_tree_ts_n3()
+        ts = utility_functions.single_tree_ts_n3()
         prior = self.verify_prior(ts)
         [self.assertAlmostEqual(x, y)
          for x, y in zip(prior.loc[2].values,
@@ -327,7 +173,7 @@ class TestMakePrior(unittest.TestCase):
                          [1.6, 1.2])]
 
     def test_one_tree_n4(self):
-        ts = single_tree_ts_n4()
+        ts = utility_functions.single_tree_ts_n4()
         prior = self.verify_prior(ts)
         [self.assertAlmostEqual(x, y)
          for x, y in zip(prior.loc[2].values,
@@ -340,7 +186,7 @@ class TestMakePrior(unittest.TestCase):
                          [1.97560976, 1.31707317])]
 
     def test_polytomy_tree(self):
-        ts = polytomy_tree_ts()
+        ts = utility_functions.polytomy_tree_ts()
         prior = self.verify_prior(ts)
         [self.assertAlmostEqual(x, y)
          for x, y in zip(prior.loc[3].values,
