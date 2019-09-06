@@ -25,7 +25,6 @@ Infer the age of nodes conditional on a tree sequence topology.
 from collections import defaultdict
 
 import tskit
-
 import pandas as pd
 import numpy as np
 import scipy.stats
@@ -184,20 +183,28 @@ def find_node_tip_weights(tree_sequence):
                     " Please simplify your tree sequence before dating.")
                 continue  # Don't count any nodes
             span = tree.span
-            spans[node] += span
             if len(tree.children(node)) > 1:
                 result[node][n_samples] += span
+                spans[node] += span
             else:
                 # Unary node: take a mixture of the coalescent nodes above and below
+
                 #  above:
-                n = tree.parent(node)
-                while tree.children(n) == 1:
+                n = node
+                done = False
+                while not done:
                     n = tree.parent(n)
-                    if n == tskit.NULL:
-                        raise ValueError(
-                            "Tree " + str(i) + " has a lineage with no coalescence." +
-                            " This is impossible to date.")
+                    if n == tskit.NULL or len(tree.children(n)) > 1:
+                        done = True
+                if n == tskit.NULL:
+                    # No coalescent node above this node. We should ignore it and hope to
+                    # date the node in a different tree. To check all nodes are datable,
+                    # create an empty defaultdict and check for unfilled ones at the end
+                    if node not in result:
+                        result[node] = defaultdict(float)
+                    continue
                 result[node][tree.num_samples(n)] += span/2  # Half from the node above
+
                 #  below:
                 n = tree.children(node)[0]
                 while tree.children(n) == 1:
@@ -205,12 +212,18 @@ def find_node_tip_weights(tree_sequence):
                 ntips = tree.num_samples(n)
                 if ntips == 0:
                     # Rather pathological here - this is a dangling node which should be
-                    # caught above. For the moment just pretend it is a tip
+                    # caught above. Meanwhile just pretend it has a single sample child
                     ntips = 1
                 result[node][ntips] += span/2  # Half from the node below
 
-    for node in result.keys():
-        result[node] = {k: v / spans[node] for k, v in result[node].items()}
+                spans[node] += span
+    for node, weights in result.items():
+        if len(weights) == 0:
+            # Empty dict - undatable node
+            raise ValueError(
+                "Node " + str(node) + " is a unary node with no coalescence above it." +
+                " This makes it impossible to date. Aborting.")
+        result[node] = {k: v / spans[node] for k, v in weights.items()}
 
     return result
 
