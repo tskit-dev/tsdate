@@ -36,7 +36,7 @@ FORMAT_VERSION = [1, 0]
 
 def alpha_prob(m, i, n):
     """
-    Corollary 2 in Wiuf and Donnelly. j equals 1. j
+    Corollary 2 in Wiuf and Donnelly (1999). j equals 1. j
     is ancestors of D (which has i samples). m is the number
     of ancestors of the entire sample. let alpha*(1) be the
     number of ancestors to the whole sample at time tau
@@ -51,13 +51,10 @@ def tau_expect(i, n):
         return (i - 1) / n
 
 
-def expect_tau_cond_alpha(alpha, n):
-    return 2 * ((1 / alpha) - (1 / n))
-
-
 def tau_squared_conditional(alpha, n):
     """
     Gives expectation of tau squared conditional on alpha
+    Equation (10) from Wiuf and Donnelly (1999).
     """
     j_sum = 0
     for j in range(alpha, n + 1):

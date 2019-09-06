@@ -23,14 +23,15 @@
 Test cases for the python API for tsdate.
 """
 import io
-import math
 import unittest
 
 import tskit
 import msprime
 
 import tsdate
-from tsdate.date import *
+from tsdate.date import (alpha_prob, tau_expect, tau_squared_conditional,
+                         tau_var, gamma_approx)
+
 
 def single_tree_ts_n2():
     r"""
@@ -212,9 +213,9 @@ class TestBasicFunctions(unittest.TestCase):
         self.assertAlmostEqual(tau_var(10, 20), 0.0922995960)
         self.assertAlmostEqual(tau_var(50, 50), 1.15946186)
 
-    @unittest.skip("Needs implementing")
     def test_gamma_approx(self):
-        raise NotImplementedError
+        self.assertEqual(gamma_approx(2, 1), (4., 2.))
+        self.assertEqual(gamma_approx(0.5, 0.1), (2.5, 5.0))
 
     @unittest.skip("Needs implementing")
     def test_create_time_grid(self):
@@ -344,4 +345,3 @@ class TestMakePrior(unittest.TestCase):
         [self.assertAlmostEqual(x, y)
          for x, y in zip(prior.loc[3].values,
                          [1.6, 1.2])]
-
