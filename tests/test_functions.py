@@ -29,7 +29,7 @@ import tskit
 import msprime
 
 import tsdate
-
+from tsdate.date import *
 
 def single_tree_ts_n2():
     r"""
@@ -192,9 +192,9 @@ class TestBasicFunctions(unittest.TestCase):
     """
     Test for some of the basic functions used in tsdate
     """
-    @unittest.skip("Needs implementing")
     def test_alpha_prob(self):
-        raise NotImplementedError
+        self.assertEqual(alpha_prob(2, 2, 3), 1.)
+        self.assertEqual(alpha_prob(2, 2, 4), 0.25)
 
     @unittest.skip("Needs implementing")
     def test_tau_expect(self):
@@ -310,7 +310,6 @@ class TestMakePrior(unittest.TestCase):
         # Check prior contains all possible tips
         prior = tsdate.make_prior(n=ts.num_samples)
         self.assertEqual(prior.shape[0], ts.num_samples)
-        self.assertTrue(prior["Expected_Age"].iloc[-1] <= 2.0)
         return(prior)
 
     def test_one_tree_n2(self):
@@ -318,35 +317,35 @@ class TestMakePrior(unittest.TestCase):
         prior = self.verify_prior(ts)
         [self.assertAlmostEqual(x, y)
          for x, y in zip(prior.loc[2].values,
-                         [1., 1., 1., 1.])]
+                         [1., 1.])]
 
     def test_one_tree_n3(self):
         ts = single_tree_ts_n3()
         prior = self.verify_prior(ts)
         [self.assertAlmostEqual(x, y)
          for x, y in zip(prior.loc[2].values,
-                         [0.33333333, 0.11111111, 1., 3.])]
+                         [1., 3.])]
         [self.assertAlmostEqual(x, y)
          for x, y in zip(prior.loc[3].values,
-                         [1.33333333, 1.11111111, 1.6, 1.2])]
+                         [1.6, 1.2])]
 
     def test_one_tree_n4(self):
         ts = single_tree_ts_n4()
         prior = self.verify_prior(ts)
         [self.assertAlmostEqual(x, y)
          for x, y in zip(prior.loc[2].values,
-                         [0.25, 0.07638889, 0.81818182, 3.27272727])]
+                         [0.81818182, 3.27272727])]
         [self.assertAlmostEqual(x, y)
          for x, y in zip(prior.loc[3].values,
-                         [0.5, 0.13888889, 1.8, 3.6])]
+                         [1.8, 3.6])]
         [self.assertAlmostEqual(x, y)
          for x, y in zip(prior.loc[4].values,
-                         [1.5, 1.13888889, 1.97560976, 1.31707317])]
+                         [1.97560976, 1.31707317])]
 
     def test_polytomy_tree(self):
         ts = polytomy_tree_ts()
         prior = self.verify_prior(ts)
         [self.assertAlmostEqual(x, y)
          for x, y in zip(prior.loc[3].values,
-                         [1.33333333, 1.11111111, 1.6, 1.2])]
+                         [1.6, 1.2])]
 
