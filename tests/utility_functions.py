@@ -25,6 +25,165 @@ A collection of utilities to edit and construct tree sequences for testing purpo
 """
 
 import numpy as np
+import tskit
+import io
+
+
+def single_tree_ts_n2():
+    r"""
+    Simple case where we have n = 2 and one tree.
+         2
+        / \
+       0   1
+    """
+    nodes = io.StringIO("""\
+    id      is_sample   time
+    0       1           0
+    1       1           0
+    2       0           1
+    """)
+    edges = io.StringIO("""\
+    left    right   parent  child
+    0       1       2       0,1
+    """)
+    return(tskit.load_text(nodes=nodes, edges=edges, strict=False))
+
+
+def single_tree_ts_n3():
+    r"""
+    Simple case where we have n = 3 and one tree.
+            4
+           / \
+          3   \
+         / \   \
+        0   1   2
+    """
+    nodes = io.StringIO("""\
+    id      is_sample   time
+    0       1           0
+    1       1           0
+    2       1           0
+    3       0           1
+    4       0           2
+    """)
+    edges = io.StringIO("""\
+    left    right   parent  child
+    0       1       3       0,1
+    0       1       4       2,3
+    """)
+    return tskit.load_text(nodes=nodes, edges=edges, strict=False)
+
+
+def single_tree_ts_n4():
+    r"""
+    Simple case where we have n = 4 and one tree.
+              6
+             / \
+            5   \
+           / \   \
+          4   \   \
+         / \   \   \
+        0   1   2   3
+    """
+    nodes = io.StringIO("""\
+    id      is_sample   time
+    0       1           0
+    1       1           0
+    2       1           0
+    3       1           0
+    4       0           1
+    5       0           2
+    6       0           3
+    """)
+    edges = io.StringIO("""\
+    left    right   parent  child
+    0       1       4       0,1
+    0       1       5       2,4
+    0       1       6       3,5
+    """)
+    return tskit.load_text(nodes=nodes, edges=edges, strict=False)
+
+
+def polytomy_tree_ts():
+    r"""
+    Simple case where we have n = 3 and a polytomy.
+          3
+         /|\
+        0 1 2
+    """
+    nodes = io.StringIO("""\
+    id      is_sample   time
+    0       1           0
+    1       1           0
+    2       1           0
+    3       0           1
+    """)
+    edges = io.StringIO("""\
+    left    right   parent  child
+    0       1       3       0,1,2
+    """)
+    return tskit.load_text(nodes=nodes, edges=edges, strict=False)
+
+
+def two_tree_ts():
+    r"""
+    Simple case where we have n = 3 and 2 trees.
+                   .    5
+                   .   / \
+            4      .  |   4
+           / \     .  |   |\
+          3   \    .  |   | \
+         / \   \   .  |   |  \
+        0   1   2  .  0   1   2
+    """
+    nodes = io.StringIO("""\
+    id      is_sample   time
+    0       1           0
+    1       1           0
+    2       1           0
+    3       0           1
+    4       0           2
+    5       0           3
+    """)
+    edges = io.StringIO("""\
+    left    right   parent  child
+    0       0.2     3       0,1
+    0       1       4       2
+    0       0.2     4       3
+    0.2     1       4       1
+    0.2     1       5       0,4
+    """)
+    return tskit.load_text(nodes=nodes, edges=edges, strict=False)
+
+
+def single_tree_ts_with_unary():
+    r"""
+    Simple case where we have n = 3 and some unary nodes.
+            6
+           / 5
+          4   \
+          3    \
+         / \    \
+        0   1    2
+    """
+    nodes = io.StringIO("""\
+    id      is_sample   time
+    0       1           0
+    1       1           0
+    2       1           0
+    3       0           1
+    4       0           2
+    5       0           3
+    6       0           4
+    """)
+    edges = io.StringIO("""\
+    left    right   parent  child
+    0       1       3       0,1
+    0       1       5       2
+    0       1       4       3
+    0       1       6       4,5
+    """)
+    return tskit.load_text(nodes=nodes, edges=edges, strict=False)
 
 
 def truncate_ts_samples(ts, average_span, random_seed, min_span=5):
