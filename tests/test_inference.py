@@ -29,7 +29,7 @@ import tskit
 import msprime
 
 import tsdate
-import tsutil
+import utility_functions
 
 
 class TestSimulated(unittest.TestCase):
@@ -67,6 +67,11 @@ class TestSimulated(unittest.TestCase):
         dated_ts = tsdate.date(ts, Ne=1, mutation_rate=5)
         self.ts_equal_except_times(ts, dated_ts)
 
+    def test_with_unary(self):
+        ts = utility_functions.single_tree_ts_with_unary()
+        dated_ts = tsdate.date(ts, Ne=1)
+        self.ts_equal_except_times(ts, dated_ts)
+
     def test_non_contemporaneous(self):
         samples = [
             msprime.Sample(population=0, time=0),
@@ -84,7 +89,8 @@ class TestSimulated(unittest.TestCase):
         ts = msprime.simulate(
             10, Ne=Ne, length=400, recombination_rate=1e-4, mutation_rate=mu,
             random_seed=1)
-        truncated_ts = tsutil.truncate_ts_samples(ts, average_span=200, random_seed=123)
+        truncated_ts = utility_functions.truncate_ts_samples(
+            ts, average_span=200, random_seed=123)
         print("".join(["\n" + h for h in truncated_ts.haplotypes()]))
         dated_ts = tsdate.date(truncated_ts, Ne=Ne, mutation_rate=mu)
         self.ts_equal_except_times(truncated_ts, dated_ts)

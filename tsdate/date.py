@@ -159,32 +159,59 @@ def create_time_grid(age_prior, n_points=21):
 
 def find_node_tip_weights(tree_sequence):
     """
-    Given a tree sequence, for each internal node, calculate the fraction
-    of the sequence with 1 descendant sample, 2 descendant samples, 3
-    descendant samples etc.
+    Given a tree sequence, for each non-sample node (i.e. those for which we want to
+    infer a date) calculate the fraction of the sequence with 1 descendant sample,
+    2 descendant samples, 3 descendant samples etc.
 
     :param TreeSequence tree_sequence: The input :class:`tskit.TreeSequence`.
     :returns: a dict, keyed by node id, of dictionaries. The values for each
         inner dict sum to one, and the keys give the number of samples under
         the relevant node.
-    :rtype: dict
+    :rtype: defaultdict
     """
     result = defaultdict(lambda: defaultdict(float))
     spans = defaultdict(float)
-    for tree in tree_sequence.trees():
+    for i, tree in enumerate(tree_sequence.trees()):
         # Here we could be more efficient by simultaneously iterating over edge_diffs()
         # and traversing up the tree from the parents identified in edges_out / edges_in,
         # revising the number of tips under each parent node
         for node in tree.nodes():
-            if tree.is_internal(node):  # Note that a sample node could be internal
-                span = tree.span
-                n_samples = tree.num_samples(node)
-                if n_samples != 0:
-                    spans[node] += span
-                    result[node][n_samples] += span
+            if tree.is_sample(node):
+                continue  # Don't calculate for sample nodes as they have a date
+            n_samples = tree.num_samples(node)
+            if n_samples == 0:
+                raise ValueError(
+                    "Tree " + str(i) + " contains a node with no descendant samples." +
+                    " Please simplify your tree sequence before dating.")
+                continue  # Don't count any nodes
+            span = tree.span
+            spans[node] += span
+            if len(tree.children(node)) > 1:
+                result[node][n_samples] += span
+            else:
+                # Unary node: take a mixture of the coalescent nodes above and below
+                #  above:
+                n = tree.parent(node)
+                while tree.children(n) == 1:
+                    n = tree.parent(n)
+                    if n == tskit.NULL:
+                        raise ValueError(
+                            "Tree " + str(i) + " has a lineage with no coalescence." +
+                            " This is impossible to date.")
+                result[node][tree.num_samples(n)] += span/2  # Half from the node above
+                #  below:
+                n = tree.children(node)[0]
+                while tree.children(n) == 1:
+                    n = tree.children(n)[0]
+                ntips = tree.num_samples(n)
+                if ntips == 0:
+                    # Rather pathological here - this is a dangling node which should be
+                    # caught above. For the moment just pretend it is a tip
+                    ntips = 1
+                result[node][ntips] += span/2  # Half from the node below
 
     for node in result.keys():
-        result[node] = {k: v/spans[node] for k, v in result[node].items()}
+        result[node] = {k: v / spans[node] for k, v in result[node].items()}
 
     return result
 
