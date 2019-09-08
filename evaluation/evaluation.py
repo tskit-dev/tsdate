@@ -26,8 +26,10 @@ sys.path.insert(1, '../tsdate')
 
 import tsdate # NOQA
 
-relate_executable = os.path.join('tools', 'relate_v1.0.16_MacOSX', 'Relate')
-relatefileformat_executable = os.path.join('tools', 'bin', 'RelateFileFormats')
+relate_executable = os.path.join('tools', 'relate_v1.0.16_MacOSX',
+                                 'bin', 'Relate')
+relatefileformat_executable = os.path.join('tools', 'relate_v1.0.16_MacOSX',
+                                           'bin', 'RelateFileFormats')
 geva_executable = os.path.join('tools', 'geva', 'geva_v1beta')
 
 TSDATE = "tsdate"
@@ -98,7 +100,7 @@ def generate_samples(
     n_variants = bits_flipped = bad_ancestors = 0
     assert ts.num_sites != 0
     fn += ".samples"
-    sample_data = tsinfer.SampleData(path=fn,
+    sample_data = tsinfer.SampleData(path="tmp/" + fn,
                                      sequence_length=ts.sequence_length)
 
     # Setup the sequencing error used.
@@ -239,28 +241,31 @@ def geva_age_estimate(file_name, Ne, mut_rate, rec_rate):
     """
     Perform GEVA age estimation on a given vcf
     """
+    file_name = "tmp/" + file_name
     subprocess.check_output([geva_executable, "--out",
-                             "tmp/" + file_name, "--rec", str(rec_rate),
-                             "--vcf", "tmp/" + file_name + ".vcf"])
-    with open("tmp/"+file_name+".positions.txt", "wb") as out:
+                             file_name, "--rec", str(rec_rate),
+                             "--vcf", file_name + ".vcf"])
+    with open(file_name+".positions.txt", "wb") as out:
         subprocess.call(["awk", "NR>3 {print last} {last = $3}",
-                        "tmp/"+file_name+".marker.txt"], stdout=out)
+                        file_name+".marker.txt"], stdout=out)
     try:
         subprocess.check_output(
             [geva_executable, "-i",
-                "tmp/" + file_name + ".bin", "--positions",
-                "tmp/" + file_name + ".positions.txt",
-                "--hmm", "geva/hmm/hmm_initial_probs.txt",
-                "geva/hmm/hmm_emission_probs.txt",
+                file_name + ".bin", "--positions",
+                file_name + ".positions.txt",
+                "--hmm", "tools/geva/hmm/hmm_initial_probs.txt",
+                "tools/geva/hmm/hmm_emission_probs.txt",
                 "--Ne", str(Ne), "--mut", str(mut_rate),
                 "--maxConcordant", "200", "--maxDiscordant",
-                "200", "-o", "tmp/" + file_name + "_estimation"])
+                "200", "-o", file_name + "_estimation"])
     except subprocess.CalledProcessError as grepexc:
         print(grepexc.output)
 
     age_estimates = pd.read_csv(
-        "tmp/" + file_name + "_estimation.sites.txt", sep=" ")
-    return age_estimates
+        file_name + "_estimation.sites.txt", sep=" ", index_col="MarkerID")
+    keep_ages = age_estimates[(age_estimates["Clock"] == "J")
+                              & (age_estimates["Filtered"] == 1)]
+    return keep_ages
 
 
 def sampledata_to_vcf(sample_data, filename):
@@ -306,7 +311,6 @@ def sampledata_to_vcf(sample_data, filename):
 ##contig=<ID=1, length=""" + str(int(sample_data.sequence_length)) + """>
 ##FORMAT=<ID=GT, Number=1, Type=String, Description="Genotype">
 """
-
     output_VCF = "tmp/"+filename+".vcf"
     with open(output_VCF, 'w') as vcf:
         vcf.write(header)
@@ -318,22 +322,23 @@ def sampledata_to_vcf(sample_data, filename):
 def run_relate(ts, path_to_vcf, mut_rate, Ne, output):
     """
     Run relate software on tree sequence. Requires vcf of simulated data
+    NOTE: Relate's effective population size is "of haplotypes"
     """
     subprocess.check_output([relatefileformat_executable,
                              "--mode", "ConvertFromVcf", "--haps",
                              "tmp/" + output + ".haps",
                              "--sample", "tmp/" + output + ".sample",
-                             "-i", path_to_vcf])
+                             "-i", "tmp/" + path_to_vcf])
     subprocess.check_output([relate_executable, "--mode",
-                             "All", "-m", str(mut_rate), "-N", str(Ne*2),
+                             "All", "-m", str(mut_rate), "-N", str(Ne),
                              "--haps", "tmp/" + output + ".haps",
                              "--sample", "tmp/" + output + ".sample",
                              "--seed", "1", "-o", output, "--map",
                              "data/genetic_map.txt"])
     subprocess.check_output([relatefileformat_executable, "--mode",
                              "ConvertToTreeSequence",
-                             "-i", output, "-o", "data/" + output])
-    relate_ts = tskit.load("data/" + output + ".trees")
+                             "-i", output, "-o", "tmp/" + output])
+    relate_ts = tskit.load("tmp/" + output + ".trees")
     table_collection = relate_ts.dump_tables()
     samples = np.repeat(1, ts.num_samples)
     internal = np.repeat(0, relate_ts.num_nodes - ts.num_samples)
@@ -342,7 +347,8 @@ def run_relate(ts, path_to_vcf, mut_rate, Ne, output):
     table_collection.nodes.set_columns(
         flags=correct_sample_flags, time=relate_ts.tables.nodes.time)
     relate_ts_fixed = table_collection.tree_sequence()
-    return relate_ts_fixed
+    relate_ages = pd.read_csv(output + ".mut", sep=';')
+    return (relate_ts_fixed, relate_ages)
 
 
 def compare_mutations(method_names, ts_list, geva_ages=None, relate_ages=None):
@@ -358,8 +364,8 @@ def compare_mutations(method_names, ts_list, geva_ages=None, relate_ages=None):
     :return A DataFrame of mutations and age estimates from each method
     :rtype pandas.DataFrame
     """
-    geva_included = True if geva_ages else False
-    relate_included = True if relate_ages else False
+    geva_included = False if geva_ages is None else True
+    relate_included = False if relate_ages is None else True
 
     if len(method_names) != (len(ts_list) + geva_included + relate_included):
         raise ValueError("Input names of all methods to be compared")
@@ -393,27 +399,32 @@ def compare_mutations(method_names, ts_list, geva_ages=None, relate_ages=None):
 
     for mut in comparable_muts:
         for index, ts in enumerate(ts_list):
-            (child, parent) = mut_bounds[index]
+            (child, parent) = mut_bounds[index][mut]
             child_age = ts.node(ts.mutation(mut).node).time
             parent_age = ts.node(parent).time
             true_age = (parent_age + child_age)/2
             compare_df.loc[mut, method_names[index]] = true_age
 
-        if relate_included:
-            relate_row = relate_ages[relate_ages["snp"] == index]
-            relate_age = \
-                (relate_row['age_end'] - relate_row['age_begin']).values[0]/2
-            compare_df.loc[mut, method_names[len(ts_list) + 1]] = relate_age
-
         if geva_included:
             compare_df.loc[mut,
-                           method_names[len(ts_list) + relate_included + 1]] =\
+                           method_names[len(ts_list)]] =\
                            geva_ages.loc[mut, 'PostMean']
+
+        if relate_included:
+            relate_row = relate_ages[relate_ages["snp"] == mut]
+            relate_age = \
+                (relate_row['age_end'] - relate_row['age_begin']).values[0]/2
+            compare_df.loc[mut, method_names[len(ts_list)
+                           + geva_included]] = relate_age
 
     return compare_df
 
 
 def run_tsdate(ts, n, Ne, mut_rate):
+    """
+    Runs tsdate on true and inferred tree sequence
+    Be sure to input HAPLOID effective population size
+    """
     sample_data = tsinfer.formats.SampleData.from_tree_sequence(ts)
     inferred_ts = tsinfer.infer(sample_data)
     dated_ts = tsdate.date(ts, Ne, mutation_rate=mut_rate)
@@ -426,18 +437,18 @@ def run_all_methods_compare(
     """
     Function to run all comparisons and return dataframe of mutations
     """
-    output = "comprison_" + str(index)
+    output = "comparison_" + str(index)
     samples = generate_samples(ts, "comparison_" + str(index))
     sampledata_to_vcf(samples, "comparison_" + str(index))
     dated_ts, dated_inferred_ts = run_tsdate(ts, n, Ne, mutation_rate)
     geva_ages = geva_age_estimate("comparison_" + str(index),
-                                  Ne, mutation_rate, recombination_rate)
-    relate_ages = run_relate(
-        ts, "comparison_" + str(index), mutation_rate, Ne, output)
+                                  Ne * 2, mutation_rate, recombination_rate)
+    relate_output = run_relate(
+        ts, "comparison_" + str(index), mutation_rate, Ne * 2, output)
     compare_df = compare_mutations(
         ["simulated_ts", "tsdate", "tsdate_inferred", "geva", "relate"],
         [ts, dated_ts, dated_inferred_ts],
-        geva_ages=geva_ages, relate_ages=relate_ages)
+        geva_ages=geva_ages, relate_ages=relate_output[1])
     return compare_df
 
 
@@ -445,7 +456,7 @@ def vanilla_tests(params):
     """
     Runs simulation and all tests for the vanilla simulation
     """
-    index = params[0]
+    index = int(params[0])
     n = int(params[1])
     Ne = params[2]
     length = params[3]
@@ -464,19 +475,24 @@ def run_multiprocessing(function, params, num_replicates, num_processes):
     """
     Run multiprocessing of inputted function a specified number of times
     """
+    results_list = list()
     if num_processes > 1:
         logging.info("Setting up using multiprocessing ({} processes)"
                      .format(num_processes))
         with multiprocessing.Pool(processes=num_processes,
                                   maxtasksperchild=2) as pool:
             for result in pool.imap_unordered(function, params):
-                return result
+                #  prior_results = pd.read_csv("data/result")
+                #  combined = pd.concat([prior_results, result])
+                results_list.append(result)
     else:
         # When we have only one process it's easier to keep everything in the
         # same process for debugging.
         logging.info("Setting up using a single process")
         for result in map(function, params):
             return result
+    master_df = pd.concat(results_list)
+    master_df.to_csv("data/results_df")
 
 
 def main():
