@@ -82,15 +82,15 @@ class TestSimulated(unittest.TestCase):
         ts = msprime.simulate(samples=samples, Ne=1, mutation_rate=2)
         self.assertRaises(NotImplementedError, tsdate.date, ts, 1, 2)
 
-    @unittest.skip("Truncated sequences not currently accounted for")
     def test_truncated_ts(self):
         Ne = 1e2
         mu = 2e-4
         ts = msprime.simulate(
-            10, Ne=Ne, length=400, recombination_rate=1e-4, mutation_rate=mu,
-            random_seed=1)
+            10, Ne=Ne, length=400, recombination_rate=1e-4, mutation_rate=0,
+            random_seed=12)
         truncated_ts = utility_functions.truncate_ts_samples(
             ts, average_span=200, random_seed=123)
+        truncated_ts = msprime.mutate(truncated_ts, rate=mu, random_seed=12)
         print("".join(["\n" + h for h in truncated_ts.haplotypes()]))
         dated_ts = tsdate.date(truncated_ts, Ne=Ne, mutation_rate=mu)
         self.ts_equal_except_times(truncated_ts, dated_ts)

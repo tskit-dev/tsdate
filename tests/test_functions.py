@@ -67,7 +67,7 @@ class TestBasicFunctions(unittest.TestCase):
 
 class TestNodeTipWeights(unittest.TestCase):
     def verify_weights(self, ts):
-        weights_by_node = tsdate.find_node_tip_weights(ts)
+        total_samples, weights_by_node = tsdate.find_node_tip_weights(ts)
         # Check all non-sample nodes in a tree are represented
         nonsample_nodes = set()
         for tree in ts.trees():
@@ -75,10 +75,11 @@ class TestNodeTipWeights(unittest.TestCase):
                 if not tree.is_sample(n):
                     nonsample_nodes.add(n)
         self.assertEqual(set(weights_by_node.keys()), nonsample_nodes)
-        for focal_node, weights in weights_by_node.items():
-            self.assertTrue(0 <= focal_node < ts.num_nodes)
-            self.assertAlmostEqual(sum(weights.values()), 1.0)
-            self.assertLessEqual(max(weights.keys()), ts.num_samples)
+        for focal_node, tip_weights in weights_by_node.items():
+            for num_samples, weights in tip_weights.items():
+                self.assertTrue(0 <= focal_node < ts.num_nodes)
+                self.assertAlmostEqual(sum(weights.values()), 1.0)
+                self.assertLessEqual(max(weights.keys()), ts.num_samples)
         return weights_by_node
 
     def test_one_tree_n2(self):
@@ -87,7 +88,7 @@ class TestNodeTipWeights(unittest.TestCase):
         # with a single tree there should only be one weight
         for w in weights.values():
             self.assertTrue(len(w), 1)
-        self.assertTrue(2 in weights[2])  # Root
+        self.assertTrue(2 in weights[2][ts.num_samples])  # Root
 
     def test_one_tree_n3(self):
         ts = utility_functions.single_tree_ts_n3()
@@ -95,50 +96,57 @@ class TestNodeTipWeights(unittest.TestCase):
         # with a single tree there should only be one weight
         for w in weights.values():
             self.assertTrue(len(w), 1)
-        self.assertTrue(3 in weights[4])  # Root
-        self.assertTrue(2 in weights[3])  # 1st internal node
+        self.assertTrue(3 in weights[4][ts.num_samples])  # Root
+        self.assertTrue(2 in weights[3][ts.num_samples])  # 1st internal node
 
     def test_one_tree_n4(self):
         ts = utility_functions.single_tree_ts_n4()
+        n = ts.num_samples
         weights = self.verify_weights(ts)
         # with a single tree there should only be one weight
         for w in weights.values():
             self.assertTrue(len(w), 1)
-        self.assertTrue(4 in weights[6])  # Root
-        self.assertTrue(3 in weights[5])  # 1st internal node
-        self.assertTrue(2 in weights[4])  # 2nd internal node
+        self.assertTrue(4 in weights[6][n])  # Root
+        self.assertTrue(3 in weights[5][n])  # 1st internal node
+        self.assertTrue(2 in weights[4][n])  # 2nd internal node
 
     def test_two_trees(self):
         ts = utility_functions.two_tree_ts()
+        n = ts.num_samples
         weights = self.verify_weights(ts)
-        self.assertEqual(weights[5][3], 1.0)  # Root on right tree
-        self.assertEqual(weights[4][3], 0.2)  # Root on left tree ...
-        self.assertEqual(weights[4][2], 0.8)  # ... but internal node on right tree
-        self.assertEqual(weights[3][2], 1.0)  # Internal node on left tree
+        self.assertEqual(weights[5][n][3], 1.0)  # Root on right tree
+        self.assertEqual(weights[4][n][3], 0.2)  # Root on left tree ...
+        self.assertEqual(weights[4][n][2], 0.8)  # ... but internal node on right tree
+        self.assertEqual(weights[3][n][2], 1.0)  # Internal node on left tree
 
     def test_missing_tree(self):
         tables = utility_functions.two_tree_ts().tables.keep_intervals(
             [(0, 0.2)], simplify=False)
         ts = tables.tree_sequence()
+        n = ts.num_samples
+        # Here we have no reference in the trees to node 6
+        self.assertRaises(ValueError, tsdate.find_node_tip_weights, ts)
+        ts = ts.simplify()
         weights = self.verify_weights(ts)
-        self.assertTrue(5 not in weights)    # Root on (deleted) right tree
-        self.assertEqual(weights[4][3], 1.0)  # Root on left tree ...
-        self.assertTrue(2 not in weights[4])  # ... but internal node on (deleted) r tree
-        self.assertEqual(weights[3][2], 1.0)  # Internal node on left tree
+        self.assertTrue(5 not in weights)    # Root on (deleted) right tree is missin
+        self.assertEqual(weights[4][n][3], 1.0)  # Root on left tree ...
+        self.assertTrue(2 not in weights[4][n])  # ... but internal on (deleted) r tree
+        self.assertEqual(weights[3][n][2], 1.0)  # Internal node on left tree
 
     def test_tree_with_unary_nodes(self):
         ts = utility_functions.single_tree_ts_with_unary()
+        n = ts.num_samples
         weights = self.verify_weights(ts)
-        self.assertEqual(weights[3][2], 1.0)
-        self.assertEqual(weights[4][2], 0.5)
-        self.assertEqual(weights[4][3], 0.5)
-        self.assertEqual(weights[5][1], 0.5)
-        self.assertEqual(weights[5][3], 0.5)
+        self.assertEqual(weights[3][n][2], 1.0)
+        self.assertEqual(weights[4][n][2], 0.5)
+        self.assertEqual(weights[4][n][3], 0.5)
+        self.assertEqual(weights[5][n][1], 0.5)
+        self.assertEqual(weights[5][n][3], 0.5)
 
     def test_polytomy_tree(self):
         ts = utility_functions.polytomy_tree_ts()
         weights = self.verify_weights(ts)
-        self.assertEqual(weights[3][3], 1.0)
+        self.assertEqual(weights[3][ts.num_samples][3], 1.0)
 
     def test_larger_find_node_tip_weights(self):
         ts = msprime.simulate(10, recombination_rate=5,
@@ -151,7 +159,7 @@ class TestMakePrior(unittest.TestCase):
     # We only test make_prior() on single trees
     def verify_prior(self, ts):
         # Check prior contains all possible tips
-        prior = tsdate.make_prior(n=ts.num_samples)
+        prior = tsdate.make_prior(total_tips=ts.num_samples)
         self.assertEqual(prior.shape[0], ts.num_samples)
         return(prior)
 
