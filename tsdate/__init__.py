@@ -22,7 +22,7 @@
 
 from .date import (  # NOQA
     date, restrict_ages_topo, return_ts,
-    find_node_tip_weights, make_prior, get_mixture_prior_ts_new)
+    find_node_tip_weights, make_prior, get_mixture_prior)
 
 
 from .provenance import __version__  # NOQA
