@@ -122,7 +122,7 @@ def create_time_grid(age_prior, n_points=21):
     # Percentages - current day samples should be at time 0, so we omit this
     # We can't include the top end point, as this leads to NaNs
     percentiles = np.linspace(0, 1, n_points+1)[1:-1]
-
+    # percentiles = np.append(percentiles, 0.999999)
     """
     get the set of times from gamma percent point function at the given
     percentiles specifies the value of the RV such that the prob of the var
@@ -381,7 +381,7 @@ def approx_post_mean_var(ts, grid, approx_post):
     return mn_post, vr_post
 
 
-def restrict_ages_topo(ts, approx_post_mn, grid):
+def restrict_ages_topo(ts, approx_post_mn, grid, eps):
     """
     If predicted node times violate topology, restrict node ages so that they
     must be older than all their children.
@@ -394,8 +394,9 @@ def restrict_ages_topo(ts, approx_post_mn, grid):
         children = tables.edges.child[tables.edges.parent == nd]
         time = new_mn_post[children]
         if np.any(new_mn_post[nd] <= time):
-            closest_time = (np.abs(grid - max(time))).argmin()
-            new_mn_post[nd] = grid[closest_time + 1]
+            # closest_time = (np.abs(grid - max(time))).argmin()
+            # new_mn_post[nd] = grid[closest_time] + eps
+            new_mn_post[nd] = max(time) + eps
     return new_mn_post
 
 
@@ -404,7 +405,7 @@ def return_ts(ts, vals, Ne):
     Output new inferred tree sequence with node ages assigned.
     """
     tables = ts.dump_tables()
-    tables.nodes.time = vals * 2 * Ne
+    tables.nodes.time = vals * Ne
     tables.sort()
     return tables.tree_sequence()
 
@@ -472,6 +473,6 @@ def date(
     approx_post = get_approx_post(tree_sequence, prior_vals, grid,
                                   mutation_rate, recombination_rate, eps, progress)
     mn_post, _ = approx_post_mean_var(tree_sequence, grid, approx_post)
-    new_mn_post = restrict_ages_topo(tree_sequence, mn_post, grid)
+    new_mn_post = restrict_ages_topo(tree_sequence, mn_post, grid, eps)
     dated_ts = return_ts(tree_sequence, new_mn_post, Ne)
     return dated_ts
