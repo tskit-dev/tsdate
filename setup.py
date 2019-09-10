@@ -15,6 +15,7 @@ setuptools.setup(
     install_requires=[
         "numpy>=1.17.0",
         "tskit>=0.2.1",
+        "tsinfer=0.1.4",
         "tqdm"
     ],
     project_urls={
