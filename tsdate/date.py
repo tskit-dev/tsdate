@@ -152,6 +152,13 @@ def create_time_grid(age_prior, n_points=21):
                             percentiles[wd], age_prior.loc[i, "Alpha"],
                             scale=1 / age_prior.loc[i, "Beta"]))])
 
+    # add additional time slices at top of grid
+    percentiles_upper = np.linspace(percentiles[-1], 1, (n_points/2)+1)[1:-1]
+    t_set_upper = scipy.stats.gamma.ppf(percentiles_upper,
+                                        age_prior.loc[i, "Alpha"],
+                                        scale=1 / age_prior.loc[i, "Beta"])
+    
+    t_set = np.concatenate([t_set, np.array(t_set_upper)])
     t_set = sorted(t_set)
     return np.insert(t_set, 0, 0)
 
