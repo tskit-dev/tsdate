@@ -43,7 +43,8 @@ def alpha_prob(m, i, n):
     of ancestors of the entire sample. let alpha*(1) be the
     number of ancestors to the whole sample at time tau
     """
-    return (comb(n - m - 1, i - 2) * comb(m, 2)) / comb(n, i + 1)
+    return (comb(n - m - 1, i - 2, exact=True) * comb(m, 2, exact=True))\
+        / comb(n, i + 1, exact=True)
 
 
 def tau_expect(i, n):
