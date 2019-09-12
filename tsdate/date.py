@@ -288,7 +288,7 @@ def get_prior_values(mixture_prior, grid, ts):
     return prior_times
 
 
-def get_approx_post(ts, prior_values, grid, mutation_rate, recombination_rate,
+def get_approx_post(ts, prior_values, grid, theta, rho,
                     eps, progress):
     """
     Use dynamic programming to find approximate posterior to sample from
@@ -330,24 +330,24 @@ def get_approx_post(ts, prior_values, grid, mutation_rate, recombination_rate,
                 # Calculate vals for each edge
                 span = edge.right - edge.left
 
-                if mutation_rate is not None and recombination_rate is not None:
+                if theta is not None and rho is not None:
                     lk_mut = scipy.stats.poisson.pmf(
-                        mut_edges[edge_index], dt * (mutation_rate / 2 * span))
+                        mut_edges[edge_index], dt * (theta / 2 * span))
                     b_l = (edge.left != 0)
                     b_r = (edge.right != ts.get_sequence_length())
                     lk_rec = np.power(
-                        dt, b_l + b_r) * np.exp(-(dt * recombination_rate * span * 2))
+                        dt, b_l + b_r) * np.exp(-(dt * rho * span * 2))
                     vv = sum(approx_post[edge.child, 0:time + 1] * (
                         lk_mut * lk_rec))
-                elif mutation_rate is not None:
+                elif theta is not None:
                     lk_mut = scipy.stats.poisson.pmf(
-                        mut_edges[edge_index], dt * (mutation_rate / 2 * span))
+                        mut_edges[edge_index], dt * (theta / 2 * span))
                     vv = sum(approx_post[edge.child, 0:time + 1] * lk_mut)
-                elif recombination_rate is not None:
+                elif rho is not None:
                     b_l = (edge.left != 0)
                     b_r = (edge.right != ts.get_sequence_length())
                     lk_rec = np.power(
-                        dt, b_l + b_r) * np.exp(-(dt * recombination_rate * span * 2))
+                        dt, b_l + b_r) * np.exp(-(dt * rho * span * 2))
                     vv = sum(approx_post[edge.child, 0:time + 1] * lk_rec)
 
                 else:
@@ -471,8 +471,15 @@ def date(
 
     mixture_prior = get_mixture_prior_ts_new(tip_weights, prior)
     prior_vals = get_prior_values(mixture_prior, grid, tree_sequence)
+
+    theta = None
+    rho = None
+    if mutation_rate is not None:
+        theta = 4 * Ne * mutation_rate
+    if recombination_rate is not None:
+        rho = 4 * Ne * recombination_rate
     approx_post = get_approx_post(tree_sequence, prior_vals, grid,
-                                  mutation_rate, recombination_rate, eps, progress)
+                                  theta, rho, eps, progress)
     mn_post, _ = approx_post_mean_var(tree_sequence, grid, approx_post)
     new_mn_post = restrict_ages_topo(tree_sequence, mn_post, grid, eps)
     dated_ts = return_ts(tree_sequence, new_mn_post, Ne)
