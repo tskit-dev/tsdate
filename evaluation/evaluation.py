@@ -270,6 +270,11 @@ def geva_age_estimate(file_name, Ne, mut_rate, rec_rate):
     return keep_ages
 
 
+def return_vcf(sample_data, filename):
+    with open("tmp/"+filename+".vcf", "w") as vcf_file:
+        vanilla_ts.write_vcf(vcf_file, ploidy=2)
+
+
 def sampledata_to_vcf(sample_data, filename):
     """
     Input sample_data file, output VCF
@@ -404,26 +409,29 @@ def compare_mutations(method_names, ts_list, geva_ages=None, relate_ages=None):
     mut_bounds = [get_mut_bounds(ts) for ts in ts_list]
     compare_df = pd.DataFrame(index=comparable_muts,
                               columns=method_names, dtype=float)
+    for mut, row in geva_ages.iterrows():
 
-    for mut in comparable_muts:
+    # for mut in comparable_muts:
         for index, ts in enumerate(ts_list):
             (child, parent) = mut_bounds[index][mut]
             child_age = ts.node(ts.mutation(mut).node).time
             parent_age = ts.node(parent).time
             true_age = np.sqrt(parent_age * child_age)
             compare_df.loc[mut, method_names[index]] = true_age 
+        compare_df.loc[mut, "geva"] = row['PostMean']
+        relate_row = relate_ages[relate_ages["snp"] == mut]
+        compare_df.loc[mut, "relate"] = np.sqrt((relate_row['age_end'] * relate_row['age_begin']).values[0])
+    #     if geva_included:
+    #         compare_df.loc[mut,
+    #                        method_names[len(ts_list)]] =\
+    #                        geva_ages.loc[mut, 'PostMean']
 
-        if geva_included:
-            compare_df.loc[mut,
-                           method_names[len(ts_list)]] =\
-                           geva_ages.loc[mut, 'PostMean']
-
-        if relate_included:
-            relate_row = relate_ages[relate_ages["snp"] == mut]
-            relate_age = \
-               (relate_row['age_end'] - relate_row['age_begin']).values[0]/2
-            compare_df.loc[mut, method_names[len(ts_list)
-                           + geva_included]] = relate_age 
+    #     if relate_included:
+    #         relate_row = relate_ages[relate_ages["snp"] == mut]
+    #         relate_age = \
+    #            np.sqrt((relate_row['age_end'] * relate_row['age_begin']).values[0])
+    #         compare_df.loc[mut, method_names[len(ts_list)
+    #                        + geva_included]] = relate_age 
 
     return compare_df
 
@@ -452,8 +460,8 @@ def run_tsdate(ts, n, Ne, mut_rate, time_grid):
     """
     sample_data = tsinfer.formats.SampleData.from_tree_sequence(ts)
     inferred_ts = tsinfer.infer(sample_data)
-    dated_ts = tsdate.date(ts, Ne, mutation_rate=mut_rate, time_grid=time_grid)
-    dated_inferred_ts = tsdate.date(inferred_ts, Ne, mutation_rate=mut_rate, time_grid=time_grid)
+    dated_ts = tsdate.date(ts, Ne, mutation_rate=4 * Ne * mut_rate, time_grid=time_grid)
+    dated_inferred_ts = tsdate.date(inferred_ts, Ne, mutation_rate=4 * Ne * mut_rate, time_grid=time_grid)
     return dated_ts, dated_inferred_ts
 
 
@@ -467,8 +475,9 @@ def run_all_methods_compare(
     if error_model is not None:
         error_samples = generate_samples(ts, "error_comparison_" + str(index),
                                          empirical_seq_err_name=error_model)
+    # return_vcf(samples, "comparison_" + str(index)) 
     sampledata_to_vcf(samples, "comparison_" + str(index))
-    dated_ts, dated_inferred_ts = run_tsdate(ts, n, Ne / 2, mutation_rate, time_grid)
+    dated_ts, dated_inferred_ts = run_tsdate(ts, n, Ne/2, mutation_rate, time_grid)
     geva_ages = geva_age_estimate("comparison_" + str(index),
                                   Ne * 2, mutation_rate, recombination_rate)
     relate_output = run_relate(
@@ -520,7 +529,7 @@ def run_multiprocessing(function, params, output, num_replicates, num_processes)
         # same process for debugging.
         logging.info("Setting up using a single process")
         for result in map(function, params):
-            return result
+            results_list.append(result)
     master_df = pd.concat(results_list)
     master_df.to_csv("data/" + output)
 
