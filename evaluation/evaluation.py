@@ -11,12 +11,14 @@ import tsinfer
 import tskit
 
 import argparse
+from itertools import combinations
 import logging
 import math
 import multiprocessing
 import os
 import random
 import subprocess
+import shutil
 import sys
 
 import numpy as np
@@ -268,6 +270,11 @@ def geva_age_estimate(file_name, Ne, mut_rate, rec_rate):
     return keep_ages
 
 
+def return_vcf(sample_data, filename):
+    with open("tmp/"+filename+".vcf", "w") as vcf_file:
+        vanilla_ts.write_vcf(vcf_file, ploidy=2)
+
+
 def sampledata_to_vcf(sample_data, filename):
     """
     Input sample_data file, output VCF
@@ -324,21 +331,25 @@ def run_relate(ts, path_to_vcf, mut_rate, Ne, output):
     Run relate software on tree sequence. Requires vcf of simulated data
     NOTE: Relate's effective population size is "of haplotypes"
     """
-    subprocess.check_output([relatefileformat_executable,
+    # Create separate subdirectory for each run (requirement of relate)
+    if not os.path.exists("tmp/" + output):
+        os.mkdir("tmp/" + output)
+    os.chdir("tmp/" + output)
+    subprocess.check_output(["../../" + relatefileformat_executable,
                              "--mode", "ConvertFromVcf", "--haps",
-                             "tmp/" + output + ".haps",
-                             "--sample", "tmp/" + output + ".sample",
-                             "-i", "tmp/" + path_to_vcf])
-    subprocess.check_output([relate_executable, "--mode",
+                             output + ".haps",
+                             "--sample", output + ".sample",
+                             "-i", "../" + path_to_vcf])
+    subprocess.check_output(["../../" + relate_executable, "--mode",
                              "All", "-m", str(mut_rate), "-N", str(Ne),
-                             "--haps", "tmp/" + output + ".haps",
-                             "--sample", "tmp/" + output + ".sample",
+                             "--haps", output + ".haps",
+                             "--sample", output + ".sample",
                              "--seed", "1", "-o", output, "--map",
-                             "data/genetic_map.txt"])
-    subprocess.check_output([relatefileformat_executable, "--mode",
+                             "../../data/genetic_map.txt"])
+    subprocess.check_output(["../../" + relatefileformat_executable, "--mode",
                              "ConvertToTreeSequence",
-                             "-i", output, "-o", "tmp/" + output])
-    relate_ts = tskit.load("tmp/" + output + ".trees")
+                             "-i", output, "-o", output])
+    relate_ts = tskit.load(output + ".trees")
     table_collection = relate_ts.dump_tables()
     samples = np.repeat(1, ts.num_samples)
     internal = np.repeat(0, relate_ts.num_nodes - ts.num_samples)
@@ -348,6 +359,8 @@ def run_relate(ts, path_to_vcf, mut_rate, Ne, output):
         flags=correct_sample_flags, time=relate_ts.tables.nodes.time)
     relate_ts_fixed = table_collection.tree_sequence()
     relate_ages = pd.read_csv(output + ".mut", sep=';')
+    os.chdir("../../")
+    shutil.rmtree("tmp/" + output)
     return (relate_ts_fixed, relate_ages)
 
 
@@ -396,51 +409,75 @@ def compare_mutations(method_names, ts_list, geva_ages=None, relate_ages=None):
     mut_bounds = [get_mut_bounds(ts) for ts in ts_list]
     compare_df = pd.DataFrame(index=comparable_muts,
                               columns=method_names, dtype=float)
+    for mut, row in geva_ages.iterrows():
 
-    for mut in comparable_muts:
+    # for mut in comparable_muts:
         for index, ts in enumerate(ts_list):
             (child, parent) = mut_bounds[index][mut]
             child_age = ts.node(ts.mutation(mut).node).time
             parent_age = ts.node(parent).time
-            true_age = (parent_age + child_age)/2
-            compare_df.loc[mut, method_names[index]] = true_age
+            true_age = np.sqrt(parent_age * child_age)
+            compare_df.loc[mut, method_names[index]] = true_age 
+        compare_df.loc[mut, "geva"] = row['PostMean']
+        relate_row = relate_ages[relate_ages["snp"] == mut]
+        compare_df.loc[mut, "relate"] = np.sqrt((relate_row['age_end'] * relate_row['age_begin']).values[0])
+    #     if geva_included:
+    #         compare_df.loc[mut,
+    #                        method_names[len(ts_list)]] =\
+    #                        geva_ages.loc[mut, 'PostMean']
 
-        if geva_included:
-            compare_df.loc[mut,
-                           method_names[len(ts_list)]] =\
-                           geva_ages.loc[mut, 'PostMean']
-
-        if relate_included:
-            relate_row = relate_ages[relate_ages["snp"] == mut]
-            relate_age = \
-                (relate_row['age_end'] - relate_row['age_begin']).values[0]/2
-            compare_df.loc[mut, method_names[len(ts_list)
-                           + geva_included]] = relate_age
+    #     if relate_included:
+    #         relate_row = relate_ages[relate_ages["snp"] == mut]
+    #         relate_age = \
+    #            np.sqrt((relate_row['age_end'] * relate_row['age_begin']).values[0])
+    #         compare_df.loc[mut, method_names[len(ts_list)
+    #                        + geva_included]] = relate_age 
 
     return compare_df
 
 
-def run_tsdate(ts, n, Ne, mut_rate):
+def compare_tmrcas(method_names, ts_list):
+    """
+    Compares pairs of TMRCA age estimates at all SNPs via different methods
+    """
+    sample_pairs = list(combinations(np.arange(0, ts.num_samples), 2))
+    tmrcas = pd.DataFrame(index=[int(round(val))
+                          for val
+                          in ts.tables.sites.position],
+                          columns=method_names)
+    for mutation in ts.mutations():
+        pos = ts.tables.sites[mutation.site].position
+        for pair in sample_pairs:
+            tmrcas[pos] = ts.at(pos).tmrca(pair[0], pair[1])
+
+     
+
+
+def run_tsdate(ts, n, Ne, mut_rate, time_grid):
     """
     Runs tsdate on true and inferred tree sequence
     Be sure to input HAPLOID effective population size
     """
     sample_data = tsinfer.formats.SampleData.from_tree_sequence(ts)
     inferred_ts = tsinfer.infer(sample_data)
-    dated_ts = tsdate.date(ts, Ne, mutation_rate=mut_rate)
-    dated_inferred_ts = tsdate.date(inferred_ts, Ne, mutation_rate=mut_rate)
+    dated_ts = tsdate.date(ts, Ne, mutation_rate=4 * Ne * mut_rate, time_grid=time_grid)
+    dated_inferred_ts = tsdate.date(inferred_ts, Ne, mutation_rate=4 * Ne * mut_rate, time_grid=time_grid)
     return dated_ts, dated_inferred_ts
 
 
 def run_all_methods_compare(
-        index, ts, n, Ne, mutation_rate, recombination_rate, seed):
+        index, ts, n, Ne, mutation_rate, recombination_rate, time_grid, error_model, seed):
     """
     Function to run all comparisons and return dataframe of mutations
     """
     output = "comparison_" + str(index)
     samples = generate_samples(ts, "comparison_" + str(index))
+    if error_model is not None:
+        error_samples = generate_samples(ts, "error_comparison_" + str(index),
+                                         empirical_seq_err_name=error_model)
+    # return_vcf(samples, "comparison_" + str(index)) 
     sampledata_to_vcf(samples, "comparison_" + str(index))
-    dated_ts, dated_inferred_ts = run_tsdate(ts, n, Ne, mutation_rate)
+    dated_ts, dated_inferred_ts = run_tsdate(ts, n, Ne/2, mutation_rate, time_grid)
     geva_ages = geva_age_estimate("comparison_" + str(index),
                                   Ne * 2, mutation_rate, recombination_rate)
     relate_output = run_relate(
@@ -458,20 +495,22 @@ def vanilla_tests(params):
     """
     index = int(params[0])
     n = int(params[1])
-    Ne = params[2]
-    length = params[3]
-    mutation_rate = params[4]
-    recombination_rate = params[5]
-    seed = params[6]
-
+    Ne = float(params[2])
+    length = int(params[3])
+    mutation_rate = float(params[4])
+    recombination_rate = float(params[5])
+    time_grid = params[6]
+    error_model = params[7]
+    seed = float(params[8])
+    
     ts = run_vanilla_simulation(
         n, Ne, length, mutation_rate, recombination_rate, seed)
     compare_df = run_all_methods_compare(
-        index, ts, n, Ne, mutation_rate, recombination_rate, seed)
+        index, ts, n, Ne, mutation_rate, recombination_rate, time_grid, error_model, seed)
     return compare_df
 
 
-def run_multiprocessing(function, params, num_replicates, num_processes):
+def run_multiprocessing(function, params, output, num_replicates, num_processes):
     """
     Run multiprocessing of inputted function a specified number of times
     """
@@ -490,9 +529,9 @@ def run_multiprocessing(function, params, num_replicates, num_processes):
         # same process for debugging.
         logging.info("Setting up using a single process")
         for result in map(function, params):
-            return result
+            results_list.append(result)
     master_df = pd.concat(results_list)
-    master_df.to_csv("data/results_df")
+    master_df.to_csv("data/" + output)
 
 
 def main():
@@ -500,6 +539,7 @@ def main():
     parser.add_argument('--replicates', type=int,
                         default=10, help="number of replicates")
     parser.add_argument('num_samples', help="number of samples to simulate")
+    parser.add_argument('output', help="name of output files")
     parser.add_argument('-n', '--Ne', type=float, default=10000,
                         help="effective population size")
     parser.add_argument("--length", '-l', type=int, default=1e5,
@@ -508,6 +548,10 @@ def main():
                         help="mutation rate")
     parser.add_argument('-r', '--recombination-rate', type=float,
                         default=None, help="recombination rate")
+    parser.add_argument('-e', '--error-model', type=str,
+                        default=None, help="input error model")
+    parser.add_argument('-t', '--time-grid', type=str, default="adaptive",
+                        help="adaptive or uniform time grid")
     parser.add_argument(
         '--seed', '-s', type=int, default=123,
         help="use a non-default RNG seed")
@@ -519,10 +563,10 @@ def main():
     rng = random.Random(args.seed)
     seeds = [rng.randint(1, 2**31) for i in range(args.replicates)]
     inputted_params = [int(args.num_samples), args.Ne, args.length,
-                       args.mutation_rate, args.recombination_rate]
+                       args.mutation_rate, args.recombination_rate, args.time_grid, args.error_model]
     params = iter([np.concatenate([[index], inputted_params, [seed]])
                   for index, seed in enumerate(seeds)])
-    run_multiprocessing(vanilla_tests, params, args.replicates, args.processes)
+    run_multiprocessing(vanilla_tests, params, args.output, args.replicates, args.processes)
 
 
 if __name__ == "__main__":
