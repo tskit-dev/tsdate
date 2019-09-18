@@ -9,8 +9,8 @@
 # copies of the Software, and to permit persons to whom the Software is
 # furnished to do so, subject to the following conditions:
 #
-# The above copyright notice and this permission notice shall be included in all
-# copies or substantial portions of the Software.
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
 #
 # THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 # IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
@@ -31,6 +31,60 @@ import tsinfer
 
 import tsdate
 import utility_functions
+
+
+class TestPrebuilt(unittest.TestCase):
+    """
+    Tests for tsdate on prebuilt tree sequences
+    """
+    def test_simple_ts_n2(self):
+        ts = utility_functions.single_tree_ts_n2()
+        dated_ts = tsdate.date(ts, Ne=10000)
+        self.assertTrue(np.array_equal(dated_ts.tables.nodes.time[:],
+                        np.array([0., 0., 0.01])))
+
+    def test_simple_ts_n3(self):
+        ts = utility_functions.single_tree_ts_n3()
+        dated_ts = tsdate.date(ts, Ne=10000)
+        self.assertTrue(np.allclose(dated_ts.tables.nodes.time[:],
+            np.array([0.00000000e+00, 0.00000000e+00, 0.00000000e+00,
+                      1.00000000e-02, 3.44872693e+03])))
+
+    def test_simple_ts_n3(self):
+        ts = utility_functions.single_tree_ts_n4()
+        dated_ts = tsdate.date(ts, Ne=10000)
+        self.assertTrue(np.allclose(dated_ts.tables.nodes.time[:],
+            np.array([0.00000000e+00, 0.00000000e+00, 0.00000000e+00,
+                      0.00000000e+00, 1.00000000e-02, 2.59235395e+03,
+                      6.04463820e+03])))
+
+    def test_polytomy_ts(self):
+        ts = utility_functions.polytomy_tree_ts()
+        dated_ts = tsdate.date(ts, Ne=10000)
+        self.assertTrue(np.array_equal(dated_ts.tables.nodes.time[:],
+            np.array([0., 0., 0., 0.01])))
+
+    def test_two_tree_ts(self):
+        ts = utility_functions.two_tree_ts()
+        dated_ts = tsdate.date(ts, Ne=10000)
+        self.assertTrue(np.allclose(dated_ts.tables.nodes.time[:],
+            np.array([0.00000000e+00, 0.00000000e+00, 0.00000000e+00,
+                      1.00000000e-02, 3.44872693e+03, 8.58901551e+03])))
+
+    def test_single_tree_ts_unary(self):
+            ts = utility_functions.single_tree_ts_with_unary()
+            dated_ts = tsdate.date(ts, Ne=10000)
+            self.assertTrue(np.allclose(dated_ts.tables.nodes.time[:],
+                np.array([0.00000000e+00, 0.00000000e+00, 0.00000000e+00,
+                          1.00000000e-02, 3.44872693e+03, 1.09851474e+04,
+                          1.09851574e+04])))
+
+    def test_two_tree_mutation_ts(self):
+            ts = utility_functions.two_tree_mutation_ts()
+            dated_ts = tsdate.date(ts, Ne=10000)
+            self.assertTrue(np.allclose(dated_ts.tables.nodes.time[:],
+                np.array([0.00000000e+00, 0.00000000e+00, 0.00000000e+00,
+                          1.00000000e-02, 3.44872693e+03, 8.58901551e+03])))
 
 
 class TestSimulated(unittest.TestCase):
