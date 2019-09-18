@@ -252,4 +252,8 @@ def truncate_ts_samples(ts, average_span, random_seed, min_span=5):
         parent=mutations_map[mutations.parent[keep_mutations]],
         metadata=new_md,
         metadata_offset=new_md_offset)
-    return tables.tree_sequence()
+    return tables.tree_sequence().simplify(
+        filter_populations=False,
+        filter_individuals=False,
+        filter_sites=False,
+        keep_unary=True)

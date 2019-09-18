@@ -27,6 +27,7 @@ import unittest
 import numpy as np
 import tskit
 import msprime
+import tsinfer
 
 import tsdate
 import utility_functions
@@ -82,15 +83,37 @@ class TestSimulated(unittest.TestCase):
         ts = msprime.simulate(samples=samples, Ne=1, mutation_rate=2)
         self.assertRaises(NotImplementedError, tsdate.date, ts, 1, 2)
 
-    @unittest.skip("Truncated sequences not currently accounted for")
     def test_truncated_ts(self):
         Ne = 1e2
         mu = 2e-4
         ts = msprime.simulate(
-            10, Ne=Ne, length=400, recombination_rate=1e-4, mutation_rate=mu,
-            random_seed=1)
+            10, Ne=Ne, length=400, recombination_rate=1e-4, mutation_rate=0,
+            random_seed=12)
         truncated_ts = utility_functions.truncate_ts_samples(
             ts, average_span=200, random_seed=123)
+        truncated_ts = msprime.mutate(truncated_ts, rate=mu, random_seed=12)
         print("".join(["\n" + h for h in truncated_ts.haplotypes()]))
         dated_ts = tsdate.date(truncated_ts, Ne=Ne, mutation_rate=mu)
         self.ts_equal_except_times(truncated_ts, dated_ts)
+
+
+class TestInferred(unittest.TestCase):
+    """
+    Tests for tsdate on simulated then inferred tree sequences.
+    """
+    def test_simple_sim_1_tree(self):
+        ts = msprime.simulate(8, mutation_rate=5, random_seed=2)
+        sample_data = tsinfer.SampleData.from_tree_sequence(ts)
+        inferred_ts = tsinfer.infer(sample_data)
+        dated_ts = tsdate.date(inferred_ts, Ne=1, mutation_rate=5)
+        self.assertTrue(
+            all([a == b for a, b in zip(ts.haplotypes(), dated_ts.haplotypes())]))
+
+    def test_simple_sim_multi_tree(self):
+        ts = msprime.simulate(8, mutation_rate=5, recombination_rate=5, random_seed=2)
+        self.assertGreater(ts.num_trees, 1)
+        sample_data = tsinfer.SampleData.from_tree_sequence(ts)
+        inferred_ts = tsinfer.infer(sample_data)
+        dated_ts = tsdate.date(inferred_ts, Ne=1, mutation_rate=5)
+        self.assertTrue(
+            all([a == b for a, b in zip(ts.haplotypes(), dated_ts.haplotypes())]))
