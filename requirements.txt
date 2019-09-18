@@ -1,12 +1,8 @@
 flake8
 nose
-collections
-logging
 tskit
 pandas
 numpy
 scipy
 tqdm
 tsinfer
-unittest
-io
