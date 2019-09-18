@@ -8,3 +8,5 @@ daiquiri
 msprime
 pandas
 tskit
+tsinfer
+scipy
