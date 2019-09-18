@@ -43,3 +43,4 @@ jobs:
           name: Run Python tests
           command: |
               nosetests --with-coverage
+              python3 -m codecov 
