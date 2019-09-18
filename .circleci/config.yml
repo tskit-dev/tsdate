@@ -42,7 +42,4 @@ jobs:
       - run:
           name: Run Python tests
           command: |
-              nosetests
-      # Push the results back to codecov
-          after_success:
-            - codecov
+              nosetests --with-coverage
