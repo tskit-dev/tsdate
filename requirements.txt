@@ -1,6 +1,10 @@
 flake8
 nose
-tskit
 numpy
-pandas
+six
+tqdm
+humanize
+daiquiri
 msprime
+pandas
+tskit
