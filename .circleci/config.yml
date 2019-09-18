@@ -19,6 +19,10 @@ jobs:
     steps:
       - checkout
       - run:
+          name: install dependencies
+          command: |
+              pip install -r requirements.txt -user
+      - run:
           name: Lint Python
           command: |
               flake8 tsdate/date.py tests
