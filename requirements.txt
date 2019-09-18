@@ -2,3 +2,5 @@ flake8
 nose
 tskit
 numpy
+pandas
+msprime
