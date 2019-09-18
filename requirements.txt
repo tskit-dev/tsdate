@@ -1,0 +1,12 @@
+flake8
+nose
+numpy
+six
+tqdm
+humanize
+daiquiri
+msprime
+pandas
+tskit
+tsinfer
+scipy

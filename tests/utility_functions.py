@@ -185,6 +185,7 @@ def single_tree_ts_with_unary():
     """)
     return tskit.load_text(nodes=nodes, edges=edges, strict=False)
 
+
 def two_tree_mutation_ts():
     r"""
     Simple case where we have n = 3, 2 trees, two mutations.
@@ -225,7 +226,9 @@ def two_tree_mutation_ts():
     0       3       1
     1       0       1
     """)
-    return tskit.load_text(nodes=nodes, edges=edges, strict=False)
+    return tskit.load_text(nodes=nodes, edges=edges, sites=sites,
+                           mutations=mutations, strict=False)
+
 
 def truncate_ts_samples(ts, average_span, random_seed, min_span=5):
     """
