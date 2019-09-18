@@ -185,6 +185,47 @@ def single_tree_ts_with_unary():
     """)
     return tskit.load_text(nodes=nodes, edges=edges, strict=False)
 
+def two_tree_mutation_ts():
+    r"""
+    Simple case where we have n = 3, 2 trees, two mutations.
+                     .    5
+                     .   / \
+            4        .  |   4
+           / \       .  |   |\
+          x   \      .  |   | \
+          |    \     .  x   |  \
+          3     \    .  |   |   \
+         / \     \   .  |   |    \
+        0   1     2  .  0   1     2
+    """
+    nodes = io.StringIO("""\
+    id      is_sample   time
+    0       1           0
+    1       1           0
+    2       1           0
+    3       0           1
+    4       0           2
+    5       0           3
+    """)
+    edges = io.StringIO("""\
+    left    right   parent  child
+    0       0.2     3       0,1
+    0       1       4       2
+    0       0.2     4       3
+    0.2     1       4       1
+    0.2     1       5       0,4
+    """)
+    sites = io.StringIO("""\
+    position    ancestral_state
+    0.1         0
+    0.8         0
+    """)
+    mutations = io.StringIO("""\
+    site    node    derived_state
+    0       3       1
+    1       0       1
+    """)
+    return tskit.load_text(nodes=nodes, edges=edges, strict=False)
 
 def truncate_ts_samples(ts, average_span, random_seed, min_span=5):
     """
