@@ -397,7 +397,8 @@ def get_approx_post(ts, prior_values, grid, theta, rho,
     mut_edges = np.empty(ts.num_edges)
     for index, edge in enumerate(ts.tables.edges):
         # Not all sites necessarily have a mutation
-        mut_positions = ts.tables.sites.position[ts.tables.mutations.site[ts.tables.mutations.node == edge.child]]
+        mut_positions = ts.tables.sites.position[
+            ts.tables.mutations.site[ts.tables.mutations.node == edge.child]]
         mut_edges[index] = np.sum(np.logical_and(edge.left < mut_positions,
                                   edge.right > mut_positions))
 
