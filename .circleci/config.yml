@@ -18,6 +18,8 @@ jobs:
 
     steps:
       - checkout
+      - run:
+          name: Install dependencies and set PATH
           command: |
               # Need gsl-dev for msprime. When we move to tskit we should 
               # be able to remove this.
