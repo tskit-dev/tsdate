@@ -27,6 +27,7 @@ import unittest
 import numpy as np
 import tskit
 import msprime
+import tsinfer
 
 import tsdate
 import utility_functions
@@ -94,3 +95,25 @@ class TestSimulated(unittest.TestCase):
         print("".join(["\n" + h for h in truncated_ts.haplotypes()]))
         dated_ts = tsdate.date(truncated_ts, Ne=Ne, mutation_rate=mu)
         self.ts_equal_except_times(truncated_ts, dated_ts)
+
+
+class TestInferred(unittest.TestCase):
+    """
+    Tests for tsdate on simulated then inferred tree sequences.
+    """
+    def test_simple_sim_1_tree(self):
+        ts = msprime.simulate(8, mutation_rate=5, random_seed=2)
+        sample_data = tsinfer.SampleData.from_tree_sequence(ts)
+        inferred_ts = tsinfer.infer(sample_data)
+        dated_ts = tsdate.date(inferred_ts, Ne=1, mutation_rate=5)
+        self.assertTrue(
+            all([a == b for a, b in zip(ts.haplotypes(), dated_ts.haplotypes())]))
+
+    def test_simple_sim_multi_tree(self):
+        ts = msprime.simulate(8, mutation_rate=5, recombination_rate=5, random_seed=2)
+        self.assertGreater(ts.num_trees, 1)
+        sample_data = tsinfer.SampleData.from_tree_sequence(ts)
+        inferred_ts = tsinfer.infer(sample_data)
+        dated_ts = tsdate.date(inferred_ts, Ne=1, mutation_rate=5)
+        self.assertTrue(
+            all([a == b for a, b in zip(ts.haplotypes(), dated_ts.haplotypes())]))
