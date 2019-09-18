@@ -18,37 +18,19 @@ jobs:
 
     steps:
       - checkout
-
-      # Download and cache dependencies
-      - restore_cache:
-          keys:
-            - v1-dependencies-{{ checksum "requirements.txt" }}
-            # fallback to using the latest cache if no exact match is found
-            - v1-dependencies-
-
       - run:
           name: install dependencies
           command: |
             python3 -m venv venv
             . venv/bin/activate
             pip install -r requirements.txt
-
-      - save_cache:
-          paths:
-            - ./venv
-          key: v1-dependencies-{{ checksum "requirements.txt" }}
-
-      # run tests!
-      # this example uses Django's built-in test-runner
-      # other common Python testing frameworks include pytest and nose
-      # https://pytest.org
-      # https://nose.readthedocs.io
+      
       - run:
-          name: run tests
+          name: Lint Python
           command: |
-            . venv/bin/activate
-            python manage.py test
+              flake8 tsdate/date.py tests
 
-      - store_artifacts:
-          path: test-reports
-          destination: test-reports
+      - run:
+          name: Run Python tests
+          command: |
+              nosetests
