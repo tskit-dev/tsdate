@@ -1,10 +1,2 @@
 flake8
 nose
-tskit
-pandas
-numpy
-msprime
-zarr
-scipy
-tqdm
-tsinfer
