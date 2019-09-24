@@ -21,8 +21,9 @@
 # SOFTWARE.
 
 from .date import (  # NOQA
-    date, restrict_ages_topo, return_ts,
-    find_node_tip_weights, make_prior, get_mixture_prior)
+    date, restrict_ages_topo, return_ts, create_time_grid,
+    get_prior_values, prior_maker, get_approx_post, iterate_child_edges,
+    approx_post_mean_var)
 
 
 from .provenance import __version__  # NOQA
