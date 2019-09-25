@@ -37,7 +37,7 @@ FORMAT_NAME = "tsdate"
 FORMAT_VERSION = [1, 0]
 
 
-def gamma_approx(self, mean, variance):
+def gamma_approx(mean, variance):
     """
     Returns alpha and beta of a gamma distribution for a given mean and variance
     """
@@ -146,7 +146,7 @@ class prior_maker():
 
         return prior
 
-def get_mixture_prior(self, node_mixtures, age_prior):
+def get_mixture_prior(node_mixtures, age_prior):
     """
     Given a dictionary of nodes with their tip weights,
     return alpha and beta of mixture distributions
