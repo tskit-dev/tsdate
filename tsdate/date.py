@@ -145,173 +145,6 @@ class prior_maker():
 
         return prior
 
-    def find_node_tip_weights(self, tree_sequence):
-        """
-        Given a tree sequence, for each non-sample node (i.e. those
-        for which we want to infer a date) calculate the fraction of
-        the sequence with 1 descendant sample, 2 descendant samples,
-        3 descendant samples etc. Non-coalescent (unary) nodes should
-        take a 50:50 mix of the coalescent nodes above and below them.
-
-        :param TreeSequence tree_sequence: The input :class:`tskit.TreeSequence`.
-        :returns: a tuple of a set and a defaultdict. The set gives
-        the total number of samples at different points in the tree
-        sequence (for tree sequences without missing data, this
-        should always be a single value, equal to
-        `tree_sequence.num_samples`). The defaultdict, is a
-        collection of dictionaries keyed by node id. The values for
-        each of these dictionaries sum to one, with the keys
-        specifying the number of samples under the relevant node.
-        :rtype: tuple(set, defaultdict)
-        """
-        result = defaultdict(lambda: defaultdict(lambda: defaultdict(float)))
-        spans = defaultdict(float)
-        samples = set(tree_sequence.samples())
-        curr_samples = set()
-        trees_with_unassigned_nodes = set()  # Used to quickly skip trees later
-        valid_samples_in_tree = np.full(tree_sequence.num_trees, tskit.NULL)
-
-        for i, ((_, e_out, e_in), tree) in enumerate(
-                zip(tree_sequence.edge_diffs(), tree_sequence.trees())):
-            # In cases with missing data, the total number of relevant
-            # samples will not be tree_sequence.num_samples
-            curr_samples.difference_update(
-                [e.parent for e in e_out if e.parent in samples])
-            curr_samples.difference_update(
-                [e.child for e in e_out if e.child in samples])
-            curr_samples.update(
-                [e.parent for e in e_in if e.parent in samples])
-            curr_samples.update(
-                [e.child for e in e_in if e.child in samples])
-
-            num_valid = len(curr_samples)  # Number of non-missing samples in this tree
-            valid_samples_in_tree[i] = num_valid
-            span = tree.span
-
-            # Identify numbers of parents for each node. We could probably
-            # implement a more efficient algorithm by using e_out and e_in,
-            # and traversing up the tree from the edge parents, revising the
-            # number of tips under each parent node
-            for node in tree.nodes():
-                if tree.is_sample(node):
-                    continue  # Don't calculate for sample nodes as they have a date
-                n_samples = tree.num_samples(node)
-                if n_samples == 0:
-                    raise ValueError(
-                        "Tree " + str(i) +
-                        " contains a node with no descendant samples." +
-                        " Please simplify your tree sequence before dating.")
-                    continue  # Don't count any nodes
-                if len(tree.children(node)) > 1:
-                    result[node][num_valid][n_samples] += span
-                    spans[node] += span
-                else:
-                    # UNARY NODES: take a mixture of the coalescent nodes above and below
-                    #  above:
-                    n = node
-                    done = False
-                    while not done:
-                        n = tree.parent(n)
-                        if n == tskit.NULL or len(tree.children(n)) > 1:
-                            done = True  # Found a coalescent node
-                    if n == tskit.NULL:
-                        logging.debug(
-                            "Unary node {} exists above highest coalescence in tree {}."
-                            " Skipping for now".format(node, i))
-                        trees_with_unassigned_nodes.add(i)
-                        continue
-                    # Half from the node above
-                    result[node][num_valid][tree.num_samples(n)] += span/2
-
-                    #  coalescent node below should have same num_samples as this one
-                    assert len(tree.children(node)) == 1
-                    result[node][num_valid][tree.num_samples(node)] += span/2
-
-                    spans[node] += span
-
-        if tree_sequence.num_nodes - tree_sequence.num_samples - len(result) != 0:
-            logging.debug(
-                "Assigning priors to skipped unary nodes, via linked nodes\
-                with new priors")
-            # We have some nodes with unassigned prior params. We should see
-            # if can we assign params for these node priors using
-            # now-parameterized nodes. This requires another pass through the
-            # tree sequence. If there is no non-parameterized node above, then
-            # we can simply assign this the coalescent maximum
-            curr_samples = set()
-            unassigned_nodes = set(
-                [n.id for n in tree_sequence.nodes()
-                    if not n.is_sample() and n.id not in result])
-            for i, tree in enumerate(tree_sequence.trees()):
-                if i not in trees_with_unassigned_nodes:
-                    continue
-                for node in unassigned_nodes:
-                    if tree.parent(node) == tskit.NULL:
-                        continue
-                        # node is either the root or (more likely) not in
-                        # this tree
-                    assert tree.num_samples(node) > 0
-                    assert len(tree.children(node)) == 1
-                    n = node
-                    done = False
-                    while not done:
-                        n = tree.parent(n)
-                        if n == tskit.NULL or n in result:
-                            done = True
-                    if n == tskit.NULL:
-                        continue
-                    else:
-                        logging.debug(
-                            "Assigning prior to unary node {}: connected to\
-                            node {} which"
-                            "has a prior in tree {}".format(node, n, i))
-                        for local_valid, weights in result[n].items():
-                            for k, v in weights.items():
-                                local_weight = v / spans[n]
-                                result[node][local_valid][k] += tree.span *\
-                                    local_weight / 2
-                        assert len(tree.children(node)) == 1
-                        num_valid = valid_samples_in_tree[i]
-                        result[node][num_valid][tree.num_samples(node)] += tree.span / 2
-                        spans[node] += tree.span
-
-        if tree_sequence.num_nodes - tree_sequence.num_samples - len(result) != 0:
-            logging.debug(
-                "Assigning priors to remaining (unconnected) unary nodes\
-                using max depth")
-            # We STILL have some missing priors. These must be unconnected to higher
-            # nodes in the tree, so we can simply give them the max depth
-            max_samples = tree_sequence.num_samples
-            curr_samples = set()
-            unassigned_nodes = set(
-                [n.id for n in tree_sequence.nodes()
-                    if not n.is_sample() and n.id not in result])
-            for i, tree in enumerate(tree_sequence.trees()):
-                if i not in trees_with_unassigned_nodes:
-                    continue
-                for node in unassigned_nodes:
-                    if tree.is_internal(node):
-                        assert len(tree.children(node)) == 1
-                        # above, we set the maximum
-                        result[node][max_samples][max_samples] += tree.span / 2
-                        # below, we do as before
-                        assert len(tree.children(node)) == 1
-                        num_valid = valid_samples_in_tree[i]
-                        result[node][num_valid][tree.num_samples(node)] += tree.span / 2
-                        spans[node] += tree.span
-
-        if tree_sequence.num_nodes - tree_sequence.num_samples != len(result):
-            raise ValueError(
-                "There are some nodes which are not in any tree."
-                " Please simplify your tree sequence.")
-
-        for node, weights in result.items():
-            result[node] = {}
-            for num_samples, w in weights.items():
-                result[node][num_samples] = {k: v / spans[node] for k, v in w.items()}
-
-        return np.unique(valid_samples_in_tree), result
-
     def get_mixture_prior(self, node_mixtures, age_prior):
         """
         Given a dictionary of nodes with their tip weights,
@@ -346,6 +179,174 @@ class prior_maker():
         return prior
 
 
+def find_node_tip_weights(tree_sequence):
+    """
+    Given a tree sequence, for each non-sample node (i.e. those
+    for which we want to infer a date) calculate the fraction of
+    the sequence with 1 descendant sample, 2 descendant samples,
+    3 descendant samples etc. Non-coalescent (unary) nodes should
+    take a 50:50 mix of the coalescent nodes above and below them.
+
+    :param TreeSequence tree_sequence: The input :class:`tskit.TreeSequence`.
+    :returns: a tuple of a set and a defaultdict. The set gives
+    the total number of samples at different points in the tree
+    sequence (for tree sequences without missing data, this
+    should always be a single value, equal to
+    `tree_sequence.num_samples`). The defaultdict, is a
+    collection of dictionaries keyed by node id. The values for
+    each of these dictionaries sum to one, with the keys
+    specifying the number of samples under the relevant node.
+    :rtype: tuple(set, defaultdict)
+    """
+    result = defaultdict(lambda: defaultdict(lambda: defaultdict(float)))
+    spans = defaultdict(float)
+    samples = set(tree_sequence.samples())
+    curr_samples = set()
+    trees_with_unassigned_nodes = set()  # Used to quickly skip trees later
+    valid_samples_in_tree = np.full(tree_sequence.num_trees, tskit.NULL)
+
+    for i, ((_, e_out, e_in), tree) in enumerate(
+            zip(tree_sequence.edge_diffs(), tree_sequence.trees())):
+        # In cases with missing data, the total number of relevant
+        # samples will not be tree_sequence.num_samples
+        curr_samples.difference_update(
+            [e.parent for e in e_out if e.parent in samples])
+        curr_samples.difference_update(
+            [e.child for e in e_out if e.child in samples])
+        curr_samples.update(
+            [e.parent for e in e_in if e.parent in samples])
+        curr_samples.update(
+            [e.child for e in e_in if e.child in samples])
+
+        num_valid = len(curr_samples)  # Number of non-missing samples in this tree
+        valid_samples_in_tree[i] = num_valid
+        span = tree.span
+
+        # Identify numbers of parents for each node. We could probably
+        # implement a more efficient algorithm by using e_out and e_in,
+        # and traversing up the tree from the edge parents, revising the
+        # number of tips under each parent node
+        for node in tree.nodes():
+            if tree.is_sample(node):
+                continue  # Don't calculate for sample nodes as they have a date
+            n_samples = tree.num_samples(node)
+            if n_samples == 0:
+                raise ValueError(
+                    "Tree " + str(i) +
+                    " contains a node with no descendant samples." +
+                    " Please simplify your tree sequence before dating.")
+                continue  # Don't count any nodes
+            if len(tree.children(node)) > 1:
+                result[node][num_valid][n_samples] += span
+                spans[node] += span
+            else:
+                # UNARY NODES: take a mixture of the coalescent nodes above and below
+                #  above:
+                n = node
+                done = False
+                while not done:
+                    n = tree.parent(n)
+                    if n == tskit.NULL or len(tree.children(n)) > 1:
+                        done = True  # Found a coalescent node
+                if n == tskit.NULL:
+                    logging.debug(
+                        "Unary node {} exists above highest coalescence in tree {}."
+                        " Skipping for now".format(node, i))
+                    trees_with_unassigned_nodes.add(i)
+                    continue
+                # Half from the node above
+                result[node][num_valid][tree.num_samples(n)] += span/2
+
+                #  coalescent node below should have same num_samples as this one
+                assert len(tree.children(node)) == 1
+                result[node][num_valid][tree.num_samples(node)] += span/2
+
+                spans[node] += span
+
+    if tree_sequence.num_nodes - tree_sequence.num_samples - len(result) != 0:
+        logging.debug(
+            "Assigning priors to skipped unary nodes, via linked nodes\
+            with new priors")
+        # We have some nodes with unassigned prior params. We should see
+        # if can we assign params for these node priors using
+        # now-parameterized nodes. This requires another pass through the
+        # tree sequence. If there is no non-parameterized node above, then
+        # we can simply assign this the coalescent maximum
+        curr_samples = set()
+        unassigned_nodes = set(
+            [n.id for n in tree_sequence.nodes()
+                if not n.is_sample() and n.id not in result])
+        for i, tree in enumerate(tree_sequence.trees()):
+            if i not in trees_with_unassigned_nodes:
+                continue
+            for node in unassigned_nodes:
+                if tree.parent(node) == tskit.NULL:
+                    continue
+                    # node is either the root or (more likely) not in
+                    # this tree
+                assert tree.num_samples(node) > 0
+                assert len(tree.children(node)) == 1
+                n = node
+                done = False
+                while not done:
+                    n = tree.parent(n)
+                    if n == tskit.NULL or n in result:
+                        done = True
+                if n == tskit.NULL:
+                    continue
+                else:
+                    logging.debug(
+                        "Assigning prior to unary node {}: connected to\
+                        node {} which"
+                        "has a prior in tree {}".format(node, n, i))
+                    for local_valid, weights in result[n].items():
+                        for k, v in weights.items():
+                            local_weight = v / spans[n]
+                            result[node][local_valid][k] += tree.span *\
+                                local_weight / 2
+                    assert len(tree.children(node)) == 1
+                    num_valid = valid_samples_in_tree[i]
+                    result[node][num_valid][tree.num_samples(node)] += tree.span / 2
+                    spans[node] += tree.span
+
+    if tree_sequence.num_nodes - tree_sequence.num_samples - len(result) != 0:
+        logging.debug(
+            "Assigning priors to remaining (unconnected) unary nodes\
+            using max depth")
+        # We STILL have some missing priors. These must be unconnected to higher
+        # nodes in the tree, so we can simply give them the max depth
+        max_samples = tree_sequence.num_samples
+        curr_samples = set()
+        unassigned_nodes = set(
+            [n.id for n in tree_sequence.nodes()
+                if not n.is_sample() and n.id not in result])
+        for i, tree in enumerate(tree_sequence.trees()):
+            if i not in trees_with_unassigned_nodes:
+                continue
+            for node in unassigned_nodes:
+                if tree.is_internal(node):
+                    assert len(tree.children(node)) == 1
+                    # above, we set the maximum
+                    result[node][max_samples][max_samples] += tree.span / 2
+                    # below, we do as before
+                    assert len(tree.children(node)) == 1
+                    num_valid = valid_samples_in_tree[i]
+                    result[node][num_valid][tree.num_samples(node)] += tree.span / 2
+                    spans[node] += tree.span
+
+    if tree_sequence.num_nodes - tree_sequence.num_samples != len(result):
+        raise ValueError(
+            "There are some nodes which are not in any tree."
+            " Please simplify your tree sequence.")
+
+    for node, weights in result.items():
+        result[node] = {}
+        for num_samples, w in weights.items():
+            result[node][num_samples] = {k: v / spans[node] for k, v in w.items()}
+
+    return np.unique(valid_samples_in_tree), result
+
+    
 def create_time_grid(age_prior, n_points=21):
     """
     Create the time grid by finding union of the quantiles of the gammas
@@ -636,13 +637,13 @@ def date(
             raise NotImplementedError(
                 "Samples must all be at time 0")
 
-    prior = prior_maker(tree_sequence.num_samples, approximate=approximate_prior)
-    num_samples, tip_weights = prior.find_node_tip_weights(tree_sequence)
-    prior_df = {tree_sequence.num_samples: prior.make_prior()}
+    num_samples, tip_weights = find_node_tip_weights(tree_sequence)
+    prior_df = {tree_sequence.num_samples:
+        prior_maker(tree_sequence.num_samples, approximate_prior).make_prior()}
     # Add in priors for trees with different sample numbers (missing data only)
     for s in num_samples:
         if s != tree_sequence.num_samples:
-            prior_df[s] = prior.make_prior(s)
+            prior_df[s] = prior_maker(s, approximate_prior).make_prior()
 
     if time_grid == 'uniform':
         grid = np.linspace(0, 8, grid_slices+1)
