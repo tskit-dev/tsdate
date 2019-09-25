@@ -37,6 +37,13 @@ FORMAT_NAME = "tsdate"
 FORMAT_VERSION = [1, 0]
 
 
+def gamma_approx(self, mean, variance):
+    """
+    Returns alpha and beta of a gamma distribution for a given mean and variance
+    """
+    return (mean ** 2) / variance, mean / variance
+
+
 class prior_maker():
     def __init__(self, total_tips, approximate=None):
         self.total_tips = total_tips
@@ -111,12 +118,6 @@ class prior_maker():
         else:
             return self.prior_df.iloc[self.prior_df.index.searchsorted(i / n)].values[0]
 
-    def gamma_approx(self, mean, variance):
-        """
-        Returns alpha and beta of a gamma distribution for a given mean and variance
-        """
-        return (mean ** 2) / variance, mean / variance
-
     def make_prior(self):
         """
         Return a pandas dataframe of conditional prior on age of node
@@ -139,44 +140,44 @@ class prior_maker():
             # NB: it should be possible to vectorize this in numpy
             expectation = self.tau_expect(tips, self.total_tips)
             var = get_tau_var(tips, self.total_tips)
-            alpha, beta = self.gamma_approx(expectation, var)
+            alpha, beta = gamma_approx(expectation, var)
             prior.loc[tips] = [alpha, beta]
         prior.index.name = 'Num_Tips'
 
         return prior
 
-    def get_mixture_prior(self, node_mixtures, age_prior):
-        """
-        Given a dictionary of nodes with their tip weights,
-        return alpha and beta of mixture distributions
-        mixture input is a list of numpy arrays
-        """
+def get_mixture_prior(self, node_mixtures, age_prior):
+    """
+    Given a dictionary of nodes with their tip weights,
+    return alpha and beta of mixture distributions
+    mixture input is a list of numpy arrays
+    """
 
-        def mix_expect(node):
-            expectation = 0
-            for N, tip_dict in node_mixtures[node].items():
-                alpha = age_prior[N].loc[np.array(list(tip_dict.keys())), "Alpha"]
-                beta = age_prior[N].loc[np.array(list(tip_dict.keys())), "Beta"]
-                expectation += sum(
-                    (alpha / beta) * np.array(list(tip_dict.values())))
-            return expectation
+    def mix_expect(node):
+        expectation = 0
+        for N, tip_dict in node_mixtures[node].items():
+            alpha = age_prior[N].loc[np.array(list(tip_dict.keys())), "Alpha"]
+            beta = age_prior[N].loc[np.array(list(tip_dict.keys())), "Beta"]
+            expectation += sum(
+                (alpha / beta) * np.array(list(tip_dict.values())))
+        return expectation
 
-        def mix_var(node):
-            first = second = third = 0
-            for N, tip_dict in node_mixtures[node].items():
-                alpha = age_prior[N].loc[np.array(list(tip_dict.keys())), "Alpha"]
-                beta = age_prior[N].loc[np.array(list(tip_dict.keys())), "Beta"]
-                first += sum(alpha / (beta ** 2) * np.array(list(tip_dict.values())))
-                second += sum((alpha / beta) ** 2 * np.array(list(tip_dict.values())))
-                third += sum((alpha / beta) * np.array(list(tip_dict.values()))) ** 2
-            return first + second - third
+    def mix_var(node):
+        first = second = third = 0
+        for N, tip_dict in node_mixtures[node].items():
+            alpha = age_prior[N].loc[np.array(list(tip_dict.keys())), "Alpha"]
+            beta = age_prior[N].loc[np.array(list(tip_dict.keys())), "Beta"]
+            first += sum(alpha / (beta ** 2) * np.array(list(tip_dict.values())))
+            second += sum((alpha / beta) ** 2 * np.array(list(tip_dict.values())))
+            third += sum((alpha / beta) * np.array(list(tip_dict.values()))) ** 2
+        return first + second - third
 
-        prior = pd.DataFrame(
-            index=node_mixtures.keys(), columns=["Alpha", "Beta"], dtype=float)
-        for node in node_mixtures:
-            prior.loc[node] = self.gamma_approx(mix_expect(node), mix_var(node))
-        prior.index.name = "Node"
-        return prior
+    prior = pd.DataFrame(
+        index=node_mixtures.keys(), columns=["Alpha", "Beta"], dtype=float)
+    for node in node_mixtures:
+        prior.loc[node] = gamma_approx(mix_expect(node), mix_var(node))
+    prior.index.name = "Node"
+    return prior
 
 
 def find_node_tip_weights(tree_sequence):
@@ -653,7 +654,7 @@ def date(
     else:
         raise ValueError("time_grid must be either 'adaptive' or 'uniform'")
 
-    mixture_prior = prior.get_mixture_prior(tip_weights, prior_df)
+    mixture_prior = get_mixture_prior(tip_weights, prior_df)
     prior_vals = get_prior_values(mixture_prior, grid, tree_sequence)
 
     theta = None
