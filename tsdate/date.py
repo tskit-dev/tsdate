@@ -49,10 +49,12 @@ class prior_maker():
                 self.approximate = False
 
         if self.approximate:
-            if os.path.exists("../data/prior_df.csv"):
-                self.prior_df = pd.read_csv('../data/prior_df.csv', index_col=0)
+            if os.path.exists("data/prior_df.csv"):
+                self.prior_df = pd.read_csv('data/prior_df.csv', index_col=0)
             else:
                 # Create lookup table that is close for n > ~50
+                logging.debug("Creating prior lookup table, this will take\
+                    ~5 minutes")
                 n = 1000
                 prior_lookup_table = {val / n: self.tau_var(val, n + 1)
                                       for val in np.arange(1, n + 1)}
@@ -133,19 +135,6 @@ class prior_maker():
         else:
             get_tau_var = self.tau_var
 
-        # tip_range = np.arange(2, self.total_tips + 1)
-        # v_tau_expect = np.vectorize(self.tau_expect)
-        # v_tau_var = np.vectorize(get_tau_var)
-        # v_gamma_approx = np.vectorize(self.gamma_approx)
-        # expectations = v_tau_expect(tip_range, self.total_tips)
-        # variances = v_tau_var(tip_range, self.total_tips)
-        # alphas, betas = v_gamma_approx(expectations, variances)
-
-        # prior['Alpha'].loc[2:] = alphas
-        # prior['Beta'].loc[2:] = betas
-        # prior.index.name = 'Num_Tips'
-        # return prior
-
         for tips in np.arange(2, self.total_tips + 1):
             # NB: it should be possible to vectorize this in numpy
             expectation = self.tau_expect(tips, self.total_tips)
@@ -158,18 +147,21 @@ class prior_maker():
 
     def find_node_tip_weights(self, tree_sequence):
         """
-        Given a tree sequence, for each non-sample node (i.e. those for which we want to
-        infer a date) calculate the fraction of the sequence with 1 descendant sample,
-        2 descendant samples, 3 descendant samples etc. Non-coalescent (unary) nodes should
+        Given a tree sequence, for each non-sample node (i.e. those
+        for which we want to infer a date) calculate the fraction of
+        the sequence with 1 descendant sample, 2 descendant samples,
+        3 descendant samples etc. Non-coalescent (unary) nodes should
         take a 50:50 mix of the coalescent nodes above and below them.
 
         :param TreeSequence tree_sequence: The input :class:`tskit.TreeSequence`.
-        :returns: a tuple of a set and a defaultdict. The set gives the total number of
-            samples at different points in the tree sequence (for tree sequences without
-            missing data, this should always be a single value, equal to
-            `tree_sequence.num_samples`). The defaultdict, is a collection of dictionaries
-            keyed by node id. The values for each of these dictionaries sum to one, with the
-            keys specifying the number of samples under the relevant node.
+        :returns: a tuple of a set and a defaultdict. The set gives
+        the total number of samples at different points in the tree
+        sequence (for tree sequences without missing data, this
+        should always be a single value, equal to
+        `tree_sequence.num_samples`). The defaultdict, is a
+        collection of dictionaries keyed by node id. The values for
+        each of these dictionaries sum to one, with the keys
+        specifying the number of samples under the relevant node.
         :rtype: tuple(set, defaultdict)
         """
         result = defaultdict(lambda: defaultdict(lambda: defaultdict(float)))
@@ -181,27 +173,33 @@ class prior_maker():
 
         for i, ((_, e_out, e_in), tree) in enumerate(
                 zip(tree_sequence.edge_diffs(), tree_sequence.trees())):
-            # In cases with missing data, the total number of relevant samples will not be
-            # tree_sequence.num_samples
-            curr_samples.difference_update([e.parent for e in e_out if e.parent in samples])
-            curr_samples.difference_update([e.child for e in e_out if e.child in samples])
-            curr_samples.update([e.parent for e in e_in if e.parent in samples])
-            curr_samples.update([e.child for e in e_in if e.child in samples])
+            # In cases with missing data, the total number of relevant
+            # samples will not be tree_sequence.num_samples
+            curr_samples.difference_update(
+                [e.parent for e in e_out if e.parent in samples])
+            curr_samples.difference_update(
+                [e.child for e in e_out if e.child in samples])
+            curr_samples.update(
+                [e.parent for e in e_in if e.parent in samples])
+            curr_samples.update(
+                [e.child for e in e_in if e.child in samples])
 
             num_valid = len(curr_samples)  # Number of non-missing samples in this tree
             valid_samples_in_tree[i] = num_valid
             span = tree.span
 
-            # Identify numbers of parents for each node. We could probably implement a more
-            # efficient algorithm by using e_out and e_in, and traversing up the tree from
-            # the edge parents, revising the number of tips under each parent node
+            # Identify numbers of parents for each node. We could probably
+            # implement a more efficient algorithm by using e_out and e_in,
+            # and traversing up the tree from the edge parents, revising the
+            # number of tips under each parent node
             for node in tree.nodes():
                 if tree.is_sample(node):
                     continue  # Don't calculate for sample nodes as they have a date
                 n_samples = tree.num_samples(node)
                 if n_samples == 0:
                     raise ValueError(
-                        "Tree " + str(i) + " contains a node with no descendant samples." +
+                        "Tree " + str(i) +
+                        " contains a node with no descendant samples." +
                         " Please simplify your tree sequence before dating.")
                     continue  # Don't count any nodes
                 if len(tree.children(node)) > 1:
@@ -233,11 +231,13 @@ class prior_maker():
 
         if tree_sequence.num_nodes - tree_sequence.num_samples - len(result) != 0:
             logging.debug(
-                "Assigning priors to skipped unary nodes, via linked nodes with new priors")
-            # We have some nodes with unassigned prior params. We should see if can we assign
-            # params for these node priors using now-parameterized nodes. This requires
-            # another pass through the tree sequence. If there is no non-parameterized node
-            # above, then we can simply assign this the coalescent maximum
+                "Assigning priors to skipped unary nodes, via linked nodes\
+                with new priors")
+            # We have some nodes with unassigned prior params. We should see
+            # if can we assign params for these node priors using
+            # now-parameterized nodes. This requires another pass through the
+            # tree sequence. If there is no non-parameterized node above, then
+            # we can simply assign this the coalescent maximum
             curr_samples = set()
             unassigned_nodes = set(
                 [n.id for n in tree_sequence.nodes()
@@ -247,7 +247,9 @@ class prior_maker():
                     continue
                 for node in unassigned_nodes:
                     if tree.parent(node) == tskit.NULL:
-                        continue  # node is either the root or (moe likely) not in this tree
+                        continue
+                        # node is either the root or (more likely) not in
+                        # this tree
                     assert tree.num_samples(node) > 0
                     assert len(tree.children(node)) == 1
                     n = node
@@ -260,12 +262,14 @@ class prior_maker():
                         continue
                     else:
                         logging.debug(
-                            "Assigning prior to unary node {}: connected to node {} which"
+                            "Assigning prior to unary node {}: connected to\
+                            node {} which"
                             "has a prior in tree {}".format(node, n, i))
                         for local_valid, weights in result[n].items():
                             for k, v in weights.items():
                                 local_weight = v / spans[n]
-                                result[node][local_valid][k] += tree.span * local_weight / 2
+                                result[node][local_valid][k] += tree.span *\
+                                    local_weight / 2
                         assert len(tree.children(node)) == 1
                         num_valid = valid_samples_in_tree[i]
                         result[node][num_valid][tree.num_samples(node)] += tree.span / 2
@@ -273,7 +277,8 @@ class prior_maker():
 
         if tree_sequence.num_nodes - tree_sequence.num_samples - len(result) != 0:
             logging.debug(
-                "Assigning priors to remaining (unconnected) unary nodes using max depth")
+                "Assigning priors to remaining (unconnected) unary nodes\
+                using max depth")
             # We STILL have some missing priors. These must be unconnected to higher
             # nodes in the tree, so we can simply give them the max depth
             max_samples = tree_sequence.num_samples
@@ -454,13 +459,32 @@ def get_approx_post(ts, prior_values, grid, theta, rho,
     norm = np.zeros((ts.num_nodes))  # normalizing constants
     norm[ts.samples()] = 1  # set all tips normalizing constants to 1
 
-    mut_edges = np.empty(ts.num_edges)
-    for index, edge in enumerate(ts.tables.edges):
-        # Not all sites necessarily have a mutation
-        mut_positions = ts.tables.sites.position[
-            ts.tables.mutations.site[ts.tables.mutations.node == edge.child]]
-        mut_edges[index] = np.sum(np.logical_and(edge.left < mut_positions,
-                                  edge.right > mut_positions))
+
+    # mut_edges = np.empty(ts.num_edges)
+    # for index, edge in enumerate(ts.tables.edges):
+    #     # Not all sites necessarily have a mutation
+    #     mut_positions = ts.tables.sites.position[
+    #         ts.tables.mutations.site[ts.tables.mutations.node == edge.child]]
+    #     mut_edges[index] = np.sum(np.logical_and(edge.left < mut_positions,
+    #                               edge.right > mut_positions))
+
+
+    edge_diff_iter = ts.edge_diffs()
+    right = 0
+    edges_by_child = {}  # contains {child_node:edge_id}
+    mut_edges = np.zeros(ts.num_edges, dtype=np.int64)
+    for site in ts.sites():
+        while right <= site.position:
+            (left, right), edges_out, edges_in = next(edge_diff_iter)
+            for e in edges_out:
+                del edges_by_child[e.child]
+            for e in edges_in:
+                assert e.child not in edges_by_child
+                edges_by_child[e.child] = e.id
+        for m in site.mutations:
+            edge_id = edges_by_child[m.node]
+            mut_edges[edge_id] += 1
+
 
     # Iterate through the nodes via groupby on parent node
     for parent_group in tqdm(iterate_parent_edges(ts), disable=not progress):
