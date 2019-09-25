@@ -29,8 +29,8 @@ jobs:
       - run:
           name: Install tskit dev version
           command: |
-              git clone https://github.com/tskit-dev/tskit.git ~/tskit/python
-              pip install -e ~/tskit
+              git clone https://github.com/tskit-dev/tskit.git ~/tskit
+              pip install ./tskit 
       - run:
           name: Compile Python
           command: |
