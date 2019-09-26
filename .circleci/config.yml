@@ -37,7 +37,7 @@ jobs:
       - run:
           name: Install tskit dev version
           command: |
-              python3 -m pip install git+https://github.com/tskit-dev/tskit.git#subdirectory=python
+              python3 -m pip install git+https://github.com/tskit-dev/tskit.git#subdirectory=python --user
       - run:
           name: Lint Python
           command: |
