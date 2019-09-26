@@ -88,9 +88,7 @@ class prior_maker():
         Gives expectation of tau squared conditional on m
         Equation (10) from Wiuf and Donnelly (1999).
         """
-        t_sum = 0
-        for t in range(m, n + 1):
-            t_sum += ((1 / (t ** 2)))
+        t_sum = np.sum(1 / np.arange(m, n+1)**2)
         return 8 * t_sum + (8 / n) - (8 / m) - (8 / (n * m))
 
     def tau_var(self, i, n):
