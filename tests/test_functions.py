@@ -28,8 +28,7 @@ import tskit  # NOQA
 import msprime
 
 import tsdate
-from tsdate.date import (alpha_prob, tau_expect, tau_squared_conditional,
-                         tau_var, gamma_approx)
+
 import utility_functions
 
 
@@ -38,27 +37,31 @@ class TestBasicFunctions(unittest.TestCase):
     Test for some of the basic functions used in tsdate
     """
     def test_alpha_prob(self):
-        self.assertEqual(alpha_prob(2, 2, 3), 1.)
-        self.assertEqual(alpha_prob(2, 2, 4), 0.25)
+        prior = tsdate.prior_maker(10)
+        self.assertEqual(prior.m_prob(2, 2, 3), 1.)
+        self.assertEqual(prior.m_prob(2, 2, 4), 0.25)
 
     def test_tau_expect(self):
-        self.assertEqual(tau_expect(10, 10), 1.8)
-        self.assertEqual(tau_expect(10, 100), 0.09)
-        self.assertEqual(tau_expect(100, 100), 1.98)
-        self.assertEqual(tau_expect(5, 10), 0.4)
+        prior = tsdate.prior_maker(10)
+        self.assertEqual(prior.tau_expect(10, 10), 1.8)
+        self.assertEqual(prior.tau_expect(10, 100), 0.09)
+        self.assertEqual(prior.tau_expect(100, 100), 1.98)
+        self.assertEqual(prior.tau_expect(5, 10), 0.4)
 
     def test_tau_squared_conditional(self):
-        self.assertAlmostEqual(tau_squared_conditional(1, 10), 4.3981418)
-        self.assertAlmostEqual(tau_squared_conditional(100, 100), -4.87890977e-18)
+        prior = tsdate.prior_maker(10)
+        self.assertAlmostEqual(prior.tau_squared_conditional(1, 10), 4.3981418)
+        self.assertAlmostEqual(prior.tau_squared_conditional(100, 100), -4.87890977e-18)
 
     def test_tau_var(self):
-        self.assertEqual(tau_var(2, 2), 1)
-        self.assertAlmostEqual(tau_var(10, 20), 0.0922995960)
-        self.assertAlmostEqual(tau_var(50, 50), 1.15946186)
+        prior = tsdate.prior_maker(10)
+        self.assertEqual(prior.tau_var(2, 2), 1)
+        self.assertAlmostEqual(prior.tau_var(10, 20), 0.0922995960)
+        self.assertAlmostEqual(prior.tau_var(50, 50), 1.15946186)
 
     def test_gamma_approx(self):
-        self.assertEqual(gamma_approx(2, 1), (4., 2.))
-        self.assertEqual(gamma_approx(0.5, 0.1), (2.5, 5.0))
+        self.assertEqual(tsdate.gamma_approx(2, 1), (4., 2.))
+        self.assertEqual(tsdate.gamma_approx(0.5, 0.1), (2.5, 5.0))
 
     @unittest.skip("Needs implementing")
     def test_create_time_grid(self):
@@ -159,9 +162,10 @@ class TestMakePrior(unittest.TestCase):
     # We only test make_prior() on single trees
     def verify_prior(self, ts):
         # Check prior contains all possible tips
-        prior = tsdate.make_prior(total_tips=ts.num_samples)
-        self.assertEqual(prior.shape[0], ts.num_samples)
-        return(prior)
+        prior = tsdate.prior_maker(ts.num_samples)
+        prior_df = prior.make_prior()
+        self.assertEqual(prior_df.shape[0], ts.num_samples)
+        return(prior_df)
 
     def test_one_tree_n2(self):
         ts = utility_functions.single_tree_ts_n2()
