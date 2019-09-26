@@ -60,9 +60,8 @@ class TestBasicFunctions(unittest.TestCase):
         self.assertAlmostEqual(prior.tau_var(50, 50), 1.15946186)
 
     def test_gamma_approx(self):
-        prior = tsdate.prior_maker(10)
-        self.assertEqual(prior.gamma_approx(2, 1), (4., 2.))
-        self.assertEqual(prior.gamma_approx(0.5, 0.1), (2.5, 5.0))
+        self.assertEqual(tsdate.gamma_approx(2, 1), (4., 2.))
+        self.assertEqual(tsdate.gamma_approx(0.5, 0.1), (2.5, 5.0))
 
     @unittest.skip("Needs implementing")
     def test_create_time_grid(self):
@@ -71,8 +70,7 @@ class TestBasicFunctions(unittest.TestCase):
 
 class TestNodeTipWeights(unittest.TestCase):
     def verify_weights(self, ts):
-        prior = tsdate.prior_maker(ts.num_samples)
-        total_samples, weights_by_node = prior.find_node_tip_weights(ts)
+        total_samples, weights_by_node = tsdate.find_node_tip_weights(ts)
         # Check all non-sample nodes in a tree are represented
         nonsample_nodes = set()
         for tree in ts.trees():
@@ -129,9 +127,8 @@ class TestNodeTipWeights(unittest.TestCase):
             [(0, 0.2)], simplify=False)
         ts = tables.tree_sequence()
         n = ts.num_samples
-        prior = tsdate.prior_maker(n)
         # Here we have no reference in the trees to node 6
-        self.assertRaises(ValueError, prior.find_node_tip_weights, ts)
+        self.assertRaises(ValueError, tsdate.find_node_tip_weights, ts)
         ts = ts.simplify()
         weights = self.verify_weights(ts)
         self.assertTrue(5 not in weights)    # Root on (deleted) right tree is missin
