@@ -21,15 +21,10 @@ jobs:
       - run:
           name: Install dependencies and set PATH
           command: |
-              # Need gsl-dev for msprime. When we move to tskit we should 
-              # be able to remove this.
+              # Need gsl-dev for msprime. Alternatively we could install via conda
               sudo apt-get install libcap-dev libnuma-dev libgsl-dev
               # way to set path persistently https://circleci.com/docs/2.0/env-vars/#setting-path
               echo 'export PATH=/home/circleci/.local/bin:$PATH' >> $BASH_ENV
-      - run:
-          name: Install tskit dev version
-          command: |
-              git clone https://github.com/tskit-dev/tskit.git ~/tskit || cd ~/tskit
       - run:
           name: Compile Python
           command: |
