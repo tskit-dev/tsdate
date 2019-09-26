@@ -25,6 +25,7 @@ Test cases for the python API for tsdate.
 import unittest
 import os
 
+import pandas as pd
 import tskit  # NOQA
 import msprime
 
@@ -215,14 +216,19 @@ class TestMakePrior(unittest.TestCase):
         prior2 = pm.make_prior()
         self.assertTrue(prior1.equals(prior2))
         # Test when using a bigger n that we are using the precalculated version
-        pm = tsdate.prior_maker(100, approximate=False)
-        pm.precalc_approximation_n = 10  # Use the same tiny approximation
-        prior3 = pm.make_prior()
+        pm100 = tsdate.prior_maker(100, approximate=False)
+        pm100.precalc_approximation_n = 10  # Use the same tiny approximation
+        # Check here that the approximation is working, by force-reading the approx prior
+        # and setting approx = True
+        pm100.prior_df = pd.read_csv(pm100.precalc_approximation_fn, index_col=0)
+        pm100.approximate = True
+        prior100 = pm100.make_prior()
+        # Uncomment below to check what we are getting
         # print(prior2)
         # print(prior3)
-        # Should check here that the approximation is working
-        self.assertEquals(len(prior3.index), 100)
-        pm.clear_precalculated_prior()
+        # assert False
+        self.assertEquals(len(prior100.index), 100)
+        pm100.clear_precalculated_prior()
         self.assertFalse(
-            os.path.isfile(pm.precalc_approximation_fn),
+            os.path.isfile(pm100.precalc_approximation_fn),
             "The file `{}` should have been deleted, but has not been. Please delete it")
