@@ -27,6 +27,10 @@ jobs:
               # way to set path persistently https://circleci.com/docs/2.0/env-vars/#setting-path
               echo 'export PATH=/home/circleci/.local/bin:$PATH' >> $BASH_ENV
       - run:
+          name: Install tskit dev version
+          command: |
+              git clone https://github.com/tskit-dev/tskit.git ~/tskit || cd ~/tskit
+      - run:
           name: Compile Python
           command: |
               python setup.py build_ext --inplace      
@@ -42,4 +46,5 @@ jobs:
       - run:
           name: Run Python tests
           command: |
-              nosetests
+              nosetests --with-coverage
+              python3 -m codecov 
