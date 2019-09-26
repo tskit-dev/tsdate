@@ -46,7 +46,9 @@ def gamma_approx(mean, variance):
 
 class prior_maker():
     def __init__(self, total_tips, approximate=None):
+        self.precalc_approximation_n = 1000  # Size of tree used for approx prior
         self.total_tips = total_tips
+        
         if approximate is not None:
             self.approximate = approximate
         else:
@@ -56,18 +58,39 @@ class prior_maker():
                 self.approximate = False
 
         if self.approximate:
-            if os.path.exists("data/prior_df.csv"):
-                self.prior_df = pd.read_csv('data/prior_df.csv', index_col=0)
+            if os.path.isfile(self.precalc_approximation_fn):
+                self.prior_df = pd.read_csv(self.precalc_approximation_fn, index_col=0)
             else:
-                # Create lookup table that is close for n > ~50
-                logging.debug("Creating prior lookup table, this will take\
-                    ~5 minutes")
-                n = 1000
-                prior_lookup_table = {val / n: self.tau_var(val, n + 1)
-                                      for val in np.arange(1, n + 1)}
-                self.prior_df = pd.DataFrame.from_dict(
-                    prior_lookup_table, orient='index')
-                self.prior_df.to_csv("../data/prior_df.csv")
+                # Create lookup table based on a large n that can be used for n > ~50
+                self.precalculate_prior_for_approximation()
+
+    # Use a getter for the filename, so it can use self.precalc_approximation_n
+    @property
+    def precalc_approximation_fn(self):
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        parent_dir = os.path.dirname(script_dir)
+        return os.path.join(
+            parent_dir, "data", "prior_{}df.csv".format(self.precalc_approximation_n))
+
+    def precalculate_prior_for_approximation(self):
+        logging.debug(
+            "Creating prior lookup table for a total tree of n={} tips"
+            " in `{}`, this may take some time for large n"
+            .format(self.precalc_approximation_n, self.precalc_approximation_fn))
+        n = self.precalc_approximation_n
+        prior_lookup_table = {val / n: self.tau_var(val, n + 1)
+                              for val in np.arange(1, n + 1)}
+        self.prior_df = pd.DataFrame.from_dict(
+            prior_lookup_table, orient='index')
+        self.prior_df.to_csv(self.precalc_approximation_fn)
+
+    def clear_precalculated_prior(self):
+        if os.path.isfile(self.precalc_approximation_fn):
+            os.remove(self.precalc_approximation_fn)
+        else:
+            logging.debug(
+                "Precalculated prior in `{}` has not been created, so cannot be cleared"
+                .format(self.precalc_approximation_fn))
 
     def m_prob(self, m, i, n):
         """
