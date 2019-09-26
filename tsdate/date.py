@@ -48,7 +48,7 @@ class prior_maker():
     def __init__(self, total_tips, approximate=None):
         self.precalc_approximation_n = 1000  # Size of tree used for approx prior
         self.total_tips = total_tips
-        
+
         if approximate is not None:
             self.approximate = approximate
         else:
