@@ -146,6 +146,7 @@ class prior_maker():
 
         return prior
 
+
 def get_mixture_prior(node_mixtures, age_prior):
     """
     Given a dictionary of nodes with their tip weights,
@@ -347,7 +348,7 @@ def find_node_tip_weights(tree_sequence):
 
     return np.unique(valid_samples_in_tree), result
 
-    
+ 
 def create_time_grid(age_prior, n_points=21):
     """
     Create the time grid by finding union of the quantiles of the gammas
@@ -461,16 +462,6 @@ def get_approx_post(ts, prior_values, grid, theta, rho,
     norm = np.zeros((ts.num_nodes))  # normalizing constants
     norm[ts.samples()] = 1  # set all tips normalizing constants to 1
 
-
-    # mut_edges = np.empty(ts.num_edges)
-    # for index, edge in enumerate(ts.tables.edges):
-    #     # Not all sites necessarily have a mutation
-    #     mut_positions = ts.tables.sites.position[
-    #         ts.tables.mutations.site[ts.tables.mutations.node == edge.child]]
-    #     mut_edges[index] = np.sum(np.logical_and(edge.left < mut_positions,
-    #                               edge.right > mut_positions))
-
-
     edge_diff_iter = ts.edge_diffs()
     right = 0
     edges_by_child = {}  # contains {child_node:edge_id}
@@ -486,7 +477,6 @@ def get_approx_post(ts, prior_values, grid, theta, rho,
         for m in site.mutations:
             edge_id = edges_by_child[m.node]
             mut_edges[edge_id] += 1
-
 
     # Iterate through the nodes via groupby on parent node
     for parent_group in tqdm(iterate_parent_edges(ts), disable=not progress):
@@ -640,7 +630,7 @@ def date(
 
     num_samples, tip_weights = find_node_tip_weights(tree_sequence)
     prior_df = {tree_sequence.num_samples:
-        prior_maker(tree_sequence.num_samples, approximate_prior).make_prior()}
+                prior_maker(tree_sequence.num_samples, approximate_prior).make_prior()}
     # Add in priors for trees with different sample numbers (missing data only)
     for s in num_samples:
         if s != tree_sequence.num_samples:
