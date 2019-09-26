@@ -98,10 +98,9 @@ class prior_maker():
         For the last coalesence (n=2), calculate the Tmrca of the whole sample
         """
         if i == n:
-            var = 0
-            for value in range(2, n + 1):
-                var += 1 / ((value ** 2) * ((value - 1) ** 2))
-            return abs(4 * var)
+            value = np.arange(2, n + 1)
+            var = np.sum(1 / ((value ** 2) * ((value - 1) ** 2)))
+            return np.abs(4 * var)
         else:
             tau_square_sum = 0
             for m in range(2, n - i + 2):
@@ -348,7 +347,7 @@ def find_node_tip_weights(tree_sequence):
 
     return np.unique(valid_samples_in_tree), result
 
- 
+
 def create_time_grid(age_prior, n_points=21):
     """
     Create the time grid by finding union of the quantiles of the gammas
