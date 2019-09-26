@@ -134,7 +134,7 @@ class prior_maker():
 
     def tau_var_lookup(self, i, n):
         """
-        Lookup tau_var if n greater than 50
+        Lookup tau_var if approximate is True 
         """
         if i == n:
             return self.tau_var(i, n)
@@ -630,6 +630,8 @@ def date(
     :param float eps: The precision required (** deeper explanation required **)
     :param int num_threads: The number of threads to use. If
         this is <= 0 then a simpler sequential algorithm is used (default).
+    :param bool approximate_prior: Whether to use a precalculated approximate prior or
+        exactly calculate prior 
     :param bool progress: Whether to display a progress bar.
     :return: A tree sequence with inferred node times.
     :rtype: tskit.TreeSequence
