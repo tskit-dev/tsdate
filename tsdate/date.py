@@ -134,7 +134,7 @@ class prior_maker():
 
     def tau_var_lookup(self, i, n):
         """
-        Lookup tau_var if approximate is True 
+        Lookup tau_var if approximate is True
         """
         if i == n:
             return self.tau_var(i, n)
@@ -498,8 +498,11 @@ def get_approx_post(ts, prior_values, grid, theta, rho,
                 assert e.child not in edges_by_child
                 edges_by_child[e.child] = e.id
         for m in site.mutations:
-            edge_id = edges_by_child[m.node]
-            mut_edges[edge_id] += 1
+            # In some cases, mutations occur above the root
+            # These don't provide any information for the forwards step
+            if m.node in edges_by_child:
+                edge_id = edges_by_child[m.node]
+                mut_edges[edge_id] += 1
 
     # Iterate through the nodes via groupby on parent node
     for parent_group in tqdm(iterate_parent_edges(ts), disable=not progress):
@@ -631,7 +634,7 @@ def date(
     :param int num_threads: The number of threads to use. If
         this is <= 0 then a simpler sequential algorithm is used (default).
     :param bool approximate_prior: Whether to use a precalculated approximate prior or
-        exactly calculate prior 
+        exactly calculate prior
     :param bool progress: Whether to display a progress bar.
     :return: A tree sequence with inferred node times.
     :rtype: tskit.TreeSequence
