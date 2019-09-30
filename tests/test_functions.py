@@ -23,7 +23,9 @@
 Test cases for the python API for tsdate.
 """
 import unittest
+import os
 
+import pandas as pd
 import tskit  # NOQA
 import msprime
 
@@ -203,3 +205,30 @@ class TestMakePrior(unittest.TestCase):
         [self.assertAlmostEqual(x, y)
          for x, y in zip(prior.loc[3].values,
                          [1.6, 1.2])]
+
+    def test_precalculated_prior(self):
+        pm = tsdate.prior_maker(10, approximate=False)
+        prior1 = pm.make_prior()
+        pm.precalc_approximation_n = 10  # Force approx prior with a tiny n, for testing
+        pm.precalculate_prior_for_approximation()
+        # Should have created the prior file
+        self.assertTrue(os.path.isfile(pm.precalc_approximation_fn))
+        prior2 = pm.make_prior()
+        self.assertTrue(prior1.equals(prior2))
+        # Test when using a bigger n that we are using the precalculated version
+        pm100 = tsdate.prior_maker(100, approximate=False)
+        pm100.precalc_approximation_n = 10  # Use the same tiny approximation
+        # Check here that the approximation is working, by force-reading the approx prior
+        # and setting approx = True
+        pm100.prior_df = pd.read_csv(pm100.precalc_approximation_fn, index_col=0)
+        pm100.approximate = True
+        prior100 = pm100.make_prior()
+        # Uncomment below to check what we are getting
+        # print(prior2)
+        # print(prior3)
+        # assert False
+        self.assertEquals(len(prior100.index), 100)
+        pm100.clear_precalculated_prior()
+        self.assertFalse(
+            os.path.isfile(pm100.precalc_approximation_fn),
+            "The file `{}` should have been deleted, but has not been. Please delete it")
