@@ -129,10 +129,8 @@ class TestNodeTipWeights(unittest.TestCase):
         self.assertEqual(weights[3][n][2], 1.0)  # Internal node on left tree
 
     def test_missing_tree(self):
-        tables = utility_functions.two_tree_ts().tables.keep_intervals(
+        ts = utility_functions.two_tree_ts().keep_intervals(
             [(0, 0.2)], simplify=False)
-        utility_functions.two_tree_ts().num_edges
-        ts = tables.tree_sequence()
         n = ts.num_samples
         # Here we have no reference in the trees to node 6
         self.assertRaises(ValueError, tsdate.find_node_tip_weights, ts)
