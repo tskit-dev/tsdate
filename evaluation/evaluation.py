@@ -255,8 +255,8 @@ def geva_age_estimate(file_name, Ne, mut_rate, rec_rate):
             [geva_executable, "-i",
                 file_name + ".bin", "--positions",
                 file_name + ".positions.txt",
-                "--hmm", "tools/geva/hmm/hmm_initial_probs.txt",
-                "tools/geva/hmm/hmm_emission_probs.txt",
+                "--hmm", "/Users/anthonywohns/Documents/mcvean_group/age_inference/tsdate/tools/geva/hmm/hmm_initial_probs.txt",
+                "/Users/anthonywohns/Documents/mcvean_group/age_inference/tsdate/tools/geva/hmm/hmm_emission_probs.txt",
                 "--Ne", str(Ne), "--mut", str(mut_rate),
                 "--maxConcordant", "200", "--maxDiscordant",
                 "200", "-o", file_name + "_estimation"])
@@ -270,9 +270,9 @@ def geva_age_estimate(file_name, Ne, mut_rate, rec_rate):
     return keep_ages
 
 
-def return_vcf(sample_data, filename):
+def return_vcf(tree_sequence, filename):
     with open("tmp/"+filename+".vcf", "w") as vcf_file:
-        vanilla_ts.write_vcf(vcf_file, ploidy=2)
+        tree_sequence.write_vcf(vcf_file, ploidy=2)
 
 
 def sampledata_to_vcf(sample_data, filename):
@@ -350,6 +350,7 @@ def run_relate(ts, path_to_vcf, mut_rate, Ne, output):
                              "ConvertToTreeSequence",
                              "-i", output, "-o", output])
     relate_ts = tskit.load(output + ".trees")
+    # Set samples flags to "1"
     table_collection = relate_ts.dump_tables()
     samples = np.repeat(1, ts.num_samples)
     internal = np.repeat(0, relate_ts.num_nodes - ts.num_samples)
@@ -364,33 +365,7 @@ def run_relate(ts, path_to_vcf, mut_rate, Ne, output):
     return (relate_ts_fixed, relate_ages)
 
 
-def compare_mutations(method_names, ts_list, geva_ages=None, relate_ages=None):
-    """
-    Given a list of tree sequences, return a pandas dataframe with the age
-    estimates for each mutation via each method (tsdate, tsinfer + tsdate,
-    relate, geva etc.)
-
-    :param list method_names: list of strings naming methods to be compared
-    :param list ts_list: The list of tree sequences
-    :param pandas.DataFrame geva_ages: mutation age estimates from geva
-    :param pandas.DataFrame relate_ages: mutation age estimates from relate
-    :return A DataFrame of mutations and age estimates from each method
-    :rtype pandas.DataFrame
-    """
-    geva_included = False if geva_ages is None else True
-    relate_included = False if relate_ages is None else True
-
-    if len(method_names) != (len(ts_list) + geva_included + relate_included):
-        raise ValueError("Input names of all methods to be compared")
-
-    if not all(ts.num_mutations == ts_list[0].num_mutations for ts in ts_list):
-        raise ValueError("tree sequences have unequal numbers of mutations")
-
-    if geva_included:
-        comparable_muts = geva_ages.index.values
-    else:
-        comparable_muts = np.arange(0, ts_list[0].num_mutations)
-
+def compare_mutations(method_names, ts_list, geva_ages, geva_positions, relate_ages):
     def get_mut_bounds(ts):
         """
         Method to return the bounding nodes of each mutation (upper and lower)
@@ -405,35 +380,120 @@ def compare_mutations(method_names, ts_list, geva_ages=None, relate_ages=None):
             mut_bounds[mutation.id] = (mutation.node,
                                        ts.edge(int(edge_num)).parent)
         return mut_bounds
+    relate_mut_ages = dict()
+    true_mut_ages = dict()
+    geva_mut_ages = dict()
+    dated_mut_ages = dict()
+    inferred_mut_ages = dict()
 
-    mut_bounds = [get_mut_bounds(ts) for ts in ts_list]
-    compare_df = pd.DataFrame(index=comparable_muts,
-                              columns=method_names, dtype=float)
-    for mut, row in geva_ages.iterrows():
+    ts = ts_list[0]
+    dated_ts = ts_list[1]
+    dated_inferred_ts = ts_list[2]
 
-    # for mut in comparable_muts:
-        for index, ts in enumerate(ts_list):
-            (child, parent) = mut_bounds[index][mut]
-            child_age = ts.node(ts.mutation(mut).node).time
-            parent_age = ts.node(parent).time
-            true_age = np.sqrt(parent_age * child_age)
-            compare_df.loc[mut, method_names[index]] = true_age 
-        compare_df.loc[mut, "geva"] = row['PostMean']
-        relate_row = relate_ages[relate_ages["snp"] == mut]
-        compare_df.loc[mut, "relate"] = np.sqrt((relate_row['age_end'] * relate_row['age_begin']).values[0])
-    #     if geva_included:
-    #         compare_df.loc[mut,
-    #                        method_names[len(ts_list)]] =\
-    #                        geva_ages.loc[mut, 'PostMean']
+    mut_bounds = get_mut_bounds(ts)
+    mut_bounds_dated = get_mut_bounds(dated_ts)
+    mut_bounds_inferred = get_mut_bounds(dated_inferred_ts)
 
-    #     if relate_included:
-    #         relate_row = relate_ages[relate_ages["snp"] == mut]
-    #         relate_age = \
-    #            np.sqrt((relate_row['age_end'] * relate_row['age_begin']).values[0])
-    #         compare_df.loc[mut, method_names[len(ts_list)
-    #                        + geva_included]] = relate_age 
+    for mut in range(ts.num_mutations):
+        position = round(ts.tables.sites.position[ts.tables.mutations.site[mut]])
+        
+        (child, parent) = mut_bounds[mut]
+        child_age = ts.node(ts.mutation(mut).node).time
+        parent_age = ts.node(parent).time
+        true_mut_ages[position] = (np.sqrt(parent_age * child_age))
+        
+        (child, parent) = mut_bounds_dated[mut]
+        child_age = dated_ts.node(dated_ts.mutation(mut).node).time
+        parent_age = dated_ts.node(parent).time
+        dated_mut_ages[position] = (np.sqrt(parent_age * child_age))
+        
+        (child, parent) = mut_bounds_inferred[mut]
+        child_age = dated_inferred_ts.node(dated_inferred_ts.mutation(mut).node).time
+        parent_age = dated_inferred_ts.node(parent).time
+        inferred_mut_ages[position] = (np.sqrt(parent_age * child_age))
+        
+        position = round(ts.tables.sites.position[ts.tables.mutations.site[mut]])
+        if np.any(relate_ages['pos_of_snp'] == position):
+            relate_row = relate_ages[relate_ages['pos_of_snp'] == position]
+            relate_mut_ages[position] = np.sqrt((relate_row['age_end'] * relate_row['age_begin']).values[0])
 
-    return compare_df
+        if position in geva_positions['Position'].values:
+            geva_pos = geva_positions.index[geva_positions['Position'] == position].tolist()[0]
+            if geva_pos in geva_ages.index:
+                geva_mut_ages[position] = geva_ages.loc[geva_pos]['PostMean']
+    run_results = pd.DataFrame([true_mut_ages, dated_mut_ages, inferred_mut_ages, relate_mut_ages, geva_mut_ages], 
+                               index=['simulated_ts', 'tsdate', 'tsdate_inferred', 'relate', 'geva']).T
+    return run_results
+# def compare_mutations(method_names, ts_list, geva_ages=None, relate_ages=None):
+#     """
+#     Given a list of tree sequences, return a pandas dataframe with the age
+#     estimates for each mutation via each method (tsdate, tsinfer + tsdate,
+#     relate, geva etc.)
+
+#     :param list method_names: list of strings naming methods to be compared
+#     :param list ts_list: The list of tree sequences
+#     :param pandas.DataFrame geva_ages: mutation age estimates from geva
+#     :param pandas.DataFrame relate_ages: mutation age estimates from relate
+#     :return A DataFrame of mutations and age estimates from each method
+#     :rtype pandas.DataFrame
+#     """
+#     geva_included = False if geva_ages is None else True
+#     relate_included = False if relate_ages is None else True
+
+#     if len(method_names) != (len(ts_list) + geva_included + relate_included):
+#         raise ValueError("Input names of all methods to be compared")
+
+#     if not all(ts.num_mutations == ts_list[0].num_mutations for ts in ts_list):
+#         raise ValueError("tree sequences have unequal numbers of mutations")
+
+#     if geva_included:
+#         comparable_muts = geva_ages.index.values
+#     else:
+#         comparable_muts = np.arange(0, ts_list[0].num_mutations)
+
+#     def get_mut_bounds(ts):
+#         """
+#         Method to return the bounding nodes of each mutation (upper and lower)
+#         """
+#         mut_bounds = {mut: None for mut in range(ts.num_mutations)}
+#         for mutation in ts.mutations():
+#             mut_site = ts.site(mutation.site).position
+#             edge_num = np.intersect1d(
+#                 np.argwhere(ts.tables.edges.child == mutation.node),
+#                 np.argwhere(np.logical_and(ts.tables.edges.left <= mut_site,
+#                             ts.tables.edges.right > mut_site)))
+#             mut_bounds[mutation.id] = (mutation.node,
+#                                        ts.edge(int(edge_num)).parent)
+#         return mut_bounds
+
+#     mut_bounds = [get_mut_bounds(ts) for ts in ts_list]
+#     compare_df = pd.DataFrame(index=comparable_muts,
+#                               columns=method_names, dtype=float)
+#     for mut, row in geva_ages.iterrows():
+
+#     # for mut in comparable_muts:
+#         for index, ts in enumerate(ts_list):
+#             (child, parent) = mut_bounds[index][mut]
+#             child_age = ts.node(ts.mutation(mut).node).time
+#             parent_age = ts.node(parent).time
+#             true_age = np.sqrt(parent_age * child_age)
+#             compare_df.loc[mut, method_names[index]] = true_age 
+#         compare_df.loc[mut, "geva"] = row['PostMean']
+#         relate_row = relate_ages[relate_ages["snp"] == mut]
+#         compare_df.loc[mut, "relate"] = np.sqrt((relate_row['age_end'] * relate_row['age_begin']).values[0])
+#     #     if geva_included:
+#     #         compare_df.loc[mut,
+#     #                        method_names[len(ts_list)]] =\
+#     #                        geva_ages.loc[mut, 'PostMean']
+
+#     #     if relate_included:
+#     #         relate_row = relate_ages[relate_ages["snp"] == mut]
+#     #         relate_age = \
+#     #            np.sqrt((relate_row['age_end'] * relate_row['age_begin']).values[0])
+#     #         compare_df.loc[mut, method_names[len(ts_list)
+#     #                        + geva_included]] = relate_age 
+
+#     return compare_df
 
 
 def compare_tmrcas(method_names, ts_list):
@@ -450,23 +510,23 @@ def compare_tmrcas(method_names, ts_list):
         for pair in sample_pairs:
             tmrcas[pos] = ts.at(pos).tmrca(pair[0], pair[1])
 
-     
 
 
-def run_tsdate(ts, n, Ne, mut_rate, time_grid):
+
+def run_tsdate(ts, n, Ne, mut_rate, time_grid, grid_slices, approximate_prior):
     """
     Runs tsdate on true and inferred tree sequence
     Be sure to input HAPLOID effective population size
     """
     sample_data = tsinfer.formats.SampleData.from_tree_sequence(ts)
     inferred_ts = tsinfer.infer(sample_data)
-    dated_ts = tsdate.date(ts, Ne, mutation_rate=4 * Ne * mut_rate, time_grid=time_grid)
-    dated_inferred_ts = tsdate.date(inferred_ts, Ne, mutation_rate=4 * Ne * mut_rate, time_grid=time_grid)
+    dated_ts = tsdate.date(ts, Ne, mutation_rate=mut_rate, time_grid=time_grid, approximate_prior=approximate_prior, grid_slices=grid_slices)
+    dated_inferred_ts = tsdate.date(inferred_ts, Ne, mutation_rate=mut_rate, time_grid=time_grid, approximate_prior=approximate_prior, grid_slices=grid_slices)
     return dated_ts, dated_inferred_ts
 
 
 def run_all_methods_compare(
-        index, ts, n, Ne, mutation_rate, recombination_rate, time_grid, error_model, seed):
+        index, ts, n, Ne, mutation_rate, recombination_rate, time_grid, grid_slices, error_model, approximate_prior, seed):
     """
     Function to run all comparisons and return dataframe of mutations
     """
@@ -477,15 +537,16 @@ def run_all_methods_compare(
                                          empirical_seq_err_name=error_model)
     # return_vcf(samples, "comparison_" + str(index)) 
     sampledata_to_vcf(samples, "comparison_" + str(index))
-    dated_ts, dated_inferred_ts = run_tsdate(ts, n, Ne/2, mutation_rate, time_grid)
+    dated_ts, dated_inferred_ts = run_tsdate(ts, n, Ne, mutation_rate, time_grid, grid_slices, approximate_prior)
     geva_ages = geva_age_estimate("comparison_" + str(index),
-                                  Ne * 2, mutation_rate, recombination_rate)
+                                  Ne, mutation_rate, recombination_rate)
+    geva_positions = pd.read_csv("tmp/comparison_" + str(index) + ".marker.txt", delimiter=" ", index_col="MarkerID")
     relate_output = run_relate(
         ts, "comparison_" + str(index), mutation_rate, Ne * 2, output)
     compare_df = compare_mutations(
         ["simulated_ts", "tsdate", "tsdate_inferred", "geva", "relate"],
         [ts, dated_ts, dated_inferred_ts],
-        geva_ages=geva_ages, relate_ages=relate_output[1])
+        geva_ages=geva_ages, geva_positions=geva_positions, relate_ages=relate_output[1])
     return compare_df
 
 
@@ -500,13 +561,15 @@ def vanilla_tests(params):
     mutation_rate = float(params[4])
     recombination_rate = float(params[5])
     time_grid = params[6]
-    error_model = params[7]
-    seed = float(params[8])
+    grid_slices = params[7]
+    approximate_prior = params[8]
+    error_model = params[9]
+    seed = float(params[10])
     
     ts = run_vanilla_simulation(
         n, Ne, length, mutation_rate, recombination_rate, seed)
     compare_df = run_all_methods_compare(
-        index, ts, n, Ne, mutation_rate, recombination_rate, time_grid, error_model, seed)
+        index, ts, n, Ne, mutation_rate, recombination_rate, time_grid, grid_slices, approximate_prior, error_model, seed)
     return compare_df
 
 
@@ -548,10 +611,14 @@ def main():
                         help="mutation rate")
     parser.add_argument('-r', '--recombination-rate', type=float,
                         default=None, help="recombination rate")
+    parser.add_argument('-g', '--grid-slices', type=int,
+                        help="how many slices/quantiles to pass to time grid")
     parser.add_argument('-e', '--error-model', type=str,
                         default=None, help="input error model")
     parser.add_argument('-t', '--time-grid', type=str, default="adaptive",
                         help="adaptive or uniform time grid")
+    parser.add_argument('-a', '--approximate-prior', action="store_true",
+                        help="use approximate prior")
     parser.add_argument(
         '--seed', '-s', type=int, default=123,
         help="use a non-default RNG seed")
@@ -563,7 +630,7 @@ def main():
     rng = random.Random(args.seed)
     seeds = [rng.randint(1, 2**31) for i in range(args.replicates)]
     inputted_params = [int(args.num_samples), args.Ne, args.length,
-                       args.mutation_rate, args.recombination_rate, args.time_grid, args.error_model]
+                       args.mutation_rate, args.recombination_rate, args.time_grid, args.grid_slices, args.approximate_prior, args.error_model]
     params = iter([np.concatenate([[index], inputted_params, [seed]])
                   for index, seed in enumerate(seeds)])
     run_multiprocessing(vanilla_tests, params, args.output, args.replicates, args.processes)
