@@ -23,7 +23,7 @@
 from .date import (  # NOQA
     date, restrict_ages_topo, return_ts, create_time_grid, find_node_tip_weights,
     get_prior_values, prior_maker, forwards_algorithm,
-    approx_post_mean_var, gamma_approx, get_mixture_prior, iterate_parent_edges)
+    forwards_mean_var, gamma_approx, get_mixture_prior, iterate_parent_edges)
 
 
 from .provenance import __version__  # NOQA
