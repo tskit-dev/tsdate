@@ -9,7 +9,8 @@
 # copies of the Software, and to permit persons to whom the Software is
 # furnished to do so, subject to the following conditions:
 #
-# The above copyright notice and this permission notice shall be included in all
+# The above copyright notice and this permission notice shall be included in
+# all
 # copies or substantial portions of the Software.
 #
 # THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
@@ -38,6 +39,7 @@ class TestBasicFunctions(unittest.TestCase):
     """
     Test for some of the basic functions used in tsdate
     """
+
     def test_alpha_prob(self):
         prior = tsdate.prior_maker(10)
         self.assertEqual(prior.m_prob(2, 2, 3), 1.)
@@ -53,7 +55,8 @@ class TestBasicFunctions(unittest.TestCase):
     def test_tau_squared_conditional(self):
         prior = tsdate.prior_maker(10)
         self.assertAlmostEqual(prior.tau_squared_conditional(1, 10), 4.3981418)
-        self.assertAlmostEqual(prior.tau_squared_conditional(100, 100), -4.87890977e-18)
+        self.assertAlmostEqual(
+            prior.tau_squared_conditional(100, 100), -4.87890977e-18)
 
     def test_tau_var(self):
         prior = tsdate.prior_maker(10)
@@ -72,7 +75,7 @@ class TestBasicFunctions(unittest.TestCase):
 
 class TestNodeTipWeights(unittest.TestCase):
     def verify_weights(self, ts):
-        total_samples, weights_by_node = tsdate.find_node_tip_weights(ts)
+        total_samples, weights_by_node, _ = tsdate.find_node_tip_weights(ts)
         # Check all non-sample nodes in a tree are represented
         nonsample_nodes = set()
         for tree in ts.trees():
@@ -121,7 +124,8 @@ class TestNodeTipWeights(unittest.TestCase):
         weights = self.verify_weights(ts)
         self.assertEqual(weights[5][n][3], 1.0)  # Root on right tree
         self.assertEqual(weights[4][n][3], 0.2)  # Root on left tree ...
-        self.assertEqual(weights[4][n][2], 0.8)  # ... but internal node on right tree
+        # ... but internal node on right tree
+        self.assertEqual(weights[4][n][2], 0.8)
         self.assertEqual(weights[3][n][2], 1.0)  # Internal node on left tree
 
     def test_missing_tree(self):
@@ -133,9 +137,11 @@ class TestNodeTipWeights(unittest.TestCase):
         self.assertRaises(ValueError, tsdate.find_node_tip_weights, ts)
         ts = ts.simplify()
         weights = self.verify_weights(ts)
-        self.assertTrue(5 not in weights)    # Root on (deleted) right tree is missin
+        # Root on (deleted) right tree is missin
+        self.assertTrue(5 not in weights)
         self.assertEqual(weights[4][n][3], 1.0)  # Root on left tree ...
-        self.assertTrue(2 not in weights[4][n])  # ... but internal on (deleted) r tree
+        # ... but internal on (deleted) r tree
+        self.assertTrue(2 not in weights[4][n])
         self.assertEqual(weights[3][n][2], 1.0)  # Internal node on left tree
 
     def test_tree_with_unary_nodes(self):
@@ -209,18 +215,21 @@ class TestMakePrior(unittest.TestCase):
     def test_precalculated_prior(self):
         pm = tsdate.prior_maker(10, approximate=False)
         prior1 = pm.make_prior()
-        pm.precalc_approximation_n = 10  # Force approx prior with a tiny n, for testing
+        # Force approx prior with a tiny n, for testing
+        pm.precalc_approximation_n = 10
         pm.precalculate_prior_for_approximation()
         # Should have created the prior file
         self.assertTrue(os.path.isfile(pm.precalc_approximation_fn))
         prior2 = pm.make_prior()
         self.assertTrue(prior1.equals(prior2))
-        # Test when using a bigger n that we are using the precalculated version
+        # Test when using a bigger n that we're using the precalculated version
         pm100 = tsdate.prior_maker(100, approximate=False)
         pm100.precalc_approximation_n = 10  # Use the same tiny approximation
-        # Check here that the approximation is working, by force-reading the approx prior
+        # Check here that the approximation is working,
+        # by force-reading the approx prior
         # and setting approx = True
-        pm100.prior_df = pd.read_csv(pm100.precalc_approximation_fn, index_col=0)
+        pm100.prior_df = pd.read_csv(
+            pm100.precalc_approximation_fn, index_col=0)
         pm100.approximate = True
         prior100 = pm100.make_prior()
         # Uncomment below to check what we are getting
@@ -231,4 +240,83 @@ class TestMakePrior(unittest.TestCase):
         pm100.clear_precalculated_prior()
         self.assertFalse(
             os.path.isfile(pm100.precalc_approximation_fn),
-            "The file `{}` should have been deleted, but has not been. Please delete it")
+            "The file `{}` should have been deleted, but has not been.\
+             Please delete it")
+
+
+class TestMixturePrior(unittest.TestCase):
+    def get_mixture_prior(self, ts):
+        num_samples, tip_weights, _ = tsdate.find_node_tip_weights(ts)
+        prior_df = {ts.num_samples: tsdate.prior_maker(
+            ts.num_samples, approximate=False).make_prior()}
+        mixture_prior = tsdate.get_mixture_prior(tip_weights, prior_df)
+        return(mixture_prior)
+
+    def test_one_tree_n2(self):
+        ts = utility_functions.single_tree_ts_n2()
+        mixture_prior = self.get_mixture_prior(ts)
+        [self.assertAlmostEqual(x, y)
+         for x, y in zip(mixture_prior.loc[2].values,
+                         [1., 1.])]
+
+    def test_one_tree_n3(self):
+        ts = utility_functions.single_tree_ts_n3()
+        mixture_prior = self.get_mixture_prior(ts)
+        [self.assertAlmostEqual(x, y)
+         for x, y in zip(mixture_prior.loc[3].values,
+                         [1., 3.])]
+        [self.assertAlmostEqual(x, y)
+         for x, y in zip(mixture_prior.loc[4].values,
+                         [1.6, 1.2])]
+
+    def test_one_tree_n4(self):
+        ts = utility_functions.single_tree_ts_n4()
+        mixture_prior = self.get_mixture_prior(ts)
+        [self.assertAlmostEqual(x, y)
+         for x, y in zip(mixture_prior.loc[4].values,
+                         [0.81818182, 3.27272727])]
+        [self.assertAlmostEqual(x, y)
+         for x, y in zip(mixture_prior.loc[5].values,
+                         [1.8, 3.6])]
+        [self.assertAlmostEqual(x, y)
+         for x, y in zip(mixture_prior.loc[6].values,
+                         [1.97560976, 1.31707317])]
+
+    def test_polytomy_tree(self):
+        ts = utility_functions.polytomy_tree_ts()
+        mixture_prior = self.get_mixture_prior(ts)
+        [self.assertAlmostEqual(x, y)
+         for x, y in zip(mixture_prior.loc[3].values,
+                         [1.6, 1.2])]
+
+    def test_two_trees(self):
+        ts = utility_functions.two_tree_ts()
+        mixture_prior = self.get_mixture_prior(ts)
+        [self.assertAlmostEqual(x, y)
+         for x, y in zip(mixture_prior.loc[3].values,
+                         [1., 3.])]
+        # Node 4 should be a mixture between 2 and 3 tips
+        [self.assertAlmostEqual(x, y, places=4)
+         for x, y in zip(mixture_prior.loc[4].values,
+                         [0.60377, 1.13207])]
+        [self.assertAlmostEqual(x, y)
+         for x, y in zip(mixture_prior.loc[5].values,
+                         [1.6, 1.2])]
+
+    def test_single_tree_ts_with_unary(self):
+        ts = utility_functions.single_tree_ts_with_unary()
+        mixture_prior = self.get_mixture_prior(ts)
+        [self.assertAlmostEqual(x, y)
+         for x, y in zip(mixture_prior.loc[3].values,
+                         [1., 3.])]
+        # Node 4 should be a mixture between 2 and 3 tips
+        [self.assertAlmostEqual(x, y, places=4)
+         for x, y in zip(mixture_prior.loc[4].values,
+                         [0.80645, 0.96774])]
+        # Node 5 should be a mixture between 1 and 3 tips
+        [self.assertAlmostEqual(x, y, places=4)
+         for x, y in zip(mixture_prior.loc[5].values,
+                         [0.44444, 0.66666])]
+        [self.assertAlmostEqual(x, y)
+            for x, y in zip(mixture_prior.loc[6].values,
+                            [1.6, 1.2])]

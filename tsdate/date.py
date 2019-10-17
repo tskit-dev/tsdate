@@ -97,8 +97,8 @@ class prior_maker():
         Corollary 2 in Wiuf and Donnelly (1999). Probability of one
         ancestor to entire sample at time tau
         """
-        return (comb(n - m - 1, i - 2, exact=True)
-                * comb(m, 2, exact=True)) / comb(n, i + 1, exact=True)
+        return (comb(n - m - 1, i - 2, exact=True) *
+                comb(m, 2, exact=True)) / comb(n, i + 1, exact=True)
 
     def tau_expect(self, i, n):
         if i == n:
@@ -111,7 +111,7 @@ class prior_maker():
         Gives expectation of tau squared conditional on m
         Equation (10) from Wiuf and Donnelly (1999).
         """
-        t_sum = np.sum(1 / np.arange(m, n+1)**2)
+        t_sum = np.sum(1 / np.arange(m, n + 1) ** 2)
         return 8 * t_sum + (8 / n) - (8 / m) - (8 / (n * m))
 
     def tau_var(self, i, n):
@@ -136,7 +136,8 @@ class prior_maker():
         if i == n:
             return self.tau_var(i, n)
         else:
-            return self.prior_df.iloc[self.prior_df.index.searchsorted(i / n)].values[0]
+            return self.prior_df.iloc[
+                self.prior_df.index.searchsorted(i / n)].values[0]
 
     def make_prior(self):
         """
@@ -188,9 +189,12 @@ def get_mixture_prior(node_mixtures, age_prior):
         for N, tip_dict in node_mixtures[node].items():
             alpha = age_prior[N].loc[np.array(list(tip_dict.keys())), "Alpha"]
             beta = age_prior[N].loc[np.array(list(tip_dict.keys())), "Beta"]
-            first += sum(alpha / (beta ** 2) * np.array(list(tip_dict.values())))
-            second += sum((alpha / beta) ** 2 * np.array(list(tip_dict.values())))
-            third += sum((alpha / beta) * np.array(list(tip_dict.values()))) ** 2
+            first += \
+                sum(alpha / (beta ** 2) * np.array(list(tip_dict.values())))
+            second += \
+                sum((alpha / beta) ** 2 * np.array(list(tip_dict.values())))
+            third += \
+                sum((alpha / beta) * np.array(list(tip_dict.values()))) ** 2
         return first + second - third
 
     prior = pd.DataFrame(
@@ -240,7 +244,8 @@ def find_node_tip_weights(tree_sequence):
         curr_samples.update(
             [e.child for e in e_in if e.child in samples])
 
-        num_valid = len(curr_samples)  # Number of non-missing samples in this tree
+        # Number of non-missing samples in this tree
+        num_valid = len(curr_samples)
         valid_samples_in_tree[i] = num_valid
         span = tree.span
 
@@ -250,7 +255,8 @@ def find_node_tip_weights(tree_sequence):
         # number of tips under each parent node
         for node in tree.nodes():
             if tree.is_sample(node):
-                continue  # Don't calculate for sample nodes as they have a date
+                # Don't calculate for sample nodes as they have a date
+                continue
             n_samples = tree.num_samples(node)
             if n_samples == 0:
                 raise ValueError(
@@ -262,7 +268,8 @@ def find_node_tip_weights(tree_sequence):
                 result[node][num_valid][n_samples] += span
                 spans[node] += span
             else:
-                # UNARY NODES: take a mixture of the coalescent nodes above and below
+                # UNARY NODES: take a mixture of the coalescent nodes 
+                # above and below
                 #  above:
                 n = node
                 done = False
@@ -277,11 +284,11 @@ def find_node_tip_weights(tree_sequence):
                     trees_with_unassigned_nodes.add(i)
                     continue
                 # Half from the node above
-                result[node][num_valid][tree.num_samples(n)] += span/2
+                result[node][num_valid][tree.num_samples(n)] += span / 2
 
                 #  coalescent node below should have same num_samples as this one
                 assert len(tree.children(node)) == 1
-                result[node][num_valid][tree.num_samples(node)] += span/2
+                result[node][num_valid][tree.num_samples(node)] += span / 2
 
                 spans[node] += span
 
@@ -324,18 +331,20 @@ def find_node_tip_weights(tree_sequence):
                     for local_valid, weights in result[n].items():
                         for k, v in weights.items():
                             local_weight = v / spans[n]
-                            result[node][local_valid][k] += tree.span *\
+                            result[node][local_valid][k] += tree.span * \
                                 local_weight / 2
                     assert len(tree.children(node)) == 1
                     num_valid = valid_samples_in_tree[i]
-                    result[node][num_valid][tree.num_samples(node)] += tree.span / 2
+                    result[node][num_valid][tree.num_samples(node)] += \
+                        tree.span / 2
                     spans[node] += tree.span
 
     if tree_sequence.num_nodes - tree_sequence.num_samples - len(result) != 0:
         logging.debug(
             "Assigning priors to remaining (unconnected) unary nodes\
             using max depth")
-        # We STILL have some missing priors. These must be unconnected to higher
+        # We STILL have some missing priors.
+        # These must be unconnected to higher
         # nodes in the tree, so we can simply give them the max depth
         max_samples = tree_sequence.num_samples
         curr_samples = set()
@@ -353,7 +362,8 @@ def find_node_tip_weights(tree_sequence):
                     # below, we do as before
                     assert len(tree.children(node)) == 1
                     num_valid = valid_samples_in_tree[i]
-                    result[node][num_valid][tree.num_samples(node)] += tree.span / 2
+                    result[node][num_valid][tree.num_samples(node)] += \
+                        tree.span / 2
                     spans[node] += tree.span
 
     if tree_sequence.num_nodes - tree_sequence.num_samples != len(result):
@@ -364,9 +374,10 @@ def find_node_tip_weights(tree_sequence):
     for node, weights in result.items():
         result[node] = {}
         for num_samples, w in weights.items():
-            result[node][num_samples] = {k: v / spans[node] for k, v in w.items()}
+            result[node][num_samples] = \
+                {k: v / spans[node] for k, v in w.items()}
 
-    return np.unique(valid_samples_in_tree), result
+    return np.unique(valid_samples_in_tree), result, spans
 
 
 def create_time_grid(age_prior, n_points=21):
@@ -381,7 +392,7 @@ def create_time_grid(age_prior, n_points=21):
     """
     # Percentages - current day samples should be at time 0, so we omit this
     # We can't include the top end point, as this leads to NaNs
-    percentiles = np.linspace(0, 1, n_points+1)[1:-1]
+    percentiles = np.linspace(0, 1, n_points + 1)[1:-1]
     # percentiles = np.append(percentiles, 0.999999)
     """
     get the set of times from gamma percent point function at the given
@@ -392,7 +403,7 @@ def create_time_grid(age_prior, n_points=21):
                                   scale=1 / age_prior.loc[2, "Beta"])
 
     # progressively add values to the grid
-    max_sep = 1.0/(n_points-1)
+    max_sep = 1.0 / (n_points - 1)
     if age_prior.shape[0] > 2:
         for i in np.arange(3, age_prior.shape[0] + 1):
             # gamma percentiles of existing times in grid
@@ -418,6 +429,10 @@ def create_time_grid(age_prior, n_points=21):
 
 def iterate_parent_edges(ts):
     if ts.num_edges > 0:
+        # Fix this when reversed iterator is merged to main tskit
+        # tskit github issue #304
+        # but instead should iterate over edge ids in reverse
+        # i.e. edge_ids = list(reversed(range(ts.num_edges)))
         all_edges = list(ts.edges())
         parent_edges = all_edges[:1]
         parent_edges[0] = (0, parent_edges[0])
@@ -430,22 +445,6 @@ def iterate_parent_edges(ts):
                 parent_edges = []
             parent_edges.append((index + 1, edge))
         yield parent_edges
-
-
-def iterate_child_edges(ts):
-    if ts.num_edges > 0:
-        all_edges = list(ts.edges())
-        child_edges = all_edges[-1:]
-        child_edges[0] = (0, child_edges[0])
-        cur_child = all_edges[-1:][0].child
-        last_children = np.arange(ts.num_samples)
-        for index, edge in enumerate(np.flip(all_edges[0:-1])):
-            if edge.child != cur_child and edge.child not in last_children:
-                yield child_edges
-                cur_child = edge.child
-                child_edges = []
-            child_edges.append((index + 1, edge))
-        yield child_edges
 
 
 def get_prior_values(mixture_prior, grid, ts):
@@ -468,20 +467,10 @@ def get_prior_values(mixture_prior, grid, ts):
     return prior_times
 
 
-def get_approx_post(ts, prior_values, grid, theta, rho,
-                    eps, progress):
+def get_mut_edges(ts):
     """
-    Use dynamic programming to find approximate posterior to sample from
+    Assign mutations to edges in the tree sequence.
     """
-
-    approx_post = np.zeros((ts.num_nodes, len(grid)))  # store forward matrix
-    # initialize tips at time 0 to prob=1
-    # TODO - account for ancient samples at different ages
-    approx_post[ts.samples(), 0] = 1
-
-    norm = np.zeros((ts.num_nodes))  # normalizing constants
-    norm[ts.samples()] = 1  # set all tips normalizing constants to 1
-
     edge_diff_iter = ts.edge_diffs()
     right = 0
     edges_by_child = {}  # contains {child_node:edge_id}
@@ -500,9 +489,30 @@ def get_approx_post(ts, prior_values, grid, theta, rho,
             if m.node in edges_by_child:
                 edge_id = edges_by_child[m.node]
                 mut_edges[edge_id] += 1
+    return(mut_edges)
+
+
+def forwards_algorithm(ts, prior_values, grid, theta, rho, eps, progress):
+    """
+    Use dynamic programming to find approximate posterior to sample from
+    """
+
+    forwards = np.zeros((ts.num_nodes, len(grid)))  # store forward matrix
+    g_i = np.zeros((ts.num_nodes, len(grid)))  # store g of i
+    # initialize tips at time 0 to prob=1
+    # TODO - account for ancient samples at different ages
+    forwards[ts.samples(), 0] = 1
+    g_i[ts.samples(), 0] = 1
+
+    norm = np.zeros((ts.num_nodes))  # normalizing constants
+    norm[ts.samples()] = 1  # set all tips normalizing constants to 1
+
+    mut_edges = get_mut_edges(ts)
 
     # Iterate through the nodes via groupby on parent node
-    for parent_group in tqdm(iterate_parent_edges(ts), disable=not progress):
+    for parent_group in tqdm(
+        iterate_parent_edges(ts), total=ts.num_nodes - ts.num_samples,
+            disable=not progress):
         """
         for each node, find the conditional prob of age at every time
         in time grid
@@ -528,35 +538,36 @@ def get_approx_post(ts, prior_values, grid, theta, rho,
                     b_r = (edge.right != ts.get_sequence_length())
                     lk_rec = np.power(
                         dt, b_l + b_r) * np.exp(-(dt * rho * span * 2))
-                    vv = sum(approx_post[edge.child, 0:time + 1] * (
+                    vv = sum(forwards[edge.child, 0:time + 1] * (
                         lk_mut * lk_rec))
                 elif theta is not None:
                     lk_mut = scipy.stats.poisson.pmf(
                         mut_edges[edge_index], dt * (theta / 2 * span))
-                    vv = sum(approx_post[edge.child, 0:time + 1] * lk_mut)
+                    vv = sum(forwards[edge.child, 0:time + 1] * lk_mut)
                 elif rho is not None:
                     b_l = (edge.left != 0)
                     b_r = (edge.right != ts.get_sequence_length())
                     lk_rec = np.power(
                         dt, b_l + b_r) * np.exp(-(dt * rho * span * 2))
-                    vv = sum(approx_post[edge.child, 0:time + 1] * lk_rec)
+                    vv = sum(forwards[edge.child, 0:time + 1] * lk_rec)
 
                 else:
                     # Topology-only clock
                     vv = sum(
-                        approx_post[edge.child, 0:time + 1] * 1 / len(
+                        forwards[edge.child, 0:time + 1] * 1 / len(
                             grid))
 
                 val = val * vv
-            approx_post[parent, time] = val
+            forwards[parent, time] = val
 
-        norm[parent] = max(approx_post[parent, :])
-        approx_post[parent, :] = approx_post[parent, :] / norm[parent]
-    approx_post = np.insert(approx_post, 0, grid, 0)
-    return approx_post
+        norm[parent] = max(forwards[parent, :])
+        forwards[parent, :] = forwards[parent, :] / norm[parent]
+    g_i = np.divide(forwards, prior_values)
+
+    return forwards, g_i
 
 
-def approx_post_mean_var(ts, grid, approx_post):
+def forwards_mean_var(ts, grid, forwards):
     """
     Mean and variance of node age in scaled time
     """
@@ -566,19 +577,19 @@ def approx_post_mean_var(ts, grid, approx_post):
     nonsample_nodes = np.arange(ts.num_nodes)
     nonsample_nodes = nonsample_nodes[~np.isin(nonsample_nodes, ts.samples())]
     for nd in nonsample_nodes:
-        mn_post[nd] = sum(approx_post[nd, ] * grid) / sum(approx_post[nd, ])
+        mn_post[nd] = sum(forwards[nd, ] * grid) / sum(forwards[nd, ])
         vr_post[nd] = (
-            sum(approx_post[nd, ] * grid ** 2) /
-            sum(approx_post[nd, ]) - mn_post[nd] ** 2)
+            sum(forwards[nd, ] * grid ** 2) /
+            sum(forwards[nd, ]) - mn_post[nd] ** 2)
     return mn_post, vr_post
 
 
-def restrict_ages_topo(ts, approx_post_mn, grid, eps):
+def restrict_ages_topo(ts, forwards_mn, grid, eps):
     """
     If predicted node times violate topology, restrict node ages so that they
     must be older than all their children.
     """
-    new_mn_post = np.copy(approx_post_mn)
+    new_mn_post = np.copy(forwards_mn)
     tables = ts.tables
     nonsample_nodes = np.arange(ts.num_nodes)
     nonsample_nodes = nonsample_nodes[~np.isin(nonsample_nodes, ts.samples())]
@@ -655,17 +666,19 @@ def date(
 
     num_samples, tip_weights = find_node_tip_weights(tree_sequence)
     prior_df = {tree_sequence.num_samples:
-                prior_maker(tree_sequence.num_samples, approximate_prior).make_prior()}
+                prior_maker(
+                    tree_sequence.num_samples, approximate_prior).make_prior()}
     # Add in priors for trees with different sample numbers (missing data only)
     for s in num_samples:
         if s != tree_sequence.num_samples:
             prior_df[s] = prior_maker(s, approximate_prior).make_prior()
 
     if time_grid == 'uniform':
-        grid = np.linspace(0, 8, grid_slices+1)
+        grid = np.linspace(0, 8, grid_slices + 1)
     elif time_grid == 'adaptive':
         # Use the prior for the complete TS
-        grid = create_time_grid(prior_df[tree_sequence.num_samples], grid_slices+1)
+        grid = create_time_grid(
+            prior_df[tree_sequence.num_samples], grid_slices + 1)
     else:
         raise ValueError("time_grid must be either 'adaptive' or 'uniform'")
 
@@ -678,9 +691,9 @@ def date(
         theta = 4 * Ne * mutation_rate
     if recombination_rate is not None:
         rho = 4 * Ne * recombination_rate
-    approx_post = get_approx_post(tree_sequence, prior_vals, grid,
+    forwards = forwards_algorithm(tree_sequence, prior_vals, grid,
                                   theta, rho, eps, progress)
-    mn_post, _ = approx_post_mean_var(tree_sequence, grid, approx_post)
+    mn_post, _ = forwards_mean_var(tree_sequence, grid, forwards)
     new_mn_post = restrict_ages_topo(tree_sequence, mn_post, grid, eps)
     dated_ts = return_ts(tree_sequence, new_mn_post, Ne)
     return dated_ts
