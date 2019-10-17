@@ -131,6 +131,7 @@ class TestNodeTipWeights(unittest.TestCase):
     def test_missing_tree(self):
         tables = utility_functions.two_tree_ts().tables.keep_intervals(
             [(0, 0.2)], simplify=False)
+        tables.sort()
         ts = tables.tree_sequence()
         n = ts.num_samples
         # Here we have no reference in the trees to node 6
