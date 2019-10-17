@@ -268,8 +268,7 @@ def find_node_tip_weights(tree_sequence):
                 result[node][num_valid][n_samples] += span
                 spans[node] += span
             else:
-                # UNARY NODES: take a mixture of the coalescent nodes 
-                # above and below
+                # UNARY NODES: take a mixture of the coalescent nodes above and below
                 #  above:
                 n = node
                 done = False
@@ -664,7 +663,7 @@ def date(
             raise NotImplementedError(
                 "Samples must all be at time 0")
 
-    num_samples, tip_weights = find_node_tip_weights(tree_sequence)
+    num_samples, tip_weights, spans = find_node_tip_weights(tree_sequence)
     prior_df = {tree_sequence.num_samples:
                 prior_maker(
                     tree_sequence.num_samples, approximate_prior).make_prior()}
