@@ -26,6 +26,7 @@ Test cases for the python API for tsdate.
 import unittest
 import os
 
+import numpy as np
 import pandas as pd
 import tskit  # NOQA
 import msprime
@@ -319,3 +320,56 @@ class TestMixturePrior(unittest.TestCase):
         [self.assertAlmostEqual(x, y)
             for x, y in zip(mixture_prior.loc[6].values,
                             [1.6, 1.2])]
+
+
+class TestPriorVals(unittest.TestCase):
+    def verify_prior_vals(self, ts):
+        _, tip_weights, spans = tsdate.find_node_tip_weights(ts)
+        prior_df = {ts.num_samples:
+                   tsdate.prior_maker(ts.num_samples, False).make_prior()}
+        grid = np.linspace(0, 3, 3)
+        mixture_prior = tsdate.get_mixture_prior(tip_weights, prior_df)
+        prior_vals = tsdate.get_prior_values(mixture_prior, grid, ts)
+        self.assertTrue(np.array_equal(prior_vals[0:ts.num_samples], 
+            np.tile(np.array([1, 0, 0]), (ts.num_samples, 1)))) 
+        return prior_vals
+
+    def test_one_tree_n2(self):
+        ts = utility_functions.single_tree_ts_n2()
+        prior_vals = self.verify_prior_vals(ts)
+        self.assertTrue(np.allclose(prior_vals[2], np.array([0, 1, 0.22313016])))
+
+    def test_one_tree_n3(self):
+        ts = utility_functions.single_tree_ts_n3()
+        prior_vals = self.verify_prior_vals(ts)
+        self.assertTrue(np.allclose(prior_vals[3], np.array([0, 1, 0.011109])))
+        self.assertTrue(np.allclose(prior_vals[4], np.array([0, 1, 0.3973851])))
+
+    def test_one_tree_n4(self):
+        ts = utility_functions.single_tree_ts_n4()
+        prior_vals = self.verify_prior_vals(ts)
+        self.assertTrue(np.allclose(prior_vals[4], np.array([0, 1, 0.00467134])))
+        self.assertTrue(np.allclose(prior_vals[5], np.array([0, 1, 0.02167806])))
+        self.assertTrue(np.allclose(prior_vals[6], np.array([0, 1, 0.52637529])))
+
+#    def test_polytomy_tree(self):
+#        ts = utility_functions.polytomy_tree_ts()
+#        prior_vals = self.verify_prior_vals(ts)
+#        self.assertTrue(
+
+class TestForwardAlgorithm(unittest.TestCase):
+    def verify_forward_algorithm(self, ts):
+        _, tip_weights, spans = tsdate.find_node_tip_weights(ts)
+        prior_df = {ts.num_samples:
+                   tsdate.prior_maker(ts.num_samples, False).make_prior()}
+        grid = np.linspace(0, 3, 3)
+        mixture_prior = tsdate.get_mixture_prior(tip_weights, prior_df)
+        prior_vals = tsdate.get_prior_values(mixture_prior, grid, ts)
+        theta = 1
+        rho = None
+        eps = 1e-6
+        forward, logged_forwards, logged_g_i, lls  = tsdate.forwards_algorithm(ts, prior_vals, grid, theta, rho, eps, False)
+        self.assertTrue(np.array_equal(prior_vals[0:ts.num_samples], 
+            np.tile(np.array([1, 0, 0]), (ts.num_samples, 1)))) 
+        return prior_vals
+

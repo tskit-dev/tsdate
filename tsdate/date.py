@@ -455,8 +455,9 @@ def get_prior_values(mixture_prior, grid, ts):
             prior_node = scipy.stats.gamma.cdf(
                 grid, mixture_prior.loc[node.id, "Alpha"],
                 scale=1 / mixture_prior.loc[node.id, "Beta"])
+            # force age to be less than max value
             prior_node = prior_node / max(prior_node)
-            # density of proposal in each epoch
+            # prior in each epoch
             prior_intervals = np.concatenate(
                 [np.array([0]), np.diff(prior_node)])
 
@@ -493,6 +494,47 @@ def get_mut_edges(ts):
     return(mut_edges)
 
 
+def get_mut_ll(ts, grid, theta, eps):
+    lk_mut = {}
+    mut_edges = get_mut_edges(ts)
+    for edge in ts.edges():
+        mut_edge = mut_edges[edge.id]
+        for time in np.arange(1, len(grid)):
+            dt = grid[time] - grid[:time + 1] + eps
+            lk_mut[(mut_edge, time, edge.right - edge.left)] = scipy.stats.poisson.pmf(
+                mut_edge,  dt * (theta / 2 * (edge.right - edge.left)))
+    return(lk_mut)
+
+
+def get_mut_ll_matrix(ts, grid, theta, eps):
+    """
+    Precalculate the likelihood for each unique edge.
+    An edge is considered unique if it has a unique number of mutations and
+    span.
+    Constructs a lower triangular matrix of all possible delta t's.
+    Rows are used in the forward algorithm and columns in the backward.
+    """
+    ll_mut = {}
+    mut_edges = get_mut_edges(ts)
+    lls = np.zeros((len(grid), len(grid)))
+    for time in np.arange(1, len(grid)):
+        dt = grid[time] - grid[0:time + 1] + eps
+        lls[time, 0:time + 1] = dt
+    tril_index = np.tril_indices(len(grid))
+    dt = lls[tril_index]
+
+    for edge in ts.edges():
+        mut_edge = mut_edges[edge.id]
+        span = edge.right - edge.left
+
+        if (mut_edge, span) not in ll_mut:
+            ll_mut[(mut_edge, span)] = np.zeros((len(grid), len(grid)))
+            print(mut_edge, span, len(grid), theta, dt)
+            ll_mut[(mut_edge, span)][tril_index] = scipy.stats.poisson.pmf(
+                mut_edge,  dt * (theta / 2 * (span)))
+    return(ll_mut)
+
+
 def forwards_algorithm(ts, prior_values, grid, theta, rho, eps, progress):
     """
     Use dynamic programming to find approximate posterior to sample from
@@ -500,6 +542,7 @@ def forwards_algorithm(ts, prior_values, grid, theta, rho, eps, progress):
 
     forwards = np.zeros((ts.num_nodes, len(grid)))  # store forward matrix
     g_i = np.zeros((ts.num_nodes, len(grid)))  # store g of i
+
     # initialize tips at time 0 to prob=1
     # TODO - account for ancient samples at different ages
     forwards[ts.samples(), 0] = 1
@@ -510,6 +553,10 @@ def forwards_algorithm(ts, prior_values, grid, theta, rho, eps, progress):
 
     mut_edges = get_mut_edges(ts)
 
+    if theta is not None:
+        lls = get_mut_ll_matrix(ts, grid, theta, eps)
+    else:
+        lls = None
     # Iterate through the nodes via groupby on parent node
     for parent_group in tqdm(
         iterate_parent_edges(ts), total=ts.num_nodes - ts.num_samples,
@@ -527,7 +574,7 @@ def forwards_algorithm(ts, prior_values, grid, theta, rho, eps, progress):
             dt = grid[time] - grid[0:time + 1] + eps
             # how much does prior change over that interval in grid
             val = prior_values[parent, time]
-
+            g_val = 0
             for edge_index, edge in parent_group:
                 # Calculate vals for each edge
                 span = edge.right - edge.left
@@ -539,41 +586,45 @@ def forwards_algorithm(ts, prior_values, grid, theta, rho, eps, progress):
                     b_r = (edge.right != ts.get_sequence_length())
                     lk_rec = np.power(
                         dt, b_l + b_r) * np.exp(-(dt * rho * span * 2))
-                    vv = sum(forwards[edge.child, 0:time + 1] * (
+                    vv = np.sum(forwards[edge.child, 0:time + 1] * (
                         lk_mut * lk_rec))
                 elif theta is not None:
-                    lk_mut = scipy.stats.poisson.pmf(
-                        mut_edges[edge_index], dt * (theta / 2 * span))
-                    vv = sum(forwards[edge.child, 0:time + 1] * lk_mut)
+                    lk_mut = lls[(mut_edges[edge_index], span)][time, :time + 1]
+                    vv = np.sum(forwards[edge.child, :time + 1] * lk_mut)
                 elif rho is not None:
                     b_l = (edge.left != 0)
                     b_r = (edge.right != ts.get_sequence_length())
                     lk_rec = np.power(
                         dt, b_l + b_r) * np.exp(-(dt * rho * span * 2))
-                    vv = sum(forwards[edge.child, 0:time + 1] * lk_rec)
+                    vv = np.sum(forwards[edge.child, 0:time + 1] * lk_rec)
 
                 else:
                     # Topology-only clock
-                    vv = sum(
+                    vv = np.sum(
                         forwards[edge.child, 0:time + 1] * 1 / len(
                             grid))
 
                 val = val * vv
+                g_val = vv
             forwards[parent, time] = val
-
-        norm[parent] = max(forwards[parent, :])
-        forwards[parent, :] = forwards[parent, :] / norm[parent]
+            g_i[parent, time] = g_val
+        norm[parent] = np.max(forwards[parent, :])
+        forwards[parent, :] = np.divide(forwards[parent, :],  norm[parent])
+        g_i_norm = np.max(g_i[parent, :])
+        g_i[parent, :] = np.divide(g_i[parent, :], g_i_norm)
+    logged_forwards = np.log(forwards + 1e-10)
+    logged_g_i = np.log(g_i + 1e-10)
     # g_i = np.divide(forwards, prior_values)
     # g_i[np.isnan(g_i)] = 0
     # g_i_normalized = g_i / np.max(g_i, axis=1)[:, None]
     # logged_g_i = np.log(g_i_normalized + eps)
     # logged_forwards = np.log(forwards + 1e-10)
 
-    return forwards
+    return forwards, logged_forwards, logged_g_i, lls
 
 
-#TODO: Account for multiple parents, fix the log of zero thing
-def compute_posterior(ts, theta, rho, forwards, grid, g_i, spans, eps):
+# TODO: Account for multiple parents, fix the log of zero thing
+def compute_posterior(ts, forwards, g_i, lls, grid, theta, rho, spans, eps):
     """
     Computes the full posterior distribution on nodes.
     """
@@ -589,9 +640,11 @@ def compute_posterior(ts, theta, rho, forwards, grid, g_i, spans, eps):
                 continue
             backwards[root] += (1 * tree.span) / spans[root]
     backwards[ts.samples(), 0] = 1
-    child_edges = (ts.edge(i) for i in reversed(np.argsort(ts.tables.nodes.time[ts.tables.edges.child[:]])))
+    child_edges = (ts.edge(i) for i in
+                   reversed(np.argsort(ts.tables.nodes.time[ts.tables.edges.child[:]])))
 
-    for child, edges in tqdm(itertools.groupby(child_edges, key = lambda x: x.child), total=ts.num_nodes - ts.num_samples):
+    for child, edges in tqdm(itertools.groupby(
+            child_edges, key=lambda x: x.child), total=ts.num_nodes - ts.num_samples):
         if child not in ts.samples():
             for time in reversed(np.arange(1, len(grid))):
                 dt = grid[time:] - grid[time] + eps
@@ -607,13 +660,19 @@ def compute_posterior(ts, theta, rho, forwards, grid, g_i, spans, eps):
                             dt, b_l + b_r) * np.exp(-(dt * rho * span * 2))
                         vv = sum(backwards[edge.parent, time:] *
                                  (lk_mut * lk_rec) *
-                                 np.nan_to_num(np.exp(np.subtract(forwards[edge.parent, time:], g_i[edge.child, time:]))))
+                                 np.nan_to_num(np.exp(np.subtract(
+                                    forwards[edge.parent, time:],
+                                    g_i[edge.child, time:]))))
                     elif theta is not None:
                         lk_mut = scipy.stats.poisson.pmf(
                             mut_edges[edge.id], dt * (theta / 2 * span))
-                        vv = sum(backwards[edge.parent, time:] *
-                                 (lk_mut) *
-                                 np.nan_to_num(np.exp(np.subtract(forwards[edge.parent, time:], g_i[edge.child, time:]))))
+                        # lk_mut = lls[edge.parent, time:]
+                        # lk_mut = lls[mut_edges[edge.id], span][time:]
+                        vv = sum(
+                            backwards[edge.parent, time:] * (lk_mut) *
+                            np.nan_to_num(np.exp(np.subtract
+                                          (forwards[edge.parent, time:],
+                                           g_i[edge.child, time:]))))
                     elif rho is not None:
                         b_l = (edge.left != 0)
                         b_r = (edge.right != ts.get_sequence_length())
@@ -629,12 +688,12 @@ def compute_posterior(ts, theta, rho, forwards, grid, g_i, spans, eps):
 
                 backwards[edge.child, time] = vv
             norm[edge.child] = max(backwards[edge.child, :])
-            backwards[edge.child, :] = np.divide(backwards[edge.child, :], norm[edge.child])
+            backwards[edge.child, :] = \
+                np.divide(backwards[edge.child, :], norm[edge.child])
             backwards[edge.child, :][np.isnan(backwards[edge.child, :])] = 0
-
-
-    posterior = forwards * backwards
-    posterior = posterior / np.sum(posterior, axis = 1)[:, None]
+    backwards_log = np.log(backwards + 1e-10)
+    posterior = np.exp(forwards + backwards_log)
+    posterior = posterior / np.sum(posterior, axis=1)[:, None]
     return posterior
 
 
@@ -762,9 +821,10 @@ def date(
         theta = 4 * Ne * mutation_rate
     if recombination_rate is not None:
         rho = 4 * Ne * recombination_rate
-    forwards = forwards_algorithm(tree_sequence, prior_vals, grid,
-                                  theta, rho, eps, progress)
-    # posterior = compute_posterior(tree_sequence, theta, rho, forwards, g_i, grid, spans, eps)
+    forwards, logged_forwards, logged_g_i, lls = forwards_algorithm(
+        tree_sequence, prior_vals, grid, theta, rho, eps, progress)
+    # posterior = compute_posterior(tree_sequence, logged_forwards, logged_g_i,
+    #                               lls, grid, theta, rho, spans, eps)
     mn_post, _ = forwards_mean_var(tree_sequence, grid, forwards)
     new_mn_post = restrict_ages_topo(tree_sequence, mn_post, grid, eps)
     dated_ts = return_ts(tree_sequence, new_mn_post, Ne)
