@@ -22,9 +22,9 @@
 
 from .date import (  # NOQA
     date, restrict_ages_topo, return_ts, create_time_grid, find_node_tip_weights,
-    get_prior_values, prior_maker, forwards_algorithm,
+    get_prior_values, prior_maker, forward_algorithm,
     forwards_mean_var, gamma_approx, get_mixture_prior, iterate_parent_edges,
-    compute_posterior, get_mut_ll_matrix)
+    backward_algorithm, get_mut_ll)
 
 
 from .provenance import __version__  # NOQA
