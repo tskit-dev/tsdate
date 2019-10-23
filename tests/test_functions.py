@@ -27,7 +27,6 @@ import unittest
 import os
 
 import numpy as np
-import pandas as pd
 import tskit  # NOQA
 import msprime
 
@@ -228,8 +227,8 @@ class TestMakePrior(unittest.TestCase):
         # Check here that the approximation is working,
         # by force-reading the approx prior
         # and setting approx = True
-        pm100.prior_df = pd.read_csv(
-            pm100.precalc_approximation_fn, index_col=0)
+        pm100.approx_prior = np.genfromtxt(
+            pm100.precalc_approximation_fn)
         pm100.approximate = True
         prior100 = pm100.make_prior()
         # Uncomment below to check what we are getting
@@ -326,12 +325,12 @@ class TestPriorVals(unittest.TestCase):
     def verify_prior_vals(self, ts):
         _, tip_weights, spans = tsdate.find_node_tip_weights(ts)
         prior_df = {ts.num_samples:
-                   tsdate.prior_maker(ts.num_samples, False).make_prior()}
+                    tsdate.prior_maker(ts.num_samples, False).make_prior()}
         grid = np.linspace(0, 3, 3)
         mixture_prior = tsdate.get_mixture_prior(tip_weights, prior_df)
         prior_vals = tsdate.get_prior_values(mixture_prior, grid, ts)
-        self.assertTrue(np.array_equal(prior_vals[0:ts.num_samples], 
-            np.tile(np.array([1, 0, 0]), (ts.num_samples, 1)))) 
+        self.assertTrue(np.array_equal(prior_vals[0:ts.num_samples],
+                        np.tile(np.array([1, 0, 0]), (ts.num_samples, 1))))
         return prior_vals
 
     def test_one_tree_n2(self):
@@ -357,19 +356,20 @@ class TestPriorVals(unittest.TestCase):
 #        prior_vals = self.verify_prior_vals(ts)
 #        self.assertTrue(
 
+
 class TestForwardAlgorithm(unittest.TestCase):
     def verify_forward_algorithm(self, ts):
         _, tip_weights, spans = tsdate.find_node_tip_weights(ts)
         prior_df = {ts.num_samples:
-                   tsdate.prior_maker(ts.num_samples, False).make_prior()}
+                    tsdate.prior_maker(ts.num_samples, False).make_prior()}
         grid = np.linspace(0, 3, 3)
         mixture_prior = tsdate.get_mixture_prior(tip_weights, prior_df)
         prior_vals = tsdate.get_prior_values(mixture_prior, grid, ts)
         theta = 1
         rho = None
         eps = 1e-6
-        forward, logged_forwards, logged_g_i, lls  = tsdate.forwards_algorithm(ts, prior_vals, grid, theta, rho, eps, False)
-        self.assertTrue(np.array_equal(prior_vals[0:ts.num_samples], 
-            np.tile(np.array([1, 0, 0]), (ts.num_samples, 1)))) 
+        forward, logged_forwards, logged_g_i, lls = \
+            tsdate.forwards_algorithm(ts, prior_vals, grid, theta, rho, eps, False)
+        self.assertTrue(np.array_equal(prior_vals[0:ts.num_samples],
+                        np.tile(np.array([1, 0, 0]), (ts.num_samples, 1))))
         return prior_vals
-

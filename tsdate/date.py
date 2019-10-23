@@ -43,10 +43,16 @@ def gamma_approx(mean, variance):
     """
     Returns alpha and beta of a gamma distribution for a given mean and variance
     """
+
     return (mean ** 2) / variance, mean / variance
 
 
 class prior_maker():
+    """
+    Create a pandas dataframe to lookup prior variance of each node.
+    The lookup table is generated with total_tips = 1000.
+    Keys are (num_tips / total_tips).
+    """
     def __init__(self, total_tips, approximate=None):
         self.precalc_approximation_n = 1000  # Size of tree used for approx prior
         self.total_tips = total_tips
@@ -61,7 +67,7 @@ class prior_maker():
 
         if self.approximate:
             if os.path.isfile(self.precalc_approximation_fn):
-                self.prior_df = pd.read_csv(self.precalc_approximation_fn, index_col=0)
+                self.approx_prior = np.genfromtxt(self.precalc_approximation_fn)
             else:
                 # Create lookup table based on a large n that can be used for n > ~50
                 self.precalculate_prior_for_approximation()
@@ -72,7 +78,7 @@ class prior_maker():
         script_dir = os.path.dirname(os.path.abspath(__file__))
         parent_dir = os.path.dirname(script_dir)
         return os.path.join(
-            parent_dir, "data", "prior_{}df.csv".format(self.precalc_approximation_n))
+            parent_dir, "data", "prior_{}df.txt".format(self.precalc_approximation_n))
 
     def precalculate_prior_for_approximation(self):
         logging.debug(
@@ -80,11 +86,12 @@ class prior_maker():
             " in `{}`, this may take some time for large n"
             .format(self.precalc_approximation_n, self.precalc_approximation_fn))
         n = self.precalc_approximation_n
-        prior_lookup_table = {val / n: self.tau_var(val, n + 1)
-                              for val in np.arange(1, n + 1)}
-        self.prior_df = pd.DataFrame.from_dict(
-            prior_lookup_table, orient='index')
-        self.prior_df.to_csv(self.precalc_approximation_fn)
+        # The first value should be zero tips, we don't want the 1 tip value
+        prior_lookup_table = np.zeros((n, 2))
+        all_tips = np.arange(2, n + 1)
+        prior_lookup_table[1:, 0] = all_tips / n
+        prior_lookup_table[1:, 1] = [self.tau_var(val, n + 1) for val in all_tips]
+        np.savetxt(self.precalc_approximation_fn, prior_lookup_table)
 
     def clear_precalculated_prior(self):
         if os.path.isfile(self.precalc_approximation_fn):
@@ -131,15 +138,25 @@ class prior_maker():
                                    self.tau_squared_conditional(m, n))
             return np.abs((self.tau_expect(i, n) ** 2) - (tau_square_sum))
 
-    def tau_var_lookup(self, i, n):
+    def tau_var_lookup(self, all_tips):
         """
         Lookup tau_var if approximate is True
         """
-        if i == n:
-            return self.tau_var(i, n)
-        else:
-            return self.prior_df.iloc[
-                self.prior_df.index.searchsorted(i / n)].values[0]
+        interpolated_prior = np.interp(all_tips / self.total_tips,
+                                       self.approx_prior[:, 0], self.approx_prior[:, 1])
+
+        # insertion_point = np.searchsorted(all_tips / self.total_tips,
+        #    self.approx_prior[:, 0])
+        # interpolated_prior = self.approx_prior[insertion_point, 1]
+
+        # The final MRCA we calculate exactly
+        interpolated_prior[all_tips == self.total_tips] = \
+            self.tau_var(self.total_tips, self.total_tips)
+        return interpolated_prior
+
+    def tau_var_exact(self, all_tips):
+        # TODO, vectorize this properly
+        return [self.tau_var(tips, self.total_tips) for tips in all_tips]
 
     def make_prior(self):
         """
@@ -157,12 +174,13 @@ class prior_maker():
         if self.approximate:
             get_tau_var = self.tau_var_lookup
         else:
-            get_tau_var = self.tau_var
+            get_tau_var = self.tau_var_exact
 
-        for tips in np.arange(2, self.total_tips + 1):
+        all_tips = np.arange(2, self.total_tips + 1)
+        variances = get_tau_var(all_tips)
+        for var, tips in zip(variances, all_tips):
             # NB: it should be possible to vectorize this in numpy
             expectation = self.tau_expect(tips, self.total_tips)
-            var = get_tau_var(tips, self.total_tips)
             alpha, beta = gamma_approx(expectation, var)
             prior.loc[tips] = [alpha, beta]
         prior.index.name = 'Num_Tips'
@@ -203,6 +221,7 @@ def get_mixture_prior(node_mixtures, age_prior):
         index=node_mixtures.keys(), columns=["Alpha", "Beta"], dtype=float)
     for node in node_mixtures:
         prior.loc[node] = gamma_approx(mix_expect(node), mix_var(node))
+
     prior.index.name = "Node"
     return prior
 
@@ -456,13 +475,13 @@ def get_prior_values(mixture_prior, grid, ts):
                 grid, mixture_prior.loc[node.id, "Alpha"],
                 scale=1 / mixture_prior.loc[node.id, "Beta"])
             # force age to be less than max value
-            prior_node = prior_node / max(prior_node)
+            prior_node = np.divide(prior_node, max(prior_node))
             # prior in each epoch
             prior_intervals = np.concatenate(
                 [np.array([0]), np.diff(prior_node)])
 
             # normalize so max value is 1
-            prior_intervals = prior_intervals / max(prior_intervals[1:])
+            prior_intervals = np.divide(prior_intervals, max(prior_intervals[1:]))
             prior_times[node.id, :] = prior_intervals
         else:
             prior_times[node.id, 0] = 1
@@ -499,8 +518,10 @@ def get_mut_ll(ts, grid, theta, eps):
     Precalculate the likelihood for each unique edge.
     An edge is considered unique if it has a unique number of mutations and
     span.
-    Constructs a lower triangular matrix of all possible delta t's.
-    Rows are used in the forward algorithm and columns in the backward.
+    Constructs a lower triangular matrix of all possible delta t's, but
+    stores this in 1d to save space.
+    Computes numpy array of rows and columns to index into the likelihoods
+    for the forward and backward algorithms, respectively.
     """
     ll_mut = {}
     mut_edges = get_mut_edges(ts)
