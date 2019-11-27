@@ -211,6 +211,36 @@ class TestMakePrior(unittest.TestCase):
          for x, y in zip(prior.loc[3].values,
                          [1.6, 1.2])]
 
+    def test_two_tree_ts(self):
+        ts = utility_functions.two_tree_ts()
+        prior = self.verify_prior(ts)
+        [self.assertAlmostEqual(x, y)
+         for x, y in zip(prior.loc[2].values,
+                         [1., 3.])]
+        [self.assertAlmostEqual(x, y)
+         for x, y in zip(prior.loc[3].values,
+                         [1.6, 1.2])]
+
+    def test_single_tree_ts_with_unary(self):
+        ts = utility_functions.single_tree_ts_with_unary()
+        prior = self.verify_prior(ts)
+        [self.assertAlmostEqual(x, y)
+         for x, y in zip(prior.loc[2].values,
+                         [1., 3.])]
+        [self.assertAlmostEqual(x, y)
+         for x, y in zip(prior.loc[3].values,
+                         [1.6, 1.2])]
+
+    def test_two_tree_mutation_ts(self):
+        ts = utility_functions.two_tree_mutation_ts()
+        prior = self.verify_prior(ts)
+        [self.assertAlmostEqual(x, y)
+         for x, y in zip(prior.loc[2].values,
+                         [1., 3.])]
+        [self.assertAlmostEqual(x, y)
+         for x, y in zip(prior.loc[3].values,
+                         [1.6, 1.2])]
+
     def test_precalculated_prior(self):
         pm = tsdate.prior_maker(10, approximate=False)
         prior1 = pm.make_prior()
@@ -320,6 +350,20 @@ class TestMixturePrior(unittest.TestCase):
             for x, y in zip(mixture_prior.loc[6].values,
                             [1.6, 1.2])]
 
+    def test_two_tree_mutation_ts(self):
+        ts = utility_functions.two_tree_mutation_ts()
+        mixture_prior = self.get_mixture_prior(ts)
+        [self.assertAlmostEqual(x, y)
+         for x, y in zip(mixture_prior.loc[3].values,
+                         [1., 3.])]
+        # Node 4 should be a mixture between 2 and 3 tips
+        [self.assertAlmostEqual(x, y, places=4)
+         for x, y in zip(mixture_prior.loc[4].values,
+                         [0.60377, 1.13207])]
+        [self.assertAlmostEqual(x, y)
+         for x, y in zip(mixture_prior.loc[5].values,
+                         [1.6, 1.2])]
+
 
 class TestPriorVals(unittest.TestCase):
     def verify_prior_vals(self, ts):
@@ -336,25 +380,54 @@ class TestPriorVals(unittest.TestCase):
     def test_one_tree_n2(self):
         ts = utility_functions.single_tree_ts_n2()
         prior_vals = self.verify_prior_vals(ts)
-        self.assertTrue(np.allclose(prior_vals[2], np.array([0, 1, 0.22313016])))
+        self.assertTrue(np.allclose(prior_vals[2],
+                        np.array([0, 1, 0.22313016])))
 
     def test_one_tree_n3(self):
         ts = utility_functions.single_tree_ts_n3()
         prior_vals = self.verify_prior_vals(ts)
-        self.assertTrue(np.allclose(prior_vals[3], np.array([0, 1, 0.011109])))
-        self.assertTrue(np.allclose(prior_vals[4], np.array([0, 1, 0.3973851])))
+        self.assertTrue(np.allclose(prior_vals[3],
+                        np.array([0, 1, 0.011109])))
+        self.assertTrue(np.allclose(prior_vals[4],
+                        np.array([0, 1, 0.3973851])))
 
     def test_one_tree_n4(self):
         ts = utility_functions.single_tree_ts_n4()
         prior_vals = self.verify_prior_vals(ts)
-        self.assertTrue(np.allclose(prior_vals[4], np.array([0, 1, 0.00467134])))
-        self.assertTrue(np.allclose(prior_vals[5], np.array([0, 1, 0.02167806])))
-        self.assertTrue(np.allclose(prior_vals[6], np.array([0, 1, 0.52637529])))
+        self.assertTrue(np.allclose(prior_vals[4],
+                        np.array([0, 1, 0.00467134])))
+        self.assertTrue(np.allclose(prior_vals[5],
+                        np.array([0, 1, 0.02167806])))
+        self.assertTrue(np.allclose(prior_vals[6],
+                        np.array([0, 1, 0.52637529])))
 
-#    def test_polytomy_tree(self):
-#        ts = utility_functions.polytomy_tree_ts()
-#        prior_vals = self.verify_prior_vals(ts)
-#        self.assertTrue(
+    def test_polytomy_tree(self):
+        ts = utility_functions.polytomy_tree_ts()
+        prior_vals = self.verify_prior_vals(ts)
+        self.assertTrue(np.allclose(prior_vals[3],
+                        np.array([0, 1, 0.3973851])))
+
+    def test_two_tree_ts(self):
+        ts = utility_functions.two_tree_ts()
+        prior_vals = self.verify_prior_vals(ts)
+        self.assertTrue(np.allclose(prior_vals[3],
+                        np.array([0, 1, 0.011109])))
+        self.assertTrue(np.allclose(prior_vals[4],
+                        np.array([0, 1, 0.080002])))
+        self.assertTrue(np.allclose(prior_vals[5],
+                        np.array([0, 1, 0.3973851])))
+
+    def test_tree_with_unary_nodes(self):
+        ts = utility_functions.single_tree_ts_with_unary()
+        prior_vals = self.verify_prior_vals(ts)
+        self.assertTrue(np.allclose(prior_vals[3],
+                        np.array([0, 1, 0.011109])))
+        self.assertTrue(np.allclose(prior_vals[4],
+                        np.array([0, 1, 0.16443276])))
+        self.assertTrue(np.allclose(prior_vals[5],
+                        np.array([0, 1, 0.11312131])))
+        self.assertTrue(np.allclose(prior_vals[6],
+                        np.array([0, 1, 0.3973851])))
 
 
 class TestForwardAlgorithm(unittest.TestCase):
@@ -362,14 +435,109 @@ class TestForwardAlgorithm(unittest.TestCase):
         _, tip_weights, spans = tsdate.find_node_tip_weights(ts)
         prior_df = {ts.num_samples:
                     tsdate.prior_maker(ts.num_samples, False).make_prior()}
-        grid = np.linspace(0, 3, 3)
+        grid = np.array([0, 1.2, 2])
         mixture_prior = tsdate.get_mixture_prior(tip_weights, prior_df)
         prior_vals = tsdate.get_prior_values(mixture_prior, grid, ts)
         theta = 1
         rho = None
         eps = 1e-6
-        forward, logged_forwards, logged_g_i, lls = \
-            tsdate.forwards_algorithm(ts, prior_vals, grid, theta, rho, eps, False)
-        self.assertTrue(np.array_equal(prior_vals[0:ts.num_samples],
+        rows, cols = tsdate.get_rows_cols(grid)
+        lls = tsdate.get_mut_ll(ts, grid, theta, eps)
+        forward, g_i, logged_forwards, logged_g_i = \
+            tsdate.forward_algorithm(
+                ts, prior_vals, grid, theta, rho, eps, rows, lls, False)
+        self.assertTrue(np.array_equal(forward[0:ts.num_samples],
                         np.tile(np.array([1, 0, 0]), (ts.num_samples, 1))))
-        return prior_vals
+        self.assertTrue(np.allclose(logged_forwards[0:ts.num_samples],
+                        np.tile(np.array([1e-10, -23.02585, -23.02585]),
+                                (ts.num_samples, 1))))
+        self.assertTrue(np.allclose(logged_g_i[0:ts.num_samples],
+                        np.tile(np.array([1e-10, -23.02585, -23.02585]),
+                                (ts.num_samples, 1))))
+        return forward, logged_g_i
+
+    def test_one_tree_n2(self):
+        ts = utility_functions.single_tree_ts_n2()
+        forward, logged_g_i = self.verify_forward_algorithm(ts)
+        self.assertTrue(np.allclose(forward[2], np.array([0, 1, 0.10664654])))
+
+    def test_one_tree_n3(self):
+        ts = utility_functions.single_tree_ts_n3()
+        forward, logged_g_i = self.verify_forward_algorithm(ts)
+        self.assertTrue(np.allclose(forward[3],
+                        np.array([0, 1, 0.0114771635])))
+        self.assertTrue(np.allclose(forward[4],
+                        np.array([0, 1, 0.1941815518])))
+
+    def test_one_tree_n4(self):
+        ts = utility_functions.single_tree_ts_n4()
+        forward, logged_g_i = self.verify_forward_algorithm(ts)
+        self.assertTrue(np.allclose(forward[4], np.array([0, 1, 0.00548801])))
+        self.assertTrue(np.allclose(forward[5], np.array([0, 1, 0.0239174])))
+        self.assertTrue(np.allclose(forward[6], np.array([0, 1, 0.26222197])))
+
+    def test_polytomy_tree(self):
+        ts = utility_functions.polytomy_tree_ts()
+        forward, logged_g_i = self.verify_forward_algorithm(ts)
+        self.assertTrue(np.allclose(forward[3], np.array([0, 1, 0.12797265])))
+
+    def test_two_tree_ts(self):
+        ts = utility_functions.two_tree_ts()
+        forward, logged_g_i = self.verify_forward_algorithm(ts)
+        self.assertTrue(np.allclose(forward[3], np.array([0, 1, 0.02176622])))
+        self.assertTrue(np.allclose(forward[4], np.array([0, 1, 0.04403458])))
+        self.assertTrue(np.allclose(forward[5], np.array([0, 1, 0.23762418])))
+
+    def test_tree_with_unary_nodes(self):
+        ts = utility_functions.single_tree_ts_with_unary()
+        forward, logged_g_i = self.verify_forward_algorithm(ts)
+        self.assertTrue(np.allclose(forward[3], np.array([0, 1, 0.01147716])))
+        self.assertTrue(np.allclose(forward[4], np.array([0, 1, 0.12086781])))
+        self.assertTrue(np.allclose(forward[5], np.array([0, 1, 0.07506923])))
+        self.assertTrue(np.allclose(forward[6], np.array([0, 1, 0.25057244])))
+
+    def test_two_tree_mutation_ts(self):
+        ts = utility_functions.two_tree_mutation_ts()
+        forward, logged_g_i = self.verify_forward_algorithm(ts)
+        self.assertTrue(np.allclose(forward[3], np.array([0, 1, 0.02176622])))
+        self.assertTrue(np.allclose(forward[4],
+                        np.array([0, 2.90560754e-05, 1])))
+        self.assertTrue(np.allclose(forward[5],
+                        np.array([0, 5.65044738e-05, 1])))
+
+# class TestBackwardAlgorithm(unittest.TestCase):
+#    def verify_backward_algorithm(self, ts):
+#        _, tip_weights, spans = tsdate.find_node_tip_weights(ts)
+#        prior_df = {ts.num_samples:
+#                    tsdate.prior_maker(ts.num_samples, False).make_prior()}
+#        grid = np.array([0, 1.2, 2])
+#        mixture_prior = tsdate.get_mixture_prior(tip_weights, prior_df)
+#        prior_vals = tsdate.get_prior_values(mixture_prior, grid, ts)
+#        theta = 1
+#        rho = None
+#        eps = 1e-6
+#        lls, rows, cols = tsdate.get_mut_ll(ts, grid, theta, eps)
+#        forward, g_i, logged_forwards, logged_g_i = \
+#            tsdate.forward_algorithm(
+#                ts, prior_vals, grid, theta, rho, eps, lls, rows, False)
+#        posterior, backward = \
+#            tsdate.backward_algorithm(
+#                ts, logged_forwards, logged_g_i, grid, theta, rho,
+#                                      spans, eps, lls, cols)
+#        self.assertTrue(np.array_equal(backward[0:ts.num_samples],
+#                        np.tile(np.array([1, 0, 0]), (ts.num_samples, 1))))
+#        self.assertTrue(np.array_equal(posterior[0:ts.num_samples],
+#                        np.tile(np.array([1, 0, 0]), (ts.num_samples, 1))))
+#        return posterior, backward
+#
+#    def test_one_tree_n3(self):
+#        ts = utility_functions.single_tree_ts_n3()
+#        posterior, backward = self.verify_backward_algorithm(ts)
+#        self.assertTrue(np.array_equal(
+#                         backward[3], np.array([0, 1, 0.3350888368])))
+#        self.assertTrue(np.array_equal(backward[4], np.array([0, 1, 1])))
+#        self.assertTrue(np.array_equal(
+#             posterior[3], np.array([0, 0.99616886, 0.00383114])))
+#        self.assertTrue(np.array_equal(
+#                        posterior[4], np.array([0, 0.83739361, 0.16260639])))
+#
