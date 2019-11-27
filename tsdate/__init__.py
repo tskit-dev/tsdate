@@ -24,7 +24,7 @@ from .date import (  # NOQA
     date, restrict_ages_topo, return_ts, create_time_grid, find_node_tip_weights,
     get_prior_values, prior_maker, forward_algorithm,
     forwards_mean_var, gamma_approx, get_mixture_prior, iterate_parent_edges,
-    backward_algorithm, get_mut_ll)
+    backward_algorithm, get_mut_ll, get_rows_cols)
 
 
 from .provenance import __version__  # NOQA
