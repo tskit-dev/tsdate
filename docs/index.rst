@@ -1,10 +1,11 @@
-.. tsdate documentation master file, created by
-   sphinx-quickstart on Fri Aug 30 15:45:00 2019.
-   You can adapt this file completely to your liking, but it should at least
-   contain the root `toctree` directive.
+.. currentmodule:: tsdate
+.. tsdate documentation master file, created by Wilder Wohns
 
 Welcome to tsdate's documentation!
 ==================================
+
+``Tsdate`` is a scalable method for placing node dates or times on a 
+ :ref:`tree sequence <sec_python_api>`.
 
 .. toctree::
    :maxdepth: 2
