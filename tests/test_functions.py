@@ -41,28 +41,29 @@ class TestBasicFunctions(unittest.TestCase):
     """
 
     def test_alpha_prob(self):
-        prior = tsdate.prior_maker(10)
-        self.assertEqual(prior.m_prob(2, 2, 3), 1.)
-        self.assertEqual(prior.m_prob(2, 2, 4), 0.25)
+        self.assertEqual(tsdate.ConditionalCoalescentTimes.m_prob(2, 2, 3), 1.)
+        self.assertEqual(tsdate.ConditionalCoalescentTimes.m_prob(2, 2, 4), 0.25)
 
     def test_tau_expect(self):
-        prior = tsdate.prior_maker(10)
-        self.assertEqual(prior.tau_expect(10, 10), 1.8)
-        self.assertEqual(prior.tau_expect(10, 100), 0.09)
-        self.assertEqual(prior.tau_expect(100, 100), 1.98)
-        self.assertEqual(prior.tau_expect(5, 10), 0.4)
+        self.assertEqual(tsdate.ConditionalCoalescentTimes.tau_expect(10, 10), 1.8)
+        self.assertEqual(tsdate.ConditionalCoalescentTimes.tau_expect(10, 100), 0.09)
+        self.assertEqual(tsdate.ConditionalCoalescentTimes.tau_expect(100, 100), 1.98)
+        self.assertEqual(tsdate.ConditionalCoalescentTimes.tau_expect(5, 10), 0.4)
 
     def test_tau_squared_conditional(self):
-        prior = tsdate.prior_maker(10)
-        self.assertAlmostEqual(prior.tau_squared_conditional(1, 10), 4.3981418)
         self.assertAlmostEqual(
-            prior.tau_squared_conditional(100, 100), -4.87890977e-18)
+            tsdate.ConditionalCoalescentTimes.tau_squared_conditional(1, 10), 4.3981418)
+        self.assertAlmostEqual(
+            tsdate.ConditionalCoalescentTimes.tau_squared_conditional(100, 100),
+            -4.87890977e-18)
 
     def test_tau_var(self):
-        prior = tsdate.prior_maker(10)
-        self.assertEqual(prior.tau_var(2, 2), 1)
-        self.assertAlmostEqual(prior.tau_var(10, 20), 0.0922995960)
-        self.assertAlmostEqual(prior.tau_var(50, 50), 1.15946186)
+        self.assertEqual(
+            tsdate.ConditionalCoalescentTimes.tau_var(2, 2), 1)
+        self.assertAlmostEqual(
+            tsdate.ConditionalCoalescentTimes.tau_var(10, 20), 0.0922995960)
+        self.assertAlmostEqual(
+            tsdate.ConditionalCoalescentTimes.tau_var(50, 50), 1.15946186)
 
     def test_gamma_approx(self):
         self.assertEqual(tsdate.gamma_approx(2, 1), (4., 2.))
@@ -75,88 +76,90 @@ class TestBasicFunctions(unittest.TestCase):
 
 class TestNodeTipWeights(unittest.TestCase):
     def verify_weights(self, ts):
-        total_samples, weights_by_node, _ = tsdate.find_node_tip_weights(ts)
+        span_data = tsdate.SpansBySamples(ts)
+
+        # total_samples, weights_by_node, _ = tsdate.find_node_tip_weights(ts)
         # Check all non-sample nodes in a tree are represented
         nonsample_nodes = set()
         for tree in ts.trees():
             for n in tree.nodes():
                 if not tree.is_sample(n):
                     nonsample_nodes.add(n)
-        self.assertEqual(set(weights_by_node.keys()), nonsample_nodes)
-        for focal_node, tip_weights in weights_by_node.items():
-            for num_samples, weights in tip_weights.items():
+        self.assertEqual(set(span_data.nonsample_nodes), nonsample_nodes)
+        for focal_node in span_data.nonsample_nodes:
+            for num_samples, weights in span_data.weights(focal_node).items():
                 self.assertTrue(0 <= focal_node < ts.num_nodes)
                 self.assertAlmostEqual(sum(weights.values()), 1.0)
                 self.assertLessEqual(max(weights.keys()), ts.num_samples)
-        return weights_by_node
+        return span_data
 
     def test_one_tree_n2(self):
         ts = utility_functions.single_tree_ts_n2()
-        weights = self.verify_weights(ts)
+        span_data = self.verify_weights(ts)
         # with a single tree there should only be one weight
-        for w in weights.values():
-            self.assertTrue(len(w), 1)
-        self.assertTrue(2 in weights[2][ts.num_samples])  # Root
+        for node in span_data.nonsample_nodes:
+            self.assertTrue(len(span_data.weights(node)), 1)
+        self.assertTrue(2 in span_data.weights(2)[ts.num_samples])  # Root
 
     def test_one_tree_n3(self):
         ts = utility_functions.single_tree_ts_n3()
-        weights = self.verify_weights(ts)
+        span_data = self.verify_weights(ts)
         # with a single tree there should only be one weight
-        for w in weights.values():
-            self.assertTrue(len(w), 1)
-        self.assertTrue(3 in weights[4][ts.num_samples])  # Root
-        self.assertTrue(2 in weights[3][ts.num_samples])  # 1st internal node
+        for node in span_data.nonsample_nodes:
+            self.assertTrue(len(span_data.weights(node)), 1)
+        self.assertTrue(3 in span_data.weights(4)[ts.num_samples])  # Root
+        self.assertTrue(2 in span_data.weights(3)[ts.num_samples])  # 1st internal node
 
     def test_one_tree_n4(self):
         ts = utility_functions.single_tree_ts_n4()
         n = ts.num_samples
-        weights = self.verify_weights(ts)
+        span_data = self.verify_weights(ts)
         # with a single tree there should only be one weight
-        for w in weights.values():
-            self.assertTrue(len(w), 1)
-        self.assertTrue(4 in weights[6][n])  # Root
-        self.assertTrue(3 in weights[5][n])  # 1st internal node
-        self.assertTrue(2 in weights[4][n])  # 2nd internal node
+        for node in span_data.nonsample_nodes:
+            self.assertTrue(len(span_data.weights(node)), 1)
+        self.assertTrue(4 in span_data.weights(6)[n])  # Root
+        self.assertTrue(3 in span_data.weights(5)[n])  # 1st internal node
+        self.assertTrue(2 in span_data.weights(4)[n])  # 2nd internal node
 
     def test_two_trees(self):
         ts = utility_functions.two_tree_ts()
         n = ts.num_samples
-        weights = self.verify_weights(ts)
-        self.assertEqual(weights[5][n][3], 1.0)  # Root on right tree
-        self.assertEqual(weights[4][n][3], 0.2)  # Root on left tree ...
+        span_data = self.verify_weights(ts)
+        self.assertEqual(span_data.weights(5)[n][3], 1.0)  # Root on right tree
+        self.assertEqual(span_data.weights(4)[n][3], 0.2)  # Root on left tree ...
         # ... but internal node on right tree
-        self.assertEqual(weights[4][n][2], 0.8)
-        self.assertEqual(weights[3][n][2], 1.0)  # Internal node on left tree
+        self.assertEqual(span_data.weights(4)[n][2], 0.8)
+        self.assertEqual(span_data.weights(3)[n][2], 1.0)  # Internal node on left tree
 
     def test_missing_tree(self):
         ts = utility_functions.two_tree_ts().keep_intervals(
             [(0, 0.2)], simplify=False)
         n = ts.num_samples
         # Here we have no reference in the trees to node 6
-        self.assertRaises(ValueError, tsdate.find_node_tip_weights, ts)
+        self.assertRaises(ValueError, tsdate.SpansBySamples, ts)
         ts = ts.simplify()
-        weights = self.verify_weights(ts)
-        # Root on (deleted) right tree is missin
-        self.assertTrue(5 not in weights)
-        self.assertEqual(weights[4][n][3], 1.0)  # Root on left tree ...
+        span_data = self.verify_weights(ts)
+        # Root on (deleted) right tree is missing
+        self.assertTrue(5 not in span_data.nonsample_nodes)
+        self.assertEqual(span_data.weights(4)[n][3], 1.0)  # Root on left tree ...
         # ... but internal on (deleted) r tree
-        self.assertTrue(2 not in weights[4][n])
-        self.assertEqual(weights[3][n][2], 1.0)  # Internal node on left tree
+        self.assertTrue(2 not in span_data.weights(4)[n])
+        self.assertEqual(span_data.weights(3)[n][2], 1.0)  # Internal node on left tree
 
     def test_tree_with_unary_nodes(self):
         ts = utility_functions.single_tree_ts_with_unary()
         n = ts.num_samples
-        weights = self.verify_weights(ts)
-        self.assertEqual(weights[3][n][2], 1.0)
-        self.assertEqual(weights[4][n][2], 0.5)
-        self.assertEqual(weights[4][n][3], 0.5)
-        self.assertEqual(weights[5][n][1], 0.5)
-        self.assertEqual(weights[5][n][3], 0.5)
+        span_data = self.verify_weights(ts)
+        self.assertEqual(span_data.weights(3)[n][2], 1.0)
+        self.assertEqual(span_data.weights(4)[n][2], 0.5)
+        self.assertEqual(span_data.weights(4)[n][3], 0.5)
+        self.assertEqual(span_data.weights(5)[n][1], 0.5)
+        self.assertEqual(span_data.weights(5)[n][3], 0.5)
 
     def test_polytomy_tree(self):
         ts = utility_functions.polytomy_tree_ts()
-        weights = self.verify_weights(ts)
-        self.assertEqual(weights[3][ts.num_samples][3], 1.0)
+        span_data = self.verify_weights(ts)
+        self.assertEqual(span_data.weights(3)[ts.num_samples][3], 1.0)
 
     def test_larger_find_node_tip_weights(self):
         ts = msprime.simulate(10, recombination_rate=5,
@@ -169,8 +172,9 @@ class TestMakePrior(unittest.TestCase):
     # We only test make_prior() on single trees
     def verify_prior(self, ts):
         # Check prior contains all possible tips
-        prior = tsdate.prior_maker(ts.num_samples)
-        prior_df = prior.make_prior()
+        priors = tsdate.ConditionalCoalescentTimes(None)  # Don't use approximation
+        priors.add(ts.num_samples)
+        prior_df = priors[ts.num_samples]
         self.assertEqual(prior_df.shape[0], ts.num_samples)
         return(prior_df)
 
@@ -242,43 +246,35 @@ class TestMakePrior(unittest.TestCase):
                          [1.6, 1.2])]
 
     def test_precalculated_prior(self):
-        pm = tsdate.prior_maker(10, approximate=False)
-        prior1 = pm.make_prior()
-        # Force approx prior with a tiny n, for testing
-        pm.precalc_approximation_n = 10
-        pm.precalculate_prior_for_approximation()
-        # Should have created the prior file
-        self.assertTrue(os.path.isfile(pm.precalc_approximation_fn))
-        prior2 = pm.make_prior()
-        self.assertTrue(prior1.equals(prior2))
+        # Force approx prior with a tiny n
+        priors_approx10 = tsdate.ConditionalCoalescentTimes(10)
+        priors_approx10.add(10)
+        # Check we have created the prior file
+        self.assertTrue(
+            os.path.isfile(tsdate.ConditionalCoalescentTimes.precalc_approx_fn(10)))
+        priors_approxNone = tsdate.ConditionalCoalescentTimes(None)
+        priors_approxNone.add(10)
+        self.assertTrue(priors_approx10[10].equals(priors_approxNone[10]))
         # Test when using a bigger n that we're using the precalculated version
-        pm100 = tsdate.prior_maker(100, approximate=False)
-        pm100.precalc_approximation_n = 10  # Use the same tiny approximation
-        # Check here that the approximation is working,
-        # by force-reading the approx prior
-        # and setting approx = True
-        pm100.approx_prior = np.genfromtxt(
-            pm100.precalc_approximation_fn)
-        pm100.approximate = True
-        prior100 = pm100.make_prior()
-        # Uncomment below to check what we are getting
-        # print(prior2)
-        # print(prior3)
-        # assert False
-        self.assertEquals(len(prior100.index), 100)
-        pm100.clear_precalculated_prior()
+        priors_approx10.add(100)
+        self.assertEquals(len(priors_approx10[100].index), 100)
+        priors_approxNone.add(100, approximate=False)
+        self.assertEquals(len(priors_approxNone[100].index), 100)
+        self.assertFalse(priors_approx10[100].equals(priors_approxNone[100]))
+
+        priors_approx10.clear_precalculated_prior()
         self.assertFalse(
-            os.path.isfile(pm100.precalc_approximation_fn),
+            os.path.isfile(tsdate.ConditionalCoalescentTimes.precalc_approx_fn(10)),
             "The file `{}` should have been deleted, but has not been.\
              Please delete it")
 
 
 class TestMixturePrior(unittest.TestCase):
     def get_mixture_prior(self, ts):
-        num_samples, tip_weights, _ = tsdate.find_node_tip_weights(ts)
-        prior_df = {ts.num_samples: tsdate.prior_maker(
-            ts.num_samples, approximate=False).make_prior()}
-        mixture_prior = tsdate.get_mixture_prior(tip_weights, prior_df)
+        span_data = tsdate.SpansBySamples(ts)
+        priors = tsdate.ConditionalCoalescentTimes(None)
+        priors.add(ts.num_samples, approximate=False)
+        mixture_prior = tsdate.get_mixture_prior(span_data, priors)
         return(mixture_prior)
 
     def test_one_tree_n2(self):
@@ -367,11 +363,11 @@ class TestMixturePrior(unittest.TestCase):
 
 class TestPriorVals(unittest.TestCase):
     def verify_prior_vals(self, ts):
-        _, tip_weights, spans = tsdate.find_node_tip_weights(ts)
-        prior_df = {ts.num_samples:
-                    tsdate.prior_maker(ts.num_samples, False).make_prior()}
+        span_data = tsdate.SpansBySamples(ts)
+        priors = tsdate.ConditionalCoalescentTimes(None)
+        priors.add(ts.num_samples, approximate=False)
         grid = np.linspace(0, 3, 3)
-        mixture_prior = tsdate.get_mixture_prior(tip_weights, prior_df)
+        mixture_prior = tsdate.get_mixture_prior(span_data, priors)
         prior_vals = tsdate.get_prior_values(mixture_prior, grid, ts)
         self.assertTrue(np.array_equal(prior_vals[0:ts.num_samples],
                         np.tile(np.array([1, 0, 0]), (ts.num_samples, 1))))
@@ -432,11 +428,11 @@ class TestPriorVals(unittest.TestCase):
 
 class TestForwardAlgorithm(unittest.TestCase):
     def verify_forward_algorithm(self, ts):
-        _, tip_weights, spans = tsdate.find_node_tip_weights(ts)
-        prior_df = {ts.num_samples:
-                    tsdate.prior_maker(ts.num_samples, False).make_prior()}
+        span_data = tsdate.SpansBySamples(ts)
+        priors = tsdate.ConditionalCoalescentTimes(None)
+        priors.add(ts.num_samples, approximate=False)
         grid = np.array([0, 1.2, 2])
-        mixture_prior = tsdate.get_mixture_prior(tip_weights, prior_df)
+        mixture_prior = tsdate.get_mixture_prior(span_data, priors)
         prior_vals = tsdate.get_prior_values(mixture_prior, grid, ts)
         theta = 1
         rho = None

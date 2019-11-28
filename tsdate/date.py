@@ -47,16 +47,48 @@ def gamma_approx(mean, variance):
     return (mean ** 2) / variance, mean / variance
 
 
-class prior_maker():
+class ConditionalCoalescentTimes():
     """
-    Create a pandas dataframe to lookup prior variance of each node.
-    The lookup table is generated with total_tips = 1000.
-    Keys are (num_tips / total_tips).
+    Make and store conditional coalescent priors
     """
-    def __init__(self, total_tips, approximate=None):
-        self.precalc_approximation_n = 1000  # Size of tree used for approx prior
-        self.total_tips = total_tips
+    def __init__(self, precalc_approximation_n):
+        """
+        :param bool precalc_approximation_n: the size of tree used for
+            approximate prior (larger numbers give a better approximation).
+            If 0 or otherwise falsey, do not precalculate,
+            and therefore do no allow approximate priors to be used
+        """
+        self.n_approx = precalc_approximation_n
+        self.prior_store = {}
+        if precalc_approximation_n:
+            # Create lookup table based on a large n that can be used for n > ~50
+            filename = self.precalc_approx_fn(precalc_approximation_n)
+            if os.path.isfile(filename):
+                # Have already calculated and stored this
+                self.approx_prior = np.genfromtxt(filename)
+            else:
+                # Calc and store
+                self.approx_prior = self.precalculate_prior_for_approximation(
+                    precalc_approximation_n)
+        else:
+            self.approx_prior = None
 
+    def __getitem__(self, total_tips):
+        """
+        Return a pandas dataframe for the conditional number of total tips in the tree.
+        Return a pandas dataframe of conditional prior on age of node
+        """
+        return self.prior_store[total_tips]
+
+    def add(self, total_tips, approximate=None):
+        """
+        Create a pandas dataframe to lookup prior mean and variance of
+        ages for nodes with descendant sample tips range from 2..``total_tips``
+        given that the total number of tips in the coalescent tree is
+        ``total_tips``. The array is indexed by (num_tips / total_tips).
+
+        Note: estimated times are scaled by inputted Ne and are haploid
+        """
         if approximate is not None:
             self.approximate = approximate
         else:
@@ -65,106 +97,14 @@ class prior_maker():
             else:
                 self.approximate = False
 
-        if self.approximate:
-            if os.path.isfile(self.precalc_approximation_fn):
-                self.approx_prior = np.genfromtxt(self.precalc_approximation_fn)
-            else:
-                # Create lookup table based on a large n that can be used for n > ~50
-                self.precalculate_prior_for_approximation()
+        if self.approximate and self.approx_prior is None:
+            raise RuntimeError(
+                "You cannot add an approximate prior unless you initialize"
+                " the ConditionalCoalescentTimes object with a non-zero number")
 
-    # Use a getter for the filename, so it can use self.precalc_approximation_n
-    @property
-    def precalc_approximation_fn(self):
-        script_dir = os.path.dirname(os.path.abspath(__file__))
-        parent_dir = os.path.dirname(script_dir)
-        return os.path.join(
-            parent_dir, "data", "prior_{}df.txt".format(self.precalc_approximation_n))
-
-    def precalculate_prior_for_approximation(self):
-        logging.debug(
-            "Creating prior lookup table for a total tree of n={} tips"
-            " in `{}`, this may take some time for large n"
-            .format(self.precalc_approximation_n, self.precalc_approximation_fn))
-        n = self.precalc_approximation_n
-        # The first value should be zero tips, we don't want the 1 tip value
-        prior_lookup_table = np.zeros((n, 2))
-        all_tips = np.arange(2, n + 1)
-        prior_lookup_table[1:, 0] = all_tips / n
-        prior_lookup_table[1:, 1] = [self.tau_var(val, n + 1) for val in all_tips]
-        np.savetxt(self.precalc_approximation_fn, prior_lookup_table)
-
-    def clear_precalculated_prior(self):
-        if os.path.isfile(self.precalc_approximation_fn):
-            os.remove(self.precalc_approximation_fn)
-        else:
-            logging.debug(
-                "Precalculated prior in `{}` has not been created, so cannot be cleared"
-                .format(self.precalc_approximation_fn))
-
-    def m_prob(self, m, i, n):
-        """
-        Corollary 2 in Wiuf and Donnelly (1999). Probability of one
-        ancestor to entire sample at time tau
-        """
-        return (comb(n - m - 1, i - 2, exact=True) *
-                comb(m, 2, exact=True)) / comb(n, i + 1, exact=True)
-
-    def tau_expect(self, i, n):
-        if i == n:
-            return 2 * (1 - (1 / n))
-        else:
-            return (i - 1) / n
-
-    def tau_squared_conditional(self, m, n):
-        """
-        Gives expectation of tau squared conditional on m
-        Equation (10) from Wiuf and Donnelly (1999).
-        """
-        t_sum = np.sum(1 / np.arange(m, n + 1) ** 2)
-        return 8 * t_sum + (8 / n) - (8 / m) - (8 / (n * m))
-
-    def tau_var(self, i, n):
-        """
-        For the last coalesence (n=2), calculate the Tmrca of the whole sample
-        """
-        if i == n:
-            value = np.arange(2, n + 1)
-            var = np.sum(1 / ((value ** 2) * ((value - 1) ** 2)))
-            return np.abs(4 * var)
-        else:
-            tau_square_sum = 0
-            for m in range(2, n - i + 2):
-                tau_square_sum += (self.m_prob(m, i, n) *
-                                   self.tau_squared_conditional(m, n))
-            return np.abs((self.tau_expect(i, n) ** 2) - (tau_square_sum))
-
-    def tau_var_lookup(self, all_tips):
-        """
-        Lookup tau_var if approximate is True
-        """
-        interpolated_prior = np.interp(all_tips / self.total_tips,
-                                       self.approx_prior[:, 0], self.approx_prior[:, 1])
-
-        # insertion_point = np.searchsorted(all_tips / self.total_tips,
-        #    self.approx_prior[:, 0])
-        # interpolated_prior = self.approx_prior[insertion_point, 1]
-
-        # The final MRCA we calculate exactly
-        interpolated_prior[all_tips == self.total_tips] = \
-            self.tau_var(self.total_tips, self.total_tips)
-        return interpolated_prior
-
-    def tau_var_exact(self, all_tips):
-        # TODO, vectorize this properly
-        return [self.tau_var(tips, self.total_tips) for tips in all_tips]
-
-    def make_prior(self):
-        """
-        Return a pandas dataframe of conditional prior on age of node
-        Note: estimated times are scaled by inputted Ne and are haploid
-        """
-        prior = pd.DataFrame(index=np.arange(1, self.total_tips + 1),
-                             columns=["Alpha", "Beta"], dtype=float)
+        prior = pd.DataFrame(
+            index=np.arange(1, total_tips + 1),
+            columns=["Alpha", "Beta"], dtype=float)
         # prior.loc[1] is distribution of times of a "coalescence node" ending
         # in a single sample - equivalent to the time of the sample itself, so
         # it should have var = 0 and mean = sample.time
@@ -176,29 +116,140 @@ class prior_maker():
         else:
             get_tau_var = self.tau_var_exact
 
-        all_tips = np.arange(2, self.total_tips + 1)
-        variances = get_tau_var(all_tips)
+        all_tips = np.arange(2, total_tips + 1)
+        variances = get_tau_var(total_tips, all_tips)
         for var, tips in zip(variances, all_tips):
             # NB: it should be possible to vectorize this in numpy
-            expectation = self.tau_expect(tips, self.total_tips)
+            expectation = self.tau_expect(tips, total_tips)
             alpha, beta = gamma_approx(expectation, var)
             prior.loc[tips] = [alpha, beta]
         prior.index.name = 'Num_Tips'
+        self.prior_store[total_tips] = prior
 
-        return prior
+    def precalculate_prior_for_approximation(self, precalc_approximation_n):
+        n = precalc_approximation_n
+        logging.debug(
+            "Creating prior lookup table for a total tree of n={} tips"
+            " in `{}`, this may take some time for large n"
+            .format(n, self.precalc_approx_fn(n)))
+        # The first value should be zero tips, we don't want the 1 tip value
+        prior_lookup_table = np.zeros((n, 2))
+        all_tips = np.arange(2, n + 1)
+        prior_lookup_table[1:, 0] = all_tips / n
+        prior_lookup_table[1:, 1] = [self.tau_var(val, n + 1) for val in all_tips]
+        np.savetxt(self.precalc_approx_fn(n), prior_lookup_table)
+        return prior_lookup_table
+
+    def clear_precalculated_prior(self):
+        if os.path.isfile(self.precalc_approx_fn(self.n_approx)):
+            os.remove(self.precalc_approx_fn(self.n_approx))
+        else:
+            logging.debug(
+                "Precalculated prior in `{}` has not been created, so cannot be cleared"
+                .format(self.precalc_approx_fn(self.n_approx)))
+
+    @staticmethod
+    def precalc_approx_fn(precalc_approximation_n):
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        parent_dir = os.path.dirname(script_dir)
+        return os.path.join(
+            parent_dir, "data", "prior_{}df.txt".format(precalc_approximation_n))
+
+    @staticmethod
+    def m_prob(m, i, n):
+        """
+        Corollary 2 in Wiuf and Donnelly (1999). Probability of one
+        ancestor to entire sample at time tau
+        """
+        return (comb(n - m - 1, i - 2, exact=True) *
+                comb(m, 2, exact=True)) / comb(n, i + 1, exact=True)
+
+    @staticmethod
+    def tau_expect(i, n):
+        if i == n:
+            return 2 * (1 - (1 / n))
+        else:
+            return (i - 1) / n
+
+    @staticmethod
+    def tau_squared_conditional(m, n):
+        """
+        Gives expectation of tau squared conditional on m
+        Equation (10) from Wiuf and Donnelly (1999).
+        """
+        t_sum = np.sum(1 / np.arange(m, n + 1) ** 2)
+        return 8 * t_sum + (8 / n) - (8 / m) - (8 / (n * m))
+
+    @staticmethod
+    def tau_var(i, n):
+        """
+        For the last coalesence (n=2), calculate the Tmrca of the whole sample
+        """
+        if i == n:
+            value = np.arange(2, n + 1)
+            var = np.sum(1 / ((value ** 2) * ((value - 1) ** 2)))
+            return np.abs(4 * var)
+        else:
+            tau_square_sum = 0
+            for m in range(2, n - i + 2):
+                tau_square_sum += (
+                    ConditionalCoalescentTimes.m_prob(m, i, n) *
+                    ConditionalCoalescentTimes.tau_squared_conditional(m, n))
+            return np.abs(
+                (ConditionalCoalescentTimes.tau_expect(i, n) ** 2) -
+                (tau_square_sum))
+
+    # The following are not static as they may need to access self.approx_prior for this
+    # instance
+    def tau_var_lookup(self, total_tips, all_tips):
+        """
+        Lookup tau_var if approximate is True
+        """
+        interpolated_prior = np.interp(all_tips / total_tips,
+                                       self.approx_prior[:, 0], self.approx_prior[:, 1])
+
+        # insertion_point = np.searchsorted(all_tips / self.total_tips,
+        #    self.approx_prior[:, 0])
+        # interpolated_prior = self.approx_prior[insertion_point, 1]
+
+        # The final MRCA we calculate exactly
+        interpolated_prior[all_tips == total_tips] = \
+            self.tau_var(total_tips, total_tips)
+        return interpolated_prior
+
+    def tau_var_exact(self, total_tips, all_tips):
+        # TODO, vectorize this properly
+        return [self.tau_var(tips, total_tips) for tips in all_tips]
 
 
-def get_mixture_prior(node_mixtures, age_prior):
+def get_mixture_prior(spans_by_samples, basic_priors):
     """
-    Given a dictionary of nodes with their tip weights,
-    return alpha and beta of mixture distributions
-    mixture input is a list of numpy arrays
+    Given an object that can be queried for tip weights for a node,
+    and a set of conditional coalescent priors for different
+    numbers of sample tips under a node, return the alpha and beta
+    parameters of the gamma distribution that approximates the
+    distribution of times for each node by mixing gamma distributions
+    fitted to the basic_priors.
+
+    :param .SpansBySamples spans_by_samples: An instance of the
+        :class:`SpansBySamples` class that can be used to obtain
+        weights for each .
+    :param .ConditionalCoalescentTimes basic_priors: An instance of
+        the :class:`ConditionalCoalescentTimes` class, which provides
+        a set of dataframes containing the theoretical distribution of
+        coalescent times conditioned on the numbers of tips under a node.
+        This is used to obtain the node date priors for mixing.
+    :return: A data frame giving the alpha and beta parameters for each
+        node id in ``spans_by_samples.nonsample_nodes``, which can be used
+        to approximate the probabilities of times for that node used a
+        gamma distribution.
+    :rtype:  pandas.DataFrame
     """
 
     def mix_expect(node, mixture):
         expectation = 0
         for N, tip_dict in mixture.items():
-            cur_age_prior = age_prior[N].loc[np.array(list(tip_dict.keys()))]
+            cur_age_prior = basic_priors[N].loc[np.array(list(tip_dict.keys()))]
             alpha = cur_age_prior['Alpha']
             beta = cur_age_prior['Beta']
             expectation += np.sum(
@@ -208,7 +259,7 @@ def get_mixture_prior(node_mixtures, age_prior):
     def mix_var(node, mixture):
         first = second = third = 0
         for N, tip_dict in mixture.items():
-            cur_age_prior = age_prior[N].loc[np.array(list(tip_dict.keys()))]
+            cur_age_prior = basic_priors[N].loc[np.array(list(tip_dict.keys()))]
             cur_tip_dict_vals = np.array(list(tip_dict.values()))
             alpha = cur_age_prior['Alpha']
             beta = cur_age_prior['Beta']
@@ -222,8 +273,10 @@ def get_mixture_prior(node_mixtures, age_prior):
 
     seen_mixtures = {}
     prior = pd.DataFrame(
-        index=node_mixtures.keys(), columns=["Alpha", "Beta"], dtype=float)
-    for node, mixture in node_mixtures.items():
+        index=list(spans_by_samples.nonsample_nodes),
+        columns=["Alpha", "Beta"], dtype=float)
+    for node in spans_by_samples.nonsample_nodes:
+        mixture = spans_by_samples.weights(node)
         cur_mixture = str(mixture)
         if cur_mixture not in seen_mixtures:
             prior.loc[node] = seen_mixtures[cur_mixture] = \
@@ -235,178 +288,242 @@ def get_mixture_prior(node_mixtures, age_prior):
     return prior
 
 
-def find_node_tip_weights(tree_sequence):
+class SpansBySamples:
     """
-    Given a tree sequence, for each non-sample node (i.e. those
-    for which we want to infer a date) calculate the fraction of
-    the sequence with 1 descendant sample, 2 descendant samples,
-    3 descendant samples etc. Non-coalescent (unary) nodes should
-    take a 50:50 mix of the coalescent nodes above and below them.
+    A class to calculate and return the genomic spans covered by each
+    non-sample node, broken down by the number of samples that descend
+    directly from that node. This is used to calculate the conditional
+    coalescent prior. The main method is :meth:`normalised_spans`, which
+    returns the spans for a node, normalised by the total span that that
+    node covers in the tree sequence.
 
-    :param TreeSequence tree_sequence: The input :class:`tskit.TreeSequence`.
-    :returns: a tuple of a set and a defaultdict. The set gives
-    the total number of samples at different points in the tree
-    sequence (for tree sequences without missing data, this
-    should always be a single value, equal to
-    `tree_sequence.num_samples`). The defaultdict, is a
-    collection of dictionaries keyed by node id. The values for
-    each of these dictionaries sum to one, with the keys
-    specifying the number of samples under the relevant node.
-    :rtype: tuple(set, defaultdict)
+    :ivar tree_sequence: A reference to the tree sequence that was used to
+        generate the spans and weights
+    :vartype tree_sequence: tskit.TreeSequence
+    :ivar num_samples_set: A numpy array of unique numbers which list,
+        in no particular order, the various sample counts among the trees
+        in this tree sequence. In the simplest case of a tree sequence with
+        no missing data, all trees have the same count of numbers of samples,
+        and there will be only a single number in this array, equal to
+        :attr:`.tree_sequence.num_samples`. However, where samples contain
+        :ref:`missing data <sec_data_model_missing_data>`,
+        some trees will contain fewer sample nodes, so this array will also
+        contain additional numbers, all of which will be less than
+        :attr:`.tree_sequence.num_samples`.
+    :vartype num_samples_set: numpy.ndarray (dtype=np.uint64)
+    :ivar node_total_span: A numpy array of size :attr:`.tree_sequence.num_nodes`
+        containing the genomic span covered by each node (including sample nodes)
+    :vartype node_total_span: numpy.ndarray (dtype=np.uint64)
+    :ivar nonsample_nodes: An iterator returning all the non-sample node ids
+        in the tree sequence: these are all the node numbers that are valid
+        parameters for the :meth:`weights` method.
+    :vartype nonsample_nodes: iterable(int)
+
     """
-    result = defaultdict(lambda: defaultdict(lambda: defaultdict(float)))
-    spans = defaultdict(float)
-    samples = set(tree_sequence.samples())
-    curr_samples = set()
-    trees_with_unassigned_nodes = set()  # Used to quickly skip trees later
-    valid_samples_in_tree = np.full(tree_sequence.num_trees, tskit.NULL)
 
-    for i, ((_, e_out, e_in), tree) in enumerate(
-            zip(tree_sequence.edge_diffs(), tree_sequence.trees())):
-        # In cases with missing data, the total number of relevant
-        # samples will not be tree_sequence.num_samples
-        curr_samples.difference_update(
-            [e.parent for e in e_out if e.parent in samples])
-        curr_samples.difference_update(
-            [e.child for e in e_out if e.child in samples])
-        curr_samples.update(
-            [e.parent for e in e_in if e.parent in samples])
-        curr_samples.update(
-            [e.child for e in e_in if e.child in samples])
-
-        # Number of non-missing samples in this tree
-        num_valid = len(curr_samples)
-        valid_samples_in_tree[i] = num_valid
-        span = tree.span
-
-        # Identify numbers of parents for each node. We could probably
-        # implement a more efficient algorithm by using e_out and e_in,
-        # and traversing up the tree from the edge parents, revising the
-        # number of tips under each parent node
-        for node in tree.nodes():
-            if tree.is_sample(node):
-                # Don't calculate for sample nodes as they have a date
-                continue
-            n_samples = tree.num_samples(node)
-            if n_samples == 0:
-                raise ValueError(
-                    "Tree " + str(i) +
-                    " contains a node with no descendant samples." +
-                    " Please simplify your tree sequence before dating.")
-                continue  # Don't count any nodes
-            if len(tree.children(node)) > 1:
-                result[node][num_valid][n_samples] += span
-                spans[node] += span
-            else:
-                # UNARY NODES: take a mixture of the coalescent nodes above and below
-                #  above:
-                n = node
-                done = False
-                while not done:
-                    n = tree.parent(n)
-                    if n == tskit.NULL or len(tree.children(n)) > 1:
-                        done = True  # Found a coalescent node
-                if n == tskit.NULL:
-                    logging.debug(
-                        "Unary node {} exists above highest coalescence in tree {}."
-                        " Skipping for now".format(node, i))
-                    trees_with_unassigned_nodes.add(i)
-                    continue
-                # Half from the node above
-                result[node][num_valid][tree.num_samples(n)] += span / 2
-
-                #  coalescent node below should have same num_samples as this one
-                assert len(tree.children(node)) == 1
-                result[node][num_valid][tree.num_samples(node)] += span / 2
-
-                spans[node] += span
-
-    if tree_sequence.num_nodes - tree_sequence.num_samples - len(result) != 0:
-        logging.debug(
-            "Assigning priors to skipped unary nodes, via linked nodes\
-            with new priors")
-        # We have some nodes with unassigned prior params. We should see
-        # if can we assign params for these node priors using
-        # now-parameterized nodes. This requires another pass through the
-        # tree sequence. If there is no non-parameterized node above, then
-        # we can simply assign this the coalescent maximum
+    def __init__(self, ts, sample_set=None):
+        """
+        :param TreeSequence ts: The input :class:`tskit.TreeSequence`.
+        :param set sample_set: A set of all the samples in the tree sequence.
+            This should be equivalent to ``set(ts.samples()``, but is provided
+            as an optional parameter so that a pre-calculated set can be passed
+            in, to save the expense of re-calculating it when setting up the
+            class. If ``None`` (the default) a sample_set will be constructed
+            during initialization.
+        """
+        self.tree_sequence = ts
+        if sample_set is None:
+            sample_set = set(ts.samples())
+        result = defaultdict(lambda: defaultdict(lambda: defaultdict(float)))
+        self.node_total_span = defaultdict(float)
         curr_samples = set()
-        unassigned_nodes = set(
-            [n.id for n in tree_sequence.nodes()
-                if not n.is_sample() and n.id not in result])
-        for i, tree in enumerate(tree_sequence.trees()):
-            if i not in trees_with_unassigned_nodes:
-                continue
-            for node in unassigned_nodes:
-                if tree.parent(node) == tskit.NULL:
+        trees_with_unassigned_nodes = set()  # Used to quickly skip trees later
+        valid_samples_in_tree = np.full(ts.num_trees, tskit.NULL)
+
+        for i, ((_, e_out, e_in), tree) in enumerate(
+                zip(ts.edge_diffs(), ts.trees())):
+            # In cases with missing data, the total number of relevant
+            # samples will not be ts.num_samples
+            curr_samples.difference_update(
+                [e.parent for e in e_out if e.parent in sample_set])
+            curr_samples.difference_update(
+                [e.child for e in e_out if e.child in sample_set])
+            curr_samples.update(
+                [e.parent for e in e_in if e.parent in sample_set])
+            curr_samples.update(
+                [e.child for e in e_in if e.child in sample_set])
+
+            # Number of non-missing samples in this tree
+            num_valid = len(curr_samples)
+            valid_samples_in_tree[i] = num_valid
+            span = tree.span
+            # Identify numbers of parents for each node. We could probably
+            # implement a more efficient algorithm by using e_out and e_in,
+            # and traversing up the tree from the edge parents, revising the
+            # number of tips under each parent node
+            for node in tree.nodes():
+                if node in sample_set:
+                    # Don't calculate for sample nodes as they have a date
                     continue
-                    # node is either the root or (more likely) not in
-                    # this tree
-                assert tree.num_samples(node) > 0
-                assert len(tree.children(node)) == 1
-                n = node
-                done = False
-                while not done:
-                    n = tree.parent(n)
-                    if n == tskit.NULL or n in result:
-                        done = True
-                if n == tskit.NULL:
-                    continue
+                n_samples = tree.num_samples(node)
+                if n_samples == 0:
+                    raise ValueError(
+                        "Tree " + str(i) +
+                        " contains a node with no descendant samples." +
+                        " Please simplify your tree sequence before dating.")
+                    continue  # Don't count any nodes
+                if len(tree.children(node)) > 1:
+                    result[node][num_valid][n_samples] += span
+                    self.node_total_span[node] += span
                 else:
-                    logging.debug(
-                        "Assigning prior to unary node {}: connected to\
-                        node {} which"
-                        "has a prior in tree {}".format(node, n, i))
-                    for local_valid, weights in result[n].items():
-                        for k, v in weights.items():
-                            local_weight = v / spans[n]
-                            result[node][local_valid][k] += tree.span * \
-                                local_weight / 2
+                    # UNARY NODES: take a mixture of the coalescent nodes above and below
+                    #  above:
+                    n = node
+                    done = False
+                    while not done:
+                        n = tree.parent(n)
+                        if n == tskit.NULL or len(tree.children(n)) > 1:
+                            done = True  # Found a coalescent node
+                    if n == tskit.NULL:
+                        logging.debug(
+                            "Unary node {} exists above highest coalescence in tree {}."
+                            " Skipping for now".format(node, i))
+                        trees_with_unassigned_nodes.add(i)
+                        continue
+                    # Half from the node above
+                    result[node][num_valid][tree.num_samples(n)] += span / 2
+
+                    #  coalescent node below should have same num_samples as this one
                     assert len(tree.children(node)) == 1
-                    num_valid = valid_samples_in_tree[i]
-                    result[node][num_valid][tree.num_samples(node)] += \
-                        tree.span / 2
-                    spans[node] += tree.span
+                    result[node][num_valid][tree.num_samples(node)] += span / 2
 
-    if tree_sequence.num_nodes - tree_sequence.num_samples - len(result) != 0:
-        logging.debug(
-            "Assigning priors to remaining (unconnected) unary nodes\
-            using max depth")
-        # We STILL have some missing priors.
-        # These must be unconnected to higher
-        # nodes in the tree, so we can simply give them the max depth
-        max_samples = tree_sequence.num_samples
-        curr_samples = set()
-        unassigned_nodes = set(
-            [n.id for n in tree_sequence.nodes()
-                if not n.is_sample() and n.id not in result])
-        for i, tree in enumerate(tree_sequence.trees()):
-            if i not in trees_with_unassigned_nodes:
-                continue
-            for node in unassigned_nodes:
-                if tree.is_internal(node):
+                    self.node_total_span[node] += span
+
+        self.num_samples_set = np.unique(valid_samples_in_tree)
+
+        if ts.num_nodes - ts.num_samples - len(result) != 0:
+            logging.debug(
+                "Assigning priors to skipped unary nodes, via linked nodes\
+                with new priors")
+            # We have some nodes with unassigned prior params. We should see
+            # if can we assign params for these node priors using
+            # now-parameterized nodes. This requires another pass through the
+            # tree sequence. If there is no non-parameterized node above, then
+            # we can simply assign this the coalescent maximum
+            curr_samples = set()
+            unassigned_nodes = set(
+                [n.id for n in ts.nodes()
+                    if not n.is_sample() and n.id not in result])
+            for i, tree in enumerate(ts.trees()):
+                if i not in trees_with_unassigned_nodes:
+                    continue
+                for node in unassigned_nodes:
+                    if tree.parent(node) == tskit.NULL:
+                        continue
+                        # node is either the root or (more likely) not in
+                        # this tree
+                    assert tree.num_samples(node) > 0
                     assert len(tree.children(node)) == 1
-                    # above, we set the maximum
-                    result[node][max_samples][max_samples] += tree.span / 2
-                    # below, we do as before
-                    assert len(tree.children(node)) == 1
-                    num_valid = valid_samples_in_tree[i]
-                    result[node][num_valid][tree.num_samples(node)] += \
-                        tree.span / 2
-                    spans[node] += tree.span
+                    n = node
+                    done = False
+                    while not done:
+                        n = tree.parent(n)
+                        if n == tskit.NULL or n in result:
+                            done = True
+                    if n == tskit.NULL:
+                        continue
+                    else:
+                        logging.debug(
+                            "Assigning prior to unary node {}: connected to\
+                            node {} which"
+                            "has a prior in tree {}".format(node, n, i))
+                        for local_valid, weights in result[n].items():
+                            for k, v in weights.items():
+                                local_weight = v / self.node_total_span[n]
+                                result[node][local_valid][k] += tree.span * \
+                                    local_weight / 2
+                        assert len(tree.children(node)) == 1
+                        num_valid = valid_samples_in_tree[i]
+                        result[node][num_valid][tree.num_samples(node)] += \
+                            tree.span / 2
+                        self.node_total_span[node] += tree.span
 
-    if tree_sequence.num_nodes - tree_sequence.num_samples != len(result):
-        raise ValueError(
-            "There are some nodes which are not in any tree."
-            " Please simplify your tree sequence.")
+        if ts.num_nodes - ts.num_samples - len(result) != 0:
+            logging.debug(
+                "Assigning priors to remaining (unconnected) unary nodes\
+                using max depth")
+            # We STILL have some missing priors.
+            # These must be unconnected to higher
+            # nodes in the tree, so we can simply give them the max depth
+            max_samples = ts.num_samples
+            curr_samples = set()
+            unassigned_nodes = set(
+                [n.id for n in ts.nodes()
+                    if not n.is_sample() and n.id not in result])
+            for i, tree in enumerate(ts.trees()):
+                if i not in trees_with_unassigned_nodes:
+                    continue
+                for node in unassigned_nodes:
+                    if tree.is_internal(node):
+                        assert len(tree.children(node)) == 1
+                        # above, we set the maximum
+                        result[node][max_samples][max_samples] += tree.span / 2
+                        # below, we do as before
+                        assert len(tree.children(node)) == 1
+                        num_valid = valid_samples_in_tree[i]
+                        result[node][num_valid][tree.num_samples(node)] += \
+                            tree.span / 2
+                        self.node_total_span[node] += tree.span
 
-    for node, weights in result.items():
-        result[node] = {}
-        for num_samples, w in weights.items():
-            result[node][num_samples] = \
-                {k: v / spans[node] for k, v in w.items()}
+        if ts.num_nodes - ts.num_samples != len(result):
+            raise ValueError(
+                "There are some nodes which are not in any tree."
+                " Please simplify your tree sequence.")
 
-    return np.unique(valid_samples_in_tree), result, spans
+        for node, weights_by_total_tips in result.items():
+            result[node] = {}
+            for num_samples, weight_dict in weights_by_total_tips.items():
+                result[node][num_samples] = \
+                    {k: v/self.node_total_span[node] for k, v in weight_dict.items()}
+        # Assign into the instance, for further reference
+        self.normalised_node_spans = result
+
+    @property
+    def nonsample_nodes(self):
+        return self.normalised_node_spans.keys()
+
+    def weights(self, node):
+        """
+        Access the main calculated results from this class, returning weights
+        for a node contained within a dict of dicts. Weights for each node
+        (i.e. normalised genomic spans) sum to one, and are used to construct
+        the mixed conditional coalescent prior. For each coalescent node, the
+        returned weights are categorised firstly by the total number of sample
+        nodes (or "tips") ( :math:`T` ) in the tree(s) covered by this node,
+        then by the number of descendant samples, :math:`k`. In other words,
+        ``weights(u)[T][k]`` gives the fraction of the genome over which node
+        ``u`` is present in a tree of ``T`` total samples with exactly ``k``
+        samples descending from the node. Although ``k`` may take any value
+        from 2 up to ``T``, the values are likely to be very sparse, and many
+        values of both ``T`` and ``k`` are likely to be missing from the
+        returned weights. For example, if there are no trees in which the node
+        ``u`` has exactly 2 descendant samples, then none of the inner
+        dictionaries returned by this method will have a key of 2.
+
+        Non-coalescent (unary) nodes are treated differently. A unary node
+        returns a 50:50  mix of the coalescent node above and the coalescent
+        node below it.
+
+        :param int node: The node for which we want weights.
+        :return: A dictionary, whose keys ( :math:`n_t` ) are the total number of
+            samples in the trees in a tree sequence, and whose values are
+            themselves a dictionary where key :math:`k` gives the weight (genomic
+            span, normalised by the total span over which the node exists) for
+            :math:`k` descendant samples, as a floating point number. For any node,
+            the normalisation means that all the weights should sum to one.
+        :rtype: dict(int, dict(int, float))'
+        """
+        return self.normalised_node_spans[node]
 
 
 def create_time_grid(age_prior, n_points=21):
@@ -638,7 +755,7 @@ def forward_algorithm(ts, prior_values, grid, theta, rho, eps, rows,
             else:
                 # Topology-only clock
                 vv = np.concatenate(
-                    [forwards[edge.child, :time + 1] for time in np.arange(1, len(grid))])
+                    [forwards[edge.child, :time+1] for time in np.arange(1, len(grid))])
                 vv = [np.sum((vv)[row]) for row in rows[1:len(grid)]]
 
         forwards[parent, 1:] = val
@@ -825,25 +942,28 @@ def date(
             raise NotImplementedError(
                 "Samples must all be at time 0")
 
-    num_samples, tip_weights, spans = find_node_tip_weights(tree_sequence)
-    prior_df = {tree_sequence.num_samples:
-                prior_maker(
-                    tree_sequence.num_samples, approximate_prior).make_prior()}
+    sample_set = set(tree_sequence.samples())
+
+    span_data = SpansBySamples(tree_sequence, sample_set)
+    spans = span_data.node_total_span
+    max_sample_size_before_approximation = 1000 if approximate_prior else None
+    priors = ConditionalCoalescentTimes(max_sample_size_before_approximation)
+    priors.add(tree_sequence.num_samples, approximate_prior)
     # Add in priors for trees with different sample numbers (missing data only)
-    for s in num_samples:
-        if s != tree_sequence.num_samples:
-            prior_df[s] = prior_maker(s, approximate_prior).make_prior()
+    for num_samples in span_data.num_samples_set:
+        if num_samples != tree_sequence.num_samples:
+            priors.add(num_samples, approximate_prior)
 
     if time_grid == 'uniform':
         grid = np.linspace(0, 8, grid_slices + 1)
     elif time_grid == 'adaptive':
         # Use the prior for the complete TS
         grid = create_time_grid(
-            prior_df[tree_sequence.num_samples], grid_slices + 1)
+            priors[tree_sequence.num_samples], grid_slices + 1)
     else:
         raise ValueError("time_grid must be either 'adaptive' or 'uniform'")
 
-    mixture_prior = get_mixture_prior(tip_weights, prior_df)
+    mixture_prior = get_mixture_prior(span_data, priors)
     prior_vals = get_prior_values(mixture_prior, grid, tree_sequence)
 
     theta = rho = mut_lls = None
