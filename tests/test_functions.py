@@ -373,7 +373,8 @@ class TestPriorVals(unittest.TestCase):
         priors.add(ts.num_samples, approximate=False)
         grid = np.linspace(0, 3, 3)
         mixture_prior = tsdate.get_mixture_prior(span_data, priors)
-        prior_vals = tsdate.get_prior_values(mixture_prior, grid, ts)
+        nodes_to_date = span_data.nodes_to_date
+        prior_vals = tsdate.get_prior_values(mixture_prior, grid, ts, nodes_to_date)
         self.assertTrue(np.array_equal(prior_vals[0:ts.num_samples],
                         np.tile(np.array([1, 0, 0]), (ts.num_samples, 1))))
         return prior_vals
@@ -438,7 +439,8 @@ class TestForwardAlgorithm(unittest.TestCase):
         priors.add(ts.num_samples, approximate=False)
         grid = np.array([0, 1.2, 2])
         mixture_prior = tsdate.get_mixture_prior(span_data, priors)
-        prior_vals = tsdate.get_prior_values(mixture_prior, grid, ts)
+        nodes_to_date = span_data.nodes_to_date
+        prior_vals = tsdate.get_prior_values(mixture_prior, grid, ts, nodes_to_date)
         theta = 1
         rho = None
         eps = 1e-6
@@ -446,7 +448,7 @@ class TestForwardAlgorithm(unittest.TestCase):
         lls = tsdate.get_mut_ll(ts, grid, theta, eps)
         forward, g_i, logged_forwards, logged_g_i = \
             tsdate.forward_algorithm(
-                ts, prior_vals, grid, theta, rho, eps, rows, lls, False)
+                ts, prior_vals, grid, theta, rho, eps, rows, cols, lls, False)
         self.assertTrue(np.array_equal(forward[0:ts.num_samples],
                         np.tile(np.array([1, 0, 0]), (ts.num_samples, 1))))
         self.assertTrue(np.allclose(logged_forwards[0:ts.num_samples],
@@ -506,39 +508,59 @@ class TestForwardAlgorithm(unittest.TestCase):
         self.assertTrue(np.allclose(forward[5],
                         np.array([0, 5.65044738e-05, 1])))
 
-# class TestBackwardAlgorithm(unittest.TestCase):
-#    def verify_backward_algorithm(self, ts):
-#        _, tip_weights, spans = tsdate.find_node_tip_weights(ts)
-#        prior_df = {ts.num_samples:
-#                    tsdate.prior_maker(ts.num_samples, False).make_prior()}
-#        grid = np.array([0, 1.2, 2])
-#        mixture_prior = tsdate.get_mixture_prior(tip_weights, prior_df)
-#        prior_vals = tsdate.get_prior_values(mixture_prior, grid, ts)
-#        theta = 1
-#        rho = None
-#        eps = 1e-6
-#        lls, rows, cols = tsdate.get_mut_ll(ts, grid, theta, eps)
-#        forward, g_i, logged_forwards, logged_g_i = \
-#            tsdate.forward_algorithm(
-#                ts, prior_vals, grid, theta, rho, eps, lls, rows, False)
-#        posterior, backward = \
-#            tsdate.backward_algorithm(
-#                ts, logged_forwards, logged_g_i, grid, theta, rho,
-#                                      spans, eps, lls, cols)
-#        self.assertTrue(np.array_equal(backward[0:ts.num_samples],
-#                        np.tile(np.array([1, 0, 0]), (ts.num_samples, 1))))
-#        self.assertTrue(np.array_equal(posterior[0:ts.num_samples],
-#                        np.tile(np.array([1, 0, 0]), (ts.num_samples, 1))))
-#        return posterior, backward
-#
-#    def test_one_tree_n3(self):
-#        ts = utility_functions.single_tree_ts_n3()
-#        posterior, backward = self.verify_backward_algorithm(ts)
-#        self.assertTrue(np.array_equal(
-#                         backward[3], np.array([0, 1, 0.3350888368])))
-#        self.assertTrue(np.array_equal(backward[4], np.array([0, 1, 1])))
-#        self.assertTrue(np.array_equal(
-#             posterior[3], np.array([0, 0.99616886, 0.00383114])))
-#        self.assertTrue(np.array_equal(
-#                        posterior[4], np.array([0, 0.83739361, 0.16260639])))
-#
+
+class TestBackwardAlgorithm(unittest.TestCase):
+    def verify_backward_algorithm(self, ts):
+        fixed_nodes_set = set(ts.samples())
+        span_data = tsdate.SpansBySamples(ts)
+        spans = span_data.node_total_span
+        priors = tsdate.ConditionalCoalescentTimes(None)
+        priors.add(ts.num_samples, approximate=False)
+        grid = np.array([0, 1.2, 2])
+        mixture_prior = tsdate.get_mixture_prior(span_data, priors)
+        nodes_to_date = span_data.nodes_to_date
+        prior_vals = tsdate.get_prior_values(mixture_prior, grid, ts, nodes_to_date)
+        theta = 1
+        rho = None
+        eps = 1e-6
+        rows, cols = tsdate.get_rows_cols(grid)
+        lls = tsdate.get_mut_ll(ts, grid, theta, eps)
+        forward, g_i, logged_forwards, logged_g_i = \
+            tsdate.forward_algorithm(
+                ts, prior_vals, grid, theta, rho, eps, rows, cols, lls, False)
+        posterior, backward = \
+            tsdate.backward_algorithm(
+                ts, logged_forwards, logged_g_i, grid, theta, rho,
+                spans, eps, lls, rows, cols, fixed_nodes_set)
+        self.assertTrue(np.array_equal(backward[0:ts.num_samples],
+                        np.tile(np.array([1, 0, 0]), (ts.num_samples, 1))))
+        self.assertTrue(np.array_equal(posterior[0:ts.num_samples],
+                        np.tile(np.array([1, 0, 0]), (ts.num_samples, 1))))
+        return posterior, backward
+
+    def test_one_tree_n2(self):
+        ts = utility_functions.single_tree_ts_n2()
+        posterior, backward = self.verify_backward_algorithm(ts)
+        self.assertTrue(np.array_equal(
+                        backward[2], np.array([0, 1, 1])))
+
+    def test_one_tree_n3(self):
+        ts = utility_functions.single_tree_ts_n3()
+        posterior, backward = self.verify_backward_algorithm(ts)
+        self.assertTrue(np.allclose(
+                         backward[3], np.array([0, 1, 0.33508884])))
+        self.assertTrue(np.allclose(backward[4], np.array([0, 1, 1])))
+        self.assertTrue(np.allclose(
+             posterior[3], np.array([0, 0.99616886, 0.00383114])))
+        self.assertTrue(np.allclose(
+                        posterior[4], np.array([0, 0.83739361, 0.16260639])))
+
+    def test_one_tree_n4(self):
+        ts = utility_functions.single_tree_ts_n4()
+        posterior, backward = self.verify_backward_algorithm(ts)
+        self.assertTrue(np.allclose(
+                        backward[4], np.array([0, 1, 0.02187283])))
+        self.assertTrue(np.allclose(
+                        backward[5], np.array([0, 1, 0.41703272])))
+        self.assertTrue(np.allclose(
+                        backward[6], np.array([0, 1, 1])))
