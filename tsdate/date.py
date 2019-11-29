@@ -246,29 +246,23 @@ def get_mixture_prior(spans_by_samples, basic_priors):
     :rtype:  pandas.DataFrame
     """
 
-    def mix_expect(mixture):
+    def mixture_expect_and_var(mixture):
         expectation = 0
+        first = secnd = third = 0
         for N, tip_dict in mixture.items():
             cur_age_prior = basic_priors[N].loc[tip_dict.descendant_tips]
             alpha = cur_age_prior['Alpha'].values
             beta = cur_age_prior['Beta'].values
-            expectation += np.sum(
-                (alpha / beta) * tip_dict.weight)
-        return expectation
 
-    def mix_var(mixture):
-        first = second = third = 0
-        for N, tip_dict in mixture.items():
-            cur_age_prior = basic_priors[N].loc[tip_dict.descendant_tips]
-            alpha = cur_age_prior['Alpha'].values
-            beta = cur_age_prior['Beta'].values
-            first += \
-                np.sum(alpha / (beta ** 2) * tip_dict.weight)
-            second += \
-                np.sum((alpha / beta) ** 2 * tip_dict.weight)
-            third += \
-                np.sum((alpha / beta) * tip_dict.weight) ** 2
-        return first + second - third
+            # Expectation
+            expectation += np.sum((alpha / beta) * tip_dict.weight)
+
+            # Variance
+            first += np.sum(alpha / (beta ** 2) * tip_dict.weight)
+            secnd += np.sum((alpha / beta) ** 2 * tip_dict.weight)
+            third += np.sum((alpha / beta) * tip_dict.weight) ** 2
+
+        return expectation, first + secnd - third
 
     seen_mixtures = {}
     prior = pd.DataFrame(
@@ -276,12 +270,31 @@ def get_mixture_prior(spans_by_samples, basic_priors):
         columns=["Alpha", "Beta"], dtype=float)
     for node in spans_by_samples.nonsample_nodes:
         mixture = spans_by_samples.weights(node)
-        cur_mixture = str(mixture)
-        if cur_mixture not in seen_mixtures:
-            prior.loc[node] = seen_mixtures[cur_mixture] = \
-                gamma_approx(mix_expect(mixture), mix_var(mixture))
+        if len(mixture) == 1:
+            # The norm: this node spans trees that all have the same set of samples
+            total_tips, weight_tuple = next(iter(mixture.items()))
+            if len(weight_tuple.weight) == 1:
+                d_tips = weight_tuple.descendant_tips[0]
+                # This node is not a mixture - can use the standard coalescent prior
+                prior.loc[node] = basic_priors[total_tips].loc[d_tips]
+            elif len(weight_tuple.weight) <= 5:
+                # Making mixture priors is a little expensive. We can help by caching
+                # in those cases where we have only a few mixtures (arbitrarily set here
+                # as <= 5 mixtures
+                mixture_hash = (
+                    weight_tuple.descendant_tips.tostring(),
+                    weight_tuple.weight.tostring())
+                if mixture_hash not in seen_mixtures:
+                    prior.loc[node] = seen_mixtures[mixture_hash] = \
+                        gamma_approx(*mixture_expect_and_var(mixture))
+                else:
+                    prior.loc[node] = seen_mixtures[mixture_hash]
+            else:
+                # a large number of mixtures in this node - don't bother caching
+                prior.loc[node] = gamma_approx(*mixture_expect_and_var(mixture))
         else:
-            prior.loc[node] = seen_mixtures[cur_mixture]
+            # The node spans trees with multiple total tip numbers, don't use the cache
+            prior.loc[node] = gamma_approx(*mixture_expect_and_var(mixture))
 
     prior.index.name = "Node"
     return prior
@@ -484,7 +497,7 @@ class SpansBySamples:
 
         for node, weights_by_total_tips in result.items():
             result[node] = {}
-            for num_samples, weights in weights_by_total_tips.items():
+            for num_samples, weights in sorted(weights_by_total_tips.items()):
                 result[node][num_samples] = Weights(
                     # we use np.int64 as it's faster to look up in pandas dataframes
                     descendant_tips=np.array(list(weights.keys()), dtype=np.int64),
