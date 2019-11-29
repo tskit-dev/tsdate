@@ -85,8 +85,8 @@ class TestNodeTipWeights(unittest.TestCase):
             for n in tree.nodes():
                 if not tree.is_sample(n):
                     nonsample_nodes.add(n)
-        self.assertEqual(set(span_data.nonsample_nodes), nonsample_nodes)
-        for focal_node in span_data.nonsample_nodes:
+        self.assertEqual(set(span_data.nodes_to_date), nonsample_nodes)
+        for focal_node in span_data.nodes_to_date:
             for num_samples, weights in span_data.weights(focal_node).items():
                 self.assertTrue(0 <= focal_node < ts.num_nodes)
                 self.assertAlmostEqual(sum(weights.weight), 1.0)
@@ -97,7 +97,7 @@ class TestNodeTipWeights(unittest.TestCase):
         ts = utility_functions.single_tree_ts_n2()
         span_data = self.verify_weights(ts)
         # with a single tree there should only be one weight
-        for node in span_data.nonsample_nodes:
+        for node in span_data.nodes_to_date:
             self.assertTrue(len(span_data.weights(node)), 1)
         self.assertTrue(2 in span_data.weights(2)[ts.num_samples])  # Root
 
@@ -106,7 +106,7 @@ class TestNodeTipWeights(unittest.TestCase):
         n = ts.num_samples
         span_data = self.verify_weights(ts)
         # with a single tree there should only be one weight
-        for node in span_data.nonsample_nodes:
+        for node in span_data.nodes_to_date:
             self.assertTrue(len(span_data.weights(node)), 1)
         for nd, expd_tips in [
                 (4, 3),   # Node 4 (root) expected to have 3 descendant tips
@@ -118,7 +118,7 @@ class TestNodeTipWeights(unittest.TestCase):
         n = ts.num_samples
         span_data = self.verify_weights(ts)
         # with a single tree there should only be one weight
-        for node in span_data.nonsample_nodes:
+        for node in span_data.nodes_to_date:
             self.assertTrue(len(span_data.weights(node)), 1)
         for nd, expd_tips in [
                 (6, 4),   # Node 6 (root) expected to have 4 descendant tips
@@ -145,7 +145,7 @@ class TestNodeTipWeights(unittest.TestCase):
         ts = ts.simplify()
         span_data = self.verify_weights(ts)
         # Root on (deleted) R tree is missing
-        self.assertTrue(5 not in span_data.nonsample_nodes)
+        self.assertTrue(5 not in span_data.nodes_to_date)
         self.assertEqual(span_data.lookup_weight(4, n, 3), 1.0)  # Root on L tree ...
         # ... but internal on (deleted) R tree
         self.assertFalse(np.isin(span_data.weights(4)[n].descendant_tips, 2))
