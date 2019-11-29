@@ -89,8 +89,8 @@ class TestNodeTipWeights(unittest.TestCase):
         for focal_node in span_data.nonsample_nodes:
             for num_samples, weights in span_data.weights(focal_node).items():
                 self.assertTrue(0 <= focal_node < ts.num_nodes)
-                self.assertAlmostEqual(sum(weights.values()), 1.0)
-                self.assertLessEqual(max(weights.keys()), ts.num_samples)
+                self.assertAlmostEqual(sum(weights.weight), 1.0)
+                self.assertLessEqual(max(weights.descendant_tips), ts.num_samples)
         return span_data
 
     def test_one_tree_n2(self):
@@ -103,12 +103,15 @@ class TestNodeTipWeights(unittest.TestCase):
 
     def test_one_tree_n3(self):
         ts = utility_functions.single_tree_ts_n3()
+        n = ts.num_samples
         span_data = self.verify_weights(ts)
         # with a single tree there should only be one weight
         for node in span_data.nonsample_nodes:
             self.assertTrue(len(span_data.weights(node)), 1)
-        self.assertTrue(3 in span_data.weights(4)[ts.num_samples])  # Root
-        self.assertTrue(2 in span_data.weights(3)[ts.num_samples])  # 1st internal node
+        for nd, expd_tips in [
+                (4, 3),   # Node 4 (root) expected to have 3 descendant tips
+                (3, 2)]:  # Node 3 (1st internal node) expected to have 2 descendant tips
+            self.assertTrue(np.isin(span_data.weights(nd)[n].descendant_tips, expd_tips))
 
     def test_one_tree_n4(self):
         ts = utility_functions.single_tree_ts_n4()
@@ -117,19 +120,21 @@ class TestNodeTipWeights(unittest.TestCase):
         # with a single tree there should only be one weight
         for node in span_data.nonsample_nodes:
             self.assertTrue(len(span_data.weights(node)), 1)
-        self.assertTrue(4 in span_data.weights(6)[n])  # Root
-        self.assertTrue(3 in span_data.weights(5)[n])  # 1st internal node
-        self.assertTrue(2 in span_data.weights(4)[n])  # 2nd internal node
+        for nd, expd_tips in [
+                (6, 4),   # Node 6 (root) expected to have 4 descendant tips
+                (5, 3),   # Node 5 (1st internal node) expected to have 3 descendant tips
+                (4, 2)]:  # Node 4 (2nd internal node) expected to have 3 descendant tips
+            self.assertTrue(np.isin(span_data.weights(nd)[n].descendant_tips, expd_tips))
 
     def test_two_trees(self):
         ts = utility_functions.two_tree_ts()
         n = ts.num_samples
         span_data = self.verify_weights(ts)
-        self.assertEqual(span_data.weights(5)[n][3], 1.0)  # Root on right tree
-        self.assertEqual(span_data.weights(4)[n][3], 0.2)  # Root on left tree ...
-        # ... but internal node on right tree
-        self.assertEqual(span_data.weights(4)[n][2], 0.8)
-        self.assertEqual(span_data.weights(3)[n][2], 1.0)  # Internal node on left tree
+        self.assertEqual(span_data.lookup_weight(5, n, 3), 1.0)  # Root on R tree
+        self.assertEqual(span_data.lookup_weight(4, n, 3), 0.2)  # Root on L tree ...
+        # ... but internal node on R tree
+        self.assertEqual(span_data.lookup_weight(4, n, 2), 0.8)
+        self.assertEqual(span_data.lookup_weight(3, n, 2), 1.0)  # Internal nd on L tree
 
     def test_missing_tree(self):
         ts = utility_functions.two_tree_ts().keep_intervals(
@@ -139,27 +144,27 @@ class TestNodeTipWeights(unittest.TestCase):
         self.assertRaises(ValueError, tsdate.SpansBySamples, ts)
         ts = ts.simplify()
         span_data = self.verify_weights(ts)
-        # Root on (deleted) right tree is missing
+        # Root on (deleted) R tree is missing
         self.assertTrue(5 not in span_data.nonsample_nodes)
-        self.assertEqual(span_data.weights(4)[n][3], 1.0)  # Root on left tree ...
-        # ... but internal on (deleted) r tree
-        self.assertTrue(2 not in span_data.weights(4)[n])
-        self.assertEqual(span_data.weights(3)[n][2], 1.0)  # Internal node on left tree
+        self.assertEqual(span_data.lookup_weight(4, n, 3), 1.0)  # Root on L tree ...
+        # ... but internal on (deleted) R tree
+        self.assertFalse(np.isin(span_data.weights(4)[n].descendant_tips, 2))
+        self.assertEqual(span_data.lookup_weight(3, n, 2), 1.0)  # Internal nd on L tree
 
     def test_tree_with_unary_nodes(self):
         ts = utility_functions.single_tree_ts_with_unary()
         n = ts.num_samples
         span_data = self.verify_weights(ts)
-        self.assertEqual(span_data.weights(3)[n][2], 1.0)
-        self.assertEqual(span_data.weights(4)[n][2], 0.5)
-        self.assertEqual(span_data.weights(4)[n][3], 0.5)
-        self.assertEqual(span_data.weights(5)[n][1], 0.5)
-        self.assertEqual(span_data.weights(5)[n][3], 0.5)
+        self.assertEqual(span_data.lookup_weight(3, n, 2), 1.0)
+        self.assertEqual(span_data.lookup_weight(4, n, 2), 0.5)
+        self.assertEqual(span_data.lookup_weight(4, n, 3), 0.5)
+        self.assertEqual(span_data.lookup_weight(5, n, 1), 0.5)
+        self.assertEqual(span_data.lookup_weight(5, n, 3), 0.5)
 
     def test_polytomy_tree(self):
         ts = utility_functions.polytomy_tree_ts()
         span_data = self.verify_weights(ts)
-        self.assertEqual(span_data.weights(3)[ts.num_samples][3], 1.0)
+        self.assertEqual(span_data.lookup_weight(3, ts.num_samples, 3), 1.0)
 
     def test_larger_find_node_tip_weights(self):
         ts = msprime.simulate(10, recombination_rate=5,

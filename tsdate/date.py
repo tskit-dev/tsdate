@@ -22,13 +22,13 @@
 """
 Infer the age of nodes conditional on a tree sequence topology.
 """
-from collections import defaultdict
+from collections import defaultdict, namedtuple
 import logging
 import os
+import itertools
 
 import tskit
 
-import itertools
 import pandas as pd
 import numpy as np
 import scipy.stats
@@ -246,29 +246,28 @@ def get_mixture_prior(spans_by_samples, basic_priors):
     :rtype:  pandas.DataFrame
     """
 
-    def mix_expect(node, mixture):
+    def mix_expect(mixture):
         expectation = 0
         for N, tip_dict in mixture.items():
-            cur_age_prior = basic_priors[N].loc[np.array(list(tip_dict.keys()))]
-            alpha = cur_age_prior['Alpha']
-            beta = cur_age_prior['Beta']
+            cur_age_prior = basic_priors[N].loc[tip_dict.descendant_tips]
+            alpha = cur_age_prior['Alpha'].values
+            beta = cur_age_prior['Beta'].values
             expectation += np.sum(
-                (alpha / beta) * np.array(list(tip_dict.values())))
+                (alpha / beta) * tip_dict.weight)
         return expectation
 
-    def mix_var(node, mixture):
+    def mix_var(mixture):
         first = second = third = 0
         for N, tip_dict in mixture.items():
-            cur_age_prior = basic_priors[N].loc[np.array(list(tip_dict.keys()))]
-            cur_tip_dict_vals = np.array(list(tip_dict.values()))
-            alpha = cur_age_prior['Alpha']
-            beta = cur_age_prior['Beta']
+            cur_age_prior = basic_priors[N].loc[tip_dict.descendant_tips]
+            alpha = cur_age_prior['Alpha'].values
+            beta = cur_age_prior['Beta'].values
             first += \
-                np.sum(alpha / (beta ** 2) * cur_tip_dict_vals)
+                np.sum(alpha / (beta ** 2) * tip_dict.weight)
             second += \
-                np.sum((alpha / beta) ** 2 * cur_tip_dict_vals)
+                np.sum((alpha / beta) ** 2 * tip_dict.weight)
             third += \
-                np.sum((alpha / beta) * cur_tip_dict_vals) ** 2
+                np.sum((alpha / beta) * tip_dict.weight) ** 2
         return first + second - third
 
     seen_mixtures = {}
@@ -280,12 +279,15 @@ def get_mixture_prior(spans_by_samples, basic_priors):
         cur_mixture = str(mixture)
         if cur_mixture not in seen_mixtures:
             prior.loc[node] = seen_mixtures[cur_mixture] = \
-                gamma_approx(mix_expect(node, mixture), mix_var(node, mixture))
+                gamma_approx(mix_expect(mixture), mix_var(mixture))
         else:
             prior.loc[node] = seen_mixtures[cur_mixture]
 
     prior.index.name = "Node"
     return prior
+
+
+Weights = namedtuple('Weights', 'descendant_tips weight')
 
 
 class SpansBySamples:
@@ -482,9 +484,11 @@ class SpansBySamples:
 
         for node, weights_by_total_tips in result.items():
             result[node] = {}
-            for num_samples, weight_dict in weights_by_total_tips.items():
-                result[node][num_samples] = \
-                    {k: v/self.node_total_span[node] for k, v in weight_dict.items()}
+            for num_samples, weights in weights_by_total_tips.items():
+                result[node][num_samples] = Weights(
+                    # we use np.int64 as it's faster to look up in pandas dataframes
+                    descendant_tips=np.array(list(weights.keys()), dtype=np.int64),
+                    weight=np.array(list(weights.values()))/self.node_total_span[node])
         # Assign into the instance, for further reference
         self.normalised_node_spans = result
 
@@ -524,6 +528,11 @@ class SpansBySamples:
         :rtype: dict(int, dict(int, float))'
         """
         return self.normalised_node_spans[node]
+
+    def lookup_weight(self, node, total_tips, descendant_tips):
+        # Only used for testing
+        which = self.weights(node)[total_tips].descendant_tips == descendant_tips
+        return self.weights(node)[total_tips].weight[which]
 
 
 def create_time_grid(age_prior, n_points=21):
