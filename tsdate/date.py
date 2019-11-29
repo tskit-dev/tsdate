@@ -240,7 +240,7 @@ def get_mixture_prior(spans_by_samples, basic_priors):
         coalescent times conditioned on the numbers of tips under a node.
         This is used to obtain the node date priors for mixing.
     :return: A data frame giving the alpha and beta parameters for each
-        node id in ``spans_by_samples.nonsample_nodes``, which can be used
+        node id in ``spans_by_samples.nodes_to_date``, which can be used
         to approximate the probabilities of times for that node used a
         gamma distribution.
     :rtype:  pandas.DataFrame
@@ -266,9 +266,9 @@ def get_mixture_prior(spans_by_samples, basic_priors):
 
     seen_mixtures = {}
     prior = pd.DataFrame(
-        index=list(spans_by_samples.nonsample_nodes),
+        index=list(spans_by_samples.nodes_to_date),
         columns=["Alpha", "Beta"], dtype=float)
-    for node in spans_by_samples.nonsample_nodes:
+    for node in spans_by_samples.nodes_to_date:
         mixture = spans_by_samples.weights(node)
         if len(mixture) == 1:
             # The norm: this node spans trees that all have the same set of samples
@@ -329,11 +329,11 @@ class SpansBySamples:
     :ivar node_total_span: A numpy array of size :attr:`.tree_sequence.num_nodes`
         containing the genomic span covered by each node (including sample nodes)
     :vartype node_total_span: numpy.ndarray (dtype=np.uint64)
-    :ivar nonsample_nodes: An iterator returning all the non-sample node ids
-        in the tree sequence: these are all the node numbers that are valid
-        parameters for the :meth:`weights` method.
-    :vartype nonsample_nodes: iterable(int)
-
+    :ivar nodes_to_date: An numpy array containing all the node ids in the tree
+        sequence that we wish to date. These are usually all the non-sample nodes,
+        and also provide the node numbers that are valid parameters for the
+        :meth:`weights` method.
+    :vartype nodes_to_date: numpy.ndarray (dtype=np.uint32)
     """
 
     def __init__(self, ts, sample_set=None):
@@ -504,10 +504,7 @@ class SpansBySamples:
                     weight=np.array(list(weights.values()))/self.node_total_span[node])
         # Assign into the instance, for further reference
         self.normalised_node_spans = result
-
-    @property
-    def nonsample_nodes(self):
-        return self.normalised_node_spans.keys()
+        self.nodes_to_date = np.array(list(result.keys()), dtype=np.uint64)
 
     def weights(self, node):
         """
@@ -792,17 +789,22 @@ def forward_algorithm(ts, prior_values, grid, theta, rho, eps, rows,
 
 
 # TODO: Account for multiple parents, fix the log of zero thing
-def backward_algorithm(ts, forwards, g_i, grid, theta, rho, spans, eps, lls, cols):
+def backward_algorithm(
+        ts, forwards, g_i, grid, theta, rho, spans, eps, lls, cols, dated_node_set=None):
     """
     Computes the full posterior distribution on nodes.
     Input is log of forwards matrix, log of g_i matrix, time grid, population scaled
     mutation and recombination rate. Spans of each edge, epsilon, likelihoods of each
     edge, and the columns of the lower triangular matrix of likelihoods.
     """
+    if dated_node_set is None:
+        dated_node_set = set(ts.samples())
+    node_has_date = np.zeros(ts.num_nodes, dtype=bool)
+    node_has_date[list(dated_node_set)] = True
     backwards = np.zeros((ts.num_nodes, len(grid)))  # store backwards matrix
     mut_edges = get_mut_edges(ts)
     norm = np.zeros((ts.num_nodes))  # normalizing constants
-    norm[ts.samples()] = 1  # set all tips normalizing constants to 1
+    norm[node_has_date] = 1  # normalizing constants of all nodes with known dates == 1
 
     for tree in ts.trees():
         for root in tree.roots:
@@ -810,13 +812,14 @@ def backward_algorithm(ts, forwards, g_i, grid, theta, rho, spans, eps, lls, col
                 print("Node not in tree")
                 continue
             backwards[root] += (1 * tree.span) / spans[root]
-    backwards[ts.samples(), 0] = 1
+    backwards[node_has_date, 0] = 1
     child_edges = (ts.edge(i) for i in
                    reversed(np.argsort(ts.tables.nodes.time[ts.tables.edges.child[:]])))
 
-    for child, edges in tqdm(itertools.groupby(
-            child_edges, key=lambda x: x.child), total=ts.num_nodes - ts.num_samples):
-        if child not in ts.samples():
+    for child, edges in tqdm(
+            itertools.groupby(child_edges, key=lambda x: x.child),
+            total=ts.num_nodes - np.sum(node_has_date)):
+        if child not in dated_node_set:
             for time in reversed(np.arange(1, len(grid) - 1)):
                 dt = grid[time:] - grid[time] + eps
                 edges = list(edges)
@@ -867,16 +870,18 @@ def backward_algorithm(ts, forwards, g_i, grid, theta, rho, spans, eps, lls, col
     return posterior, backwards
 
 
-def forwards_mean_var(ts, grid, forwards):
+def forwards_mean_var(ts, grid, forwards, nodes_to_date=None):
     """
     Mean and variance of node age in scaled time
+    If nodes_to_date is None, we attempt to date all the non-sample nodes
     """
     mn_post = np.zeros(ts.num_nodes)
     vr_post = np.zeros(ts.num_nodes)
+    if nodes_to_date is None:
+        nodes_to_date = np.arange(ts.num_nodes, dtype=np.uint64)
+        nodes_to_date = nodes_to_date[~np.isin(nodes_to_date, ts.samples())]
 
-    nonsample_nodes = np.arange(ts.num_nodes)
-    nonsample_nodes = nonsample_nodes[~np.isin(nonsample_nodes, ts.samples())]
-    for nd in nonsample_nodes:
+    for nd in nodes_to_date:
         mn_post[nd] = sum(forwards[nd, ] * grid) / sum(forwards[nd, ])
         vr_post[nd] = (
             sum(forwards[nd, ] * grid ** 2) /
@@ -884,16 +889,18 @@ def forwards_mean_var(ts, grid, forwards):
     return mn_post, vr_post
 
 
-def restrict_ages_topo(ts, forwards_mn, grid, eps):
+def restrict_ages_topo(ts, forwards_mn, grid, eps, nodes_to_date=None):
     """
     If predicted node times violate topology, restrict node ages so that they
     must be older than all their children.
     """
     new_mn_post = np.copy(forwards_mn)
+    if nodes_to_date is None:
+        nodes_to_date = np.arange(ts.num_nodes, dtype=np.uint64)
+        nodes_to_date = nodes_to_date[~np.isin(nodes_to_date, ts.samples())]
+
     tables = ts.tables
-    nonsample_nodes = np.arange(ts.num_nodes)
-    nonsample_nodes = nonsample_nodes[~np.isin(nonsample_nodes, ts.samples())]
-    for nd in nonsample_nodes:
+    for nd in nodes_to_date:
         children = tables.edges.child[tables.edges.parent == nd]
         time = new_mn_post[children]
         if np.any(new_mn_post[nd] <= time):
@@ -968,6 +975,7 @@ def date(
 
     span_data = SpansBySamples(tree_sequence, sample_set)
     spans = span_data.node_total_span
+    nodes_to_date = span_data.nodes_to_date
     max_sample_size_before_approximation = 1000 if approximate_prior else None
     priors = ConditionalCoalescentTimes(max_sample_size_before_approximation)
     priors.add(tree_sequence.num_samples, approximate_prior)
@@ -1002,8 +1010,8 @@ def date(
         lls=mut_lls, progress=progress)
     posterior, backward = backward_algorithm(
         tree_sequence, logged_forwards, logged_g_i,
-        grid, theta, rho, spans, eps, mut_lls, cols)
-    mn_post, _ = forwards_mean_var(tree_sequence, grid, posterior)
-    new_mn_post = restrict_ages_topo(tree_sequence, mn_post, grid, eps)
+        grid, theta, rho, spans, eps, mut_lls, cols, sample_set)
+    mn_post, _ = forwards_mean_var(tree_sequence, grid, posterior, nodes_to_date)
+    new_mn_post = restrict_ages_topo(tree_sequence, mn_post, grid, eps, nodes_to_date)
     dated_ts = return_ts(tree_sequence, new_mn_post, Ne)
     return dated_ts
