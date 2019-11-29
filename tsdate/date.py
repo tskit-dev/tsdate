@@ -246,29 +246,23 @@ def get_mixture_prior(spans_by_samples, basic_priors):
     :rtype:  pandas.DataFrame
     """
 
-    def mix_expect(mixture):
+    def mixture_expect_and_var(mixture):
         expectation = 0
+        first = secnd = third = 0
         for N, tip_dict in mixture.items():
             cur_age_prior = basic_priors[N].loc[tip_dict.descendant_tips]
             alpha = cur_age_prior['Alpha'].values
             beta = cur_age_prior['Beta'].values
-            expectation += np.sum(
-                (alpha / beta) * tip_dict.weight)
-        return expectation
 
-    def mix_var(mixture):
-        first = second = third = 0
-        for N, tip_dict in mixture.items():
-            cur_age_prior = basic_priors[N].loc[tip_dict.descendant_tips]
-            alpha = cur_age_prior['Alpha'].values
-            beta = cur_age_prior['Beta'].values
-            first += \
-                np.sum(alpha / (beta ** 2) * tip_dict.weight)
-            second += \
-                np.sum((alpha / beta) ** 2 * tip_dict.weight)
-            third += \
-                np.sum((alpha / beta) * tip_dict.weight) ** 2
-        return first + second - third
+            # Expectation
+            expectation += np.sum((alpha / beta) * tip_dict.weight)
+
+            # Variance
+            first += np.sum(alpha / (beta ** 2) * tip_dict.weight)
+            secnd += np.sum((alpha / beta) ** 2 * tip_dict.weight)
+            third += np.sum((alpha / beta) * tip_dict.weight) ** 2
+
+        return expectation, first + secnd - third
 
     seen_mixtures = {}
     prior = pd.DataFrame(
@@ -279,7 +273,7 @@ def get_mixture_prior(spans_by_samples, basic_priors):
         cur_mixture = str(mixture)
         if cur_mixture not in seen_mixtures:
             prior.loc[node] = seen_mixtures[cur_mixture] = \
-                gamma_approx(mix_expect(mixture), mix_var(mixture))
+                gamma_approx(*mixture_expect_and_var(mixture))
         else:
             prior.loc[node] = seen_mixtures[cur_mixture]
 
