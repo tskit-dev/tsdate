@@ -336,10 +336,10 @@ class SpansBySamples:
     :vartype nodes_to_date: numpy.ndarray (dtype=np.uint32)
     """
 
-    def __init__(self, ts, sample_set=None):
+    def __init__(self, ts, fixed_nodes_set=None):
         """
         :param TreeSequence ts: The input :class:`tskit.TreeSequence`.
-        :param set sample_set: A set of all the samples in the tree sequence.
+        :param set fixed_nodes_set: A set of all the samples in the tree sequence.
             This should be equivalent to ``set(ts.samples()``, but is provided
             as an optional parameter so that a pre-calculated set can be passed
             in, to save the expense of re-calculating it when setting up the
@@ -347,74 +347,180 @@ class SpansBySamples:
             during initialization.
         """
         self.tree_sequence = ts
-        if sample_set is None:
-            sample_set = set(ts.samples())
+        if fixed_nodes_set is None:
+            fixed_nodes_set = set(ts.samples())
+        valid_samples_in_tree = np.full(ts.num_trees, tskit.NULL, dtype=np.int64)
+        num_children = np.full(ts.num_nodes, 0, dtype=np.int32)
+        self.num_samples_set = set()  # The num_samples in different trees (missing data)
+        self.node_total_span = np.zeros(ts.num_nodes)
         result = defaultdict(lambda: defaultdict(lambda: defaultdict(float)))
-        self.node_total_span = defaultdict(float)
-        curr_samples = set()
+
+        # Store the last recorded genome position for this node. If set to np.nan, this
+        # indicates that we are not currently tracking this node
+        stored_pos = np.full(ts.num_nodes, np.nan)
         trees_with_unassigned_nodes = set()  # Used to quickly skip trees later
-        valid_samples_in_tree = np.full(ts.num_trees, tskit.NULL)
 
-        for i, ((_, e_out, e_in), tree) in enumerate(
-                zip(ts.edge_diffs(), ts.trees())):
-            # In cases with missing data, the total number of relevant
-            # samples will not be ts.num_samples
-            curr_samples.difference_update(
-                [e.parent for e in e_out if e.parent in sample_set])
-            curr_samples.difference_update(
-                [e.child for e in e_out if e.child in sample_set])
-            curr_samples.update(
-                [e.parent for e in e_in if e.parent in sample_set])
-            curr_samples.update(
-                [e.child for e in e_in if e.child in sample_set])
+        # Use edge_diffs to calculate genomic coverage of each node, partitioned
+        # into different numbers of descendant tips.
 
-            # Number of non-missing samples in this tree
-            num_valid = len(curr_samples)
-            valid_samples_in_tree[i] = num_valid
-            span = tree.span
-            # Identify numbers of parents for each node. We could probably
-            # implement a more efficient algorithm by using e_out and e_in,
-            # and traversing up the tree from the edge parents, revising the
-            # number of tips under each parent node
-            for node in tree.nodes():
-                if node in sample_set:
-                    # Don't calculate for sample nodes as they have a date
-                    continue
-                n_samples = tree.num_samples(node)
-                if n_samples == 0:
-                    raise ValueError(
-                        "Tree " + str(i) +
-                        " contains a node with no descendant samples." +
-                        " Please simplify your tree sequence before dating.")
-                    continue  # Don't count any nodes
-                if len(tree.children(node)) > 1:
-                    result[node][num_valid][n_samples] += span
-                    self.node_total_span[node] += span
-                else:
-                    # UNARY NODES: take a mixture of the coalescent nodes above and below
-                    #  above:
-                    n = node
-                    done = False
-                    while not done:
-                        n = tree.parent(n)
-                        if n == tskit.NULL or len(tree.children(n)) > 1:
-                            done = True  # Found a coalescent node
-                    if n == tskit.NULL:
-                        logging.debug(
-                            "Unary node {} exists above highest coalescence in tree {}."
-                            " Skipping for now".format(node, i))
-                        trees_with_unassigned_nodes.add(i)
+        for node in ts.first().nodes():
+            stored_pos[node] = 0
+
+        num_fixed_treenodes = 0
+        edge_diff_iter = ts.edge_diffs()
+        _, _, e_in = next(edge_diff_iter)  # all edges come in to make a tree
+        for e in e_in:
+            if e.child in fixed_nodes_set:
+                num_fixed_treenodes += 1
+        self.num_samples_set.add(num_fixed_treenodes)
+        valid_samples_in_tree[0] = num_fixed_treenodes
+
+        # There are 2 possible algorithms - the simplest is to find all the affected
+        # nodes in the new tree, and use the constant-time "Tree.num_samples()"
+        # to recalculate the number of samples under each affected tip.
+        # The more complex one keeps track of the samples added and subtracted
+        # each time, basically implementing the num_samples() method itself
+        def save_to_results(tree, node, num_fixed_treenodes):
+            if np.isnan(stored_pos[node]):
+                # Don't save ones that we aren't tracking
+                return
+            coverage = tree.interval[1] - stored_pos[node]
+            self.node_total_span[node] += coverage
+            if node in fixed_nodes_set:
+                return
+            # print("Saving node: ", node)
+            n_tips = tree.num_samples(node)
+            if len(tree.children(node)) == 1:
+                # print("UNARY NODE DETECTED")
+                # Unary nodes are treated differently: we need to
+                # take a mixture of the coalescent nodes above and below
+                #  ABOVE:
+                n = node
+                done = False
+                while not done:
+                    n = tree.parent(n)
+                    if n == tskit.NULL or len(tree.children(n)) > 1:
+                        done = True  # Found a coalescent node
+                if n == tskit.NULL:
+                    logging.debug(
+                        "Unary node {} exists above highest coalescence in tree {}."
+                        " Skipping for now".format(node, i))
+                    trees_with_unassigned_nodes.add(i)
+                    return
+                # Half from the node above
+                result[node][num_fixed_treenodes][tree.num_samples(n)] += coverage / 2
+                #  BELOW: coalescent node below should have same num_samples as this one
+                result[node][num_fixed_treenodes][n_tips] += coverage / 2
+            else:
+                result[node][num_fixed_treenodes][n_tips] += coverage
+
+        # START ALGORITHM HERE
+        for i, tree in enumerate(ts.trees(sample_counts=True)):
+            # print(">>> TREE", i, tree.draw_text(), "\nTracking {}".format(
+            #    np.where(stored_pos != np.nan)[0]))
+            try:
+                # Get the edge diffs from the current tree to the new tree
+                _, e_out, e_in = next(edge_diff_iter)
+            except StopIteration:
+                # Last tree, save all the remaining nodes
+                for node in tree.nodes():
+                    save_to_results(tree, node, num_fixed_treenodes)
+                break
+
+            fixed_nodes_out = set()
+            fixed_nodes_in = set()
+            disappearing_nodes = set()
+            changed_nodes = set()
+            for e in e_out:
+                # Since a node only has one parent edge, any edge children going out
+                # will be lost, unless they are reintroduced
+                if e.child in fixed_nodes_set:
+                    fixed_nodes_out.add(e.child)
+                # No need to add the parents, as we'll traverse up the previous tree
+                # from these points and be guaranteed to hit them too.
+                changed_nodes.add(e.child)
+                disappearing_nodes.add(e.child)
+                if e.parent != tskit.NULL:
+                    num_children[e.parent] -= 1
+                    if num_children[e.parent] == 0:
+                        disappearing_nodes.add(e.parent)
+
+            for e in e_in:
+                # Edge children are always new
+                if e.child in fixed_nodes_set:
+                    fixed_nodes_in.add(e.child)
+                # This may have changed in the new tree
+                changed_nodes.add(e.child)
+                disappearing_nodes.discard(e.child)
+                if e.parent != tskit.NULL:
+                    # parent nodes might be added in the next tree, and we won't
+                    # necessarily traverse up to them in the current tree, so they need
+                    # to be added to the possibly changing nodes
+                    changed_nodes.add(e.parent)
+                    # If a parent or child come in, they definitely won't be disappearing
+                    num_children[e.parent] += 1
+                    disappearing_nodes.discard(e.parent)
+
+            # Add unary nodes below the altered ones, as their result is calculated
+            # from the coalescent node above
+            unary_descendants = set()
+            for node in changed_nodes:
+                children = tree.children(node)
+                if children is not None:
+                    if len(children) == 1:
+                        # Keep descending
+                        node == children[0]
+                        while True:
+                            children = tree.children(node)
+                            if len(children) != 1:
+                                break
+                            unary_descendants.add(node)
+                            node = children[0]
+                    else:
+                        # Descend all branches, looking for unary nodes
+                        for node in tree.children(node):
+                            while True:
+                                children = tree.children(node)
+                                if len(children) != 1:
+                                    break
+                                unary_descendants.add(node)
+                                node = children[0]
+
+            # find all the nodes in the tree that might have changed their number
+            # of descendants, and reset. This might include nodes that are not in
+            # the current tree, but will be in the next one (so we still need to
+            # set the stored position). Also track visited_nodes so we don't repeat
+            visited_nodes = set()
+            for node in changed_nodes | unary_descendants:
+                while node != tskit.NULL:  # if root or node not in tree
+                    if node in visited_nodes:
+                        break
+                    visited_nodes.add(node)
+                    # Node is in current tree
+                    save_to_results(tree, node, num_fixed_treenodes)
+                    if node in disappearing_nodes:
+                        # Not tracking this in the future
+                        stored_pos[node] = np.nan
+                    else:
+                        stored_pos[node] = tree.interval[1]
+                    node = tree.parent(node)
+
+            # If total number of samples has changed: we need to save
+            #  everything so far & reset all starting positions
+            if len(fixed_nodes_in) != len(fixed_nodes_out):
+                for node in tree.nodes():
+                    if node in visited_nodes:
+                        # We have already saved these - no need to again
                         continue
-                    # Half from the node above
-                    result[node][num_valid][tree.num_samples(n)] += span / 2
-
-                    #  coalescent node below should have same num_samples as this one
-                    assert len(tree.children(node)) == 1
-                    result[node][num_valid][tree.num_samples(node)] += span / 2
-
-                    self.node_total_span[node] += span
-
-        self.num_samples_set = np.unique(valid_samples_in_tree)
+                    save_to_results(tree, node, num_fixed_treenodes)
+                    if node in disappearing_nodes:
+                        # Not tracking this in the future
+                        stored_pos[node] = np.nan
+                    else:
+                        stored_pos[node] = tree.interval[1]
+                num_fixed_treenodes += len(fixed_nodes_in) - len(fixed_nodes_out)
+                self.num_samples_set.add(num_fixed_treenodes)
+            valid_samples_in_tree[i+1] = num_fixed_treenodes
 
         if ts.num_nodes - ts.num_samples - len(result) != 0:
             logging.debug(
@@ -425,7 +531,6 @@ class SpansBySamples:
             # now-parameterized nodes. This requires another pass through the
             # tree sequence. If there is no non-parameterized node above, then
             # we can simply assign this the coalescent maximum
-            curr_samples = set()
             unassigned_nodes = set(
                 [n.id for n in ts.nodes()
                     if not n.is_sample() and n.id not in result])
@@ -471,7 +576,6 @@ class SpansBySamples:
             # These must be unconnected to higher
             # nodes in the tree, so we can simply give them the max depth
             max_samples = ts.num_samples
-            curr_samples = set()
             unassigned_nodes = set(
                 [n.id for n in ts.nodes()
                     if not n.is_sample() and n.id not in result])
@@ -491,9 +595,12 @@ class SpansBySamples:
                         self.node_total_span[node] += tree.span
 
         if ts.num_nodes - ts.num_samples != len(result):
+            assert len(result) < ts.num_nodes - ts.num_samples, "There's a bug!"
+            covered_nodes = set(result.keys()) | fixed_nodes_set
+            missing_nodes = [n for n in range(ts.num_nodes) if n not in covered_nodes]
             raise ValueError(
-                "There are some nodes which are not in any tree."
-                " Please simplify your tree sequence.")
+                "The following nodes are not in any tree;"
+                " please simplify your tree sequence: {}".format(missing_nodes))
 
         for node, weights_by_total_tips in result.items():
             result[node] = {}
