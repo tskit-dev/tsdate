@@ -6,3 +6,4 @@ _build/
 tmp/
 tsdate/_version.py
 tsdate.egg-info
+data/prior_1000df.txt
