@@ -26,14 +26,16 @@ from collections import defaultdict, namedtuple
 import logging
 import os
 import itertools
-
-import tskit
+import multiprocessing
+import functools
 
 import pandas as pd
 import numpy as np
 import scipy.stats
 from scipy.special import comb
 from tqdm import tqdm
+
+import tskit
 
 FORMAT_NAME = "tsdate"
 FORMAT_VERSION = [1, 0]
@@ -763,7 +765,15 @@ def get_mut_edges(ts):
     return(mut_edges)
 
 
-def get_mut_ll(ts, grid, theta, eps):
+def get_ll(muts_span, dt, theta):
+    # Has to be a top-level function to allow multiprocessing
+    return (
+        muts_span[0],
+        muts_span[1],
+        scipy.stats.poisson.pmf(muts_span[0], dt * (theta / 2 * (muts_span[1]))))
+
+
+def get_mut_ll(ts, grid, theta, eps, num_threads=1):
     """
     Precalculate the likelihood for each unique edge.
     An edge is considered unique if it has a unique number of mutations and
@@ -772,20 +782,30 @@ def get_mut_ll(ts, grid, theta, eps):
     stores this in 1d to save space.
     get_rows_cols() returns rows and columns to index into likelihoods.
     """
-    ll_mut = {}
-    mut_edges = get_mut_edges(ts)
     dt = np.concatenate([grid[time] - grid[0:time + 1] +
                         eps for time in np.arange(len(grid))])
+    result = {}
 
-    for edge in ts.edges():
-        mut_edge = mut_edges[edge.id]
-        span = edge.right - edge.left
+    def uniq(iterable):
+        for element in iterable:
+            if element not in result:
+                result[element] = None  # Mark this result as visited processed
+                yield element
 
-        if (mut_edge, span) not in ll_mut:
-            ll_mut[(mut_edge, span)] = scipy.stats.poisson.pmf(
-                mut_edge, dt * (theta / 2 * (span)))
+    mut_edges = get_mut_edges(ts)
+    spans = ts.tables.edges.right[:] - ts.tables.edges.left[:]
 
-    return ll_mut
+    if num_threads > 1:
+        with multiprocessing.Pool(processes=num_threads) as pool:
+            # Use functools.partial to set constant values for params to get_ll
+            f = functools.partial(get_ll, dt=dt, theta=theta)
+            for muts, span, pmf in pool.imap_unordered(f, uniq(zip(mut_edges, spans))):
+                result[(muts, span)] = pmf
+    else:
+        for muts_span in uniq(zip(mut_edges, spans)):
+            result[muts_span] = get_ll(muts_span, dt=dt, theta=theta)[2]
+
+    return result
 
 
 def get_rows_cols(grid):
@@ -1051,7 +1071,8 @@ def date(
         points in even quantiles over the expected prior.
     :param int grid_slices: The number of slices used in the time grid
     :param float eps: The precision required (** deeper explanation required **)
-    :param int num_threads: The number of threads to use. If
+    :param int num_threads: The number of threads to use (currently only used for
+        calculating the poisson likelihood function). If
         this is <= 0 then a simpler sequential algorithm is used (default).
     :param bool approximate_prior: Whether to use a precalculated approximate prior or
         exactly calculate prior
@@ -1067,9 +1088,6 @@ def date(
         raise NotImplementedError(
             "Using the recombination clock is not currently supported"
             ". See https://github.com/awohns/tsdate/issues/5 for details")
-    if num_threads > 0:
-        raise NotImplementedError(
-            "Using multiple threads is not yet implemented")
 
     for sample in tree_sequence.samples():
         if tree_sequence.node(sample).time != 0:
@@ -1106,7 +1124,7 @@ def date(
 
     if mutation_rate is not None:
         theta = 4 * Ne * mutation_rate
-        mut_lls = get_mut_ll(tree_sequence, grid, theta, eps)
+        mut_lls = get_mut_ll(tree_sequence, grid, theta, eps, num_threads=num_threads)
     if recombination_rate is not None:
         rho = 4 * Ne * recombination_rate
 
