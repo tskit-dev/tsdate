@@ -976,7 +976,7 @@ def date(
     span_data = SpansBySamples(tree_sequence, sample_set)
     spans = span_data.node_total_span
     nodes_to_date = span_data.nodes_to_date
-    max_sample_size_before_approximation = 1000 if approximate_prior else None
+    max_sample_size_before_approximation = None if approximate_prior is False else 1000
     priors = ConditionalCoalescentTimes(max_sample_size_before_approximation)
     priors.add(tree_sequence.num_samples, approximate_prior)
     # Add in priors for trees with different sample numbers (missing data only)
