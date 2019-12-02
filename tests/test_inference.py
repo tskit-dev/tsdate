@@ -164,17 +164,19 @@ class TestInferred(unittest.TestCase):
     """
     def test_simple_sim_1_tree(self):
         ts = msprime.simulate(8, mutation_rate=5, random_seed=2)
-        sample_data = tsinfer.SampleData.from_tree_sequence(ts)
-        inferred_ts = tsinfer.infer(sample_data)
-        dated_ts = tsdate.date(inferred_ts, Ne=1, mutation_rate=5)
-        self.assertTrue(
-            all([a == b for a, b in zip(ts.haplotypes(), dated_ts.haplotypes())]))
+        for use_times in [True, False]:
+            sample_data = tsinfer.SampleData.from_tree_sequence(ts, use_times=use_times)
+            inferred_ts = tsinfer.infer(sample_data)
+            dated_ts = tsdate.date(inferred_ts, Ne=1, mutation_rate=5)
+            self.assertTrue(
+                all([a == b for a, b in zip(ts.haplotypes(), dated_ts.haplotypes())]))
 
     def test_simple_sim_multi_tree(self):
         ts = msprime.simulate(8, mutation_rate=5, recombination_rate=5, random_seed=2)
         self.assertGreater(ts.num_trees, 1)
-        sample_data = tsinfer.SampleData.from_tree_sequence(ts)
-        inferred_ts = tsinfer.infer(sample_data)
-        dated_ts = tsdate.date(inferred_ts, Ne=1, mutation_rate=5)
-        self.assertTrue(
-            all([a == b for a, b in zip(ts.haplotypes(), dated_ts.haplotypes())]))
+        for use_times in [True, False]:
+            sample_data = tsinfer.SampleData.from_tree_sequence(ts, use_times=use_times)
+            inferred_ts = tsinfer.infer(sample_data)
+            dated_ts = tsdate.date(inferred_ts, Ne=1, mutation_rate=5)
+            self.assertTrue(
+                all([a == b for a, b in zip(ts.haplotypes(), dated_ts.haplotypes())]))

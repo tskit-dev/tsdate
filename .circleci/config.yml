@@ -30,17 +30,21 @@ jobs:
           command: |
               python setup.py build_ext --inplace      
       - run:
-          name: install dependencies
-          command: |
-              pip install -r requirements.txt --user
-      - run:
           name: Install tskit dev version
           command: |
               python3 -m pip install git+https://github.com/tskit-dev/tskit.git#subdirectory=python --user
       - run:
+          name: Install tsinfer dev version
+          command: |
+              python3 -m pip install git+https://github.com/tskit-dev/tsinfer.git --user
+      - run:
+          name: install dependencies
+          command: |
+              pip install -r requirements.txt --user
+      - run:
           name: Lint Python
           command: |
-              flake8 --max-line-length 89 tsinfer setup.py tests evaluation.py
+              flake8 --max-line-length 89 tsdate setup.py tests
 
       - run:
           name: Run Python tests
