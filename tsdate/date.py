@@ -767,9 +767,9 @@ def get_mut_edges(ts):
 
 def get_ll(muts_span, dt, theta):
     # Has to be a top-level function to allow multiprocessing
+    # Return the tuple of th
     return (
-        muts_span[0],
-        muts_span[1],
+        muts_span,
         scipy.stats.poisson.pmf(muts_span[0], dt * (theta / 2 * (muts_span[1]))))
 
 
@@ -784,26 +784,22 @@ def get_mut_ll(ts, grid, theta, eps, num_threads=1):
     """
     dt = np.concatenate([grid[time] - grid[0:time + 1] +
                         eps for time in np.arange(len(grid))])
-    result = {}
-
-    def uniq(iterable):
-        for element in iterable:
-            if element not in result:
-                result[element] = None  # Mark this result as visited processed
-                yield element
-
     mut_edges = get_mut_edges(ts)
     spans = ts.tables.edges.right[:] - ts.tables.edges.left[:]
+
+    result = {key for key in zip(mut_edges, spans)}  # Make unique using a set
+    # Fast dict creation (https://stackoverflow.com/questions/16256913)
+    result = dict.fromkeys(result)
 
     if num_threads > 1:
         with multiprocessing.Pool(processes=num_threads) as pool:
             # Use functools.partial to set constant values for params to get_ll
             f = functools.partial(get_ll, dt=dt, theta=theta)
-            for muts, span, pmf in pool.imap_unordered(f, uniq(zip(mut_edges, spans))):
-                result[(muts, span)] = pmf
+            for key, pmf in pool.imap_unordered(f, result.keys()):
+                result[key] = pmf
     else:
-        for muts_span in uniq(zip(mut_edges, spans)):
-            result[muts_span] = get_ll(muts_span, dt=dt, theta=theta)[2]
+        for key in result.keys():
+            result[key] = get_ll(key, dt=dt, theta=theta)[1]
 
     return result
 
