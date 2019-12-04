@@ -269,7 +269,7 @@ def get_mixture_prior(spans_by_samples, basic_priors):
         index=list(spans_by_samples.nodes_to_date),
         columns=["Alpha", "Beta"], dtype=float)
     for node in spans_by_samples.nodes_to_date:
-        mixture = spans_by_samples.weights(node)
+        mixture = spans_by_samples.get_weights(node)
         if len(mixture) == 1:
             # The norm: this node spans trees that all have the same set of samples
             total_tips, weight_tuple = next(iter(mixture.items()))
@@ -335,178 +335,344 @@ class SpansBySamples:
         :meth:`weights` method.
     :vartype nodes_to_date: numpy.ndarray (dtype=np.uint32)
     """
-
-    def __init__(self, ts, sample_set=None):
+    def __init__(self, tree_sequence, fixed_node_set=None):
         """
         :param TreeSequence ts: The input :class:`tskit.TreeSequence`.
-        :param set sample_set: A set of all the samples in the tree sequence.
+        :param set fixed_nodes_set: A set of all the samples in the tree sequence.
             This should be equivalent to ``set(ts.samples()``, but is provided
             as an optional parameter so that a pre-calculated set can be passed
             in, to save the expense of re-calculating it when setting up the
             class. If ``None`` (the default) a sample_set will be constructed
             during initialization.
         """
-        self.tree_sequence = ts
-        if sample_set is None:
-            sample_set = set(ts.samples())
-        result = defaultdict(lambda: defaultdict(lambda: defaultdict(float)))
-        self.node_total_span = defaultdict(float)
-        curr_samples = set()
-        trees_with_unassigned_nodes = set()  # Used to quickly skip trees later
-        valid_samples_in_tree = np.full(ts.num_trees, tskit.NULL)
+        self.ts = tree_sequence
+        self.fixed_node_set = set(self.ts.samples()) if fixed_node_set is None else \
+            fixed_node_set
+        # We will store the spans in here, and normalise them at the end
+        self._spans = defaultdict(lambda: defaultdict(lambda: defaultdict(float)))
 
-        for i, ((_, e_out, e_in), tree) in enumerate(
-                zip(ts.edge_diffs(), ts.trees())):
-            # In cases with missing data, the total number of relevant
-            # samples will not be ts.num_samples
-            curr_samples.difference_update(
-                [e.parent for e in e_out if e.parent in sample_set])
-            curr_samples.difference_update(
-                [e.child for e in e_out if e.child in sample_set])
-            curr_samples.update(
-                [e.parent for e in e_in if e.parent in sample_set])
-            curr_samples.update(
-                [e.child for e in e_in if e.child in sample_set])
+        node_total_span, trees_with_undated, n_tips_per_tree = self.set_spans_initial()
+        # Provide a set of the total_num_tips in different trees (used for missing data)
+        self.num_samples_set = set(np.unique(n_tips_per_tree))
+        # Provide the complete spans for each node, used e.g. for normalising
+        self.node_total_span = node_total_span
 
-            # Number of non-missing samples in this tree
-            num_valid = len(curr_samples)
-            valid_samples_in_tree[i] = num_valid
-            span = tree.span
-            # Identify numbers of parents for each node. We could probably
-            # implement a more efficient algorithm by using e_out and e_in,
-            # and traversing up the tree from the edge parents, revising the
-            # number of tips under each parent node
-            for node in tree.nodes():
-                if node in sample_set:
-                    # Don't calculate for sample nodes as they have a date
-                    continue
-                n_samples = tree.num_samples(node)
-                if n_samples == 0:
-                    raise ValueError(
-                        "Tree " + str(i) +
-                        " contains a node with no descendant samples." +
-                        " Please simplify your tree sequence before dating.")
-                    continue  # Don't count any nodes
-                if len(tree.children(node)) > 1:
-                    result[node][num_valid][n_samples] += span
-                    self.node_total_span[node] += span
-                else:
-                    # UNARY NODES: take a mixture of the coalescent nodes above and below
-                    #  above:
-                    n = node
-                    done = False
-                    while not done:
-                        n = tree.parent(n)
-                        if n == tskit.NULL or len(tree.children(n)) > 1:
-                            done = True  # Found a coalescent node
-                    if n == tskit.NULL:
-                        logging.debug(
-                            "Unary node {} exists above highest coalescence in tree {}."
-                            " Skipping for now".format(node, i))
-                        trees_with_unassigned_nodes.add(i)
-                        continue
-                    # Half from the node above
-                    result[node][num_valid][tree.num_samples(n)] += span / 2
+        # Check for remaining undated nodes (all unary ones)
+        if self.nodes_remain_to_date():
+            self.set_spans_connected_unary(trees_with_undated, n_tips_per_tree)
+        if self.nodes_remain_to_date():
+            self.set_spans_unconnected_unary(trees_with_undated, n_tips_per_tree)
 
-                    #  coalescent node below should have same num_samples as this one
-                    assert len(tree.children(node)) == 1
-                    result[node][num_valid][tree.num_samples(node)] += span / 2
+        self.finalise()
 
-                    self.node_total_span[node] += span
+    def nodes_remaining_to_date(self):
+        """
+        Return a set of the node IDs that we want to date, but which haven't had a
+        set of spans allocated which could be used to date the node.
+        """
+        return {n for n in range(self.ts.num_nodes) if not(
+            n in self._spans or n in self.fixed_node_set)}
 
-        self.num_samples_set = np.unique(valid_samples_in_tree)
+    def nodes_remain_to_date(self):
+        """
+        A more efficient version of nodes_remaining_to_date() that simply tells us if
+        there are any more nodes that remain to date, but does not identify which ones
+        """
+        if self.ts.num_nodes - self.ts.num_samples - len(self._spans) != 0:
+            # we should always have equal or fewer results than nodes to date
+            assert len(self._spans) < self.ts.num_nodes - len(self.fixed_node_set)
+            return True
+        return False
 
-        if ts.num_nodes - ts.num_samples - len(result) != 0:
-            logging.debug(
-                "Assigning priors to skipped unary nodes, via linked nodes\
-                with new priors")
-            # We have some nodes with unassigned prior params. We should see
-            # if can we assign params for these node priors using
-            # now-parameterized nodes. This requires another pass through the
-            # tree sequence. If there is no non-parameterized node above, then
-            # we can simply assign this the coalescent maximum
-            curr_samples = set()
-            unassigned_nodes = set(
-                [n.id for n in ts.nodes()
-                    if not n.is_sample() and n.id not in result])
-            for i, tree in enumerate(ts.trees()):
-                if i not in trees_with_unassigned_nodes:
-                    continue
-                for node in unassigned_nodes:
-                    if tree.parent(node) == tskit.NULL:
-                        continue
-                        # node is either the root or (more likely) not in
-                        # this tree
-                    assert tree.num_samples(node) > 0
-                    assert len(tree.children(node)) == 1
-                    n = node
-                    done = False
-                    while not done:
-                        n = tree.parent(n)
-                        if n == tskit.NULL or n in result:
-                            done = True
-                    if n == tskit.NULL:
-                        continue
+    def set_spans_initial(self):
+        """
+        Returns a tuple of the span that each node covers, a list of the tree indices of
+        trees that have undated nodes (used to quickly revist these trees later), and the
+        number of valid samples (tips) in each tree.
+        """
+        # The following 3 variables will be returned by this function
+        node_total_span = np.zeros(self.ts.num_nodes)
+        trees_with_undated = []  # Used to revisit trees with nodes that need dating
+        n_tips_per_tree = np.full(self.ts.num_trees, tskit.NULL, dtype=np.int64)
+
+        # Some useful local tracking variables
+        num_children = np.full(self.ts.num_nodes, 0, dtype=np.int32)
+        # Store the last recorded genome position for this node.
+        # If set to np.nan, this indicates that we are not currently tracking this node
+        stored_pos = np.full(self.ts.num_nodes, np.nan)
+
+        def save_to_span_data(prev_tree, node, num_fixed_treenodes):
+            """
+            A convenience function to save accumulated tracked node data at the current
+            breakpoint. If this is a non-fixed node which needs dating, we save the
+            span by # descendant tips into self._spans. If the node was skipped because
+            it is a unary node at the top of the tree, return None
+            """
+            if np.isnan(stored_pos[node]):
+                # Don't save ones that we aren't tracking
+                return False
+            coverage = prev_tree.interval[1] - stored_pos[node]
+            node_total_span[node] += coverage
+            if node in self.fixed_node_set:
+                return True
+            n_tips = prev_tree.num_samples(node)
+            assert n_tips > 0
+            if len(prev_tree.children(node)) > 1:
+                # This is a coalescent node
+                self._spans[node][num_fixed_treenodes][n_tips] += coverage
+            else:
+                # Treat unary nodes differently: mixture of coalescent nodes above+below
+                top_node = prev_tree.parent(node)
+                try:  # Find coalescent node above
+                    while len(prev_tree.children(top_node)) == 1:
+                        top_node = prev_tree.parent(top_node)
+                except ValueError:  # Happens if we have hit the root
+                    assert top_node == tskit.NULL
+                    logging.debug(
+                        "Unary node `{}` exists above highest coalescence in tree {}."
+                        " Skipping for now".format(node, prev_tree.index))
+                    return None
+                # Half from the node above
+                top_node_tips = prev_tree.num_samples(top_node)
+                self._spans[node][num_fixed_treenodes][top_node_tips] += coverage/2
+                # Half from the node below
+                #  NB: coalescent node below should have same num_samples as this one
+                self._spans[node][num_fixed_treenodes][n_tips] += coverage/2
+            return True
+
+        # We iterate over edge_diffs to calculate, as nodes change their descendant tips,
+        # the genomic coverage for each node partitioned into descendant tip numbers
+        edge_diff_iter = self.ts.edge_diffs()
+        # There are 2 possible algorithms - the simplest is to find all the affected
+        # nodes in the new tree, and use the constant-time "Tree.num_samples()"
+        # to recalculate the number of samples under each affected tip.
+        # The more complex one keeps track of the samples added and subtracted
+        # each time, basically implementing the num_samples() method itself
+
+        # Initialise with first tree
+        for node in self.ts.first().nodes():
+            stored_pos[node] = 0
+        # Consume the first edge diff: normally this is when most edges come in
+        num_fixed_treenodes = 0
+        _, _, e_in = next(edge_diff_iter)
+        for e in e_in:
+            if e.child in self.fixed_node_set:
+                num_fixed_treenodes += 1
+            if e.parent != tskit.NULL:
+                num_children[e.parent] += 1
+        n_tips_per_tree[0] = num_fixed_treenodes
+
+        # Iterate over trees and remaining edge diffs
+        for prev_tree in self.ts.trees(sample_counts=True):
+            try:
+                # Get the edge diffs from the prev tree to the new tree
+                _, e_out, e_in = next(edge_diff_iter)
+            except StopIteration:
+                # Last tree, save all the remaining nodes
+                for node in prev_tree.nodes():
+                    if save_to_span_data(prev_tree, node, num_fixed_treenodes) is None:
+                        trees_with_undated.append(prev_tree.index)
+                assert prev_tree.index == self.ts.num_trees - 1
+                break
+
+            fixed_nodes_out = set()
+            fixed_nodes_in = set()
+            disappearing_nodes = set()
+            changed_nodes = set()
+            for e in e_out:
+                # Since a node only has one parent edge, any edge children going out
+                # will be lost, unless they are reintroduced in the edges_in
+                if e.child in self.fixed_node_set:
+                    fixed_nodes_out.add(e.child)
+                # No need to add the parents, as we'll traverse up the previous tree
+                # from these points and be guaranteed to hit them too.
+                changed_nodes.add(e.child)
+                disappearing_nodes.add(e.child)
+                if e.parent != tskit.NULL:
+                    num_children[e.parent] -= 1
+                    if num_children[e.parent] == 0:
+                        disappearing_nodes.add(e.parent)
+
+            for e in e_in:
+                # Edge children are always new
+                if e.child in self.fixed_node_set:
+                    fixed_nodes_in.add(e.child)
+                # This may change in the upcoming tree
+                changed_nodes.add(e.child)
+                disappearing_nodes.discard(e.child)
+                if e.parent != tskit.NULL:
+                    # parent nodes might be added in the next tree, and we won't
+                    # necessarily traverse up to them in the prev tree, so they need
+                    # to be added to the possibly changing nodes
+                    changed_nodes.add(e.parent)
+                    # If a parent or child come in, they definitely won't be disappearing
+                    num_children[e.parent] += 1
+                    disappearing_nodes.discard(e.parent)
+
+            # Add unary nodes below the altered ones, as their result is calculated
+            # from the coalescent node above
+            unary_descendants = set()
+            for node in changed_nodes:
+                children = prev_tree.children(node)
+                if children is not None:
+                    if len(children) == 1:
+                        # Keep descending
+                        node == children[0]
+                        while True:
+                            children = prev_tree.children(node)
+                            if len(children) != 1:
+                                break
+                            unary_descendants.add(node)
+                            node = children[0]
                     else:
-                        logging.debug(
-                            "Assigning prior to unary node {}: connected to\
-                            node {} which"
-                            "has a prior in tree {}".format(node, n, i))
-                        for local_valid, weights in result[n].items():
-                            for k, v in weights.items():
-                                local_weight = v / self.node_total_span[n]
-                                result[node][local_valid][k] += tree.span * \
-                                    local_weight / 2
-                        assert len(tree.children(node)) == 1
-                        num_valid = valid_samples_in_tree[i]
-                        result[node][num_valid][tree.num_samples(node)] += \
-                            tree.span / 2
-                        self.node_total_span[node] += tree.span
+                        # Descend all branches, looking for unary nodes
+                        for node in prev_tree.children(node):
+                            while True:
+                                children = prev_tree.children(node)
+                                if len(children) != 1:
+                                    break
+                                unary_descendants.add(node)
+                                node = children[0]
 
-        if ts.num_nodes - ts.num_samples - len(result) != 0:
-            logging.debug(
-                "Assigning priors to remaining (unconnected) unary nodes\
-                using max depth")
-            # We STILL have some missing priors.
-            # These must be unconnected to higher
-            # nodes in the tree, so we can simply give them the max depth
-            max_samples = ts.num_samples
-            curr_samples = set()
-            unassigned_nodes = set(
-                [n.id for n in ts.nodes()
-                    if not n.is_sample() and n.id not in result])
-            for i, tree in enumerate(ts.trees()):
-                if i not in trees_with_unassigned_nodes:
+            # find all the nodes in the tree that might have changed their number
+            # of descendants, and reset. This might include nodes that are not in
+            # the prev tree, but will be in the next one (so we still need to
+            # set the stored position). Also track visited_nodes so we don't repeat
+            visited_nodes = set()
+            for node in changed_nodes | unary_descendants:
+                while node != tskit.NULL:  # if root or node not in tree
+                    if node in visited_nodes:
+                        break
+                    visited_nodes.add(node)
+                    # Node is in tree
+                    if save_to_span_data(prev_tree, node, num_fixed_treenodes) is None:
+                        trees_with_undated.append(prev_tree.index)
+                    if node in disappearing_nodes:
+                        # Not tracking this in the future
+                        stored_pos[node] = np.nan
+                    else:
+                        stored_pos[node] = prev_tree.interval[1]
+                    node = prev_tree.parent(node)
+
+            # If total number of samples has changed: we need to save
+            #  everything so far & reset all starting positions
+            if len(fixed_nodes_in) != len(fixed_nodes_out):
+                for node in prev_tree.nodes():
+                    if node in visited_nodes:
+                        # We have already saved these - no need to again
+                        continue
+                    if save_to_span_data(prev_tree, node, num_fixed_treenodes) is None:
+                        trees_with_undated.append(prev_tree.index)
+                    if node in disappearing_nodes:
+                        # Not tracking this in the future
+                        stored_pos[node] = np.nan
+                    else:
+                        stored_pos[node] = prev_tree.interval[1]
+                num_fixed_treenodes += len(fixed_nodes_in) - len(fixed_nodes_out)
+            n_tips_per_tree[prev_tree.index+1] = num_fixed_treenodes
+
+        return node_total_span, trees_with_undated, n_tips_per_tree
+
+    def set_spans_connected_unary(self, trees_with_undated, n_tips_per_tree):
+        """
+        Check for nodes with unassigned prior params. We should see
+        if can we assign params for these node priors using
+        now-parameterized nodes. This requires another pass through the
+        tree sequence. If there is no non-parameterized node above, then
+        we can simply assign this the coalescent maximum
+        """
+        logging.debug(
+            "Assigning priors to skipped unary nodes, via linked nodes with new priors")
+        unassigned_nodes = self.nodes_remaining_to_date()
+        # Simple algorithm does this treewise
+        tree_iter = self.ts.trees()
+        tree = next(tree_iter)
+        for tree_id in trees_with_undated:
+            while tree.index != tree_id:
+                tree = next(tree_iter)
+            for node in unassigned_nodes:
+                if tree.parent(node) == tskit.NULL:
                     continue
-                for node in unassigned_nodes:
-                    if tree.is_internal(node):
-                        assert len(tree.children(node)) == 1
-                        # above, we set the maximum
-                        result[node][max_samples][max_samples] += tree.span / 2
-                        # below, we do as before
-                        assert len(tree.children(node)) == 1
-                        num_valid = valid_samples_in_tree[i]
-                        result[node][num_valid][tree.num_samples(node)] += \
-                            tree.span / 2
-                        self.node_total_span[node] += tree.span
+                    # node is either the root or (more likely) not in
+                    # this tree
+                assert tree.num_samples(node) > 0
+                assert len(tree.children(node)) == 1
+                n = node
+                done = False
+                while not done:
+                    n = tree.parent(n)
+                    if n == tskit.NULL or n in self._spans:
+                        done = True
+                if n == tskit.NULL:
+                    continue
+                else:
+                    logging.debug(
+                        "Assigning prior to unary node {}: connected to node {} which"
+                        " has a prior in tree {}".format(node, n, tree_id))
+                    for n_tips, weights in self._spans[n].items():
+                        for k, v in weights.items():
+                            if k == 0:
+                                raise ValueError("Oh dear 2")
+                            local_weight = v / self.node_total_span[n]
+                            self._spans[node][n_tips][k] += tree.span * local_weight / 2
+                    assert len(tree.children(node)) == 1
+                    total_tips = n_tips_per_tree[tree_id]
+                    desc_tips = tree.num_samples(node)
+                    self._spans[node][total_tips][desc_tips] += tree.span / 2
+                    self.node_total_span[node] += tree.span
 
-        if ts.num_nodes - ts.num_samples != len(result):
+    def set_spans_unconnected_unary(self, trees_with_undated, n_tips_per_tree):
+        """
+        We STILL have some missing priors.
+        These must be unconnected to higher
+        nodes in the tree, so we can simply give them the max depth
+        """
+        logging.debug(
+            "Assigning priors to remaining (unconnected) unary nodes using max depth")
+        max_samples = self.ts.num_samples
+        unassigned_nodes = self.nodes_remaining_to_date()
+        tree_iter = self.ts.trees()
+        tree = next(tree_iter)
+        for tree_id in trees_with_undated:
+            while tree.index != tree_id:
+                tree = next(tree_iter)
+            for node in unassigned_nodes:
+                if tree.is_internal(node):
+                    assert len(tree.children(node)) == 1
+                    total_tips = n_tips_per_tree[tree_id]
+                    # above, we set the maximum
+                    self._spans[node][max_samples][max_samples] += tree.span / 2
+                    # below, we do as before
+                    desc_tips = tree.num_samples(node)
+                    self._spans[node][total_tips][desc_tips] += tree.span / 2
+                    self.node_total_span[node] += tree.span
+
+    def finalise(self):
+        """
+        Normalise the spans in self._spans by the values in self.node_total_span,
+        and overwrite the results (as we don't need them any more), providing a
+        shortcut to by setting normalised_node_spans. Also provide the nodes_to_date
+        value.
+        """
+        assert not hasattr(self, 'normalised_node_spans')  # Check not already finalised
+        if self.nodes_remain_to_date():
             raise ValueError(
-                "There are some nodes which are not in any tree."
-                " Please simplify your tree sequence.")
+                "When finalising node spans, found the following nodes not in any tree;"
+                " try simplifing your tree sequence: {}"
+                .format(self.nodes_remaining_to_date()))
 
-        for node, weights_by_total_tips in result.items():
-            result[node] = {}
+        for node, weights_by_total_tips in self._spans.items():
+            self._spans[node] = {}  # Overwrite, so we don't leave the old data around
             for num_samples, weights in sorted(weights_by_total_tips.items()):
-                result[node][num_samples] = Weights(
+                self._spans[node][num_samples] = Weights(
                     # we use np.int64 as it's faster to look up in pandas dataframes
                     descendant_tips=np.array(list(weights.keys()), dtype=np.int64),
                     weight=np.array(list(weights.values()))/self.node_total_span[node])
         # Assign into the instance, for further reference
-        self.normalised_node_spans = result
-        self.nodes_to_date = np.array(list(result.keys()), dtype=np.uint64)
+        self.normalised_node_spans = self._spans
+        self.nodes_to_date = np.array(list(self._spans.keys()), dtype=np.uint64)
 
-    def weights(self, node):
+    def get_weights(self, node):
         """
         Access the main calculated results from this class, returning weights
         for a node contained within a dict of dicts. Weights for each node
@@ -541,8 +707,8 @@ class SpansBySamples:
 
     def lookup_weight(self, node, total_tips, descendant_tips):
         # Only used for testing
-        which = self.weights(node)[total_tips].descendant_tips == descendant_tips
-        return self.weights(node)[total_tips].weight[which]
+        which = self.get_weights(node)[total_tips].descendant_tips == descendant_tips
+        return self.get_weights(node)[total_tips].weight[which]
 
 
 def create_time_grid(age_prior, n_points=21):

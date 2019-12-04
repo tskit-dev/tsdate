@@ -127,6 +127,14 @@ class TestSimulated(unittest.TestCase):
         dated_ts = tsdate.date(ts, Ne=1, mutation_rate=5)
         self.ts_equal_except_times(ts, dated_ts)
 
+    def test_simple_sim_larger_example(self):
+        # This makes ~1700 trees, and previously caused a failure
+        ts = msprime.simulate(
+            sample_size=10, length=2e6, Ne=10000, mutation_rate=1e-8,
+            recombination_rate=1e-8, random_seed=11)
+        dated_ts = tsdate.date(ts, Ne=10000, mutation_rate=1e-8)
+        self.ts_equal_except_times(ts, dated_ts)
+
     def test_with_unary(self):
         ts = utility_functions.single_tree_ts_with_unary()
         dated_ts = tsdate.date(ts, Ne=1)
