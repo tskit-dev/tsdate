@@ -338,11 +338,11 @@ class SpansBySamples:
     def __init__(self, tree_sequence, fixed_node_set=None):
         """
         :param TreeSequence ts: The input :class:`tskit.TreeSequence`.
-        :param set fixed_nodes_set: A set of all the samples in the tree sequence.
+        :param set fixed_node_set: A set of all the samples in the tree sequence.
             This should be equivalent to ``set(ts.samples()``, but is provided
             as an optional parameter so that a pre-calculated set can be passed
             in, to save the expense of re-calculating it when setting up the
-            class. If ``None`` (the default) a sample_set will be constructed
+            class. If ``None`` (the default) a fixed_node_set will be constructed
             during initialization.
         """
         self.ts = tree_sequence
@@ -778,24 +778,22 @@ def iterate_parent_edges(ts):
         yield parent_edges
 
 
-def get_prior_values(mixture_prior, grid, ts):
+def get_prior_values(mixture_prior, grid, ts, nodes_to_date):
     prior_times = np.zeros((ts.num_nodes, len(grid)))
-    for node in ts.nodes():
-        if not node.is_sample():
-            prior_node = scipy.stats.gamma.cdf(
-                grid, mixture_prior.loc[node.id, "Alpha"],
-                scale=1 / mixture_prior.loc[node.id, "Beta"])
-            # force age to be less than max value
-            prior_node = np.divide(prior_node, max(prior_node))
-            # prior in each epoch
-            prior_intervals = np.concatenate(
-                [np.array([0]), np.diff(prior_node)])
+    prior_times[:, 0] = 1
+    for node in nodes_to_date:
+        prior_node = scipy.stats.gamma.cdf(
+            grid, mixture_prior.loc[node, "Alpha"],
+            scale=1 / mixture_prior.loc[node, "Beta"])
+        # force age to be less than max value
+        prior_node = np.divide(prior_node, max(prior_node))
+        # prior in each epoch
+        prior_intervals = np.concatenate(
+            [np.array([0]), np.diff(prior_node)])
 
-            # normalize so max value is 1
-            prior_intervals = np.divide(prior_intervals, max(prior_intervals[1:]))
-            prior_times[node.id, :] = prior_intervals
-        else:
-            prior_times[node.id, 0] = 1
+        # normalize so max value is 1
+        prior_intervals = np.divide(prior_intervals, max(prior_intervals[1:]))
+        prior_times[node, :] = prior_intervals
     return prior_times
 
 
@@ -836,7 +834,7 @@ def get_mut_ll(ts, grid, theta, eps):
     ll_mut = {}
     mut_edges = get_mut_edges(ts)
     dt = np.concatenate([grid[time] - grid[0:time + 1] +
-                        eps for time in np.arange(1, len(grid))])
+                        eps for time in np.arange(len(grid))])
 
     for edge in ts.edges():
         mut_edge = mut_edges[edge.id]
@@ -849,29 +847,47 @@ def get_mut_ll(ts, grid, theta, eps):
     return ll_mut
 
 
-def get_rows_cols(grid):
+class LowerTriangularMatrix:
     """
-    Constructs a lower triangular matrix of all possible delta t's, but
-    stores this in 1d to save space.
-    Computes numpy array of rows and columns to index into the likelihoods
-    for the forward and backward algorithms, respectively.
+    A class to construct a lower triangular matrix of all possible delta t's,
+    efficiently stored in 1d. Computes row- and column-based indices into the
+    array for the forward and backward algorithms, respectively.
+    The main methods are :meth:`row_based_indices` and `col_based_indices`
+    which return the indices of the matrix either by rows or by columns.
+
+    :ivar grid: A reference to the discretised time grid
+    :vartype grid: numpy.ndarray (dtype=np.uint64)
     """
-    def row(time, grid):
-        start = (time * (time + 1)) // 2 - 1
-        end = start + time + 1
-        return np.arange(start, end)
+    def __init__(self, grid):
+        """
+        :param numpy.ndarray grid: The input numpy.ndarray.
+        """
+        self.grid = grid
 
-    def column(time, grid):
-        n = np.arange(len(grid))
-        return ((((n * (n + 1)) // 2) + time - 1)[time:])
+        def row_based_column(time, grid):
+            n = np.arange(len(grid))
+            return ((((n * (n + 1)) // 2) + time)[time:])
+        self.row_based_cols = [row_based_column(time, grid) for time in range(len(grid))]
 
-    rows = [row(time, grid) for time in range(len(grid))]
-    cols = [column(time, grid) for time in range(len(grid))]
+        # The mut_ll is indexing the lower triangular matrix by rows, we now need
+        # a column-based based index. end_col find the index of the last element of
+        # each column in order to appropriately sum the vv by columns.
+        running_sum = 0
+        end_col = list()
+        for i in np.arange(len(grid)):
+            arr = np.arange(running_sum, running_sum + len(grid) - i)
+            index = arr[-1]
+            running_sum = index + 1
+            val = arr[0]
+            end_col.append(val)
+        self.col_based_cols = end_col
+        self.forward_dt = np.concatenate(
+            [np.arange(time + 1) for time in np.arange(len(grid))])
+        self.backward_dt = np.concatenate([np.arange(time, len(grid))
+                                           for time in np.arange(len(grid) + 1)])
 
-    return rows, cols
 
-
-def forward_algorithm(ts, prior_values, grid, theta, rho, eps, rows,
+def forward_algorithm(ts, prior_values, grid, theta, rho, eps, matrix_indices,
                       lls=None, progress=False):
     """
     Use dynamic programming to find approximate posterior to sample from
@@ -899,15 +915,13 @@ def forward_algorithm(ts, prior_values, grid, theta, rho, eps, rows,
         in time grid
         """
         parent = parent_group[0][1].parent
-        val = prior_values[parent, 1:].copy()
-        g_val = np.ones(len(grid) - 1)
-
+        val = prior_values[parent].copy()
+        g_val = np.ones(len(grid))
+        g_val[0] = 0
         for edge_index, edge in parent_group:
             # Calculate vals for each edge
             span = edge.right - edge.left
-            dt = np.concatenate(
-                [forwards[edge.child, :time + 1] for time in np.arange(1, len(grid))])
-
+            dt = forwards[edge.child][matrix_indices.forward_dt]
             if theta is not None and rho is not None:
                 b_l = (edge.left != 0)
                 b_r = (edge.right != ts.get_sequence_length())
@@ -915,17 +929,13 @@ def forward_algorithm(ts, prior_values, grid, theta, rho, eps, rows,
                     dt, b_l + b_r) * np.exp(-(dt * rho * span * 2))
                 ll_mut = lls[mut_edges[edge_index], span]
                 vv = ll_mut * ll_rec * dt
-                vv = [np.sum((vv)[row]) for row in rows[1:len(grid)]]
+                vv = np.add.reduceat(vv, matrix_indices.row_based_cols[0])
                 val *= vv
                 g_val *= vv
             elif theta is not None:
                 ll_mut = lls[mut_edges[edge_index], span]
-                # For each node iterate through the time grid...
-                # Internal nodes can ONLY start at 2nd t_grid point
-                # get list of time differences for possible t'primes
-                # how much does prior change over that interval in grid
                 vv = ll_mut * dt
-                vv = [np.sum((vv)[row]) for row in rows[1:len(grid)]]
+                vv = np.add.reduceat(vv, matrix_indices.row_based_cols[0])
                 val *= vv
                 g_val *= vv
             elif rho is not None:
@@ -934,19 +944,17 @@ def forward_algorithm(ts, prior_values, grid, theta, rho, eps, rows,
                 ll_rec = np.power(
                     dt, b_l + b_r) * np.exp(-(dt * rho * span * 2))
                 vv = ll_rec * dt
-                vv = [np.sum((vv)[row]) for row in rows[1:len(grid)]]
+                vv = np.add.reduceat(vv, matrix_indices.row_based_cols[0])
                 val *= vv
                 g_val *= vv
             else:
                 # Topology-only clock
-                vv = np.concatenate(
-                    [forwards[edge.child, :time+1] for time in np.arange(1, len(grid))])
-                vv = [np.sum((vv)[row]) for row in rows[1:len(grid)]]
+                vv = np.add.reduceat(dt, matrix_indices.row_based_cols[0])
 
-        forwards[parent, 1:] = val
-        g_i[parent, 1:] = g_val
+        forwards[parent] = val
+        g_i[parent] = g_val
         norm[parent] = np.max(forwards[parent, :])
-        forwards[parent, :] = np.divide(forwards[parent, :],  norm[parent])
+        forwards[parent, :] = np.divide(forwards[parent, :], norm[parent])
         g_i_norm = np.max(g_i[parent, :])
         g_i[parent, :] = np.divide(g_i[parent, :], g_i_norm)
     logged_forwards = np.log(forwards + 1e-10)
@@ -956,7 +964,8 @@ def forward_algorithm(ts, prior_values, grid, theta, rho, eps, rows,
 
 # TODO: Account for multiple parents, fix the log of zero thing
 def backward_algorithm(
-        ts, forwards, g_i, grid, theta, rho, spans, eps, lls, cols, dated_node_set=None):
+        ts, forwards, g_i, grid, theta, rho, spans, eps, lls, matrix_indices,
+        dated_node_set=None):
     """
     Computes the full posterior distribution on nodes.
     Input is log of forwards matrix, log of g_i matrix, time grid, population scaled
@@ -977,8 +986,9 @@ def backward_algorithm(
             if len(tree.get_children(root)) == 0:
                 print("Node not in tree")
                 continue
-            backwards[root] += (1 * tree.span) / spans[root]
+            backwards[root, 1:] += (1 * tree.span) / spans[root]
     backwards[node_has_date, 0] = 1
+
     child_edges = (ts.edge(i) for i in
                    reversed(np.argsort(ts.tables.nodes.time[ts.tables.edges.child[:]])))
 
@@ -986,57 +996,49 @@ def backward_algorithm(
             itertools.groupby(child_edges, key=lambda x: x.child),
             total=ts.num_nodes - np.sum(node_has_date)):
         if child not in dated_node_set:
-            for time in reversed(np.arange(1, len(grid) - 1)):
-                dt = grid[time:] - grid[time] + eps
-                edges = list(edges)
-                for edge in edges:
-                    span = edge.right - edge.left
-                    if theta is not None and rho is not None:
-                        b_l = (edge.left != 0)
-                        b_r = (edge.right != ts.get_sequence_length())
-                        ll_rec = np.power(
-                            dt, b_l + b_r) * np.exp(-(dt * rho * span * 2))
-                        ll_mut = lls[mut_edges[edge.id], span][cols[time]]
-                        vv = np.sum(backwards[edge.parent, time:] *
-                                    (ll_mut * ll_rec) *
-                                    np.exp(np.subtract(
-                                        forwards[edge.parent, time:],
-                                        g_i[edge.child, time:])))
-                    elif theta is not None:
-                        # ll_mut = scipy.stats.poisson.pmf(
-                        #     mut_edges[edge.id], dt * (theta / 2 * span))
-                        # lk_mut = lls[edge.parent, time:]
-                        # ll_mut = lls[mut_edges[edge.id], span][time:]
-                        ll_mut = lls[mut_edges[edge.id], span][cols[time]]
-                        vv = np.sum(
-                            backwards[edge.parent, time:] * (ll_mut) *
-                            np.exp(np.subtract(forwards[edge.parent, time:],
-                                               g_i[edge.child, time:])))
-                    elif rho is not None:
-                        b_l = (edge.left != 0)
-                        b_r = (edge.right != ts.get_sequence_length())
-                        ll_rec = np.power(
-                            dt, b_l + b_r) * np.exp(-(dt * rho * span * 2))
-                        vv = sum(backwards[edge.parent, time:] * ll_rec)
 
-                    else:
-                        # Topology-only clock
-                        vv = sum(
-                            backwards[edge.parent, time:] * 1 / len(
-                                grid))
-
-                backwards[edge.child, time] = vv
+            edges = list(edges)
+            for edge in edges:
+                dt = (backwards[edge.parent] *
+                      np.exp(np.subtract(forwards[edge.parent],
+                                         g_i[edge.child])))[matrix_indices.backward_dt]
+                span = edge.right - edge.left
+                if theta is not None and rho is not None:
+                    b_l = (edge.left != 0)
+                    b_r = (edge.right != ts.get_sequence_length())
+                    ll_rec = np.power(
+                        dt, b_l + b_r) * np.exp(-(dt * rho * span * 2))
+                    ll_mut = lls[mut_edges[edge.id], span][np.concatenate(
+                        matrix_indices.row_based_cols)]
+                    vv = dt * ll_mut * ll_rec
+                    vv = np.add.reduceat(vv, matrix_indices.col_based_cols)
+                elif theta is not None:
+                    ll_mut = lls[mut_edges[edge.id], span][np.concatenate(
+                        matrix_indices.row_based_cols)]
+                    vv = dt * ll_mut
+                    vv = np.add.reduceat(vv, matrix_indices.col_based_cols)
+                elif rho is not None:
+                    b_l = (edge.left != 0)
+                    b_r = (edge.right != ts.get_sequence_length())
+                    ll_rec = np.power(
+                        dt, b_l + b_r) * np.exp(-(dt * rho * span * 2))
+                    vv = dt * ll_rec
+                    vv = np.add.reduceat(vv, matrix_indices.col_based_cols)
+                else:
+                    # Topology-only clock
+                    vv = np.add.reduceat(dt, matrix_indices.col_based_cols)
+            backwards[edge.child, 1:] = vv[1:]
             norm[edge.child] = max(backwards[edge.child, :])
             backwards[edge.child, :] = \
                 np.divide(backwards[edge.child, :], norm[edge.child])
             backwards[edge.child, :][np.isnan(backwards[edge.child, :])] = 0
-    backwards_log = np.log(backwards + 1e-10)
+    backwards_log = np.log(backwards)
     posterior = np.exp(forwards + backwards_log)
     posterior = posterior / np.sum(posterior, axis=1)[:, None]
     return posterior, backwards
 
 
-def forwards_mean_var(ts, grid, forwards, nodes_to_date=None):
+def posterior_mean_var(ts, grid, forwards, fixed_nodes=None, nodes_to_date=None):
     """
     Mean and variance of node age in scaled time
     If nodes_to_date is None, we attempt to date all the non-sample nodes
@@ -1066,7 +1068,7 @@ def restrict_ages_topo(ts, forwards_mn, grid, eps, nodes_to_date=None):
         nodes_to_date = nodes_to_date[~np.isin(nodes_to_date, ts.samples())]
 
     tables = ts.tables
-    for nd in nodes_to_date:
+    for nd in sorted(nodes_to_date):
         children = tables.edges.child[tables.edges.parent == nd]
         time = new_mn_post[children]
         if np.any(new_mn_post[nd] <= time):
@@ -1081,7 +1083,7 @@ def return_ts(ts, vals, Ne):
     Output new inferred tree sequence with node ages assigned.
     """
     tables = ts.dump_tables()
-    tables.nodes.time = vals * Ne
+    tables.nodes.time = vals * 2 * Ne
     tables.sort()
     return tables.tree_sequence()
 
@@ -1137,9 +1139,9 @@ def date(
             raise NotImplementedError(
                 "Samples must all be at time 0")
 
-    sample_set = set(tree_sequence.samples())
+    fixed_node_set = set(tree_sequence.samples())
 
-    span_data = SpansBySamples(tree_sequence, sample_set)
+    span_data = SpansBySamples(tree_sequence, fixed_node_set)
     spans = span_data.node_total_span
     nodes_to_date = span_data.nodes_to_date
     max_sample_size_before_approximation = None if approximate_prior is False else 1000
@@ -1160,10 +1162,10 @@ def date(
         raise ValueError("time_grid must be either 'adaptive' or 'uniform'")
 
     mixture_prior = get_mixture_prior(span_data, priors)
-    prior_vals = get_prior_values(mixture_prior, grid, tree_sequence)
+    prior_vals = get_prior_values(mixture_prior, grid, tree_sequence, nodes_to_date)
 
     theta = rho = mut_lls = None
-    rows, cols = get_rows_cols(grid)
+    matrix_indices = LowerTriangularMatrix(grid)
 
     if mutation_rate is not None:
         theta = 4 * Ne * mutation_rate
@@ -1172,12 +1174,14 @@ def date(
         rho = 4 * Ne * recombination_rate
 
     forwards, g_i, logged_forwards, logged_g_i = forward_algorithm(
-        tree_sequence, prior_vals, grid, theta, rho, eps, rows,
+        tree_sequence, prior_vals, grid, theta, rho, eps, matrix_indices,
         lls=mut_lls, progress=progress)
     posterior, backward = backward_algorithm(
         tree_sequence, logged_forwards, logged_g_i,
-        grid, theta, rho, spans, eps, mut_lls, cols, sample_set)
-    mn_post, _ = forwards_mean_var(tree_sequence, grid, posterior, nodes_to_date)
-    new_mn_post = restrict_ages_topo(tree_sequence, mn_post, grid, eps, nodes_to_date)
+        grid, theta, rho, spans, eps, mut_lls, matrix_indices, fixed_node_set)
+    mn_post, _ = posterior_mean_var(tree_sequence, grid, posterior,
+                                    nodes_to_date=nodes_to_date)
+    new_mn_post = restrict_ages_topo(tree_sequence, mn_post, grid, eps,
+                                     nodes_to_date=nodes_to_date)
     dated_ts = return_ts(tree_sequence, new_mn_post, Ne)
     return dated_ts
