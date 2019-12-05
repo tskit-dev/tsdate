@@ -233,7 +233,7 @@ def get_mixture_prior(spans_by_samples, basic_priors):
 
     :param .SpansBySamples spans_by_samples: An instance of the
         :class:`SpansBySamples` class that can be used to obtain
-        weights for each .
+        mixture parameters and their respective weights for each node.
     :param .ConditionalCoalescentTimes basic_priors: An instance of
         the :class:`ConditionalCoalescentTimes` class, which provides
         a set of dataframes containing the theoretical distribution of
@@ -243,7 +243,7 @@ def get_mixture_prior(spans_by_samples, basic_priors):
         node id in ``spans_by_samples.nodes_to_date``, which can be used
         to approximate the probabilities of times for that node used a
         gamma distribution.
-    :rtype:  pandas.DataFrame
+    :rtype: pandas.DataFrame
     """
 
     def mixture_expect_and_var(mixture):
@@ -270,7 +270,10 @@ def get_mixture_prior(spans_by_samples, basic_priors):
         columns=["Alpha", "Beta"], dtype=float)
     for node in spans_by_samples.nodes_to_date:
         mixture = spans_by_samples.get_weights(node)
-        if len(mixture) == 1:
+        if len(mixture) == 0:
+            # This node is undated with no prior - indicate this using alpha=NaN
+            prior.loc[node] = [np.nan, 1]
+        elif len(mixture) == 1:
             # The norm: this node spans trees that all have the same set of samples
             total_tips, weight_tuple = next(iter(mixture.items()))
             if len(weight_tuple.weight) == 1:
@@ -304,6 +307,10 @@ def get_mixture_prior(spans_by_samples, basic_priors):
 Weights = namedtuple('Weights', 'descendant_tips weight')
 
 
+def is_isolated(tree, node):
+    return tree.num_children(node) == 0 and tree.parent(node) == tskit.NULL
+
+
 class SpansBySamples:
     """
     A class to calculate and return the genomic spans covered by each
@@ -316,7 +323,7 @@ class SpansBySamples:
     :ivar tree_sequence: A reference to the tree sequence that was used to
         generate the spans and weights
     :vartype tree_sequence: tskit.TreeSequence
-    :ivar num_samples_set: A numpy array of unique numbers which list,
+    :ivar num_samples_set: A sorted numpy array of unique numbers which list,
         in no particular order, the various sample counts among the trees
         in this tree sequence. In the simplest case of a tree sequence with
         no missing data, all trees have the same count of numbers of samples,
@@ -328,7 +335,11 @@ class SpansBySamples:
         :attr:`.tree_sequence.num_samples`.
     :vartype num_samples_set: numpy.ndarray (dtype=np.uint64)
     :ivar node_total_span: A numpy array of size :attr:`.tree_sequence.num_nodes`
-        containing the genomic span covered by each node (including sample nodes)
+        containing the genomic span covered by each node (including fixed nodes).
+        Parts of the genome where a node to date exists but contains no fixed-date
+        descendants (i.e. "dangling nodes") are *not* included in the total;
+        similarly for fixed nodes, regions where they are isolated nodes (i.e.
+        missing data) are omitted.
     :vartype node_total_span: numpy.ndarray (dtype=np.uint64)
     :ivar nodes_to_date: An numpy array containing all the node ids in the tree
         sequence that we wish to date. These are usually all the non-sample nodes,
@@ -353,8 +364,8 @@ class SpansBySamples:
         self._spans = defaultdict(lambda: defaultdict(lambda: defaultdict(float)))
 
         node_total_span, trees_with_undated, n_tips_per_tree = self.set_spans_initial()
-        # Provide a set of the total_num_tips in different trees (used for missing data)
-        self.num_samples_set = set(np.unique(n_tips_per_tree))
+        # Provide a list of the total_num_tips in different trees (used for missing data)
+        self.num_samples_set = np.unique(n_tips_per_tree)
         # Provide the complete spans for each node, used e.g. for normalising
         self.node_total_span = node_total_span
 
@@ -405,19 +416,26 @@ class SpansBySamples:
         def save_to_span_data(prev_tree, node, num_fixed_treenodes):
             """
             A convenience function to save accumulated tracked node data at the current
-            breakpoint. If this is a non-fixed node which needs dating, we save the
+            breakpoint. If this is a fixed node which needs dating, we save the
             span by # descendant tips into self._spans. If the node was skipped because
             it is a unary node at the top of the tree, return None
             """
             if np.isnan(stored_pos[node]):
                 # Don't save ones that we aren't tracking
                 return False
+            if is_isolated(prev_tree, node):
+                # Don't save isolated nodes
+                return False
+            n_tips = prev_tree.num_samples(node)
+            if n_tips == 0:
+                # Dangling tip - create an empty data structure if there is nothing there
+                self._spans[node] = self._spans[node]
+                # Do not save this span to the total
+                return False
             coverage = prev_tree.interval[1] - stored_pos[node]
             node_total_span[node] += coverage
             if node in self.fixed_node_set:
                 return True
-            n_tips = prev_tree.num_samples(node)
-            assert n_tips > 0
             if len(prev_tree.children(node)) > 1:
                 # This is a coalescent node
                 self._spans[node][num_fixed_treenodes][n_tips] += coverage
@@ -702,12 +720,12 @@ class SpansBySamples:
             span, normalised by the total span over which the node exists) for
             :math:`k` descendant samples, as a floating point number. For any node,
             the normalisation means that all the weights should sum to one.
-        :rtype: dict(int, dict(int, float))'
+        :rtype: dict(int, dict(int, float))
         """
         return self.normalised_node_spans[node]
 
     def lookup_weight(self, node, total_tips, descendant_tips):
-        # Only used for testing
+        # Inefficient and only used for testing: return the weight for a specific # tips
         which = self.get_weights(node)[total_tips].descendant_tips == descendant_tips
         return self.get_weights(node)[total_tips].weight[which]
 
@@ -780,7 +798,7 @@ def iterate_parent_edges(ts):
 
 
 def get_prior_values(mixture_prior, grid, ts, nodes_to_date):
-    prior_times = np.zeros((ts.num_nodes, len(grid)))
+    prior_times = np.zeros((ts.num_nodes, len(grid)), dtype=np.float64)
     prior_times[:, 0] = 1
     for node in nodes_to_date:
         prior_node = scipy.stats.gamma.cdf(
@@ -972,6 +990,8 @@ def backward_algorithm(
     Input is log of forwards matrix, log of g_i matrix, time grid, population scaled
     mutation and recombination rate. Spans of each edge, epsilon, likelihoods of each
     edge, and the columns of the lower triangular matrix of likelihoods.
+
+    TODO - if forwards[node] is full of NaNs i
     """
     if dated_node_set is None:
         dated_node_set = set(ts.samples())

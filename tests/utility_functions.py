@@ -230,6 +230,51 @@ def two_tree_mutation_ts():
                            mutations=mutations, strict=False)
 
 
+def non_sample_external_nodes_ts():
+    """
+    Simplest case where we have n = 2 and external non-sample nodes.
+           _ 2 _
+          / / | \
+         / |  |  \
+        0  1  3  4
+
+        s  s
+        a  a
+        m  m
+        p  p
+        l  l
+        e  e
+    """
+    nodes = io.StringIO("""\
+    id      is_sample   time
+    0       1           0
+    1       1           0
+    2       0           1
+    3       0           0
+    4       0           0
+    """)
+    edges = io.StringIO("""\
+    left    right   parent  child
+    0       1       2       0,1,3,4
+    """)
+    sites = io.StringIO("""\
+    id  position    ancestral_state
+    0   0.1         0
+    1   0.2         0
+    2   0.3         0
+    3   0.4         0
+    """)
+    mutations = io.StringIO("""\
+    site    node    derived_state
+    0       0       1
+    1       1       1
+    2       3       1
+    3       4       1
+    """)
+    return tskit.load_text(
+        nodes=nodes, edges=edges, sites=sites, mutations=mutations, strict=False)
+
+
 def truncate_ts_samples(ts, average_span, random_seed, min_span=5):
     """
     Create a tree sequence that has sample nodes which have been truncated

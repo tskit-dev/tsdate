@@ -140,6 +140,22 @@ class TestSimulated(unittest.TestCase):
         dated_ts = tsdate.date(ts, Ne=1)
         self.ts_equal_except_times(ts, dated_ts)
 
+    @unittest.skip("Need to address https://github.com/awohns/tsdate/issues/65")
+    def test_1_tree_with_dangling(self):
+        ts = msprime.simulate(8, mutation_rate=5, random_seed=2)
+        tables = ts.dump_tables()
+        tables.edges.clear()
+        # remove all links to a few samples, to leave dangling nodes
+        for e in ts.tables.edges:
+            if e.child not in set([0, 3, 6, 7]):
+                tables.edges.add_row(e.left, e.right, e.parent, e.child)
+        dangling_node_ts = tables.tree_sequence()
+        # Check we have an internal node with no samples
+        tree = dangling_node_ts.first()
+        assert any(tree.num_samples(u) == 0 for u in tree.nodes())
+        dated_ts = tsdate.date(dangling_node_ts, Ne=1)
+        self.ts_equal_except_times(dangling_node_ts, dated_ts)
+
     def test_non_contemporaneous(self):
         samples = [
             msprime.Sample(population=0, time=0),
