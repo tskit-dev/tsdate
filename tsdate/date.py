@@ -902,9 +902,6 @@ def forward_algorithm(ts, prior_values, grid, theta, rho, eps, matrix_indices,
     forwards[ts.samples(), 0] = 1
     g_i[ts.samples(), 0] = 1
 
-    norm = np.zeros((ts.num_nodes))  # normalizing constants
-    norm[ts.samples()] = 1  # set all tips normalizing constants to 1
-
     mut_edges = get_mut_edges(ts)
 
     # Iterate through the nodes via groupby on parent node
@@ -952,12 +949,8 @@ def forward_algorithm(ts, prior_values, grid, theta, rho, eps, matrix_indices,
                 # Topology-only clock
                 vv = np.add.reduceat(dt, matrix_indices.row_based_cols[0])
 
-        forwards[parent] = val
-        g_i[parent] = g_val
-        norm[parent] = np.max(forwards[parent, :])
-        forwards[parent, :] = np.divide(forwards[parent, :], norm[parent])
-        g_i_norm = np.max(g_i[parent, :])
-        g_i[parent, :] = np.divide(g_i[parent, :], g_i_norm)
+        forwards[parent] = val / np.max(val)
+        g_i[parent] = g_val / np.max(g_val)
     logged_forwards = np.log(forwards + 1e-10)
     logged_g_i = np.log(g_i + 1e-10)
     return forwards, g_i, logged_forwards, logged_g_i
