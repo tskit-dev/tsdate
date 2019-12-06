@@ -39,6 +39,14 @@ FORMAT_NAME = "tsdate"
 FORMAT_VERSION = [1, 0]
 
 
+# Hack: monkey patches to allow tsdate to work with non-dev versions of tskit
+# TODO - remove when tskit 0.2.4 is released
+tskit.Tree.num_children = lambda tree, node: (
+    len(tree.children(node)))  # NOQA
+tskit.Tree.is_isolated = lambda tree, node: (
+    tree.num_children(node) == 0 and tree.parent(node) == tskit.NULL)    # NOQA
+
+
 def gamma_approx(mean, variance):
     """
     Returns alpha and beta of a gamma distribution for a given mean and variance
@@ -307,10 +315,6 @@ def get_mixture_prior(spans_by_samples, basic_priors):
 Weights = namedtuple('Weights', 'descendant_tips weight')
 
 
-def is_isolated(tree, node):
-    return tree.num_children(node) == 0 and tree.parent(node) == tskit.NULL
-
-
 class SpansBySamples:
     """
     A class to calculate and return the genomic spans covered by each
@@ -423,7 +427,7 @@ class SpansBySamples:
             if np.isnan(stored_pos[node]):
                 # Don't save ones that we aren't tracking
                 return False
-            if is_isolated(prev_tree, node):
+            if prev_tree.is_isolated(node):
                 # Don't save isolated nodes
                 return False
             n_tips = prev_tree.num_samples(node)
@@ -436,14 +440,14 @@ class SpansBySamples:
             node_total_span[node] += coverage
             if node in self.fixed_node_set:
                 return True
-            if len(prev_tree.children(node)) > 1:
+            if prev_tree.num_children(node) > 1:
                 # This is a coalescent node
                 self._spans[node][num_fixed_treenodes][n_tips] += coverage
             else:
                 # Treat unary nodes differently: mixture of coalescent nodes above+below
                 top_node = prev_tree.parent(node)
                 try:  # Find coalescent node above
-                    while len(prev_tree.children(top_node)) == 1:
+                    while prev_tree.num_children(top_node) == 1:
                         top_node = prev_tree.parent(top_node)
                 except ValueError:  # Happens if we have hit the root
                     assert top_node == tskit.NULL
@@ -615,7 +619,7 @@ class SpansBySamples:
                     # node is either the root or (more likely) not in
                     # this tree
                 assert tree.num_samples(node) > 0
-                assert len(tree.children(node)) == 1
+                assert tree.num_children(node) == 1
                 n = node
                 done = False
                 while not done:
@@ -634,7 +638,7 @@ class SpansBySamples:
                                 raise ValueError("Oh dear 2")
                             local_weight = v / self.node_total_span[n]
                             self._spans[node][n_tips][k] += tree.span * local_weight / 2
-                    assert len(tree.children(node)) == 1
+                    assert tree.num_children(node) == 1
                     total_tips = n_tips_per_tree[tree_id]
                     desc_tips = tree.num_samples(node)
                     self._spans[node][total_tips][desc_tips] += tree.span / 2
@@ -657,7 +661,7 @@ class SpansBySamples:
                 tree = next(tree_iter)
             for node in unassigned_nodes:
                 if tree.is_internal(node):
-                    assert len(tree.children(node)) == 1
+                    assert tree.num_children(node) == 1
                     total_tips = n_tips_per_tree[tree_id]
                     # above, we set the maximum
                     self._spans[node][max_samples][max_samples] += tree.span / 2
@@ -1004,8 +1008,9 @@ def backward_algorithm(
 
     for tree in ts.trees():
         for root in tree.roots:
-            if len(tree.get_children(root)) == 0:
-                print("Node not in tree")
+            if tree.is_isolated(root):
+                logging.debug(
+                    "Isolated node {} skipped in backwards algorithm".format(root))
                 continue
             backwards[root, 1:] += (1 * tree.span) / spans[root]
     backwards[node_has_date, 0] = 1
