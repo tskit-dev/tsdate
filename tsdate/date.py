@@ -282,6 +282,7 @@ def get_mixture_prior(spans_by_samples, basic_priors):
                 # in those cases where we have only a few mixtures (arbitrarily set here
                 # as <= 5 mixtures
                 mixture_hash = (
+                    total_tips,
                     weight_tuple.descendant_tips.tostring(),
                     weight_tuple.weight.tostring())
                 if mixture_hash not in seen_mixtures:
