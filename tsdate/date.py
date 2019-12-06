@@ -51,7 +51,6 @@ def gamma_approx(mean, variance):
     """
     Returns alpha and beta of a gamma distribution for a given mean and variance
     """
-
     return (mean ** 2) / variance, mean / variance
 
 
@@ -279,11 +278,11 @@ def get_mixture_prior(spans_by_samples, basic_priors):
     for node in spans_by_samples.nodes_to_date:
         mixture = spans_by_samples.get_weights(node)
         if len(mixture) == 0:
-            # This node is undated with no prior - indicate this using alpha=NaN
+            # This node is undated with no prior: indicate this using alpha=NaN
             prior.loc[node] = [np.nan, 1]
         elif len(mixture) == 1:
             # The norm: this node spans trees that all have the same set of samples
-            total_tips, weight_tuple = next(iter(mixture.items()))
+            total_tips, weight_tuple = next(iter(mixture.items()))  # First and only item
             if len(weight_tuple.weight) == 1:
                 d_tips = weight_tuple.descendant_tips[0]
                 # This node is not a mixture - can use the standard coalescent prior
@@ -320,7 +319,7 @@ class SpansBySamples:
     A class to calculate and return the genomic spans covered by each
     non-sample node, broken down by the number of samples that descend
     directly from that node. This is used to calculate the conditional
-    coalescent prior. The main method is :meth:`normalised_spans`, which
+    coalescent prior. The main method is :meth:`get_weights`, which
     returns the spans for a node, normalised by the total span that that
     node covers in the tree sequence.
 
@@ -428,7 +427,7 @@ class SpansBySamples:
                 # Don't save ones that we aren't tracking
                 return False
             if prev_tree.is_isolated(node):
-                # Don't save isolated nodes
+                # Omit isolated nodes & don't add their span to the total for normalising
                 return False
             n_tips = prev_tree.num_samples(node)
             if n_tips == 0:
@@ -620,29 +619,27 @@ class SpansBySamples:
                     # this tree
                 assert tree.num_samples(node) > 0
                 assert tree.num_children(node) == 1
-                n = node
-                done = False
-                while not done:
-                    n = tree.parent(n)
-                    if n == tskit.NULL or n in self._spans:
-                        done = True
-                if n == tskit.NULL:
-                    continue
-                else:
-                    logging.debug(
-                        "Assigning prior to unary node {}: connected to node {} which"
-                        " has a prior in tree {}".format(node, n, tree_id))
-                    for n_tips, weights in self._spans[n].items():
-                        for k, v in weights.items():
-                            if k == 0:
-                                raise ValueError("Oh dear 2")
-                            local_weight = v / self.node_total_span[n]
-                            self._spans[node][n_tips][k] += tree.span * local_weight / 2
-                    assert tree.num_children(node) == 1
-                    total_tips = n_tips_per_tree[tree_id]
-                    desc_tips = tree.num_samples(node)
-                    self._spans[node][total_tips][desc_tips] += tree.span / 2
-                    self.node_total_span[node] += tree.span
+                known_node_above = tree.parent(node)
+                try:
+                    while self.node_undated(known_node_above):
+                        known_node_above = tree.parent(known_node_above)
+                except ValueError:  # Happens if we have hit the root
+                    assert known_node_above == tskit.NULL
+                    continue  # Skip nodes which are not connected at all
+                logging.debug(
+                    "Assigning prior to unary node {}: connected to node {} which"
+                    " has a prior in tree {}".format(node, known_node_above, tree_id))
+                for total_tips, weights in self._spans[known_node_above].items():
+                    for k, weight in weights.items():
+                        if k == 0:
+                            raise ValueError("Oh dear 2")
+                        local_weight = weight / self.node_total_span[known_node_above]
+                        self._spans[node][total_tips][k] += tree.span * local_weight / 2
+                assert tree.num_children(node) == 1
+                total_tips = n_tips_per_tree[tree_id]
+                desc_tips = tree.num_samples(node)
+                self._spans[node][total_tips][desc_tips] += tree.span / 2
+                self.node_total_span[node] += tree.span
 
     def set_spans_unconnected_unary(self, trees_with_undated, n_tips_per_tree):
         """
@@ -732,6 +729,18 @@ class SpansBySamples:
         # Inefficient and only used for testing: return the weight for a specific # tips
         which = self.get_weights(node)[total_tips].descendant_tips == descendant_tips
         return self.get_weights(node)[total_tips].weight[which]
+
+    def dangling_only_nodes(self):
+        """
+        Return a list of the nodes that have no priors and are not fixed. These
+        should only happen if the node is dangling for its entire duration in the TS
+        """
+        return [k for k, v in self._spans.items() if len(v) == 0]
+
+    def node_undated(self, node):
+        if node == tskit.NULL:
+            raise ValueError("Tried to check a non-existent node")
+        return len(self._spans.get(node, {})) == 0
 
 
 def create_time_grid(age_prior, n_points=21):
@@ -988,7 +997,7 @@ def forward_algorithm(ts, prior_values, grid, theta, rho, eps, matrix_indices,
 # TODO: Account for multiple parents, fix the log of zero thing
 def backward_algorithm(
         ts, forwards, g_i, grid, theta, rho, spans, eps, lls, matrix_indices,
-        dated_node_set=None):
+        dangling_nodes=None, fixed_node_set=None):
     """
     Computes the full posterior distribution on nodes.
     Input is log of forwards matrix, log of g_i matrix, time grid, population scaled
@@ -997,10 +1006,10 @@ def backward_algorithm(
 
     TODO - if forwards[node] is full of NaNs i
     """
-    if dated_node_set is None:
-        dated_node_set = set(ts.samples())
+    if fixed_node_set is None:
+        fixed_node_set = set(ts.samples())
     node_has_date = np.zeros(ts.num_nodes, dtype=bool)
-    node_has_date[list(dated_node_set)] = True
+    node_has_date[list(fixed_node_set)] = True
     backwards = np.zeros((ts.num_nodes, len(grid)))  # store backwards matrix
     mut_edges = get_mut_edges(ts)
     norm = np.zeros((ts.num_nodes))  # normalizing constants
@@ -1015,14 +1024,15 @@ def backward_algorithm(
             backwards[root, 1:] += (1 * tree.span) / spans[root]
     backwards[node_has_date, 0] = 1
 
-    child_edges = (ts.edge(i) for i in
-                   reversed(np.argsort(ts.tables.nodes.time[ts.tables.edges.child[:]])))
+    edges_by_child_time = (ts.edge(i) for i in reversed(
+        np.argsort(ts.tables.nodes.time[ts.tables.edges.child[:]])))
 
     for child, edges in tqdm(
-            itertools.groupby(child_edges, key=lambda x: x.child),
+            itertools.groupby(edges_by_child_time, key=lambda x: x.child),
             total=ts.num_nodes - np.sum(node_has_date)):
-        if child not in dated_node_set:
-
+        if child not in fixed_node_set:
+            if child in dangling_nodes:
+                raise RuntimeError("Cannot yet date dangling nodes")
             edges = list(edges)
             for edge in edges:
                 dt = (backwards[edge.parent] *
@@ -1170,6 +1180,7 @@ def date(
     span_data = SpansBySamples(tree_sequence, fixed_node_set)
     spans = span_data.node_total_span
     nodes_to_date = span_data.nodes_to_date
+    dangling_nodes = set(span_data.dangling_only_nodes())
     max_sample_size_before_approximation = None if approximate_prior is False else 1000
     priors = ConditionalCoalescentTimes(max_sample_size_before_approximation)
     priors.add(tree_sequence.num_samples, approximate_prior)
@@ -1202,12 +1213,13 @@ def date(
     forwards, g_i, logged_forwards, logged_g_i = forward_algorithm(
         tree_sequence, prior_vals, grid, theta, rho, eps, matrix_indices,
         lls=mut_lls, progress=progress)
+
     posterior, backward = backward_algorithm(
-        tree_sequence, logged_forwards, logged_g_i,
-        grid, theta, rho, spans, eps, mut_lls, matrix_indices, fixed_node_set)
-    mn_post, _ = posterior_mean_var(tree_sequence, grid, posterior,
-                                    nodes_to_date=nodes_to_date)
-    new_mn_post = restrict_ages_topo(tree_sequence, mn_post, grid, eps,
-                                     nodes_to_date=nodes_to_date)
+        tree_sequence, logged_forwards, logged_g_i, grid, theta, rho, spans, eps,
+        mut_lls, matrix_indices, dangling_nodes, fixed_node_set)
+    mn_post, _ = posterior_mean_var(
+        tree_sequence, grid, posterior, nodes_to_date=nodes_to_date)
+    new_mn_post = restrict_ages_topo(
+        tree_sequence, mn_post, grid, eps, nodes_to_date=nodes_to_date)
     dated_ts = return_ts(tree_sequence, new_mn_post, Ne)
     return dated_ts

@@ -86,11 +86,17 @@ class TestNodeTipWeights(unittest.TestCase):
                 if not tree.is_sample(n):
                     nonsample_nodes.add(n)
         self.assertEqual(set(span_data.nodes_to_date), nonsample_nodes)
+        dangling_only_nodes = set(span_data.dangling_only_nodes())
         for focal_node in span_data.nodes_to_date:
+            weight = 0
             for num_samples, weights in span_data.get_weights(focal_node).items():
                 self.assertTrue(0 <= focal_node < ts.num_nodes)
-                self.assertAlmostEqual(sum(weights.weight), 1.0)
                 self.assertLessEqual(max(weights.descendant_tips), ts.num_samples)
+                weight += sum(weights.weight)
+            if focal_node in dangling_only_nodes:
+                self.assertAlmostEqual(weight, 0.0)
+            else:
+                self.assertAlmostEqual(weight, 1.0)
         return span_data
 
     def test_one_tree_n2(self):
@@ -174,11 +180,25 @@ class TestNodeTipWeights(unittest.TestCase):
         self.assertGreater(ts.num_trees, 1)
         self.verify_weights(ts)
 
+    def test_half_dangling_node(self):
+        dangling_node_ts, dangling_node = utility_functions.half_dangling_ts()
+        span_data = self.verify_weights(dangling_node_ts)
+        self.assertEqual(len(span_data.dangling_only_nodes()), 0)
+
+    def test_dangling_node(self):
+        dangling_node_ts, dangling_node = utility_functions.dangling_ts()
+        span_data = self.verify_weights(dangling_node_ts)
+        self.assertEqual(len(span_data.dangling_only_nodes()), 1)
+
+    def test_dangling_node_with_missing(self):
+        dangling_node_ts, dangling_node = utility_functions.dangling_missing_ts()
+        span_data = self.verify_weights(dangling_node_ts)
+        self.assertEqual(len(span_data.dangling_only_nodes()), 1)
+
 
 class TestMakePrior(unittest.TestCase):
-    # We only test make_prior() on single trees
-    def verify_prior(self, ts):
-        # Check prior contains all possible tips
+    def verify_basic_prior(self, ts):
+        # Check that a basic prior without missing data contains all possible tips
         priors = tsdate.ConditionalCoalescentTimes(None)  # Don't use approximation
         priors.add(ts.num_samples)
         prior_df = priors[ts.num_samples]
@@ -187,14 +207,14 @@ class TestMakePrior(unittest.TestCase):
 
     def test_one_tree_n2(self):
         ts = utility_functions.single_tree_ts_n2()
-        prior = self.verify_prior(ts)
+        prior = self.verify_basic_prior(ts)
         [self.assertAlmostEqual(x, y)
          for x, y in zip(prior.loc[2].values,
                          [1., 1.])]
 
     def test_one_tree_n3(self):
         ts = utility_functions.single_tree_ts_n3()
-        prior = self.verify_prior(ts)
+        prior = self.verify_basic_prior(ts)
         [self.assertAlmostEqual(x, y)
          for x, y in zip(prior.loc[2].values,
                          [1., 3.])]
@@ -204,7 +224,7 @@ class TestMakePrior(unittest.TestCase):
 
     def test_one_tree_n4(self):
         ts = utility_functions.single_tree_ts_n4()
-        prior = self.verify_prior(ts)
+        prior = self.verify_basic_prior(ts)
         [self.assertAlmostEqual(x, y)
          for x, y in zip(prior.loc[2].values,
                          [0.81818182, 3.27272727])]
@@ -217,14 +237,14 @@ class TestMakePrior(unittest.TestCase):
 
     def test_polytomy_tree(self):
         ts = utility_functions.polytomy_tree_ts()
-        prior = self.verify_prior(ts)
+        prior = self.verify_basic_prior(ts)
         [self.assertAlmostEqual(x, y)
          for x, y in zip(prior.loc[3].values,
                          [1.6, 1.2])]
 
     def test_two_tree_ts(self):
         ts = utility_functions.two_tree_ts()
-        prior = self.verify_prior(ts)
+        prior = self.verify_basic_prior(ts)
         [self.assertAlmostEqual(x, y)
          for x, y in zip(prior.loc[2].values,
                          [1., 3.])]
@@ -234,7 +254,7 @@ class TestMakePrior(unittest.TestCase):
 
     def test_single_tree_ts_with_unary(self):
         ts = utility_functions.single_tree_ts_with_unary()
-        prior = self.verify_prior(ts)
+        prior = self.verify_basic_prior(ts)
         [self.assertAlmostEqual(x, y)
          for x, y in zip(prior.loc[2].values,
                          [1., 3.])]
@@ -244,7 +264,7 @@ class TestMakePrior(unittest.TestCase):
 
     def test_two_tree_mutation_ts(self):
         ts = utility_functions.two_tree_mutation_ts()
-        prior = self.verify_prior(ts)
+        prior = self.verify_basic_prior(ts)
         [self.assertAlmostEqual(x, y)
          for x, y in zip(prior.loc[2].values,
                          [1., 3.])]
@@ -280,9 +300,10 @@ class TestMixturePrior(unittest.TestCase):
     def get_mixture_prior(self, ts):
         span_data = tsdate.SpansBySamples(ts)
         priors = tsdate.ConditionalCoalescentTimes(None)
-        priors.add(ts.num_samples, approximate=False)
+        for num_samples in set(span_data.num_samples_set).union([ts.num_samples]):
+            priors.add(num_samples, approximate=False)
         mixture_prior = tsdate.get_mixture_prior(span_data, priors)
-        return(mixture_prior)
+        return mixture_prior
 
     def test_one_tree_n2(self):
         ts = utility_functions.single_tree_ts_n2()
@@ -366,6 +387,24 @@ class TestMixturePrior(unittest.TestCase):
         [self.assertAlmostEqual(x, y)
          for x, y in zip(mixture_prior.loc[5].values,
                          [1.6, 1.2])]
+
+    def test_half_dangling_node(self):
+        dangling_node_ts, dangling_node = utility_functions.half_dangling_ts()
+        mixture_prior = self.get_mixture_prior(dangling_node_ts)
+        # If only half dangling, we should be able to geta  prior date
+        self.assertFalse(np.any(np.isnan(mixture_prior.loc[dangling_node].values)))
+
+    def test_dangling_node(self):
+        dangling_node_ts, dangling_node = utility_functions.dangling_ts()
+        mixture_prior = self.get_mixture_prior(dangling_node_ts)
+        # Full dangling nodes cannot be dated
+        self.assertTrue(np.any(np.isnan(mixture_prior.loc[dangling_node].values)))
+
+    def test_dangling_node_with_missing(self):
+        dangling_node_ts, dangling_node = utility_functions.dangling_missing_ts()
+        mixture_prior = self.get_mixture_prior(dangling_node_ts)
+        # Full dangling nodes cannot be dated
+        self.assertTrue(np.any(np.isnan(mixture_prior.loc[dangling_node].values)))
 
 
 class TestPriorVals(unittest.TestCase):

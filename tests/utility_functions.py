@@ -25,6 +25,7 @@ A collection of utilities to edit and construct tree sequences for testing purpo
 """
 
 import numpy as np
+import msprime
 import tskit
 import io
 
@@ -273,6 +274,101 @@ def non_sample_external_nodes_ts():
     """)
     return tskit.load_text(
         nodes=nodes, edges=edges, sites=sites, mutations=mutations, strict=False)
+
+
+def dangling_ts():
+    """
+    A tree sequence with an entirely dangling node
+
+    3.64┊     11         ┊        11      ┊       11    ┊
+        ┊  ┏━━━┻━━━┓     ┊     ┏━━━┻━━━━┓ ┊     ┏━━┻━━┓ ┊
+    3.32┊  ┃      10     ┊    10        ┃ ┊    10     ┃ ┊
+        ┊  ┃   ┏━━━╋━━━┓ ┊  ┏━━┻┳━━┓    ┃ ┊  ┏━━┻━┓   ┃ ┊
+    1.70┊  ┃   ┃   ┃   ┃ ┊  ┃   ┃  9    ┃ ┊  ┃    9   ┃ ┊
+        ┊  ┃   ┃   ┃   ┃ ┊  ┃   ┃ ┏┻━┓  ┃ ┊  ┃  ┏━┻┓  ┃ ┊
+    0.32┊  8   ┃   ┃   ┃ ┊  ┃   ┃ ┃  ┃  ┃ ┊  ┃  ┃  ┃  ┃ ┊
+        ┊ ┏┻┓  ┃   ┃   ┃ ┊  ┃   ┃ ┃  ┃  ┃ ┊  ┃  ┃  ┃  ┃ ┊
+    0.10┊ ┃ ┃  ┃   ┃  12 ┊  ┃  12 ┃  ┃  ┃ ┊  ┃  ┃  ┃  ┃ ┊
+        ┊ ┃ ┃  ┃   ┃     ┊  ┃     ┃  ┃  ┃ ┊  ┃  ┃  ┃  ┃ ┊
+    0.10┊ ┃ ┃  ┃   7     ┊  ┃     ┃  7  ┃ ┊  ┃  ┃  7  ┃ ┊
+        ┊ ┃ ┃  ┃  ┏┻┓    ┊  ┃     ┃ ┏┻┓ ┃ ┊  ┃  ┃ ┏┻┓ ┃ ┊
+    0.08┊ ┃ ┃  6  ┃ ┃    ┊  6     ┃ ┃ ┃ ┃ ┊  6  ┃ ┃ ┃ ┃ ┊
+        ┊ ┃ ┃ ┏┻┓ ┃ ┃    ┊ ┏┻┓    ┃ ┃ ┃ ┃ ┊ ┏┻┓ ┃ ┃ ┃ ┃ ┊
+    0.00┊ 2 5 0 1 3 4    ┊ 0 1    5 3 4 2 ┊ 0 1 5 3 4 2 ┊
+      0.00             0.18             0.50          1.00
+    """
+
+    ts = msprime.simulate(6, mutation_rate=5, recombination_rate=0.1, random_seed=12)
+    tables = ts.dump_tables()
+    id = tables.nodes.add_row(time=0.1)
+    tables.edges.add_row(left=0, right=0.5, parent=10, child=id)
+    tables.sort()
+    return tables.tree_sequence(), id
+
+
+def half_dangling_ts():
+    """
+    A tree sequence with a node that dangles for part of the seq but not all
+
+    3.64┊    11       ┊    11         ┊       11    ┊
+        ┊  ┏━━┻━━┓    ┊  ┏━━┻━━━┓     ┊     ┏━━┻━━┓ ┊
+    3.32┊  ┃    10    ┊  ┃     10     ┊    10     ┃ ┊
+        ┊  ┃   ┏━┻━┓  ┊  ┃   ┏━━┻┳━━┓ ┊  ┏━━┻━┓   ┃ ┊
+    1.70┊  ┃   ┃   ┃  ┊  ┃   ┃   ┃  9 ┊  ┃    9   ┃ ┊
+        ┊  ┃   ┃   ┃  ┊  ┃   ┃   ┃    ┊  ┃  ┏━┻┓  ┃ ┊
+    0.32┊  8   ┃   ┃  ┊  8   ┃   ┃    ┊  ┃  ┃  ┃  ┃ ┊
+        ┊ ┏┻┓  ┃   ┃  ┊ ┏┻┓  ┃   ┃    ┊  ┃  ┃  ┃  ┃ ┊
+    0.10┊ ┃ ┃  ┃   7  ┊ ┃ ┃  ┃   7    ┊  ┃  ┃  7  ┃ ┊
+        ┊ ┃ ┃  ┃  ┏┻┓ ┊ ┃ ┃  ┃  ┏┻┓   ┊  ┃  ┃ ┏┻┓ ┃ ┊
+    0.08┊ ┃ ┃  6  ┃ ┃ ┊ ┃ ┃  6  ┃ ┃   ┊  6  ┃ ┃ ┃ ┃ ┊
+        ┊ ┃ ┃ ┏┻┓ ┃ ┃ ┊ ┃ ┃ ┏┻┓ ┃ ┃   ┊ ┏┻┓ ┃ ┃ ┃ ┃ ┊
+    0.00┊ 2 5 0 1 3 4 ┊ 2 5 0 1 3 4   ┊ 0 1 5 3 4 2 ┊
+      0.00          0.09            0.18          1.00
+
+    """
+    ts = msprime.simulate(6, mutation_rate=5, recombination_rate=0.1, random_seed=12)
+    tables = ts.dump_tables()
+    tables.edges.clear()
+    for e in ts.tables.edges:
+        if e.parent == 10 and e.child == 9:
+            tables.edges.add_row(e.left/2, e.right, e.parent, e.child)
+        else:
+            tables.edges.add_row(e.left, e.right, e.parent, e.child)
+    tables.sort()
+    return tables.tree_sequence(), 9
+
+
+def dangling_missing_ts():
+    """
+    Should create a specific TS with a dangling node caused by missing data, like this:
+
+    3.64┊  11             ┊       11    ┊
+        ┊ ┏━┻━━┓          ┊     ┏━━┻━━┓ ┊
+    3.32┊ ┃   10          ┊    10     ┃ ┊
+        ┊ ┃  ┏━┻━┓        ┊  ┏━━┻━┓   ┃ ┊
+    1.70┊ ┃  ┃   ┃        ┊  ┃    9   ┃ ┊
+        ┊ ┃  ┃   ┃        ┊  ┃  ┏━┻┓  ┃ ┊
+    0.32┊ 8  ┃   ┃        ┊  ┃  ┃  ┃  ┃ ┊
+        ┊    ┃   ┃        ┊  ┃  ┃  ┃  ┃ ┊
+    0.10┊    ┃   7        ┊  ┃  ┃  7  ┃ ┊
+        ┊    ┃  ┏┻┓       ┊  ┃  ┃ ┏┻┓ ┃ ┊
+    0.08┊    6  ┃ ┃       ┊  6  ┃ ┃ ┃ ┃ ┊
+        ┊   ┏┻┓ ┃ ┃       ┊ ┏┻┓ ┃ ┃ ┃ ┃ ┊
+    0.00┊   0 1 3 4  2  5 ┊ 0 1 5 3 4 2 ┊
+      0.00              0.18          1.00
+    """
+    ts = msprime.simulate(6, mutation_rate=5, recombination_rate=0.1, random_seed=12)
+    assert ts.num_trees == 2  # This should be a specific ts with 2 trees
+    tables = ts.dump_tables()
+    tables.edges.clear()
+    # remove all links to a few samples, to leave dangling nodes
+    for e in ts.tables.edges:
+        if e.parent == 8:
+            assert e.left == 0.0 and e.right < 0.2
+        else:
+            tables.edges.add_row(e.left, e.right, e.parent, e.child)
+    assert ts.tables.edges.num_rows - tables.edges.num_rows == 2  # Should have deleted 2
+    return tables.tree_sequence(), 8
 
 
 def truncate_ts_samples(ts, average_span, random_seed, min_span=5):
