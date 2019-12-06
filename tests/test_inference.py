@@ -154,11 +154,10 @@ class TestSimulated(unittest.TestCase):
         Ne = 1e2
         mu = 2e-4
         ts = msprime.simulate(
-            10, Ne=Ne, length=400, recombination_rate=1e-4, mutation_rate=0,
+            10, Ne=Ne, length=400, recombination_rate=1e-4, mutation_rate=mu,
             random_seed=12)
         truncated_ts = utility_functions.truncate_ts_samples(
             ts, average_span=200, random_seed=123)
-        truncated_ts = msprime.mutate(truncated_ts, rate=mu, random_seed=12)
         dated_ts = tsdate.date(truncated_ts, Ne=Ne, mutation_rate=mu)
         # We should ideally test whether *haplotypes* are the same here
         # in case allele encoding has changed. But haplotypes() doesn't currently

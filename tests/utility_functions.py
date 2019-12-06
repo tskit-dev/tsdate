@@ -241,16 +241,6 @@ def truncate_ts_samples(ts, average_span, random_seed, min_span=5):
     of the tree.
     """
 
-    def keep_with_offset(keep, data, offset):
-        """Copied from keep_intervals"""
-        # We need the astype here for 32 bit machines
-        lens = np.diff(offset).astype(np.int32)
-        return (
-            data[np.repeat(keep, lens)],
-            np.concatenate([
-                np.array([0], dtype=offset.dtype),
-                np.cumsum(lens[keep], dtype=offset.dtype)]))
-
     np.random.seed(random_seed)
     # Make a list of (left,right) tuples giving the new limits of each sample
     # Keyed by sample ID.
@@ -279,11 +269,11 @@ def truncate_ts_samples(ts, average_span, random_seed, min_span=5):
     positions = tables.sites.position[:]
     for i, m in enumerate(mutations):
         if m.node in to_slice:
-            if to_slice[m.node][0] <= positions[m.site] < to_slice[m.node][1]:
+            if not(to_slice[m.node][0] <= positions[m.site] < to_slice[m.node][1]):
                 keep_mutations[i] = False
-    new_ds, new_ds_offset = keep_with_offset(
+    new_ds, new_ds_offset = tskit.tables.keep_with_offset(
         keep_mutations, mutations.derived_state, mutations.derived_state_offset)
-    new_md, new_md_offset = keep_with_offset(
+    new_md, new_md_offset = tskit.tables.keep_with_offset(
         keep_mutations, mutations.metadata, mutations.metadata_offset)
     mutations_map = np.append(np.cumsum(keep_mutations) - 1, [-1])
     mutations_map = mutations_map.astype(mutations.parent.dtype)
