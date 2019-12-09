@@ -446,11 +446,11 @@ class TestForwardAlgorithm(unittest.TestCase):
         theta = 1
         rho = None
         eps = 1e-6
-        matrix_indices = tsdate.LowerTriangularMatrix(grid)
-        lls = tsdate.get_mut_ll(ts, grid, theta, eps)
+        lls = tsdate.Likelihoods(ts, grid, eps)
+        lls.precalculate_mutation_likelihoods(theta)
         forward, g_i, logged_forwards, logged_g_i = \
             tsdate.forward_algorithm(
-                ts, prior_vals, grid, theta, rho, eps, matrix_indices, lls, False)
+                ts, prior_vals, theta, rho, lls, False)
         self.assertTrue(np.array_equal(forward[0:ts.num_samples],
                         np.tile(np.array([1, 0, 0]), (ts.num_samples, 1))))
         self.assertTrue(np.allclose(logged_forwards[0:ts.num_samples],
@@ -525,15 +525,15 @@ class TestBackwardAlgorithm(unittest.TestCase):
         theta = 1
         rho = None
         eps = 1e-6
-        matrix_indices = tsdate.LowerTriangularMatrix(grid)
-        lls = tsdate.get_mut_ll(ts, grid, theta, eps)
+        lls = tsdate.Likelihoods(ts, grid, eps)
+        lls.precalculate_mutation_likelihoods(theta)
         forward, g_i, logged_forwards, logged_g_i = \
             tsdate.forward_algorithm(
-                ts, prior_vals, grid, theta, rho, eps, matrix_indices, lls, False)
+                ts, prior_vals, theta, rho, lls, False)
         posterior, backward = \
             tsdate.backward_algorithm(
-                ts, logged_forwards, logged_g_i, grid, theta, rho,
-                spans, eps, lls, matrix_indices, fixed_nodes_set)
+                ts, logged_forwards, logged_g_i, theta, rho,
+                lls, spans, fixed_nodes_set)
         self.assertTrue(np.array_equal(backward[0:ts.num_samples],
                         np.tile(np.array([1, 0, 0]), (ts.num_samples, 1))))
         self.assertTrue(np.array_equal(posterior[0:ts.num_samples],
