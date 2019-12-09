@@ -1010,8 +1010,9 @@ def forward_algorithm(ts, prior_values, theta, rho, lls, progress=False):
 
         forwards[parent] = val / np.max(val)
         g_i[parent] = g_val / np.max(g_val)
-    logged_forwards = np.log(forwards + 1e-10)
-    logged_g_i = np.log(g_i + 1e-10)
+    with np.errstate(divide='ignore'):
+        logged_forwards = np.log(forwards + 1e-10)
+        logged_g_i = np.log(g_i + 1e-10)
     return forwards, g_i, logged_forwards, logged_g_i
 
 
@@ -1076,8 +1077,9 @@ def backward_algorithm(
                     vv = lls.sum_tri_cols(dt)
             backwards[edge.child, 1:] = vv[1:] / max(vv[1:])
             backwards[edge.child, np.isnan(backwards[edge.child, :])] = 0
-    log_backwards = np.log(backwards)
-    posterior = np.exp(log_forwards + log_backwards)
+    with np.errstate(divide='ignore'):
+        log_backwards = np.log(backwards)
+        posterior = np.exp(log_forwards + log_backwards)
     posterior = posterior / np.sum(posterior, axis=1)[:, None]
     return posterior, backwards
 
