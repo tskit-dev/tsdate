@@ -59,6 +59,7 @@ class FixedSamples:
         self.ancient_grid_times = np.abs(grid[:, None] -
                                          ancient_sample_times).argmin(axis=0)
 
+
 def gamma_approx(mean, variance):
     """
     Returns alpha and beta of a gamma distribution for a given mean and variance
