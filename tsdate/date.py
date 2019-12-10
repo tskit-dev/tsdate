@@ -45,6 +45,20 @@ FORMAT_VERSION = [1, 0]
 tskit.Edge.span = property(lambda edge: (edge.right - edge.left))  # NOQA
 
 
+class FixedSamples:
+    """
+    A class to store the identity and times of fixed samples, both modern and ancient.
+    """
+    def __init__(self, ts, grid):
+        self.fixed_node_set = set(ts.samples())
+        sample_times = ts.tables.nodes.time[
+            np.array(list(ts.samples()))]
+        self.modern_samples = ts.samples()[sample_times == 0]
+        self.ancient_samples = np.setxor1d(self.modern_samples, ts.samples())
+        ancient_sample_times = ts.tables.nodes.time[self.ancient_samples]
+        self.ancient_grid_times = np.abs(grid[:, None] -
+                                         ancient_sample_times).argmin(axis=0)
+
 def gamma_approx(mean, variance):
     """
     Returns alpha and beta of a gamma distribution for a given mean and variance
@@ -969,7 +983,8 @@ class Likelihoods:
         return np.add.reduceat(input_array, self.col_indices)
 
 
-def upward_algorithm(ts, prior_values, theta, rho, lls, return_log=True, progress=False):
+def upward_algorithm(ts, prior_values, theta, rho, lls, grid,
+                     fixed_nodes, return_log=True, progress=False):
     """
     Use dynamic programming to find approximate posterior to sample from
     """
@@ -978,9 +993,13 @@ def upward_algorithm(ts, prior_values, theta, rho, lls, return_log=True, progres
     g_i = np.zeros((ts.num_nodes, lls.grid_size))  # store g of i
 
     # initialize tips at time 0 to prob=1
-    # TODO - account for ancient samples at different ages
-    upward[ts.samples(), 0] = 1
-    g_i[ts.samples(), 0] = 1
+    upward[fixed_nodes.modern_samples, 0] = 1
+    g_i[fixed_nodes.modern_samples, 0] = 1
+
+    # initialize ancient samples to prob=1 at closest time in time grid
+    upward[fixed_nodes.ancient_samples, fixed_nodes.ancient_grid_times] = 1
+    g_i[fixed_nodes.ancient_samples, fixed_nodes.ancient_grid_times] = 1
+    dated_node_set = fixed_nodes.fixed_node_set
 
     # Iterate through the nodes via groupby on parent node
     for parent_group in tqdm(
@@ -991,42 +1010,43 @@ def upward_algorithm(ts, prior_values, theta, rho, lls, return_log=True, progres
         in time grid
         """
         parent = parent_group[0][1].parent
-        val = prior_values[parent].copy()
-        g_val = np.ones(lls.grid_size)
-        g_val[0] = 0
-        for edge_index, edge in parent_group:
-            # Calculate vals for each edge
-            dt = lls.make_lower_tri(upward[edge.child])
-            if theta is not None and rho is not None:
-                b_l = (edge.left != 0)
-                b_r = (edge.right != ts.get_sequence_length())
-                ll_rec = np.power(
-                    dt, b_l + b_r) * np.exp(-(dt * rho * edge.span * 2))
-                ll_mut = lls.get_mut_lik_lower_tri(edge)
-                vv = lls.rowsum_lower_tri(ll_mut * ll_rec * dt)
-                val *= vv
-                g_val *= vv
-            elif theta is not None:
-                ll_mut = lls.get_mut_lik_lower_tri(edge)
-                vv = lls.rowsum_lower_tri(ll_mut * dt)
-                val *= vv
-                g_val *= vv
-            elif rho is not None:
-                b_l = (edge.left != 0)
-                b_r = (edge.right != ts.get_sequence_length())
-                ll_rec = np.power(
-                    dt, b_l + b_r) * np.exp(-(dt * rho * edge.span * 2))
-                vv = lls.rowsum_lower_tri(ll_rec * dt)
-                val *= vv
-                g_val *= vv
-            else:
-                # Topology-only clock
-                vv = lls.rowsum_lower_tri(dt)
-                val *= vv
-                g_val *= vv
+        if parent not in dated_node_set:
+            val = prior_values[parent].copy()
+            g_val = np.ones(lls.grid_size)
+            g_val[0] = 0
+            for edge_index, edge in parent_group:
+                # Calculate vals for each edge
+                dt = lls.make_lower_tri(upward[edge.child])
+                if theta is not None and rho is not None:
+                    b_l = (edge.left != 0)
+                    b_r = (edge.right != ts.get_sequence_length())
+                    ll_rec = np.power(
+                        dt, b_l + b_r) * np.exp(-(dt * rho * edge.span * 2))
+                    ll_mut = lls.get_mut_lik_lower_tri(edge)
+                    vv = lls.rowsum_lower_tri(ll_mut * ll_rec * dt)
+                    val *= vv
+                    g_val *= vv
+                elif theta is not None:
+                    ll_mut = lls.get_mut_lik_lower_tri(edge)
+                    vv = lls.rowsum_lower_tri(ll_mut * dt)
+                    val *= vv
+                    g_val *= vv
+                elif rho is not None:
+                    b_l = (edge.left != 0)
+                    b_r = (edge.right != ts.get_sequence_length())
+                    ll_rec = np.power(
+                        dt, b_l + b_r) * np.exp(-(dt * rho * edge.span * 2))
+                    vv = lls.rowsum_lower_tri(ll_rec * dt)
+                    val *= vv
+                    g_val *= vv
+                else:
+                    # Topology-only clock
+                    vv = lls.rowsum_lower_tri(dt)
+                    val *= vv
+                    g_val *= vv
 
-        upward[parent] = val / np.max(val)
-        g_i[parent] = g_val / np.max(g_val)
+            upward[parent] = val / np.max(val)
+            g_i[parent] = g_val / np.max(g_val)
     if return_log:
         return np.log(upward + 1e-10), np.log(g_i + 1e-10)
     else:
@@ -1035,18 +1055,17 @@ def upward_algorithm(ts, prior_values, theta, rho, lls, return_log=True, progres
 
 # TODO: Account for multiple parents, fix the log of zero thing
 def downward_algorithm(
-        ts, log_upward, log_g_i, theta, rho, lls, spans,
-        dated_node_set=None):
+        ts, log_upward, log_g_i, theta, rho, lls, spans, grid, fixed_nodes,
+        progress=False):
     """
     Computes the full posterior distribution on nodes.
     Input is log of upward matrix, log of g_i matrix, time grid, population scaled
     mutation and recombination rate. Spans of each edge, epsilon, likelihoods of each
     edge, and the columns of the lower triangular matrix of likelihoods.
     """
-    if dated_node_set is None:
-        dated_node_set = set(ts.samples())
+
     node_has_date = np.zeros(ts.num_nodes, dtype=bool)
-    node_has_date[list(dated_node_set)] = True
+    node_has_date[list(fixed_nodes.fixed_node_set)] = True
     downward = np.zeros((ts.num_nodes, lls.grid_size))  # store downward matrix
     norm = np.zeros((ts.num_nodes))  # normalizing constants
     norm[node_has_date] = 1  # normalizing constants of all nodes with known dates == 1
@@ -1057,16 +1076,20 @@ def downward_algorithm(
                 print("Node not in tree")
                 continue
             downward[root, 1:] += (1 * tree.span) / spans[root]
-    downward[node_has_date, 0] = 1
+
+    # initialize tips at time 0 to prob=1
+    downward[fixed_nodes.modern_samples, 0] = 1
+
+    # initialize ancient samples to prob=1 at closest time in time grid
+    downward[fixed_nodes.ancient_samples, fixed_nodes.ancient_grid_times] = 1
 
     child_edges = (ts.edge(i) for i in
                    reversed(np.argsort(ts.tables.nodes.time[ts.tables.edges.child[:]])))
 
     for child, edges in tqdm(
             itertools.groupby(child_edges, key=lambda x: x.child),
-            total=ts.num_nodes - np.sum(node_has_date)):
-        if child not in dated_node_set:
-
+            total=ts.num_nodes - np.sum(node_has_date), disable=not progress):
+        if child not in fixed_nodes.fixed_node_set:
             edges = list(edges)
             for edge in edges:
                 dt = lls.make_upper_tri(
@@ -1099,7 +1122,7 @@ def downward_algorithm(
     return posterior, downward
 
 
-def posterior_mean_var(ts, grid, upward, fixed_nodes=None, nodes_to_date=None):
+def posterior_mean_var(ts, grid, upward, fixed_nodes, nodes_to_date=None):
     """
     Mean and variance of node age in scaled time
     If nodes_to_date is None, we attempt to date all the non-sample nodes
@@ -1109,6 +1132,10 @@ def posterior_mean_var(ts, grid, upward, fixed_nodes=None, nodes_to_date=None):
     if nodes_to_date is None:
         nodes_to_date = np.arange(ts.num_nodes, dtype=np.uint64)
         nodes_to_date = nodes_to_date[~np.isin(nodes_to_date, ts.samples())]
+
+    mn_post[fixed_nodes.modern_samples] = 0
+    for nd in fixed_nodes.ancient_samples:
+        mn_post[nd] = sum(upward[nd, ] * grid) / sum(upward[nd, ])
 
     for nd in nodes_to_date:
         mn_post[nd] = sum(upward[nd, ] * grid) / sum(upward[nd, ])
@@ -1200,9 +1227,7 @@ def date(
             raise NotImplementedError(
                 "Samples must all be at time 0")
 
-    fixed_node_set = set(tree_sequence.samples())
-
-    span_data = SpansBySamples(tree_sequence, fixed_node_set)
+    span_data = SpansBySamples(tree_sequence, set(tree_sequence.samples()))
     spans = span_data.node_total_span
     nodes_to_date = span_data.nodes_to_date
     max_sample_size_before_approximation = None if approximate_prior is False else 1000
@@ -1222,6 +1247,8 @@ def date(
     else:
         raise ValueError("time_grid must be either 'adaptive' or 'uniform'")
 
+    fixed_nodes = FixedSamples(tree_sequence, grid)
+
     mixture_prior = get_mixture_prior(span_data, priors)
     prior_vals = get_prior_values(mixture_prior, grid, tree_sequence, nodes_to_date)
 
@@ -1235,13 +1262,13 @@ def date(
         rho = 4 * Ne * recombination_rate
 
     logged_upward, logged_g_i = upward_algorithm(
-        tree_sequence, prior_vals, theta, rho, liklhd,
+        tree_sequence, prior_vals, theta, rho, liklhd, grid, fixed_nodes,
         progress=progress)
     posterior, downward = downward_algorithm(
         tree_sequence, logged_upward, logged_g_i,
-        theta, rho, liklhd, spans, fixed_node_set)
+        theta, rho, liklhd, spans, grid, fixed_nodes, progress=progress)
     mn_post, _ = posterior_mean_var(tree_sequence, grid, posterior,
-                                    nodes_to_date=nodes_to_date)
+                                    fixed_nodes, nodes_to_date=nodes_to_date)
     new_mn_post = restrict_ages_topo(tree_sequence, mn_post, grid, eps,
                                      nodes_to_date=nodes_to_date)
     dated_ts = return_ts(tree_sequence, new_mn_post, Ne)

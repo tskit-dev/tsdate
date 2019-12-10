@@ -528,6 +528,7 @@ class TestUpwardAlgorithm(unittest.TestCase):
         grid = np.array([0, 1.2, 2])
         mixture_prior = tsdate.get_mixture_prior(span_data, priors)
         nodes_to_date = span_data.nodes_to_date
+        fixed_nodes = tsdate.FixedSamples(ts, grid)
         prior_vals = tsdate.get_prior_values(mixture_prior, grid, ts, nodes_to_date)
         theta = 1
         rho = None
@@ -535,18 +536,22 @@ class TestUpwardAlgorithm(unittest.TestCase):
         lls = tsdate.Likelihoods(ts, grid, eps)
         lls.precalculate_mutation_likelihoods(theta)
         upward, g_i = tsdate.upward_algorithm(
-            ts, prior_vals, theta, rho, lls, return_log=False, progress=False)
+            ts, prior_vals, theta, rho, lls, grid, fixed_nodes,
+            return_log=False, progress=False)
         self.assertTrue(np.array_equal(
-            upward[0:ts.num_samples],
-            np.tile(np.array([1, 0, 0]), (ts.num_samples, 1))))
+            upward[fixed_nodes.modern_samples],
+            np.tile(np.array([1, 0, 0]), (len(fixed_nodes.modern_samples), 1))))
         logged_upward, logged_g_i = tsdate.upward_algorithm(
-            ts, prior_vals, theta, rho, lls, return_log=True, progress=False)
+            ts, prior_vals, theta, rho, lls, grid, fixed_nodes, return_log=True,
+            progress=False)
         self.assertTrue(np.allclose(
-            logged_upward[0:ts.num_samples],
-            np.tile(np.array([1e-10, -23.02585, -23.02585]), (ts.num_samples, 1))))
+            logged_upward[fixed_nodes.modern_samples],
+            np.tile(np.array([1e-10, -23.02585, -23.02585]),
+                    (len(fixed_nodes.modern_samples), 1))))
         self.assertTrue(np.allclose(
-            logged_g_i[0:ts.num_samples],
-            np.tile(np.array([1e-10, -23.02585, -23.02585]), (ts.num_samples, 1))))
+            logged_g_i[fixed_nodes.modern_samples],
+            np.tile(np.array([1e-10, -23.02585, -23.02585]),
+                    (len(fixed_nodes.modern_samples), 1))))
         return upward
 
     def test_one_tree_n2(self):
@@ -568,6 +573,12 @@ class TestUpwardAlgorithm(unittest.TestCase):
         self.assertTrue(np.allclose(upward[4], np.array([0, 1, 0.00548801])))
         self.assertTrue(np.allclose(upward[5], np.array([0, 1, 0.0239174])))
         self.assertTrue(np.allclose(upward[6], np.array([0, 1, 0.26222197])))
+
+    def test_single_tree_ts_n3_internal_sample(self):
+        ts = utility_functions.single_tree_ts_n3_internal_sample()
+        upward = self.verify_upward_algorithm(ts)
+        self.assertTrue(np.allclose(upward[3], np.array([0, 1, 0])))
+        self.assertTrue(np.allclose(upward[4], np.array([0, 1, 0.25318807])))
 
     def test_polytomy_tree(self):
         ts = utility_functions.polytomy_tree_ts()
@@ -603,7 +614,6 @@ class TestUpwardAlgorithm(unittest.TestCase):
 
 class TestDownwardAlgorithm(unittest.TestCase):
     def verify_downward_algorithm(self, ts):
-        fixed_nodes_set = set(ts.samples())
         span_data = tsdate.SpansBySamples(ts)
         spans = span_data.node_total_span
         priors = tsdate.ConditionalCoalescentTimes(None)
@@ -611,6 +621,7 @@ class TestDownwardAlgorithm(unittest.TestCase):
         grid = np.array([0, 1.2, 2])
         mixture_prior = tsdate.get_mixture_prior(span_data, priors)
         nodes_to_date = span_data.nodes_to_date
+        fixed_nodes = tsdate.FixedSamples(ts, grid)
         prior_vals = tsdate.get_prior_values(mixture_prior, grid, ts, nodes_to_date)
         theta = 1
         rho = None
@@ -619,11 +630,11 @@ class TestDownwardAlgorithm(unittest.TestCase):
         lls.precalculate_mutation_likelihoods(theta)
         logged_upward, logged_g_i = \
             tsdate.upward_algorithm(
-                ts, prior_vals, theta, rho, lls, progress=False)
+                ts, prior_vals, theta, rho, lls, grid, fixed_nodes, progress=False)
         posterior, downward = \
             tsdate.downward_algorithm(
                 ts, logged_upward, logged_g_i, theta, rho,
-                lls, spans, fixed_nodes_set)
+                lls, spans, grid, fixed_nodes)
         self.assertTrue(np.array_equal(downward[0:ts.num_samples],
                         np.tile(np.array([1, 0, 0]), (ts.num_samples, 1))))
         self.assertTrue(np.array_equal(posterior[0:ts.num_samples],
