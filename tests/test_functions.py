@@ -442,7 +442,6 @@ class TestLikelihoodClass(unittest.TestCase):
     def test_get_mut_edges(self):
         ts = utility_functions.two_tree_mutation_ts()
         mutations_per_edge = tsdate.Likelihoods.get_mut_edges(ts)
-        print(mutations_per_edge)
         for e in ts.edges():
             if e.child == 3 and e.parent == 4:
                 self.assertEqual(mutations_per_edge[e.id], 2)
@@ -454,56 +453,88 @@ class TestLikelihoodClass(unittest.TestCase):
     def test_create_class(self):
         ts = utility_functions.two_tree_mutation_ts()
         grid = np.array([0, 1, 2])
-        eps = 1e-10
-        lik = tsdate.Likelihoods(ts, grid, eps)
-        self.assertRaises(RuntimeError, lik.get_mut_lik_lower_tri, ts.edge(0))
-        self.assertRaises(RuntimeError, lik.get_mut_lik_upper_tri, ts.edge(0))
+        lik = tsdate.Likelihoods(ts, grid)
+        self.assertRaises(AssertionError, lik.get_mut_lik_fixed_node, ts.edge(0))
+        self.assertRaises(AssertionError, lik.get_mut_lik_lower_tri, ts.edge(0))
+        self.assertRaises(AssertionError, lik.get_mut_lik_upper_tri, ts.edge(0))
 
-    def test_precalc_lik_lower(self):
-        ts = utility_functions.polytomy_tree_ts()
-        grid = np.array([0, 1, 2])
-        eps = 0
-        theta = 1
-        lik = tsdate.Likelihoods(ts, grid, eps)
-        lik.precalculate_mutation_likelihoods(theta)
-        span = ts.edge(0).span
-        lower_tri = lik.get_mut_lik_lower_tri(ts.edge(0))
-        num_muts = 0
-        self.assertEqual(lower_tri[0], self.poisson(0 * (theta / 2 * span), num_muts))
-
-        self.assertEqual(lower_tri[1], self.poisson(1 * (theta / 2 * span), num_muts))
-        self.assertEqual(lower_tri[2], self.poisson(0 * (theta / 2 * span), num_muts))
-
-        self.assertEqual(lower_tri[3], self.poisson(2 * (theta / 2 * span), num_muts))
-        self.assertEqual(lower_tri[4], self.poisson(1 * (theta / 2 * span), num_muts))
-        self.assertEqual(lower_tri[5], self.poisson(0 * (theta / 2 * span), num_muts))
-
-    def test_precalc_lik_upper_multithread(self):
+    def test_no_theta_class(self):
         ts = utility_functions.two_tree_mutation_ts()
         grid = np.array([0, 1, 2])
+        lik = tsdate.Likelihoods(ts, grid, theta=None)
+        self.assertRaises(RuntimeError, lik.precalculate_mutation_likelihoods)
+
+    def test_precalc_lik_lower(self):
+        ts = utility_functions.single_tree_ts_n3()
+        grid = np.array([0, 1, 2])
         eps = 0
         theta = 1
-        lik = tsdate.Likelihoods(ts, grid, eps)
-        lik.precalculate_mutation_likelihoods(theta, num_threads=2)
-        span = ts.edge(0).span
-        upper_tri = lik.get_mut_lik_upper_tri(ts.edge(0))
+        lik = tsdate.Likelihoods(ts, grid, theta, eps)
+        for method in (0, 1, 2):
+            # TODO: Remove this loop and hard-code one of the methods after perf testing
+            lik.precalculate_mutation_likelihoods(unique_method=method)
+            self.assertEquals(ts.num_trees, 1)
+            span = ts.first().span
+            dt = grid
+            num_muts = 0
+            n_internal_edges = 0
+            expected_lik_dt = self.poisson(dt * (theta / 2 * span), num_muts)
+            for edge in ts.edges():
+                if ts.node(edge.child).is_sample():
+                    self.assertRaises(AssertionError, lik.get_mut_lik_lower_tri, edge)
+                    self.assertRaises(AssertionError, lik.get_mut_lik_upper_tri, edge)
+                    fixed_edge_lik = lik.get_mut_lik_fixed_node(edge)
+                    self.assertTrue(np.allclose(fixed_edge_lik, expected_lik_dt))
+                else:
+                    n_internal_edges += 1  # only one internal edge in this tree
+                    self.assertLessEqual(n_internal_edges, 1)
+                    self.assertRaises(AssertionError, lik.get_mut_lik_fixed_node, edge)
+                    lower_tri = lik.get_mut_lik_lower_tri(edge)
+
+                    self.assertAlmostEqual(lower_tri[0], expected_lik_dt[0])
+
+                    self.assertAlmostEqual(lower_tri[1], expected_lik_dt[1])
+                    self.assertAlmostEqual(lower_tri[2], expected_lik_dt[0])
+
+                    self.assertAlmostEqual(lower_tri[3], expected_lik_dt[2])
+                    self.assertAlmostEqual(lower_tri[4], expected_lik_dt[1])
+                    self.assertAlmostEqual(lower_tri[5], expected_lik_dt[0])
+
+    def test_precalc_lik_upper_multithread(self):
+        ts = utility_functions.two_tree_ts()
+        grid = np.array([0, 1, 2])
+        eps = 0
+        theta = 1
+        lik = tsdate.Likelihoods(ts, grid, theta, eps)
         num_muts = 0
-        self.assertEqual(upper_tri[0], self.poisson(0 * (theta / 2 * span), num_muts))
-        self.assertEqual(upper_tri[1], self.poisson(1 * (theta / 2 * span), num_muts))
-        self.assertEqual(upper_tri[2], self.poisson(2 * (theta / 2 * span), num_muts))
+        dt = grid
+        for num_threads in (1, 2):
+            n_internal_edges = 0
+            lik.precalculate_mutation_likelihoods(num_threads=num_threads)
+            for edge in ts.edges():
+                if not ts.node(edge.child).is_sample():
+                    n_internal_edges += 1  # only two internal edges in this tree
+                    self.assertLessEqual(n_internal_edges, 2)
+                    span = edge.span
+                    expected_lik_dt = self.poisson(dt * (theta / 2 * span), num_muts)
+                    upper_tri = lik.get_mut_lik_upper_tri(edge)
 
-        self.assertEqual(upper_tri[3], self.poisson(0 * (theta / 2 * span), num_muts))
-        self.assertEqual(upper_tri[4], self.poisson(1 * (theta / 2 * span), num_muts))
+                    self.assertAlmostEqual(upper_tri[0], expected_lik_dt[0])
+                    self.assertAlmostEqual(upper_tri[1], expected_lik_dt[1])
+                    self.assertAlmostEqual(upper_tri[2], expected_lik_dt[2])
 
-        self.assertEqual(upper_tri[5], self.poisson(0 * (theta / 2 * span), num_muts))
+                    self.assertAlmostEqual(upper_tri[3], expected_lik_dt[0])
+                    self.assertAlmostEqual(upper_tri[4], expected_lik_dt[1])
+
+                    self.assertAlmostEqual(upper_tri[5], expected_lik_dt[0])
 
     def test_tri_functions(self):
         ts = utility_functions.two_tree_mutation_ts()
         grid = np.array([0, 1, 2])
         eps = 0
         theta = 1
-        lik = tsdate.Likelihoods(ts, grid, eps)
-        lik.precalculate_mutation_likelihoods(theta)
+        lik = tsdate.Likelihoods(ts, grid, theta, eps)
+        lik.precalculate_mutation_likelihoods()
         for e in ts.edges():
             if e.child == 3 and e.parent == 4:
                 exp_branch_muts = 2
@@ -520,8 +551,47 @@ class TestLikelihoodClass(unittest.TestCase):
                     np.allclose(lik.rowsum_upper_tri(upper_tri)[::-1], cumul_pois))
 
 
+class TestHiddenStatesClass(unittest.TestCase):
+    # TODO - needs a few more tests in here
+    def test_init(self):
+        sz = 5
+        ids = [3, 4]
+        hs = tsdate.HiddenStates(np.array(ids, dtype=np.int32), sz, fill_value=6)
+        self.assertEquals(hs.data.shape, (len(ids), sz))
+        self.assertTrue(np.all(hs.data == 6))
+        self.assertRaises(
+            ValueError, tsdate.HiddenStates, np.array(ids, dtype=np.uint32), sz)
+        self.assertRaises(
+            ValueError, tsdate.HiddenStates, np.array(ids, dtype=np.int64), sz)
+        self.assertRaises(
+            ValueError, tsdate.HiddenStates, -np.array(ids, dtype=np.int32), sz)
+        self.assertRaises(
+            ValueError, tsdate.HiddenStates, np.array([ids], dtype=np.int32), sz)
+
+    def test_clone(self):
+        sz = 2
+        ids = [3, 4]
+        hs = tsdate.HiddenStates(np.array(ids, dtype=np.int32), sz)
+        hs[3] = np.array([1, 2])
+        hs[4] = np.array([4, 3])
+        self.assertRaises(AssertionError, hs.__getitem__, 2)
+        clone = tsdate.HiddenStates.clone_with_new_data(hs, 0)
+        self.assertEquals(hs.data.shape, clone.data.shape)
+        self.assertTrue(np.all(clone.data == 0))
+        clone = tsdate.HiddenStates.clone_with_new_data(hs, 5)
+        self.assertEquals(hs.data.shape, clone.data.shape)
+        self.assertTrue(np.all(clone.data == 5))
+        clone = tsdate.HiddenStates.clone_with_new_data(hs, np.array([[1, 2], [4, 3]]))
+        for i in ids:
+            self.assertTrue(np.all(hs[i] == clone[i]))
+        self.assertRaises(
+            ValueError,
+            tsdate.HiddenStates.clone_with_new_data,
+            hs, np.array([[1, 2, 3], [4, 5, 6]]))
+
+
 class TestUpwardAlgorithm(unittest.TestCase):
-    def verify_upward_algorithm(self, ts):
+    def run_upward_algorithm(self, ts):
         span_data = tsdate.SpansBySamples(ts)
         priors = tsdate.ConditionalCoalescentTimes(None)
         priors.add(ts.num_samples, approximate=False)
@@ -532,31 +602,19 @@ class TestUpwardAlgorithm(unittest.TestCase):
         theta = 1
         rho = None
         eps = 1e-6
-        lls = tsdate.Likelihoods(ts, grid, eps)
-        lls.precalculate_mutation_likelihoods(theta)
-        upward, g_i = tsdate.upward_algorithm(
-            ts, prior_vals, theta, rho, lls, return_log=False, progress=False)
-        self.assertTrue(np.array_equal(
-            upward[0:ts.num_samples],
-            np.tile(np.array([1, 0, 0]), (ts.num_samples, 1))))
-        logged_upward, logged_g_i = tsdate.upward_algorithm(
-            ts, prior_vals, theta, rho, lls, return_log=True, progress=False)
-        self.assertTrue(np.allclose(
-            logged_upward[0:ts.num_samples],
-            np.tile(np.array([1e-10, -23.02585, -23.02585]), (ts.num_samples, 1))))
-        self.assertTrue(np.allclose(
-            logged_g_i[0:ts.num_samples],
-            np.tile(np.array([1e-10, -23.02585, -23.02585]), (ts.num_samples, 1))))
-        return upward
+        lls = tsdate.Likelihoods(ts, grid, theta, eps)
+        lls.precalculate_mutation_likelihoods()
+        algo = tsdate.UpDownAlgorithms(ts, lls)
+        return algo.upward(prior_vals, theta, rho, return_log=False)[0]
 
     def test_one_tree_n2(self):
         ts = utility_functions.single_tree_ts_n2()
-        upward = self.verify_upward_algorithm(ts)
+        upward = self.run_upward_algorithm(ts)
         self.assertTrue(np.allclose(upward[2], np.array([0, 1, 0.10664654])))
 
     def test_one_tree_n3(self):
         ts = utility_functions.single_tree_ts_n3()
-        upward = self.verify_upward_algorithm(ts)
+        upward = self.run_upward_algorithm(ts)
         self.assertTrue(np.allclose(upward[3],
                         np.array([0, 1, 0.0114771635])))
         self.assertTrue(np.allclose(upward[4],
@@ -564,26 +622,26 @@ class TestUpwardAlgorithm(unittest.TestCase):
 
     def test_one_tree_n4(self):
         ts = utility_functions.single_tree_ts_n4()
-        upward = self.verify_upward_algorithm(ts)
+        upward = self.run_upward_algorithm(ts)
         self.assertTrue(np.allclose(upward[4], np.array([0, 1, 0.00548801])))
         self.assertTrue(np.allclose(upward[5], np.array([0, 1, 0.0239174])))
         self.assertTrue(np.allclose(upward[6], np.array([0, 1, 0.26222197])))
 
     def test_polytomy_tree(self):
         ts = utility_functions.polytomy_tree_ts()
-        upward = self.verify_upward_algorithm(ts)
+        upward = self.run_upward_algorithm(ts)
         self.assertTrue(np.allclose(upward[3], np.array([0, 1, 0.12797265])))
 
     def test_two_tree_ts(self):
         ts = utility_functions.two_tree_ts()
-        upward = self.verify_upward_algorithm(ts)
+        upward = self.run_upward_algorithm(ts)
         self.assertTrue(np.allclose(upward[3], np.array([0, 1, 0.02176622])))
         self.assertTrue(np.allclose(upward[4], np.array([0, 1, 0.04403458])))
         self.assertTrue(np.allclose(upward[5], np.array([0, 1, 0.23762418])))
 
     def test_tree_with_unary_nodes(self):
         ts = utility_functions.single_tree_ts_with_unary()
-        upward = self.verify_upward_algorithm(ts)
+        upward = self.run_upward_algorithm(ts)
         self.assertTrue(np.allclose(upward[3], np.array([0, 1, 0.01147716])))
         self.assertTrue(np.allclose(upward[4], np.array([0, 1, 0.12086781])))
         self.assertTrue(np.allclose(upward[5], np.array([0, 1, 0.07506923])))
@@ -591,7 +649,7 @@ class TestUpwardAlgorithm(unittest.TestCase):
 
     def test_two_tree_mutation_ts(self):
         ts = utility_functions.two_tree_mutation_ts()
-        upward = self.verify_upward_algorithm(ts)
+        upward = self.run_upward_algorithm(ts)
         self.assertTrue(np.allclose(upward[3], np.array([0, 1, 0.02176622])))
         # self.assertTrue(np.allclose(upward[4], np.array([0, 2.90560754e-05, 1])))
         # NB the replacement below has not been hand-calculated
@@ -602,8 +660,7 @@ class TestUpwardAlgorithm(unittest.TestCase):
 
 
 class TestDownwardAlgorithm(unittest.TestCase):
-    def verify_downward_algorithm(self, ts):
-        fixed_nodes_set = set(ts.samples())
+    def run_downward_algorithm(self, ts):
         span_data = tsdate.SpansBySamples(ts)
         spans = span_data.node_total_span
         priors = tsdate.ConditionalCoalescentTimes(None)
@@ -615,33 +672,25 @@ class TestDownwardAlgorithm(unittest.TestCase):
         theta = 1
         rho = None
         eps = 1e-6
-        lls = tsdate.Likelihoods(ts, grid, eps)
-        lls.precalculate_mutation_likelihoods(theta)
-        logged_upward, logged_g_i = \
-            tsdate.upward_algorithm(
-                ts, prior_vals, theta, rho, lls, progress=False)
-        posterior, downward = \
-            tsdate.downward_algorithm(
-                ts, logged_upward, logged_g_i, theta, rho,
-                lls, spans, fixed_nodes_set)
-        self.assertTrue(np.array_equal(downward[0:ts.num_samples],
-                        np.tile(np.array([1, 0, 0]), (ts.num_samples, 1))))
-        self.assertTrue(np.array_equal(posterior[0:ts.num_samples],
-                        np.tile(np.array([1, 0, 0]), (ts.num_samples, 1))))
-        return posterior, downward
+        lls = tsdate.Likelihoods(ts, grid, theta, eps)
+        lls.precalculate_mutation_likelihoods()
+        alg = tsdate.UpDownAlgorithms(ts, lls)
+        log_upward, log_g_i = alg.upward(prior_vals, theta, rho)
+        return alg.downward(log_upward, log_g_i, theta, rho, spans)
 
     def test_one_tree_n2(self):
         ts = utility_functions.single_tree_ts_n2()
-        posterior, downward = self.verify_downward_algorithm(ts)
+        posterior, downward = self.run_downward_algorithm(ts)
+        # Root, should this be 0,1,1 or 1,1,1
         self.assertTrue(np.array_equal(
-                        downward[2], np.array([0, 1, 1])))
+                        downward[2], np.array([1, 1, 1])))
 
     def test_one_tree_n3(self):
         ts = utility_functions.single_tree_ts_n3()
-        posterior, downward = self.verify_downward_algorithm(ts)
+        posterior, downward = self.run_downward_algorithm(ts)
         self.assertTrue(np.allclose(
                          downward[3], np.array([0, 1, 0.33508884])))
-        self.assertTrue(np.allclose(downward[4], np.array([0, 1, 1])))
+        self.assertTrue(np.allclose(downward[4], np.array([1, 1, 1])))
         self.assertTrue(np.allclose(
              posterior[3], np.array([0, 0.99616886, 0.00383114])))
         self.assertTrue(np.allclose(
@@ -649,10 +698,11 @@ class TestDownwardAlgorithm(unittest.TestCase):
 
     def test_one_tree_n4(self):
         ts = utility_functions.single_tree_ts_n4()
-        posterior, downward = self.verify_downward_algorithm(ts)
+        posterior, downward = self.run_downward_algorithm(ts)
         self.assertTrue(np.allclose(
                         downward[4], np.array([0, 1, 0.02187283])))
         self.assertTrue(np.allclose(
                         downward[5], np.array([0, 1, 0.41703272])))
+        # Root, should this be 0,1,1 or 1,1,1
         self.assertTrue(np.allclose(
-                        downward[6], np.array([0, 1, 1])))
+                        downward[6], np.array([1, 1, 1])))
