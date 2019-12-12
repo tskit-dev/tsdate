@@ -44,6 +44,8 @@ FLOAT_DTYPE = np.float64
 # Hack: monkey patches to allow tsdate to work with non-dev versions of tskit
 # TODO - remove when tskit 0.2.4 is released
 tskit.Edge.span = property(lambda edge: (edge.right - edge.left))  # NOQA
+tskit.Tree.is_isolated = lambda tree, node: (
+     tree.num_children(node) == 0 and tree.parent(node) == tskit.NULL)  # NOQA
 
 
 def gamma_approx(mean, variance):
@@ -52,6 +54,21 @@ def gamma_approx(mean, variance):
     """
 
     return (mean ** 2) / variance, mean / variance
+
+
+def check_ts_for_dating(ts):
+    """
+    Check that the tree sequence is valid for dating (e.g. it has only a single
+    tree topology at each position)
+    """
+    for tree in ts.trees():
+        main_roots = 0
+        for root in tree.roots:
+            main_roots += 0 if tree.is_isolated(root) else 1
+        if main_roots > 1:
+            raise ValueError(
+                "The tree sequence you are trying to date has more than"
+                " one tree at position {}".format(tree.interval[0]))
 
 
 class ConditionalCoalescentTimes():
@@ -321,6 +338,12 @@ class SpansBySamples:
     coalescent prior. The main method is :meth:`normalised_spans`, which
     returns the spans for a node, normalised by the total span that that
     node covers in the tree sequence.
+
+    .. note:: This assumes that all edges connect to the same tree - i.e.
+        there is only a single topology present at each point in the
+        genome. Equivalently, it assumes that only one of the roots in
+        a tree has descending edges (all other roots represent isolated
+        "missing data" nodes.
 
     :ivar tree_sequence: A reference to the tree sequence that was used to
         generate the spans and weights
@@ -1286,7 +1309,7 @@ def return_ts(ts, vals, Ne):
 def date(
         tree_sequence, Ne, mutation_rate=None, recombination_rate=None,
         time_grid='adaptive', grid_slices=50, eps=1e-6, num_threads=None,
-        approximate_prior=None, progress=False):
+        approximate_prior=None, progress=False, check_valid_topology=True):
     """
     Take a tree sequence with arbitrary node times and recalculate node times using
     the `tsdate` algorithm. If both a mutation_rate and recombination_rate are given, a
@@ -1319,6 +1342,9 @@ def date(
     """
     if grid_slices < 2:
         raise ValueError("You must have at least 2 slices in the time grid")
+
+    if check_valid_topology is True:
+        check_ts_for_dating(tree_sequence)
 
     # Stuff yet to be implemented. These can be deleted once fixed
     if recombination_rate is not None:

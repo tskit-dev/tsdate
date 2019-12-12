@@ -140,6 +140,19 @@ class TestSimulated(unittest.TestCase):
         dated_ts = tsdate.date(ts, Ne=1)
         self.ts_equal_except_times(ts, dated_ts)
 
+    def test_fails_multi_root(self):
+        ts = msprime.simulate(8, mutation_rate=2, random_seed=2)
+        tree = ts.first()
+        tables = ts.dump_tables()
+        tables.edges.clear()
+        internal_edge_removed = False
+        for row in ts.tables.edges:
+            if row.parent not in tree.roots and row.child not in ts.samples():
+                if not internal_edge_removed:
+                    continue
+            tables.edges.add_row(*row)
+        self.assertRaises(ValueError, tsdate.date, tables.tree_sequence(), 1, 2)
+
     def test_non_contemporaneous(self):
         samples = [
             msprime.Sample(population=0, time=0),
