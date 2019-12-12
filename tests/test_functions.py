@@ -662,7 +662,7 @@ class TestUpwardAlgorithm(unittest.TestCase):
 class TestDownwardAlgorithm(unittest.TestCase):
     def run_downward_algorithm(self, ts):
         span_data = tsdate.SpansBySamples(ts)
-        spans = span_data.node_total_span
+        spans = span_data.node_spans
         priors = tsdate.ConditionalCoalescentTimes(None)
         priors.add(ts.num_samples, approximate=False)
         grid = np.array([0, 1.2, 2])
