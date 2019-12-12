@@ -44,6 +44,7 @@ FLOAT_DTYPE = np.float64
 # Hack: monkey patches to allow tsdate to work with non-dev versions of tskit
 # TODO - remove when tskit 0.2.4 is released
 tskit.Edge.span = property(lambda edge: (edge.right - edge.left))  # NOQA
+tskit.Tree.num_children = lambda tree, node: len(tree.children(node))  # NOQA
 tskit.Tree.is_isolated = lambda tree, node: (
      tree.num_children(node) == 0 and tree.parent(node) == tskit.NULL)  # NOQA
 
@@ -458,14 +459,14 @@ class SpansBySamples:
                 return True
             n_fixed_at_0 = prev_tree.num_tracked_samples(node)
             assert n_fixed_at_0 > 0
-            if len(prev_tree.children(node)) > 1:
+            if prev_tree.num_children(node) > 1:
                 # This is a coalescent node
                 self._spans[node][num_fixed_at_0_treenodes][n_fixed_at_0] += coverage
             else:
                 # Treat unary nodes differently: mixture of coalescent nodes above+below
                 top_node = prev_tree.parent(node)
                 try:  # Find coalescent node above
-                    while len(prev_tree.children(top_node)) == 1:
+                    while prev_tree.num_children(top_node) == 1:
                         top_node = prev_tree.parent(top_node)
                 except ValueError:  # Happens if we have hit the root
                     assert top_node == tskit.NULL
@@ -640,7 +641,7 @@ class SpansBySamples:
                     # node is either the root or (more likely) not in
                     # this tree
                 assert tree.num_samples(node) > 0
-                assert len(tree.children(node)) == 1
+                assert tree.num_children(node) == 1
                 n = node
                 done = False
                 while not done:
@@ -659,7 +660,7 @@ class SpansBySamples:
                                 raise ValueError("Oh dear 2")
                             local_weight = v / self.node_spans[n]
                             self._spans[node][n_tips][k] += tree.span * local_weight / 2
-                    assert len(tree.children(node)) == 1
+                    assert tree.num_children(node) == 1
                     total_tips = n_tips_per_tree[tree_id]
                     desc_tips = tree.num_samples(node)
                     self._spans[node][total_tips][desc_tips] += tree.span / 2
@@ -682,7 +683,7 @@ class SpansBySamples:
                 tree = next(tree_iter)
             for node in unassigned_nodes:
                 if tree.is_internal(node):
-                    assert len(tree.children(node)) == 1
+                    assert tree.num_children(node) == 1
                     total_tips = n_tips_per_tree[tree_id]
                     # above, we set the maximum
                     self._spans[node][max_samples][max_samples] += tree.span / 2
@@ -1206,7 +1207,7 @@ class UpDownAlgorithms:
         # TO DO here: check that no fixed_nodes have children, otherwise we can't descend
         for tree in self.ts.trees():
             for root in tree.roots:
-                if len(tree.get_children(root)) == 0:
+                if tree.num_children(root) == 0:
                     # Isolated node
                     continue
                 downward[root] += (1 * tree.span) / spans[root]
