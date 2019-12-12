@@ -1012,6 +1012,9 @@ class HiddenStates:
     :vartype grid: int
     :ivar fill_value: What should we fill the hidden state array with to start with
     :vartype fill_value: numpy.scalar
+
+    TODO performance check if it is much slower using a dict for the row lookup map
+    (could save considerable memory space)
     """
     def __init__(self, row_ids, grid_size, fill_value=np.nan, dtype=FLOAT_DTYPE):
         """
@@ -1111,6 +1114,8 @@ class UpDownAlgorithms:
             g_val[0] = 0
             for edge_index, edge in parent_grp:
                 # Calculate vals for each edge
+                if parent in self.fixednodes:
+                    continue  # there is no hidden state for this parent - it's fixed
                 if edge.child in self.fixednodes:
                     # this is an edge leading to a node with a fixed time
                     prev_state = 1  # Will be broadcast to len(grid)
