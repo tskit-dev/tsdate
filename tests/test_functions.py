@@ -278,23 +278,23 @@ class TestMakePrior(unittest.TestCase):
 
 
 class TestMixturePrior(unittest.TestCase):
-    def get_mixture_prior(self, ts):
+    def get_mixture_prior_params(self, ts):
         span_data = tsdate.SpansBySamples(ts)
         priors = tsdate.ConditionalCoalescentTimes(None)
         priors.add(ts.num_samples, approximate=False)
-        mixture_prior = tsdate.get_mixture_prior(span_data, priors)
+        mixture_prior = tsdate.get_mixture_prior_params(span_data, priors)
         return(mixture_prior)
 
     def test_one_tree_n2(self):
         ts = utility_functions.single_tree_ts_n2()
-        mixture_prior = self.get_mixture_prior(ts)
+        mixture_prior = self.get_mixture_prior_params(ts)
         [self.assertAlmostEqual(x, y)
          for x, y in zip(mixture_prior.loc[2].values,
                          [1., 1.])]
 
     def test_one_tree_n3(self):
         ts = utility_functions.single_tree_ts_n3()
-        mixture_prior = self.get_mixture_prior(ts)
+        mixture_prior = self.get_mixture_prior_params(ts)
         [self.assertAlmostEqual(x, y)
          for x, y in zip(mixture_prior.loc[3].values,
                          [1., 3.])]
@@ -304,7 +304,7 @@ class TestMixturePrior(unittest.TestCase):
 
     def test_one_tree_n4(self):
         ts = utility_functions.single_tree_ts_n4()
-        mixture_prior = self.get_mixture_prior(ts)
+        mixture_prior = self.get_mixture_prior_params(ts)
         [self.assertAlmostEqual(x, y)
          for x, y in zip(mixture_prior.loc[4].values,
                          [0.81818182, 3.27272727])]
@@ -317,14 +317,14 @@ class TestMixturePrior(unittest.TestCase):
 
     def test_polytomy_tree(self):
         ts = utility_functions.polytomy_tree_ts()
-        mixture_prior = self.get_mixture_prior(ts)
+        mixture_prior = self.get_mixture_prior_params(ts)
         [self.assertAlmostEqual(x, y)
          for x, y in zip(mixture_prior.loc[3].values,
                          [1.6, 1.2])]
 
     def test_two_trees(self):
         ts = utility_functions.two_tree_ts()
-        mixture_prior = self.get_mixture_prior(ts)
+        mixture_prior = self.get_mixture_prior_params(ts)
         [self.assertAlmostEqual(x, y)
          for x, y in zip(mixture_prior.loc[3].values,
                          [1., 3.])]
@@ -338,7 +338,7 @@ class TestMixturePrior(unittest.TestCase):
 
     def test_single_tree_ts_with_unary(self):
         ts = utility_functions.single_tree_ts_with_unary()
-        mixture_prior = self.get_mixture_prior(ts)
+        mixture_prior = self.get_mixture_prior_params(ts)
         [self.assertAlmostEqual(x, y)
          for x, y in zip(mixture_prior.loc[3].values,
                          [1., 3.])]
@@ -356,7 +356,7 @@ class TestMixturePrior(unittest.TestCase):
 
     def test_two_tree_mutation_ts(self):
         ts = utility_functions.two_tree_mutation_ts()
-        mixture_prior = self.get_mixture_prior(ts)
+        mixture_prior = self.get_mixture_prior_params(ts)
         [self.assertAlmostEqual(x, y)
          for x, y in zip(mixture_prior.loc[3].values,
                          [1., 3.])]
@@ -375,11 +375,9 @@ class TestPriorVals(unittest.TestCase):
         priors = tsdate.ConditionalCoalescentTimes(None)
         priors.add(ts.num_samples, approximate=False)
         grid = np.linspace(0, 3, 3)
-        mixture_prior = tsdate.get_mixture_prior(span_data, priors)
+        mixture_prior = tsdate.get_mixture_prior_params(span_data, priors)
         nodes_to_date = span_data.nodes_to_date
-        prior_vals = tsdate.get_prior_values(mixture_prior, grid, ts, nodes_to_date)
-        self.assertTrue(np.array_equal(prior_vals[0:ts.num_samples],
-                        np.tile(np.array([1, 0, 0]), (ts.num_samples, 1))))
+        prior_vals = tsdate.fill_prior(mixture_prior, grid, ts, nodes_to_date)
         return prior_vals
 
     def test_one_tree_n2(self):
@@ -551,42 +549,42 @@ class TestLikelihoodClass(unittest.TestCase):
                     np.allclose(lik.rowsum_upper_tri(upper_tri)[::-1], cumul_pois))
 
 
-class TestHiddenStatesClass(unittest.TestCase):
+class TestNodeGridValuesClass(unittest.TestCase):
     # TODO - needs a few more tests in here
     def test_init(self):
         sz = 5
         ids = [3, 4]
-        hs = tsdate.HiddenStates(np.array(ids, dtype=np.int32), sz, fill_value=6)
+        hs = tsdate.NodeGridValues(np.array(ids, dtype=np.int32), sz, fill_value=6)
         self.assertEquals(hs.data.shape, (len(ids), sz))
         self.assertTrue(np.all(hs.data == 6))
         self.assertRaises(
-            ValueError, tsdate.HiddenStates, np.array(ids, dtype=np.uint32), sz)
+            ValueError, tsdate.NodeGridValues, np.array(ids, dtype=np.uint32), sz)
         self.assertRaises(
-            ValueError, tsdate.HiddenStates, np.array(ids, dtype=np.int64), sz)
+            ValueError, tsdate.NodeGridValues, np.array(ids, dtype=np.int64), sz)
         self.assertRaises(
-            ValueError, tsdate.HiddenStates, -np.array(ids, dtype=np.int32), sz)
+            ValueError, tsdate.NodeGridValues, -np.array(ids, dtype=np.int32), sz)
         self.assertRaises(
-            ValueError, tsdate.HiddenStates, np.array([ids], dtype=np.int32), sz)
+            ValueError, tsdate.NodeGridValues, np.array([ids], dtype=np.int32), sz)
 
     def test_clone(self):
         sz = 2
         ids = [3, 4]
-        hs = tsdate.HiddenStates(np.array(ids, dtype=np.int32), sz)
+        hs = tsdate.NodeGridValues(np.array(ids, dtype=np.int32), sz)
         hs[3] = np.array([1, 2])
         hs[4] = np.array([4, 3])
         self.assertRaises(AssertionError, hs.__getitem__, 2)
-        clone = tsdate.HiddenStates.clone_with_new_data(hs, 0)
+        clone = tsdate.NodeGridValues.clone_with_new_data(hs, 0)
         self.assertEquals(hs.data.shape, clone.data.shape)
         self.assertTrue(np.all(clone.data == 0))
-        clone = tsdate.HiddenStates.clone_with_new_data(hs, 5)
+        clone = tsdate.NodeGridValues.clone_with_new_data(hs, 5)
         self.assertEquals(hs.data.shape, clone.data.shape)
         self.assertTrue(np.all(clone.data == 5))
-        clone = tsdate.HiddenStates.clone_with_new_data(hs, np.array([[1, 2], [4, 3]]))
+        clone = tsdate.NodeGridValues.clone_with_new_data(hs, np.array([[1, 2], [4, 3]]))
         for i in ids:
             self.assertTrue(np.all(hs[i] == clone[i]))
         self.assertRaises(
             ValueError,
-            tsdate.HiddenStates.clone_with_new_data,
+            tsdate.NodeGridValues.clone_with_new_data,
             hs, np.array([[1, 2, 3], [4, 5, 6]]))
 
 
@@ -596,9 +594,9 @@ class TestUpwardAlgorithm(unittest.TestCase):
         priors = tsdate.ConditionalCoalescentTimes(None)
         priors.add(ts.num_samples, approximate=False)
         grid = np.array([0, 1.2, 2])
-        mixture_prior = tsdate.get_mixture_prior(span_data, priors)
+        mixture_prior = tsdate.get_mixture_prior_params(span_data, priors)
         nodes_to_date = span_data.nodes_to_date
-        prior_vals = tsdate.get_prior_values(mixture_prior, grid, ts, nodes_to_date)
+        prior_vals = tsdate.fill_prior(mixture_prior, grid, ts, nodes_to_date)
         theta = 1
         rho = None
         eps = 1e-6
@@ -666,9 +664,9 @@ class TestDownwardAlgorithm(unittest.TestCase):
         priors = tsdate.ConditionalCoalescentTimes(None)
         priors.add(ts.num_samples, approximate=False)
         grid = np.array([0, 1.2, 2])
-        mixture_prior = tsdate.get_mixture_prior(span_data, priors)
+        mixture_prior = tsdate.get_mixture_prior_params(span_data, priors)
         nodes_to_date = span_data.nodes_to_date
-        prior_vals = tsdate.get_prior_values(mixture_prior, grid, ts, nodes_to_date)
+        prior_vals = tsdate.fill_prior(mixture_prior, grid, ts, nodes_to_date)
         theta = 1
         rho = None
         eps = 1e-6

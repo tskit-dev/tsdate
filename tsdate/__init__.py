@@ -21,9 +21,9 @@
 # SOFTWARE.
 
 from .date import (  # NOQA
-    date, restrict_ages_topo, return_ts, create_time_grid,
-    get_prior_values, ConditionalCoalescentTimes, SpansBySamples, Likelihoods,
-    HiddenStates, UpDownAlgorithms, posterior_mean_var, gamma_approx, get_mixture_prior,
+    date, restrict_ages_topo, return_ts, create_time_grid, fill_prior,
+    ConditionalCoalescentTimes, SpansBySamples, Likelihoods, NodeGridValues,
+    UpDownAlgorithms, posterior_mean_var, gamma_approx, get_mixture_prior_params,
     )
 
 
