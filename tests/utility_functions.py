@@ -104,6 +104,74 @@ def single_tree_ts_n4():
     return tskit.load_text(nodes=nodes, edges=edges, strict=False)
 
 
+def single_tree_ts_mutation_n3():
+    r"""
+    Simple case where we have n = 3 and one tree.
+            4
+           / \
+          3   x
+         / \   \
+        0   1   2
+    """
+    nodes = io.StringIO("""\
+    id      is_sample   time
+    0       1           0
+    1       1           0
+    2       1           0
+    3       0           1
+    4       0           2
+    """)
+    edges = io.StringIO("""\
+    left    right   parent  child
+    0       1       3       0,1
+    0       1       4       2,3
+    """)
+    sites = io.StringIO("""\
+    position    ancestral_state
+    0.5         0
+    """)
+    mutations = io.StringIO("""\
+    site    node    derived_state
+    0       2       1
+    """)
+    return tskit.load_text(nodes=nodes, edges=edges, sites=sites,
+                           mutations=mutations, strict=False)
+
+
+def single_tree_all_samples_one_mutation_n3():
+    r"""
+    Simple case where we have n = 3 and one tree.
+            4
+           / \
+          3   x
+         / \   \
+        0   1   2
+    """
+    nodes = io.StringIO("""\
+    id      is_sample   time
+    0       1           0
+    1       1           0
+    2       1           0
+    3       1           1
+    4       1           2
+    """)
+    edges = io.StringIO("""\
+    left    right   parent  child
+    0       1       3       0,1
+    0       1       4       2,3
+    """)
+    sites = io.StringIO("""\
+    position    ancestral_state
+    0.5         0
+    """)
+    mutations = io.StringIO("""\
+    site    node    derived_state
+    0       2       1
+    """)
+    return tskit.load_text(nodes=nodes, edges=edges, sites=sites,
+                           mutations=mutations, strict=False)
+
+
 def polytomy_tree_ts():
     r"""
     Simple case where we have n = 3 and a polytomy.
@@ -121,6 +189,31 @@ def polytomy_tree_ts():
     edges = io.StringIO("""\
     left    right   parent  child
     0       1       3       0,1,2
+    """)
+    return tskit.load_text(nodes=nodes, edges=edges, strict=False)
+
+
+def single_tree_ts_internal_n3():
+    r"""
+    Simple case where we have n = 3 and one tree.
+            4
+           / \
+          3   \
+         / \   \
+        0   1   2
+    """
+    nodes = io.StringIO("""\
+    id      is_sample   time
+    0       1           0
+    1       1           0
+    2       1           0
+    3       1           1
+    4       0           2
+    """)
+    edges = io.StringIO("""\
+    left    right   parent  child
+    0       1       3       0,1
+    0       1       4       2,3
     """)
     return tskit.load_text(nodes=nodes, edges=edges, strict=False)
 
