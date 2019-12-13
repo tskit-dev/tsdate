@@ -703,7 +703,6 @@ class SpansBySamples:
                     # below, we do as before
                     desc_tips = tree.num_samples(node)
                     self._spans[node][total_tips][desc_tips] += tree.span / 2
-                    self.node_spans[node] += tree.span
 
     def finalise(self):
         """
