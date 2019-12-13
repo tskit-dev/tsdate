@@ -1033,7 +1033,9 @@ class Likelihoods:
         The likelihood of an edge given a number of mutations, as set of time deltas (dt)
         and a span. This is a static function to allow parallelization
         """
-        return scipy.stats.poisson.pmf(muts, dt * theta/2 * span)
+        ll = scipy.stats.poisson.pmf(muts, dt * theta/2 * span)
+        return ll / np.max(ll)
+        # return ll
 
     @staticmethod
     def _lik_wrapper(muts_span, dt, theta):
@@ -1199,12 +1201,14 @@ class UpDownAlgorithms:
                 parent_edges.append((index + 1, edge))
             yield parent_edges
 
-    def upward(self, prior_values, theta, rho, return_log=True, progress=None):
+    def upward(self, prior_values, theta, rho, spans, return_log=True, progress=None):
         """
         Use dynamic programming to find approximate posterior to sample from
         """
+
         upward = NodeGridValues.clone_with_new_data(prior_values)  # store upward matrix
         g_i = NodeGridValues.clone_with_new_data(upward, grid_data=0)  # store g of i
+        norm = np.zeros(self.ts.num_nodes)
 
         # Iterate through the nodes via groupby on parent node
         if progress is None:
@@ -1220,6 +1224,9 @@ class UpDownAlgorithms:
             g_val = np.ones(self.lik.grid_size)
             g_val[0] = 0
             for edge_index, edge in parent_grp:
+                # Geometric scaling works exactly for all nodes fixed in graph
+                # but is an approximation when times are unknown
+                geo_scale = edge.span / spans[parent]
                 # Calculate vals for each edge
                 if parent in self.fixednodes:
                     continue  # there is no hidden state for this parent - it's fixed
@@ -1229,7 +1236,7 @@ class UpDownAlgorithms:
                     get_mutation_likelihoods = self.lik.get_mut_lik_fixed_node
                     sum_likelihood_rows = np.asarray  # pass though: no sum needed
                 else:
-                    prev_state = self.lik.make_lower_tri(upward[edge.child])
+                    prev_state = self.lik.make_lower_tri(upward[edge.child]) ** geo_scale
                     get_mutation_likelihoods = self.lik.get_mut_lik_lower_tri
                     sum_likelihood_rows = self.lik.rowsum_lower_tri
                 if theta is not None and rho is not None:
@@ -1242,6 +1249,7 @@ class UpDownAlgorithms:
                 elif theta is not None:
                     ll_mut = get_mutation_likelihoods(edge)
                     vv = sum_likelihood_rows(ll_mut * prev_state)
+                    # vv = vv ** (edge.span/spans[parent])
                 elif rho is not None:
                     b_l = (edge.left != 0)
                     b_r = (edge.right != self.ts.get_sequence_length())
@@ -1252,16 +1260,23 @@ class UpDownAlgorithms:
                     # Topology-only clock
                     vv = sum_likelihood_rows(prev_state)
                 val *= vv
-                g_val *= vv
-            upward[parent] = val / np.max(val)
-            g_i[parent] = g_val / np.max(g_val)
+                # Normalise after each edge and accumulate the normalisation factors
+                if np.sum(norm[parent]) != 0:
+                    norm[parent] *= np.max(val)
+                else:
+                    norm[parent] = np.max(val)
+                val = val / np.max(val)
+                g_i[edge.child] = vv
+            # norm[parent] = np.max(val)
+            upward[parent] = val
+        g_i = g_i / norm[:, None]
         if return_log:
             upward.apply_log()
             g_i.apply_log()
-        return upward, g_i
+        return upward, g_i, norm
 
     # TODO: Account for multiple parents, fix the log of zero thing
-    def downward(self, log_upward, log_g_i, theta, rho, spans, progress=None):
+    def downward(self, log_upward, log_g_i, norm, theta, rho, spans, progress=None):
         """
         Computes the full posterior distribution on nodes.
         Input is log of upward matrix, log of g_i matrix, time grid, population scaled
@@ -1280,7 +1295,6 @@ class UpDownAlgorithms:
                     # Isolated node
                     continue
                 downward[root] += (1 * tree.span) / spans[root]
-
         child_edges = (self.ts.edge(i) for i in reversed(
             np.argsort(self.ts.tables.nodes.time[self.ts.tables.edges.child[:]])))
 
@@ -1290,11 +1304,17 @@ class UpDownAlgorithms:
                                  desc="Downward", total=downward.num_nonfixed,
                                  disable=not progress):
             if child not in self.fixednodes:
-                edges = list(edges)
+                # edges = list(edges)
+                val = np.ones(self.lik.grid_size)
                 for edge in edges:
+                    # Geometric scaling works exactly for all nodes fixed in graph
+                    # but is an approximation when times are unknown
+                    geo_scale = edge.span / spans[child]
                     prev_state = self.lik.make_upper_tri(
-                        downward[edge.parent] *
-                        np.exp(log_upward[edge.parent] - log_g_i[edge.child]))
+                        downward[edge.parent] * np.where(
+                            log_g_i[edge.child] == -np.inf, 0, np.exp(
+                                log_upward[edge.parent] -
+                                log_g_i[edge.child]))) ** geo_scale
                     if theta is not None and rho is not None:
                         b_l = (edge.left != 0)
                         b_r = (edge.right != self.ts.get_sequence_length())
@@ -1305,6 +1325,8 @@ class UpDownAlgorithms:
                     elif theta is not None:
                         ll_mut = self.lik.get_mut_lik_upper_tri(edge)
                         vv = self.lik.rowsum_upper_tri(prev_state * ll_mut)
+                        # vv = vv ** (edge.span/spans[edge.child])
+                        val *= vv
                     elif rho is not None:
                         b_l = (edge.left != 0)
                         b_r = (edge.right != self.ts.get_sequence_length())
@@ -1315,9 +1337,8 @@ class UpDownAlgorithms:
                         # Topology-only clock
                         vv = self.lik.rowsum_upper_tri(prev_state)
                 vv[0] = 0  # Seems a hack: internal nodes should be allowed at time 0
-                norm = max(vv)
-                assert norm > 0
-                downward[edge.child] = vv / norm
+                assert norm[edge.child] > 0
+                downward[edge.child] = val / norm[edge.child]
         posterior = NodeGridValues.clone_with_new_data(
              orig=downward,
              grid_data=np.exp(log_upward.grid_data + np.log(downward.grid_data)),
@@ -1465,8 +1486,9 @@ def date(
 
     dynamic_prog = UpDownAlgorithms(tree_sequence, liklhd, progress=progress)
 
-    log_upward, log_g_i = dynamic_prog.upward(prior_vals, theta, rho)
-    posterior, downward = dynamic_prog.downward(log_upward, log_g_i, theta, rho, spans)
+    log_upward, log_g_i, norm = dynamic_prog.upward(prior_vals, theta, rho, spans)
+    posterior, downward = dynamic_prog.downward(
+        log_upward, log_g_i, norm, theta, rho, spans)
 
     mn_post, _ = posterior_mean_var(tree_sequence, grid, posterior, fixed_node_set)
     new_mn_post = restrict_ages_topo(tree_sequence, mn_post, grid, eps,
