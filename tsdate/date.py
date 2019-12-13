@@ -817,66 +817,113 @@ def create_time_grid(age_prior, n_points=21):
 
 class NodeGridValues:
     """
-    A class to store grid values for a specified set of nodes, used to store hidden state
-    variables etc. Nodes can be accessed by node_id.
+    A class to store grid values for node ids. For some nodes (fixed ones), only a single
+    value needs to be stored. For non-fixed nodes, an array of grid_size variables
+    is required, e.g. in order to store all the possible values for each of the hidden
+    states in the grid
 
-    :ivar node_ids: a numpy list of unique np.int32 row ids that will be used to look up
-        matrix values. For speed, an array of this number of integer elements will be
-        created, so the maximum number in here should not be huge (which is why it is
-        restricted to int32)
-    :vartype node_ids: numpy.ndarray (dtype=np.uint64)
-    :ivar grid_size: The size of the time grid
+    :ivar num_nodes: The number of nodes that will be stored in this object
+    :vartype num_nodes: int
+    :ivar nonfixed_nodes: a (possibly empty) numpy array of unique positive node ids each
+        of which must be less than num_nodes. Each will have an array of grid_size
+        associated with it. All others (up to num_nodes) will be associated with a single
+        scalar value instead.
+    :vartype nonfixed_nodes: numpy.ndarray
+    :ivar grid_size: The size of the time grid used for non-fixed nodes
     :vartype grid: int
-    :ivar fill_value: What should we fill the grid array with to start with
+    :ivar fill_value: What should we fill the data arrays with to start with
     :vartype fill_value: numpy.scalar
-
-    TODO performance check if it is much slower using a dict for the row lookup map
-    (could save considerable memory space)
     """
-    def __init__(self, node_ids, grid_size, fill_value=np.nan, dtype=FLOAT_DTYPE):
+    def __init__(self, num_nodes, nonfixed_nodes, grid_size,
+                 fill_value=np.nan, dtype=FLOAT_DTYPE):
         """
         :param numpy.ndarray grid: The input numpy.ndarray.
         """
-        if node_ids.dtype != np.int32 or np.min(node_ids) < 0 or node_ids.ndim != 1:
-            raise ValueError("Must pass an 1D array of positive int32 values as row ids")
-        self.node_ids = node_ids
-        self.data = np.full((len(node_ids), grid_size), fill_value, dtype=dtype)
-        self.row_lookup = np.full(np.max(node_ids) + 1, -1, dtype=np.int32)
-        self.row_lookup[node_ids] = np.arange(len(node_ids))
+        if nonfixed_nodes.ndim != 1:
+            raise ValueError("nonfixed_nodes must be a 1D numpy array")
+        if np.any((nonfixed_nodes < 0) | (nonfixed_nodes >= num_nodes)):
+            raise ValueError(
+                "All non fixed node ids must be between zero and the total node number")
+        self.num_nodes = num_nodes
+        self.nonfixed_nodes = nonfixed_nodes
+        self.num_nonfixed = len(nonfixed_nodes)
+        self.grid_data = np.full((self.num_nonfixed, grid_size), fill_value, dtype=dtype)
+        self.fixed_data = np.full(num_nodes - self.num_nonfixed, fill_value, dtype=dtype)
+        self.row_lookup = np.empty(num_nodes, dtype=np.int64)
+        # non-fixed nodes get a positive value, indicating lookup in the grid_data array
+        self.row_lookup[nonfixed_nodes] = np.arange(self.num_nonfixed)
+        # fixed nodes get a negative value from -1, indicating lookup in the scalar array
+        self.row_lookup[np.logical_not(np.isin(np.arange(num_nodes), nonfixed_nodes))] =\
+            -np.arange(num_nodes - self.num_nonfixed) - 1
+
+    def apply_log(self):
+        self.grid_data = np.log(self.grid_data + 1e-10)
+        self.fixed_data = np.log(self.fixed_data + 1e-10)
+
+    def normalize_grid(self):
+        """
+        normalise the grid data so it sums to one
+        """
+        self.grid_data = self.grid_data / np.sum(self.grid_data, axis=1)[:, np.newaxis]
 
     def __getitem__(self, node_id):
-        assert np.all(self.row_lookup[node_id] >= 0)
-        return self.data[self.row_lookup[node_id], :]
+        index = self.row_lookup[node_id]
+        if index < 0:
+            return self.fixed_data[1 + index]
+        else:
+            return self.grid_data[index, :]
 
     def __setitem__(self, node_id, value):
-        assert np.all(self.row_lookup[node_id] >= 0)
-        self.data[self.row_lookup[node_id], :] = value
-
-    @property
-    def num_rows(self):
-        return len(self.node_ids)
+        index = self.row_lookup[node_id]
+        if index < 0:
+            print(index)
+            self.fixed_data[1 + index] = value
+        else:
+            self.grid_data[index, :] = value
 
     @staticmethod
-    def clone_with_new_data(orig, data=np.nan):
+    def clone_with_new_data(orig, grid_data=np.nan, fixed_data=None):
         """
         Take the row indices etc from an existing NodeGridValues object and make a new
-        similar one but with different data. If the data is a single number, fill the
+        similar one but with different data. If grid_data is a single number, fill the
         entire data array with that, otherwise assume the data is a numpy array of the
-        correct size.
+        correct size to fill the gridded data. If grid_data is None, fill with NaN
+
+        If fixed_data is None and grid_data is a single number, use the same value as
+        grid_data for the fixed data values. If fixed_data is None and grid_data is an
+        array, set the fixed data to np.nan
         """
-        new_obj = NodeGridValues.__new__(NodeGridValues)
-        new_obj.row_lookup = orig.row_lookup
-        new_obj.node_ids = orig.node_ids
-        if type(data) is np.ndarray:
-            if orig.data.shape != data.shape:
-                raise ValueError(
-                    "The data array must be the same shape as the original one")
-            new_obj.data = data
-        else:
-            if data == 0:
-                new_obj.data = np.zeros(orig.data.shape, dtype=orig.data.dtype)
+        def fill_fixed(orig, fixed_data):
+            if type(fixed_data) is np.ndarray:
+                if orig.fixed_data.shape != fixed_data.shape:
+                    raise ValueError(
+                        "The fixed data array must be the same shape as the original")
+                return fixed_data
             else:
-                new_obj.data = np.full(orig.data.shape, data, dtype=orig.data.dtype)
+                return np.full(
+                    orig.fixed_data.shape, fixed_data, dtype=orig.fixed_data.dtype)
+
+        new_obj = NodeGridValues.__new__(NodeGridValues)
+        new_obj.num_nodes = orig.num_nodes
+        new_obj.nonfixed_nodes = orig.nonfixed_nodes
+        new_obj.num_nonfixed = orig.num_nonfixed
+        new_obj.row_lookup = orig.row_lookup
+        if type(grid_data) is np.ndarray:
+            if orig.grid_data.shape != grid_data.shape:
+                raise ValueError(
+                    "The grid data array must be the same shape as the original")
+            new_obj.grid_data = grid_data
+            new_obj.fixed_data = fill_fixed(
+                orig, np.nan if fixed_data is None else fixed_data)
+        else:
+            if grid_data == 0:  # Fast allocation
+                new_obj.grid_data = np.zeros(
+                    orig.grid_data.shape, dtype=orig.grid_data.dtype)
+            else:
+                new_obj.grid_data = np.full(
+                    orig.grid_data.shape, grid_data, dtype=orig.grid_data.dtype)
+            new_obj.fixed_data = fill_fixed(
+                orig, grid_data if fixed_data is None else fixed_data)
         return new_obj
 
 
@@ -890,6 +937,7 @@ def fill_prior(gamma_parameters, grid, ts, nodes_to_date, progress=False):
     """
     # Sort nodes-to-date by time, as that's the order given when iterating over edges
     prior_times = NodeGridValues(
+        ts.num_nodes,
         nodes_to_date[np.argsort(ts.tables.nodes.time[nodes_to_date])].astype(np.int32),
         len(grid))
     for node in tqdm(nodes_to_date, desc="GetPrior", disable=not progress):
@@ -1156,13 +1204,13 @@ class UpDownAlgorithms:
         Use dynamic programming to find approximate posterior to sample from
         """
         upward = NodeGridValues.clone_with_new_data(prior_values)  # store upward matrix
-        g_i = NodeGridValues.clone_with_new_data(upward, data=0)  # store g of i
+        g_i = NodeGridValues.clone_with_new_data(upward, grid_data=0)  # store g of i
 
         # Iterate through the nodes via groupby on parent node
         if progress is None:
             progress = self.progress
         for parent_grp in tqdm(self.iterate_parent_edges(), desc="Upward  ",
-                               total=upward.num_rows, disable=not progress):
+                               total=upward.num_nonfixed, disable=not progress):
             """
             for each node, find the conditional prob of age at every time
             in time grid
@@ -1208,8 +1256,8 @@ class UpDownAlgorithms:
             upward[parent] = val / np.max(val)
             g_i[parent] = g_val / np.max(g_val)
         if return_log:
-            upward.data = np.log(upward.data + 1e-10)
-            g_i.data = np.log(g_i.data + 1e-10)
+            upward.apply_log()
+            g_i.apply_log()
         return upward, g_i
 
     # TODO: Account for multiple parents, fix the log of zero thing
@@ -1223,7 +1271,7 @@ class UpDownAlgorithms:
         The rows in the posterior returned correspond to node IDs as given by
         self.nodes
         """
-        downward = NodeGridValues.clone_with_new_data(log_upward, data=0)
+        downward = NodeGridValues.clone_with_new_data(log_upward, grid_data=0)
 
         # TO DO here: check that no fixed_nodes have children, otherwise we can't descend
         for tree in self.ts.trees():
@@ -1239,7 +1287,7 @@ class UpDownAlgorithms:
         if progress is None:
             progress = self.progress
         for child, edges in tqdm(itertools.groupby(child_edges, key=lambda x: x.child),
-                                 desc="Downward", total=downward.num_rows,
+                                 desc="Downward", total=downward.num_nonfixed,
                                  disable=not progress):
             if child not in self.fixednodes:
                 edges = list(edges)
@@ -1272,8 +1320,9 @@ class UpDownAlgorithms:
                 downward[edge.child] = vv / norm
         posterior = NodeGridValues.clone_with_new_data(
              orig=downward,
-             data=np.exp(log_upward.data + np.log(downward.data)))
-        posterior.data = posterior.data / np.sum(posterior.data, axis=1)[:, np.newaxis]
+             grid_data=np.exp(log_upward.grid_data + np.log(downward.grid_data)),
+             fixed_data=np.nan)  # We should never use the posterior for a fixed node
+        posterior.normalize_grid()
         return posterior, downward
 
 
@@ -1291,7 +1340,7 @@ def posterior_mean_var(ts, grid, posterior, fixed_node_set=None):
     mn_post[fixed_nodes] = ts.tables.nodes.time[fixed_nodes]
     vr_post[fixed_nodes] = 0
 
-    for row, node_id in zip(posterior.data, posterior.node_ids):
+    for row, node_id in zip(posterior.grid_data, posterior.nonfixed_nodes):
         mn_post[node_id] = np.sum(row * grid) / np.sum(row)
         vr_post[node_id] = np.sum(row * grid ** 2) / np.sum(row) - mn_post[node_id] ** 2
     return mn_post, vr_post

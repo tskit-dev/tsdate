@@ -552,40 +552,99 @@ class TestLikelihoodClass(unittest.TestCase):
 class TestNodeGridValuesClass(unittest.TestCase):
     # TODO - needs a few more tests in here
     def test_init(self):
-        sz = 5
+        num_nodes = 5
+        ids = np.array([3, 4])
+        grid_size = 10
+        store = tsdate.NodeGridValues(num_nodes, ids, grid_size, fill_value=6)
+        self.assertEquals(store.grid_data.shape, (len(ids), grid_size))
+        self.assertEquals(len(store.fixed_data), (num_nodes-len(ids)))
+        self.assertTrue(np.all(store.grid_data == 6))
+        self.assertTrue(np.all(store.fixed_data == 6))
+
+        ids = np.array([3, 4], dtype=np.int32)
+        store = tsdate.NodeGridValues(num_nodes, ids, grid_size, fill_value=5)
+        self.assertEquals(store.grid_data.shape, (len(ids), grid_size))
+        self.assertEquals(len(store.fixed_data), num_nodes-len(ids))
+        self.assertTrue(np.all(store.fixed_data == 5))
+
+    def test_set_and_get(self):
+        num_nodes = 5
+        grid_size = 2
+        fill = {}
+        for ids in ([3, 4], []):
+            np.random.seed(1)
+            store = tsdate.NodeGridValues(
+                num_nodes, np.array(ids, dtype=np.int32), grid_size)
+            for i in range(num_nodes):
+                fill[i] = np.random.random(grid_size if i in ids else None)
+                store[i] = fill[i]
+            for i in range(num_nodes):
+                self.assertTrue(np.all(fill[i] == store[i]))
+        self.assertRaises(IndexError, store.__getitem__, num_nodes)
+
+    def test_bad_init(self):
         ids = [3, 4]
-        hs = tsdate.NodeGridValues(np.array(ids, dtype=np.int32), sz, fill_value=6)
-        self.assertEquals(hs.data.shape, (len(ids), sz))
-        self.assertTrue(np.all(hs.data == 6))
-        self.assertRaises(
-            ValueError, tsdate.NodeGridValues, np.array(ids, dtype=np.uint32), sz)
-        self.assertRaises(
-            ValueError, tsdate.NodeGridValues, np.array(ids, dtype=np.int64), sz)
-        self.assertRaises(
-            ValueError, tsdate.NodeGridValues, -np.array(ids, dtype=np.int32), sz)
-        self.assertRaises(
-            ValueError, tsdate.NodeGridValues, np.array([ids], dtype=np.int32), sz)
+        self.assertRaises(ValueError, tsdate.NodeGridValues, 3, np.array(ids), 5)
+        self.assertRaises(ValueError, tsdate.NodeGridValues, 5, np.array(ids), -1)
+        self.assertRaises(ValueError, tsdate.NodeGridValues, 5, np.array([-1]), -1)
 
     def test_clone(self):
-        sz = 2
+        num_nodes = 10
+        grid_size = 2
         ids = [3, 4]
-        hs = tsdate.NodeGridValues(np.array(ids, dtype=np.int32), sz)
-        hs[3] = np.array([1, 2])
-        hs[4] = np.array([4, 3])
-        self.assertRaises(AssertionError, hs.__getitem__, 2)
-        clone = tsdate.NodeGridValues.clone_with_new_data(hs, 0)
-        self.assertEquals(hs.data.shape, clone.data.shape)
-        self.assertTrue(np.all(clone.data == 0))
-        clone = tsdate.NodeGridValues.clone_with_new_data(hs, 5)
-        self.assertEquals(hs.data.shape, clone.data.shape)
-        self.assertTrue(np.all(clone.data == 5))
-        clone = tsdate.NodeGridValues.clone_with_new_data(hs, np.array([[1, 2], [4, 3]]))
-        for i in ids:
-            self.assertTrue(np.all(hs[i] == clone[i]))
+        orig = tsdate.NodeGridValues(num_nodes, np.array(ids), grid_size)
+        orig[3] = np.array([1, 2])
+        orig[4] = np.array([4, 3])
+        orig[0] = 1.5
+        orig[9] = 2.5
+        # test with np.zeros
+        clone = tsdate.NodeGridValues.clone_with_new_data(orig, 0)
+        self.assertEquals(clone.grid_data.shape, orig.grid_data.shape)
+        self.assertEquals(clone.fixed_data.shape, orig.fixed_data.shape)
+        self.assertTrue(np.all(clone.grid_data == 0))
+        self.assertTrue(np.all(clone.fixed_data == 0))
+        # test with something else
+        clone = tsdate.NodeGridValues.clone_with_new_data(orig, 5)
+        self.assertEquals(clone.grid_data.shape, orig.grid_data.shape)
+        self.assertEquals(clone.fixed_data.shape, orig.fixed_data.shape)
+        self.assertTrue(np.all(clone.grid_data == 5))
+        self.assertTrue(np.all(clone.fixed_data == 5))
+        # test with different
+        scalars = np.arange(num_nodes - len(ids))
+        clone = tsdate.NodeGridValues.clone_with_new_data(orig, 0, scalars)
+        self.assertEquals(clone.grid_data.shape, orig.grid_data.shape)
+        self.assertEquals(clone.fixed_data.shape, orig.fixed_data.shape)
+        self.assertTrue(np.all(clone.grid_data == 0))
+        self.assertTrue(np.all(clone.fixed_data == scalars))
+
+        clone = tsdate.NodeGridValues.clone_with_new_data(
+            orig, np.array([[1, 2], [4, 3]]))
+        for i in range(num_nodes):
+            if i in ids:
+                self.assertTrue(np.all(clone[i] == orig[i]))
+            else:
+                self.assertTrue(np.isnan(clone[i]))
+        clone = tsdate.NodeGridValues.clone_with_new_data(
+            orig, np.array([[1, 2], [4, 3]]), 0)
+        for i in range(num_nodes):
+            if i in ids:
+                self.assertTrue(np.all(clone[i] == orig[i]))
+            else:
+                self.assertEquals(clone[i], 0)
+
+    def test_bad_clone(self):
+        num_nodes = 10
+        grid_size = 2
+        ids = [3, 4]
+        orig = tsdate.NodeGridValues(num_nodes, np.array(ids), grid_size)
         self.assertRaises(
             ValueError,
             tsdate.NodeGridValues.clone_with_new_data,
-            hs, np.array([[1, 2, 3], [4, 5, 6]]))
+            orig, np.array([[1, 2, 3], [4, 5, 6]]))
+        self.assertRaises(
+            ValueError,
+            tsdate.NodeGridValues.clone_with_new_data,
+            orig, 0, np.array([[1, 2], [4, 5]]))
 
 
 class TestUpwardAlgorithm(unittest.TestCase):
