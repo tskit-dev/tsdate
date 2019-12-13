@@ -667,8 +667,9 @@ class SpansBySamples:
                         " has a prior in tree {}".format(node, n, tree_id))
                     for n_tips, weights in self._spans[n].items():
                         for k, v in weights.items():
-                            if k == 0:
-                                raise ValueError("Oh dear 2")
+                            if k <= 0:
+                                raise ValueError(
+                                    "Node {} has no fixed descendants".format(n))
                             local_weight = v / self.node_spans[n]
                             self._spans[node][n_tips][k] += tree.span * local_weight / 2
                     assert tree.num_children(node) == 1
