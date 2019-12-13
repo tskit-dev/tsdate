@@ -136,8 +136,10 @@ class TestSimulated(unittest.TestCase):
         self.ts_equal_except_times(ts, dated_ts)
 
     def test_with_unary(self):
-        ts = utility_functions.single_tree_ts_with_unary()
-        dated_ts = tsdate.date(ts, Ne=1)
+        ts = msprime.simulate(
+            8, mutation_rate=10, recombination_rate=10,
+            record_full_arg=True, random_seed=12)
+        dated_ts = tsdate.date(ts, Ne=1, mutation_rate=10)
         self.ts_equal_except_times(ts, dated_ts)
 
     def test_fails_multi_root(self):
