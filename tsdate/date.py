@@ -1207,7 +1207,7 @@ class UpDownAlgorithms:
         """
 
         upward = NodeGridValues.clone_with_new_data(prior_values)  # store upward matrix
-        g_i = NodeGridValues.clone_with_new_data(upward, grid_data=0)  # store g of i
+        g_i = np.zeros((self.ts.num_nodes, self.lik.grid_size))  # store g of i
         norm = np.zeros(self.ts.num_nodes)
 
         # Iterate through the nodes via groupby on parent node
@@ -1272,7 +1272,8 @@ class UpDownAlgorithms:
         g_i = g_i / norm[:, None]
         if return_log:
             upward.apply_log()
-            g_i.apply_log()
+            # g_i.apply_log()
+            g_i = np.log(g_i)
         return upward, g_i, norm
 
     # TODO: Account for multiple parents, fix the log of zero thing
