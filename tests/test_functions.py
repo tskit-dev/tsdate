@@ -549,7 +549,9 @@ class TestLikelihoodClass(unittest.TestCase):
                     np.allclose(lik.rowsum_lower_tri(lower_tri), cumul_pois))
                 upper_tri = lik.get_mut_lik_upper_tri(e)
                 self.assertTrue(
-                    np.allclose(np.exp(lik.rowsum_upper_tri(np.log(upper_tri))[::-1]), cumul_pois))
+                    np.allclose(
+                        np.exp(lik.rowsum_upper_tri(np.log(upper_tri))[::-1]),
+                        cumul_pois))
 
 
 class TestHiddenStatesClass(unittest.TestCase):

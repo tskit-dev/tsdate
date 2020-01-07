@@ -1258,7 +1258,7 @@ class UpDownAlgorithms:
                     prev_state = self.lik.make_upper_tri(
                         downward[edge.parent] + np.where(
                             log_g_i[edge.child] == -np.inf, 0,
-                                (log_upward[edge.parent] -
+                            (log_upward[edge.parent] -
                                 log_g_i[edge.child]))) * geo_scale
                     if theta is not None and rho is not None:
                         b_l = (edge.left != 0)
@@ -1286,9 +1286,10 @@ class UpDownAlgorithms:
                 assert norm[edge.child] > 0
                 downward[edge.child] = val - np.log(norm[edge.child])
         posterior = HiddenStates.clone_with_new_data(
-             orig=downward,
-             data=log_upward.data + downward.data)
-        posterior.data = posterior.data - np.apply_along_axis(logsumexp_stream, 1, posterior.data)[:, np.newaxis]
+            orig=downward,
+            data=log_upward.data + downward.data)
+        posterior.data = posterior.data - np.apply_along_axis(
+            logsumexp_stream, 1, posterior.data)[:, np.newaxis]
         posterior.data = np.exp(posterior.data)
         # downward.data = np.exp(downward.data)
         return posterior, downward
