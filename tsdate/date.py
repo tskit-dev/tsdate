@@ -32,6 +32,7 @@ import functools
 import tskit
 
 import pandas as pd
+import numba
 import numpy as np
 import scipy.stats
 from scipy.special import comb
@@ -1034,7 +1035,16 @@ class Likelihoods:
         Describe the reduceat trickery here. Presumably the opposite of make_upper_tri
         """
         assert len(input_array) == self.tri_size
-        return np.add.reduceat(input_array, self.col_indices)
+        res = list()
+        i_start = self.col_indices[0]
+        for cur_index, i in enumerate(self.col_indices[1:]):
+            res.append(logsumexp_stream(input_array[i_start:i]))
+            i_start = i
+
+        res.append(logsumexp_stream(input_array[i:]))
+
+        return np.array(res)
+        # return np.add.reduceat(input_array, self.col_indices)
 
 
 class HiddenStates:
@@ -1184,7 +1194,6 @@ class UpDownAlgorithms:
                 elif theta is not None:
                     ll_mut = get_mutation_likelihoods(edge)
                     vv = sum_likelihood_rows(ll_mut * prev_state)
-                    print(ll_mut, prev_state)
                     # vv = vv ** (edge.span/spans[parent])
                 elif rho is not None:
                     b_l = (edge.left != 0)
@@ -1241,16 +1250,16 @@ class UpDownAlgorithms:
                                  disable=not progress):
             if child not in self.fixednodes:
                 # edges = list(edges)
-                val = np.ones(self.lik.grid_size)
+                val = np.zeros(self.lik.grid_size)
                 for edge in edges:
                     # Geometric scaling works exactly for all nodes fixed in graph
                     # but is an approximation when times are unknown
                     geo_scale = edge.span / spans[child]
                     prev_state = self.lik.make_upper_tri(
-                        downward[edge.parent] * np.where(
-                            log_g_i[edge.child] == -np.inf, 0, np.exp(
-                                log_upward[edge.parent] -
-                                log_g_i[edge.child]))) ** geo_scale
+                        downward[edge.parent] + np.where(
+                            log_g_i[edge.child] == -np.inf, 0,
+                                (log_upward[edge.parent] -
+                                log_g_i[edge.child]))) * geo_scale
                     if theta is not None and rho is not None:
                         b_l = (edge.left != 0)
                         b_r = (edge.right != self.ts.get_sequence_length())
@@ -1259,10 +1268,11 @@ class UpDownAlgorithms:
                         ll_mut = self.lik.get_mut_lik_upper_tri(edge)
                         vv = self.lik.rowsum_upper_tri(prev_state * ll_mut * ll_rec)
                     elif theta is not None:
-                        ll_mut = self.lik.get_mut_lik_upper_tri(edge)
-                        vv = self.lik.rowsum_upper_tri(prev_state * ll_mut)
+                        ll_mut = np.log(self.lik.get_mut_lik_upper_tri(edge))
+                        vv = self.lik.rowsum_upper_tri(prev_state + ll_mut)
+
                         # vv = vv ** (edge.span/spans[edge.child])
-                        val *= vv
+                        val += vv
                     elif rho is not None:
                         b_l = (edge.left != 0)
                         b_r = (edge.right != self.ts.get_sequence_length())
@@ -1274,12 +1284,29 @@ class UpDownAlgorithms:
                         vv = self.lik.rowsum_upper_tri(prev_state)
                 vv[0] = 0  # Seems a hack: internal nodes should be allowed at time 0
                 assert norm[edge.child] > 0
-                downward[edge.child] = val / norm[edge.child]
+                downward[edge.child] = val - np.log(norm[edge.child])
         posterior = HiddenStates.clone_with_new_data(
              orig=downward,
-             data=np.exp(log_upward.data + np.log(downward.data)))
-        posterior.data = posterior.data / np.sum(posterior.data, axis=1)[:, np.newaxis]
+             data=log_upward.data + downward.data)
+        posterior.data = posterior.data - np.apply_along_axis(logsumexp_stream, 1, posterior.data)[:, np.newaxis]
+        posterior.data = np.exp(posterior.data)
+        # downward.data = np.exp(downward.data)
         return posterior, downward
+
+
+@numba.jit(nopython=True)
+def logsumexp_stream(X):
+    alpha = -np.Inf
+    r = 0.0
+    for x in X:
+        if x != -np.Inf:
+            if x <= alpha:
+                r += np.exp(x - alpha)
+            else:
+                r *= np.exp(alpha - x)
+                r += 1.0
+                alpha = x
+    return(np.log(r) + alpha)
 
 
 def posterior_mean_var(ts, grid, posterior, fixed_node_set=None):
