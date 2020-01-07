@@ -736,7 +736,7 @@ class TestTotalFunctionalValueTree(unittest.TestCase):
         lls.precalculate_mutation_likelihoods()
         alg = tsdate.UpDownAlgorithms(ts, lls)
         log_upward, log_g_i, norm = alg.upward(prior_vals, theta, rho, spans)
-        upward, g_i, norm = alg.upward(prior_vals, theta, rho, spans)
+        upward, g_i, norm = alg.upward(prior_vals, theta, rho, spans, return_log=False)
         posterior, downward = alg.downward(log_upward, log_g_i, norm, theta, rho, spans)
         self.assertTrue(
             np.array_equal(np.sum(upward.data * downward.data, axis=1),

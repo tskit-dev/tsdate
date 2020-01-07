@@ -1242,6 +1242,7 @@ class UpDownAlgorithms:
                 downward[root] += (1 * tree.span) / spans[root]
         child_edges = (self.ts.edge(i) for i in reversed(
             np.argsort(self.ts.tables.nodes.time[self.ts.tables.edges.child[:]])))
+        downward.data = np.log(downward.data)
 
         if progress is None:
             progress = self.progress
@@ -1291,7 +1292,7 @@ class UpDownAlgorithms:
         posterior.data = posterior.data - np.apply_along_axis(
             logsumexp_stream, 1, posterior.data)[:, np.newaxis]
         posterior.data = np.exp(posterior.data)
-        # downward.data = np.exp(downward.data)
+        downward.data = np.exp(downward.data)
         return posterior, downward
 
 
