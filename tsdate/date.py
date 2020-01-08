@@ -1021,7 +1021,16 @@ class Likelihoods:
         Describe the reduceat trickery here. Presumably the opposite of make_lower_tri
         """
         assert len(input_array) == self.tri_size
-        return np.add.reduceat(input_array, self.row_indices[0])
+        res = list()
+        i_start = self.row_indices[0][0]
+        for cur_index, i in enumerate(self.row_indices[0][1:]):
+            res.append(logsumexp_stream(input_array[i_start:i]))
+            i_start = i
+
+        res.append(logsumexp_stream(input_array[i:]))
+
+        return np.array(res)
+        # return np.add.reduceat(input_array, self.row_indices[0])
 
     def make_upper_tri(self, input_array):
         """
@@ -1152,8 +1161,8 @@ class UpDownAlgorithms:
         """
         upward = HiddenStates(self.nodes, self.lik.grid_size)  # store upward matrix
         # g_i = HiddenStates.clone_with_new_data(upward, data=0)  # store g of i
-        g_i = np.zeros((self.ts.num_nodes, self.lik.grid_size))
-        norm = np.zeros(self.ts.num_nodes)
+        g_i = np.ones((self.ts.num_nodes, self.lik.grid_size))
+        norm = np.ones(self.ts.num_nodes)
 
         # Iterate through the nodes via groupby on parent node
         if progress is None:
@@ -1165,9 +1174,9 @@ class UpDownAlgorithms:
             in time grid
             """
             parent = parent_grp[0][1].parent
-            val = prior_values[parent].copy()
-            g_val = np.ones(self.lik.grid_size)
-            g_val[0] = 0
+            val = np.log(prior_values[parent].copy())
+            g_val = np.zeros(self.lik.grid_size)
+            g_val[0] = -np.inf
             for edge_index, edge in parent_grp:
                 # Geometric scaling works exactly for all nodes fixed in graph
                 # but is an approximation when times are unknown
@@ -1177,11 +1186,11 @@ class UpDownAlgorithms:
                     continue  # there is no hidden state for this parent - it's fixed
                 if edge.child in self.fixednodes:
                     # this is an edge leading to a node with a fixed time
-                    prev_state = 1  # Will be broadcast to len(grid)
+                    prev_state = 0  # Will be broadcast to len(grid)
                     get_mutation_likelihoods = self.lik.get_mut_lik_fixed_node
                     sum_likelihood_rows = np.asarray  # pass though: no sum needed
                 else:
-                    prev_state = self.lik.make_lower_tri(upward[edge.child]) ** geo_scale
+                    prev_state = self.lik.make_lower_tri(upward[edge.child]) * geo_scale
                     get_mutation_likelihoods = self.lik.get_mut_lik_lower_tri
                     sum_likelihood_rows = self.lik.rowsum_lower_tri
                 if theta is not None and rho is not None:
@@ -1192,8 +1201,8 @@ class UpDownAlgorithms:
                     ll_mut = get_mutation_likelihoods(edge)
                     vv = sum_likelihood_rows(ll_mut * ll_rec * prev_state)
                 elif theta is not None:
-                    ll_mut = get_mutation_likelihoods(edge)
-                    vv = sum_likelihood_rows(ll_mut * prev_state)
+                    ll_mut = np.log(get_mutation_likelihoods(edge))
+                    vv = sum_likelihood_rows(ll_mut + prev_state)
                     # vv = vv ** (edge.span/spans[parent])
                 elif rho is not None:
                     b_l = (edge.left != 0)
@@ -1204,20 +1213,20 @@ class UpDownAlgorithms:
                 else:
                     # Topology-only clock
                     vv = sum_likelihood_rows(prev_state)
-                val *= vv
+                val += vv
                 # Normalise after each edge and accumulate the normalisation factors
                 if np.sum(norm[parent]) != 0:
-                    norm[parent] *= np.max(val)
+                    norm[parent] += np.max(val)
                 else:
                     norm[parent] = np.max(val)
-                val = val / np.max(val)
+                val = val - np.max(val)
                 g_i[edge.child] = vv
             # norm[parent] = np.max(val)
             upward[parent] = val
-        g_i = g_i / norm[:, None]
-        if return_log:
-            upward.data = np.log(upward.data)
-            g_i = np.log(g_i)
+        g_i = g_i - norm[:, None]
+        if return_log is False:
+            upward.data = np.exp(upward.data)
+            g_i = np.exp(g_i)
         return upward, g_i, norm
 
     # TODO: Account for multiple parents, fix the log of zero thing
@@ -1284,8 +1293,8 @@ class UpDownAlgorithms:
                         # Topology-only clock
                         vv = self.lik.rowsum_upper_tri(prev_state)
                 vv[0] = 0  # Seems a hack: internal nodes should be allowed at time 0
-                assert norm[edge.child] > 0
-                downward[edge.child] = val - np.log(norm[edge.child])
+                assert norm[edge.child] > -np.inf
+                downward[edge.child] = val - norm[edge.child]
         posterior = HiddenStates.clone_with_new_data(
             orig=downward,
             data=log_upward.data + downward.data)
