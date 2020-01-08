@@ -899,8 +899,8 @@ class Likelihoods:
         The likelihood of an edge given a number of mutations, as set of time deltas (dt)
         and a span. This is a static function to allow parallelization
         """
-        ll = scipy.stats.poisson.pmf(muts, dt * theta/2 * span)
-        return ll / np.max(ll)
+        ll = scipy.stats.poisson.logpmf(muts, dt * theta/2 * span)
+        return ll - np.max(ll)
         # return ll
 
     @staticmethod
@@ -1201,7 +1201,7 @@ class UpDownAlgorithms:
                     ll_mut = get_mutation_likelihoods(edge)
                     vv = sum_likelihood_rows(ll_mut * ll_rec * prev_state)
                 elif theta is not None:
-                    ll_mut = np.log(get_mutation_likelihoods(edge))
+                    ll_mut = get_mutation_likelihoods(edge)
                     vv = sum_likelihood_rows(ll_mut + prev_state)
                     # vv = vv ** (edge.span/spans[parent])
                 elif rho is not None:
@@ -1278,7 +1278,7 @@ class UpDownAlgorithms:
                         ll_mut = self.lik.get_mut_lik_upper_tri(edge)
                         vv = self.lik.rowsum_upper_tri(prev_state * ll_mut * ll_rec)
                     elif theta is not None:
-                        ll_mut = np.log(self.lik.get_mut_lik_upper_tri(edge))
+                        ll_mut = self.lik.get_mut_lik_upper_tri(edge)
                         vv = self.lik.rowsum_upper_tri(prev_state + ll_mut)
 
                         # vv = vv ** (edge.span/spans[edge.child])
@@ -1453,7 +1453,7 @@ def date(
     if recombination_rate is not None:
         rho = 4 * Ne * recombination_rate
 
-    liklhd = Likelihoods(tree_sequence, grid, theta, eps, fixed_node_set)
+    liklhd = tsdate.Likelihoods(tree_sequence, grid, theta, eps, fixed_node_set)
     if theta is not None:
         liklhd.precalculate_mutation_likelihoods(num_threads=num_threads)
 
