@@ -857,8 +857,8 @@ class NodeGridValues:
             -np.arange(num_nodes - self.num_nonfixed) - 1
 
     def apply_log(self):
-        self.grid_data = np.log(self.grid_data + 1e-10)
-        self.fixed_data = np.log(self.fixed_data + 1e-10)
+        self.grid_data = np.log(self.grid_data)
+        self.fixed_data = np.log(self.fixed_data)
 
     def normalize_grid(self):
         """
@@ -1206,7 +1206,8 @@ class UpDownAlgorithms:
         Use dynamic programming to find approximate posterior to sample from
         """
 
-        upward = NodeGridValues.clone_with_new_data(prior_values)  # store upward matrix
+        upward = NodeGridValues.clone_with_new_data(       # store upward matrix: hidden
+            prior_values, grid_data=np.nan, fixed_data=1)  # data is NaNs, fixed at 1
         g_i = np.zeros((self.ts.num_nodes, self.lik.grid_size))  # store g of i
         norm = np.zeros(self.ts.num_nodes)
 
@@ -1232,7 +1233,7 @@ class UpDownAlgorithms:
                     continue  # there is no hidden state for this parent - it's fixed
                 if edge.child in self.fixednodes:
                     # this is an edge leading to a node with a fixed time
-                    prev_state = 1  # Will be broadcast to len(grid)
+                    prev_state = upward[edge.child] ** geo_scale
                     get_mutation_likelihoods = self.lik.get_mut_lik_fixed_node
                     sum_likelihood_rows = np.asarray  # pass though: no sum needed
                 else:

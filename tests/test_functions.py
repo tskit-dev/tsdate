@@ -780,9 +780,9 @@ class TestTotalFunctionalValueTree(unittest.TestCase):
         priors = tsdate.ConditionalCoalescentTimes(None)
         priors.add(ts.num_samples, approximate=False)
         grid = np.array([0, 1.2, 2])
-        mixture_prior = tsdate.get_mixture_prior(span_data, priors)
+        mixture_prior = tsdate.get_mixture_prior_params(span_data, priors)
         nodes_to_date = span_data.nodes_to_date
-        prior_vals = tsdate.get_prior_values(mixture_prior, grid, ts, nodes_to_date)
+        prior_vals = tsdate.fill_prior(mixture_prior, grid, ts, nodes_to_date)
         theta = 1
         rho = None
         eps = 1e-6
@@ -793,11 +793,11 @@ class TestTotalFunctionalValueTree(unittest.TestCase):
         upward, g_i, norm = alg.upward(prior_vals, theta, rho, spans)
         posterior, downward = alg.downward(log_upward, log_g_i, norm, theta, rho, spans)
         self.assertTrue(
-            np.array_equal(np.sum(upward.data * downward.data, axis=1),
-                           np.sum(upward.data * downward.data, axis=1)))
+            np.array_equal(np.sum(upward.grid_data * downward.grid_data, axis=1),
+                           np.sum(upward.grid_data * downward.grid_data, axis=1)))
         self.assertTrue(
-            np.allclose(np.sum(upward.data * downward.data, axis=1),
-                        np.sum(upward.data[-1])))
+            np.allclose(np.sum(upward.grid_data * downward.grid_data, axis=1),
+                        np.sum(upward.grid_data[-1])))
         return posterior, upward, downward
 
     def test_one_tree_n2(self):
