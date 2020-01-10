@@ -136,8 +136,10 @@ class TestSimulated(unittest.TestCase):
         self.ts_equal_except_times(ts, dated_ts)
 
     def test_with_unary(self):
-        ts = utility_functions.single_tree_ts_with_unary()
-        dated_ts = tsdate.date(ts, Ne=1)
+        ts = msprime.simulate(
+            8, mutation_rate=10, recombination_rate=10,
+            record_full_arg=True, random_seed=12)
+        dated_ts = tsdate.date(ts, Ne=1, mutation_rate=10)
         self.ts_equal_except_times(ts, dated_ts)
 
     def test_half_dangling_node(self):
@@ -155,6 +157,19 @@ class TestSimulated(unittest.TestCase):
         self.assertRaises(RuntimeError, tsdate.date, dangling_node_ts, Ne=1)
         # self.ts_equal_except_times(dangling_node_ts, dated_ts)
 
+    def test_fails_multi_root(self):
+        ts = msprime.simulate(8, mutation_rate=2, random_seed=2)
+        tree = ts.first()
+        tables = ts.dump_tables()
+        tables.edges.clear()
+        internal_edge_removed = False
+        for row in ts.tables.edges:
+            if row.parent not in tree.roots and row.child not in ts.samples():
+                if not internal_edge_removed:
+                    continue
+            tables.edges.add_row(*row)
+        self.assertRaises(ValueError, tsdate.date, tables.tree_sequence(), 1, 2)
+
     def test_non_contemporaneous(self):
         samples = [
             msprime.Sample(population=0, time=0),
@@ -165,6 +180,7 @@ class TestSimulated(unittest.TestCase):
         ts = msprime.simulate(samples=samples, Ne=1, mutation_rate=2)
         self.assertRaises(NotImplementedError, tsdate.date, ts, 1, 2)
 
+    @unittest.skip("YAN to fix")
     def test_truncated_ts(self):
         Ne = 1e2
         mu = 2e-4

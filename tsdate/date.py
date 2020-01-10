@@ -26,6 +26,8 @@ from collections import defaultdict, namedtuple
 import logging
 import os
 import itertools
+import multiprocessing
+import functools
 
 import tskit
 
@@ -37,6 +39,15 @@ from tqdm import tqdm
 
 FORMAT_NAME = "tsdate"
 FORMAT_VERSION = [1, 0]
+FLOAT_DTYPE = np.float64
+
+# Hack: monkey patches to allow tsdate to work with non-dev versions of tskit
+# TODO - remove when tskit 0.2.4 is released
+tskit.Edge.span = property(lambda edge: (edge.right - edge.left))  # NOQA
+tskit.Tree.num_children = lambda tree, node: len(tree.children(node))  # NOQA
+tskit.Tree.is_isolated = lambda tree, node: (
+     tree.num_children(node) == 0 and tree.parent(node) == tskit.NULL)  # NOQA
+tskit.TreeIterator.__len__ = lambda it: it.tree.tree_sequence.num_trees  # NOQA
 
 
 # Hack: monkey patches to allow tsdate to work with non-dev versions of tskit
@@ -52,6 +63,21 @@ def gamma_approx(mean, variance):
     Returns alpha and beta of a gamma distribution for a given mean and variance
     """
     return (mean ** 2) / variance, mean / variance
+
+
+def check_ts_for_dating(ts):
+    """
+    Check that the tree sequence is valid for dating (e.g. it has only a single
+    tree topology at each position)
+    """
+    for tree in ts.trees():
+        main_roots = 0
+        for root in tree.roots:
+            main_roots += 0 if tree.is_isolated(root) else 1
+        if main_roots > 1:
+            raise ValueError(
+                "The tree sequence you are trying to date has more than"
+                " one tree at position {}".format(tree.interval[0]))
 
 
 class ConditionalCoalescentTimes():
@@ -96,6 +122,8 @@ class ConditionalCoalescentTimes():
 
         Note: estimated times are scaled by inputted Ne and are haploid
         """
+        if total_tips in self.prior_store:
+            return  # Already calculated for this number of total tips
         if approximate is not None:
             self.approximate = approximate
         else:
@@ -229,7 +257,7 @@ class ConditionalCoalescentTimes():
         return [self.tau_var(tips, total_tips) for tips in all_tips]
 
 
-def get_mixture_prior(spans_by_samples, basic_priors):
+def get_mixture_prior_params(spans_by_samples, basic_priors):
     """
     Given an object that can be queried for tip weights for a node,
     and a set of conditional coalescent priors for different
@@ -323,10 +351,16 @@ class SpansBySamples:
     returns the spans for a node, normalised by the total span that that
     node covers in the tree sequence.
 
+    .. note:: This assumes that all edges connect to the same tree - i.e.
+        there is only a single topology present at each point in the
+        genome. Equivalently, it assumes that only one of the roots in
+        a tree has descending edges (all other roots represent isolated
+        "missing data" nodes.
+
     :ivar tree_sequence: A reference to the tree sequence that was used to
         generate the spans and weights
     :vartype tree_sequence: tskit.TreeSequence
-    :ivar num_samples_set: A sorted numpy array of unique numbers which list,
+    :ivar total_fixed_at_0_counts: A numpy array of unique numbers which list,
         in no particular order, the various sample counts among the trees
         in this tree sequence. In the simplest case of a tree sequence with
         no missing data, all trees have the same count of numbers of samples,
@@ -336,49 +370,63 @@ class SpansBySamples:
         some trees will contain fewer sample nodes, so this array will also
         contain additional numbers, all of which will be less than
         :attr:`.tree_sequence.num_samples`.
-    :vartype num_samples_set: numpy.ndarray (dtype=np.uint64)
-    :ivar node_total_span: A numpy array of size :attr:`.tree_sequence.num_nodes`
-        containing the genomic span covered by each node (including fixed nodes).
+    :vartype total_fixed_at_0_counts: numpy.ndarray (dtype=np.uint64)
+    :ivar node_spans: A numpy array of size :attr:`.tree_sequence.num_nodes`
+        containing the genomic span covered by each node (including sample nodes).
         Parts of the genome where a node to date exists but contains no fixed-date
         descendants (i.e. "dangling nodes") are *not* included in the total;
         similarly for fixed nodes, regions where they are isolated nodes (i.e.
         missing data) are omitted.
-    :vartype node_total_span: numpy.ndarray (dtype=np.uint64)
+    :vartype node_spans: numpy.ndarray (dtype=np.uint64)
     :ivar nodes_to_date: An numpy array containing all the node ids in the tree
         sequence that we wish to date. These are usually all the non-sample nodes,
         and also provide the node numbers that are valid parameters for the
         :meth:`weights` method.
     :vartype nodes_to_date: numpy.ndarray (dtype=np.uint32)
     """
-    def __init__(self, tree_sequence, fixed_node_set=None):
+    def __init__(self, tree_sequence, fixed_nodes=None, progress=False):
         """
         :param TreeSequence ts: The input :class:`tskit.TreeSequence`.
-        :param set fixed_node_set: A set of all the samples in the tree sequence.
-            This should be equivalent to ``set(ts.samples()``, but is provided
-            as an optional parameter so that a pre-calculated set can be passed
-            in, to save the expense of re-calculating it when setting up the
-            class. If ``None`` (the default) a fixed_node_set will be constructed
-            during initialization.
+        :param iterable fixed_nodes: A list of all the nodes in the tree sequence
+            whose time is treated as fixed. These nodes will be used to calculate
+            prior values for any ancestral nodes. Normally the fixed nodes are
+            equivalent to ``ts.samples()``, but this parameter is available so
+            that a pre-calculated set can be passed in, to save the expense of
+            re-calculating it when setting up the class. If ``None`` (the default)
+            a set of fixed_nodes will be constructed during initialization.
+
+            Currently, only the nodes in this set that are at time 0 will be used
+            to calculate the prior.
         """
         self.ts = tree_sequence
-        self.fixed_node_set = set(self.ts.samples()) if fixed_node_set is None else \
-            fixed_node_set
+        self.fixed_nodes = set(self.ts.samples()) if fixed_nodes is None else \
+            set(fixed_nodes)
+        self.progress = progress
+        # TODO check that all fixed nodes are marked as samples
+        self.fixed_at_0_nodes = {n for n in self.fixed_nodes
+                                 if self.ts.node(n).time == 0}
+
         # We will store the spans in here, and normalise them at the end
         self._spans = defaultdict(lambda: defaultdict(lambda: defaultdict(float)))
 
-        node_total_span, trees_with_undated, n_tips_per_tree = self.set_spans_initial()
-        # Provide a list of the total_num_tips in different trees (used for missing data)
-        self.num_samples_set = np.unique(n_tips_per_tree)
-        # Provide the complete spans for each node, used e.g. for normalising
-        self.node_total_span = node_total_span
+        with tqdm(total=3, desc="TipCount", disable=not self.progress) as progressbar:
+            node_spans, trees_with_undated, total_fixed_at_0_per_tree = self.first_pass()
+            progressbar.update()
 
-        # Check for remaining undated nodes (all unary ones)
-        if self.nodes_remain_to_date():
-            self.set_spans_connected_unary(trees_with_undated, n_tips_per_tree)
-        if self.nodes_remain_to_date():
-            self.set_spans_unconnected_unary(trees_with_undated, n_tips_per_tree)
+            # A set of the total_num_tips in different trees (used for missing data)
+            self.total_fixed_at_0_counts = set(np.unique(total_fixed_at_0_per_tree))
+            # The complete spans for each node, used e.g. for normalising
+            self.node_spans = node_spans
 
+            # Check for remaining undated nodes (all unary ones)
+            if self.nodes_remain_to_date():
+                self.second_pass(trees_with_undated, total_fixed_at_0_per_tree)
+            progressbar.update()
+            if self.nodes_remain_to_date():
+                self.third_pass(trees_with_undated, total_fixed_at_0_per_tree)
+            progressbar.update()
         self.finalise()
+        progressbar.close()
 
     def nodes_remaining_to_date(self):
         """
@@ -386,27 +434,27 @@ class SpansBySamples:
         set of spans allocated which could be used to date the node.
         """
         return {n for n in range(self.ts.num_nodes) if not(
-            n in self._spans or n in self.fixed_node_set)}
+            n in self._spans or n in self.fixed_nodes)}
 
     def nodes_remain_to_date(self):
         """
         A more efficient version of nodes_remaining_to_date() that simply tells us if
         there are any more nodes that remain to date, but does not identify which ones
         """
-        if self.ts.num_nodes - self.ts.num_samples - len(self._spans) != 0:
+        if self.ts.num_nodes - len(self.fixed_nodes) - len(self._spans) != 0:
             # we should always have equal or fewer results than nodes to date
-            assert len(self._spans) < self.ts.num_nodes - len(self.fixed_node_set)
+            assert len(self._spans) < self.ts.num_nodes - len(self.fixed_nodes)
             return True
         return False
 
-    def set_spans_initial(self):
+    def first_pass(self):
         """
         Returns a tuple of the span that each node covers, a list of the tree indices of
         trees that have undated nodes (used to quickly revist these trees later), and the
         number of valid samples (tips) in each tree.
         """
         # The following 3 variables will be returned by this function
-        node_total_span = np.zeros(self.ts.num_nodes)
+        node_spans = np.zeros(self.ts.num_nodes)
         trees_with_undated = []  # Used to revisit trees with nodes that need dating
         n_tips_per_tree = np.full(self.ts.num_trees, tskit.NULL, dtype=np.int64)
 
@@ -416,12 +464,12 @@ class SpansBySamples:
         # If set to np.nan, this indicates that we are not currently tracking this node
         stored_pos = np.full(self.ts.num_nodes, np.nan)
 
-        def save_to_span_data(prev_tree, node, num_fixed_treenodes):
+        def save_to_spans(prev_tree, node, num_fixed_at_0_treenodes):
             """
             A convenience function to save accumulated tracked node data at the current
             breakpoint. If this is a fixed node which needs dating, we save the
             span by # descendant tips into self._spans. If the node was skipped because
-            it is a unary node at the top of the tree, return None
+            it is a unary node at the top of the tree, return None.
             """
             if np.isnan(stored_pos[node]):
                 # Don't save ones that we aren't tracking
@@ -436,12 +484,14 @@ class SpansBySamples:
                 # Do not save this span to the total
                 return False
             coverage = prev_tree.interval[1] - stored_pos[node]
-            node_total_span[node] += coverage
-            if node in self.fixed_node_set:
+            node_spans[node] += coverage
+            if node in self.fixed_nodes:
                 return True
+            n_fixed_at_0 = prev_tree.num_tracked_samples(node)
+            assert n_fixed_at_0 > 0
             if prev_tree.num_children(node) > 1:
                 # This is a coalescent node
-                self._spans[node][num_fixed_treenodes][n_tips] += coverage
+                self._spans[node][num_fixed_at_0_treenodes][n_fixed_at_0] += coverage
             else:
                 # Treat unary nodes differently: mixture of coalescent nodes above+below
                 top_node = prev_tree.parent(node)
@@ -455,18 +505,19 @@ class SpansBySamples:
                         " Skipping for now".format(node, prev_tree.index))
                     return None
                 # Half from the node above
-                top_node_tips = prev_tree.num_samples(top_node)
-                self._spans[node][num_fixed_treenodes][top_node_tips] += coverage/2
+                top_node_tips = prev_tree.num_tracked_samples(top_node)
+                self._spans[node][num_fixed_at_0_treenodes][top_node_tips] += coverage/2
                 # Half from the node below
-                #  NB: coalescent node below should have same num_samples as this one
-                self._spans[node][num_fixed_treenodes][n_tips] += coverage/2
+                #  NB: coalescent node below should have same num_tracked_samples as this
+                # TODO - assumes no internal unary sample nodes at 0 (impossible)
+                self._spans[node][num_fixed_at_0_treenodes][n_fixed_at_0] += coverage/2
             return True
 
         # We iterate over edge_diffs to calculate, as nodes change their descendant tips,
         # the genomic coverage for each node partitioned into descendant tip numbers
         edge_diff_iter = self.ts.edge_diffs()
         # There are 2 possible algorithms - the simplest is to find all the affected
-        # nodes in the new tree, and use the constant-time "Tree.num_samples()"
+        # nodes in the new tree, and use the constant-time "Tree.num_tracked_samples()"
         # to recalculate the number of samples under each affected tip.
         # The more complex one keeps track of the samples added and subtracted
         # each time, basically implementing the num_samples() method itself
@@ -475,37 +526,41 @@ class SpansBySamples:
         for node in self.ts.first().nodes():
             stored_pos[node] = 0
         # Consume the first edge diff: normally this is when most edges come in
-        num_fixed_treenodes = 0
+        num_fixed_at_0_treenodes = 0
         _, _, e_in = next(edge_diff_iter)
         for e in e_in:
-            if e.child in self.fixed_node_set:
-                num_fixed_treenodes += 1
+            if e.child in self.fixed_at_0_nodes:
+                num_fixed_at_0_treenodes += 1
             if e.parent != tskit.NULL:
                 num_children[e.parent] += 1
-        n_tips_per_tree[0] = num_fixed_treenodes
+        n_tips_per_tree[0] = num_fixed_at_0_treenodes
 
         # Iterate over trees and remaining edge diffs
-        for prev_tree in self.ts.trees(sample_counts=True):
+        focal_tips = list(self.fixed_at_0_nodes)
+        for prev_tree in tqdm(
+                self.ts.trees(sample_counts=True, tracked_samples=focal_tips),
+                desc="1st pass", disable=not self.progress):
+
             try:
                 # Get the edge diffs from the prev tree to the new tree
                 _, e_out, e_in = next(edge_diff_iter)
             except StopIteration:
                 # Last tree, save all the remaining nodes
                 for node in prev_tree.nodes():
-                    if save_to_span_data(prev_tree, node, num_fixed_treenodes) is None:
+                    if save_to_spans(prev_tree, node, num_fixed_at_0_treenodes) is None:
                         trees_with_undated.append(prev_tree.index)
                 assert prev_tree.index == self.ts.num_trees - 1
-                break
+                continue
 
-            fixed_nodes_out = set()
-            fixed_nodes_in = set()
+            fixed_at_0_nodes_out = set()
+            fixed_at_0_nodes_in = set()
             disappearing_nodes = set()
             changed_nodes = set()
             for e in e_out:
                 # Since a node only has one parent edge, any edge children going out
                 # will be lost, unless they are reintroduced in the edges_in
-                if e.child in self.fixed_node_set:
-                    fixed_nodes_out.add(e.child)
+                if e.child in self.fixed_at_0_nodes:
+                    fixed_at_0_nodes_out.add(e.child)
                 # No need to add the parents, as we'll traverse up the previous tree
                 # from these points and be guaranteed to hit them too.
                 changed_nodes.add(e.child)
@@ -517,8 +572,8 @@ class SpansBySamples:
 
             for e in e_in:
                 # Edge children are always new
-                if e.child in self.fixed_node_set:
-                    fixed_nodes_in.add(e.child)
+                if e.child in self.fixed_at_0_nodes:
+                    fixed_at_0_nodes_in.add(e.child)
                 # This may change in the upcoming tree
                 changed_nodes.add(e.child)
                 disappearing_nodes.discard(e.child)
@@ -567,7 +622,7 @@ class SpansBySamples:
                         break
                     visited_nodes.add(node)
                     # Node is in tree
-                    if save_to_span_data(prev_tree, node, num_fixed_treenodes) is None:
+                    if save_to_spans(prev_tree, node, num_fixed_at_0_treenodes) is None:
                         trees_with_undated.append(prev_tree.index)
                     if node in disappearing_nodes:
                         # Not tracking this in the future
@@ -578,27 +633,28 @@ class SpansBySamples:
 
             # If total number of samples has changed: we need to save
             #  everything so far & reset all starting positions
-            if len(fixed_nodes_in) != len(fixed_nodes_out):
+            if len(fixed_at_0_nodes_in) != len(fixed_at_0_nodes_out):
                 for node in prev_tree.nodes():
                     if node in visited_nodes:
                         # We have already saved these - no need to again
                         continue
-                    if save_to_span_data(prev_tree, node, num_fixed_treenodes) is None:
+                    if save_to_spans(prev_tree, node, num_fixed_at_0_treenodes) is None:
                         trees_with_undated.append(prev_tree.index)
                     if node in disappearing_nodes:
                         # Not tracking this in the future
                         stored_pos[node] = np.nan
                     else:
                         stored_pos[node] = prev_tree.interval[1]
-                num_fixed_treenodes += len(fixed_nodes_in) - len(fixed_nodes_out)
-            n_tips_per_tree[prev_tree.index+1] = num_fixed_treenodes
+                num_fixed_at_0_treenodes += (len(fixed_at_0_nodes_in) -
+                                             len(fixed_at_0_nodes_out))
+            n_tips_per_tree[prev_tree.index+1] = num_fixed_at_0_treenodes
 
-        return node_total_span, trees_with_undated, n_tips_per_tree
+        return node_spans, trees_with_undated, n_tips_per_tree
 
-    def set_spans_connected_unary(self, trees_with_undated, n_tips_per_tree):
+    def second_pass(self, trees_with_undated, n_tips_per_tree):
         """
-        Check for nodes with unassigned prior params. We should see
-        if can we assign params for these node priors using
+        Check for nodes which have unassigned prior params after the first
+        pass. We should see if can we assign params for these node priors using
         now-parameterized nodes. This requires another pass through the
         tree sequence. If there is no non-parameterized node above, then
         we can simply assign this the coalescent maximum
@@ -609,7 +665,8 @@ class SpansBySamples:
         # Simple algorithm does this treewise
         tree_iter = self.ts.trees()
         tree = next(tree_iter)
-        for tree_id in trees_with_undated:
+        for tree_id in tqdm(trees_with_undated, desc="2nd pass",
+                            disable=not self.progress):
             while tree.index != tree_id:
                 tree = next(tree_iter)
             for node in unassigned_nodes:
@@ -619,29 +676,32 @@ class SpansBySamples:
                     # this tree
                 assert tree.num_samples(node) > 0
                 assert tree.num_children(node) == 1
-                known_node_above = tree.parent(node)
-                try:
-                    while self.node_undated(known_node_above):
-                        known_node_above = tree.parent(known_node_above)
-                except ValueError:  # Happens if we have hit the root
-                    assert known_node_above == tskit.NULL
+                n = node
+                done = False
+                while not done:
+                    n = tree.parent(n)
+                    if n == tskit.NULL or n in self._spans:
+                        done = True
+                if n == tskit.NULL:
                     continue  # Skip nodes which are not connected at all
-                logging.debug(
-                    "Assigning prior to unary node {}: connected to node {} which"
-                    " has a prior in tree {}".format(node, known_node_above, tree_id))
-                for total_tips, weights in self._spans[known_node_above].items():
-                    for k, weight in weights.items():
-                        if k == 0:
-                            raise ValueError("Oh dear 2")
-                        local_weight = weight / self.node_total_span[known_node_above]
-                        self._spans[node][total_tips][k] += tree.span * local_weight / 2
-                assert tree.num_children(node) == 1
-                total_tips = n_tips_per_tree[tree_id]
-                desc_tips = tree.num_samples(node)
-                self._spans[node][total_tips][desc_tips] += tree.span / 2
-                self.node_total_span[node] += tree.span
+                else:
+                    logging.debug(
+                        "Assigning prior to unary node {}: connected to node {} which"
+                        " has a prior in tree {}".format(node, n, tree_id))
+                    for n_tips, weights in self._spans[n].items():
+                        for k, v in weights.items():
+                            if k <= 0:
+                                raise ValueError(
+                                    "Node {} has no fixed descendants".format(n))
+                            local_weight = v / self.node_spans[n]
+                            self._spans[node][n_tips][k] += tree.span * local_weight / 2
+                    assert tree.num_children(node) == 1
+                    total_tips = n_tips_per_tree[tree_id]
+                    desc_tips = tree.num_samples(node)
+                    self._spans[node][total_tips][desc_tips] += tree.span / 2
+                    self.node_spans[node] += tree.span
 
-    def set_spans_unconnected_unary(self, trees_with_undated, n_tips_per_tree):
+    def third_pass(self, trees_with_undated, n_tips_per_tree):
         """
         We STILL have some missing priors.
         These must be unconnected to higher
@@ -653,7 +713,8 @@ class SpansBySamples:
         unassigned_nodes = self.nodes_remaining_to_date()
         tree_iter = self.ts.trees()
         tree = next(tree_iter)
-        for tree_id in trees_with_undated:
+        for tree_id in tqdm(trees_with_undated, desc="3rd pass",
+                            disable=not self.progress):
             while tree.index != tree_id:
                 tree = next(tree_iter)
             for node in unassigned_nodes:
@@ -665,16 +726,15 @@ class SpansBySamples:
                     # below, we do as before
                     desc_tips = tree.num_samples(node)
                     self._spans[node][total_tips][desc_tips] += tree.span / 2
-                    self.node_total_span[node] += tree.span
 
     def finalise(self):
         """
-        Normalise the spans in self._spans by the values in self.node_total_span,
+        Normalise the spans in self._spans by the values in self.node_spans,
         and overwrite the results (as we don't need them any more), providing a
-        shortcut to by setting normalised_node_spans. Also provide the nodes_to_date
-        value.
+        shortcut to by setting normalised_node_span_data. Also provide the
+        nodes_to_date value.
         """
-        assert not hasattr(self, 'normalised_node_spans')  # Check not already finalised
+        assert not hasattr(self, 'normalised_node_span_data'), "Already finalised"
         if self.nodes_remain_to_date():
             raise ValueError(
                 "When finalising node spans, found the following nodes not in any tree;"
@@ -687,9 +747,9 @@ class SpansBySamples:
                 self._spans[node][num_samples] = Weights(
                     # we use np.int64 as it's faster to look up in pandas dataframes
                     descendant_tips=np.array(list(weights.keys()), dtype=np.int64),
-                    weight=np.array(list(weights.values()))/self.node_total_span[node])
+                    weight=np.array(list(weights.values()))/self.node_spans[node])
         # Assign into the instance, for further reference
-        self.normalised_node_spans = self._spans
+        self.normalised_node_span_data = self._spans
         self.nodes_to_date = np.array(list(self._spans.keys()), dtype=np.uint64)
 
     def get_weights(self, node):
@@ -723,7 +783,7 @@ class SpansBySamples:
             the normalisation means that all the weights should sum to one.
         :rtype: dict(int, dict(int, float))
         """
-        return self.normalised_node_spans[node]
+        return self.normalised_node_span_data[node]
 
     def lookup_weight(self, node, total_tips, descendant_tips):
         # Inefficient and only used for testing: return the weight for a specific # tips
@@ -790,33 +850,135 @@ def create_time_grid(age_prior, n_points=21):
     return np.insert(t_set, 0, 0)
 
 
-def iterate_parent_edges(ts):
-    if ts.num_edges > 0:
-        # Fix this when reversed iterator is merged to main tskit
-        # tskit github issue #304
-        # but instead should iterate over edge ids in reverse
-        # i.e. edge_ids = list(reversed(range(ts.num_edges)))
-        all_edges = list(ts.edges())
-        parent_edges = all_edges[:1]
-        parent_edges[0] = (0, parent_edges[0])
-        cur_parent = all_edges[:1][0].parent
-        last_parent = -1
-        for index, edge in enumerate(all_edges[1:]):
-            if edge.parent != last_parent and edge.parent != cur_parent:
-                yield parent_edges
-                cur_parent = edge.parent
-                parent_edges = []
-            parent_edges.append((index + 1, edge))
-        yield parent_edges
+class NodeGridValues:
+    """
+    A class to store grid values for node ids. For some nodes (fixed ones), only a single
+    value needs to be stored. For non-fixed nodes, an array of grid_size variables
+    is required, e.g. in order to store all the possible values for each of the hidden
+    states in the grid
+
+    :ivar num_nodes: The number of nodes that will be stored in this object
+    :vartype num_nodes: int
+    :ivar nonfixed_nodes: a (possibly empty) numpy array of unique positive node ids each
+        of which must be less than num_nodes. Each will have an array of grid_size
+        associated with it. All others (up to num_nodes) will be associated with a single
+        scalar value instead.
+    :vartype nonfixed_nodes: numpy.ndarray
+    :ivar grid_size: The size of the time grid used for non-fixed nodes
+    :vartype grid: int
+    :ivar fill_value: What should we fill the data arrays with to start with
+    :vartype fill_value: numpy.scalar
+    """
+    def __init__(self, num_nodes, nonfixed_nodes, grid_size,
+                 fill_value=np.nan, dtype=FLOAT_DTYPE):
+        """
+        :param numpy.ndarray grid: The input numpy.ndarray.
+        """
+        if nonfixed_nodes.ndim != 1:
+            raise ValueError("nonfixed_nodes must be a 1D numpy array")
+        if np.any((nonfixed_nodes < 0) | (nonfixed_nodes >= num_nodes)):
+            raise ValueError(
+                "All non fixed node ids must be between zero and the total node number")
+        self.num_nodes = num_nodes
+        self.nonfixed_nodes = nonfixed_nodes
+        self.num_nonfixed = len(nonfixed_nodes)
+        self.grid_data = np.full((self.num_nonfixed, grid_size), fill_value, dtype=dtype)
+        self.fixed_data = np.full(num_nodes - self.num_nonfixed, fill_value, dtype=dtype)
+        self.row_lookup = np.empty(num_nodes, dtype=np.int64)
+        # non-fixed nodes get a positive value, indicating lookup in the grid_data array
+        self.row_lookup[nonfixed_nodes] = np.arange(self.num_nonfixed)
+        # fixed nodes get a negative value from -1, indicating lookup in the scalar array
+        self.row_lookup[np.logical_not(np.isin(np.arange(num_nodes), nonfixed_nodes))] =\
+            -np.arange(num_nodes - self.num_nonfixed) - 1
+
+    def apply_log(self):
+        self.grid_data = np.log(self.grid_data + 1e-10)
+        self.fixed_data = np.log(self.fixed_data + 1e-10)
+
+    def normalize_grid(self):
+        """
+        normalise the grid data so it sums to one
+        """
+        self.grid_data = self.grid_data / np.sum(self.grid_data, axis=1)[:, np.newaxis]
+
+    def __getitem__(self, node_id):
+        index = self.row_lookup[node_id]
+        if index < 0:
+            return self.fixed_data[1 + index]
+        else:
+            return self.grid_data[index, :]
+
+    def __setitem__(self, node_id, value):
+        index = self.row_lookup[node_id]
+        if index < 0:
+            print(index)
+            self.fixed_data[1 + index] = value
+        else:
+            self.grid_data[index, :] = value
+
+    @staticmethod
+    def clone_with_new_data(orig, grid_data=np.nan, fixed_data=None):
+        """
+        Take the row indices etc from an existing NodeGridValues object and make a new
+        similar one but with different data. If grid_data is a single number, fill the
+        entire data array with that, otherwise assume the data is a numpy array of the
+        correct size to fill the gridded data. If grid_data is None, fill with NaN
+
+        If fixed_data is None and grid_data is a single number, use the same value as
+        grid_data for the fixed data values. If fixed_data is None and grid_data is an
+        array, set the fixed data to np.nan
+        """
+        def fill_fixed(orig, fixed_data):
+            if type(fixed_data) is np.ndarray:
+                if orig.fixed_data.shape != fixed_data.shape:
+                    raise ValueError(
+                        "The fixed data array must be the same shape as the original")
+                return fixed_data
+            else:
+                return np.full(
+                    orig.fixed_data.shape, fixed_data, dtype=orig.fixed_data.dtype)
+
+        new_obj = NodeGridValues.__new__(NodeGridValues)
+        new_obj.num_nodes = orig.num_nodes
+        new_obj.nonfixed_nodes = orig.nonfixed_nodes
+        new_obj.num_nonfixed = orig.num_nonfixed
+        new_obj.row_lookup = orig.row_lookup
+        if type(grid_data) is np.ndarray:
+            if orig.grid_data.shape != grid_data.shape:
+                raise ValueError(
+                    "The grid data array must be the same shape as the original")
+            new_obj.grid_data = grid_data
+            new_obj.fixed_data = fill_fixed(
+                orig, np.nan if fixed_data is None else fixed_data)
+        else:
+            if grid_data == 0:  # Fast allocation
+                new_obj.grid_data = np.zeros(
+                    orig.grid_data.shape, dtype=orig.grid_data.dtype)
+            else:
+                new_obj.grid_data = np.full(
+                    orig.grid_data.shape, grid_data, dtype=orig.grid_data.dtype)
+            new_obj.fixed_data = fill_fixed(
+                orig, grid_data if fixed_data is None else fixed_data)
+        return new_obj
 
 
-def get_prior_values(mixture_prior, grid, ts, nodes_to_date):
-    prior_times = np.zeros((ts.num_nodes, len(grid)), dtype=np.float64)
-    prior_times[:, 0] = 1
-    for node in nodes_to_date:
+def fill_prior(gamma_parameters, grid, ts, nodes_to_date, progress=False):
+    """
+    Take the alpha and beta values from the gamma_parameters data frame
+    and fill out a NodeGridValues object with the prior values from the
+    gamma distribution with those parameters.
+
+    TODO - what if there is an internal fixed node? Should we truncate
+    """
+    # Sort nodes-to-date by time, as that's the order given when iterating over edges
+    prior_times = NodeGridValues(
+        ts.num_nodes,
+        nodes_to_date[np.argsort(ts.tables.nodes.time[nodes_to_date])].astype(np.int32),
+        len(grid))
+    for node in tqdm(nodes_to_date, desc="GetPrior", disable=not progress):
         prior_node = scipy.stats.gamma.cdf(
-            grid, mixture_prior.loc[node, "Alpha"],
-            scale=1 / mixture_prior.loc[node, "Beta"])
+            grid, gamma_parameters.loc[node, "Alpha"],
+            scale=1 / gamma_parameters.loc[node, "Beta"])
         # force age to be less than max value
         prior_node = np.divide(prior_node, max(prior_node))
         # prior in each epoch
@@ -825,280 +987,406 @@ def get_prior_values(mixture_prior, grid, ts, nodes_to_date):
 
         # normalize so max value is 1
         prior_intervals = np.divide(prior_intervals, max(prior_intervals[1:]))
-        prior_times[node, :] = prior_intervals
+        prior_times[node] = prior_intervals
     return prior_times
 
 
-def get_mut_edges(ts):
+class Likelihoods:
     """
-    Assign mutations to edges in the tree sequence.
+    A class to store the likelihoods for edges. These are stored as a flattened
+    lower triangular matrix of all the possible delta t's. This class also provides
+    methods for accessing this lower triangular matrix, multiplying it, etc.
     """
-    edge_diff_iter = ts.edge_diffs()
-    right = 0
-    edges_by_child = {}  # contains {child_node:edge_id}
-    mut_edges = np.zeros(ts.num_edges, dtype=np.int64)
-    for site in ts.sites():
-        while right <= site.position:
-            (left, right), edges_out, edges_in = next(edge_diff_iter)
-            for e in edges_out:
-                del edges_by_child[e.child]
-            for e in edges_in:
-                assert e.child not in edges_by_child
-                edges_by_child[e.child] = e.id
-        for m in site.mutations:
-            # In some cases, mutations occur above the root
-            # These don't provide any information for the forwards step
-            if m.node in edges_by_child:
-                edge_id = edges_by_child[m.node]
-                mut_edges[edge_id] += 1
-    return(mut_edges)
-
-
-def get_mut_ll(ts, grid, theta, eps):
-    """
-    Precalculate the likelihood for each unique edge.
-    An edge is considered unique if it has a unique number of mutations and
-    span.
-    Constructs a lower triangular matrix of all possible delta t's, but
-    stores this in 1d to save space.
-    get_rows_cols() returns rows and columns to index into likelihoods.
-    """
-    ll_mut = {}
-    mut_edges = get_mut_edges(ts)
-    dt = np.concatenate([grid[time] - grid[0:time + 1] +
-                        eps for time in np.arange(len(grid))])
-
-    for edge in ts.edges():
-        mut_edge = mut_edges[edge.id]
-        span = edge.right - edge.left
-
-        if (mut_edge, span) not in ll_mut:
-            ll_mut[(mut_edge, span)] = scipy.stats.poisson.pmf(
-                mut_edge, dt * (theta / 2 * (span)))
-
-    return ll_mut
-
-
-class LowerTriangularMatrix:
-    """
-    A class to construct a lower triangular matrix of all possible delta t's,
-    efficiently stored in 1d. Computes row- and column-based indices into the
-    array for the forward and backward algorithms, respectively.
-    The main methods are :meth:`row_based_indices` and `col_based_indices`
-    which return the indices of the matrix either by rows or by columns.
-
-    :ivar grid: A reference to the discretised time grid
-    :vartype grid: numpy.ndarray (dtype=np.uint64)
-    """
-    def __init__(self, grid):
-        """
-        :param numpy.ndarray grid: The input numpy.ndarray.
-        """
+    def __init__(self, ts, grid, theta=None, eps=0, fixed_node_set=None):
+        self.ts = ts
         self.grid = grid
+        self.fixednodes = set(ts.samples()) if fixed_node_set is None else fixed_node_set
+        self.theta = theta
+        self.grid_size = len(grid)
+        self.tri_size = self.grid_size * (self.grid_size + 1) / 2
+        self.ll_mut = {}
+        self.mut_edges = self.get_mut_edges(ts)
+        # Need to set eps properly in the 2 lines below, to account for values in the
+        # same timeslice
+        self.timediff_lower_tri = np.concatenate(
+            [self.grid[time_index] - self.grid[0:time_index + 1] + eps
+                for time_index in np.arange(len(self.grid))])
+        self.timediff = self.grid - self.grid[0] + eps
 
-        def row_based_column(time, grid):
-            n = np.arange(len(grid))
-            return ((((n * (n + 1)) // 2) + time)[time:])
-        self.row_based_cols = [row_based_column(time, grid) for time in range(len(grid))]
-
-        # The mut_ll is indexing the lower triangular matrix by rows, we now need
-        # a column-based based index. end_col find the index of the last element of
+        # The mut_ll contains unpacked (1D) lower triangular matrices. We need to
+        # index this by row and by column index.
+        self.row_indices = []
+        for time in range(self.grid_size):
+            n = np.arange(self.grid_size)
+            self.row_indices.append((((n * (n + 1)) // 2) + time)[time:])
+        self.col_indices = []
+        running_sum = 0  # use this to find the index of the last element of
         # each column in order to appropriately sum the vv by columns.
-        running_sum = 0
-        end_col = list()
-        for i in np.arange(len(grid)):
-            arr = np.arange(running_sum, running_sum + len(grid) - i)
+        for i in np.arange(self.grid_size):
+            arr = np.arange(running_sum, running_sum + self.grid_size - i)
             index = arr[-1]
             running_sum = index + 1
             val = arr[0]
-            end_col.append(val)
-        self.col_based_cols = end_col
-        self.forward_dt = np.concatenate(
-            [np.arange(time + 1) for time in np.arange(len(grid))])
-        self.backward_dt = np.concatenate([np.arange(time, len(grid))
-                                           for time in np.arange(len(grid) + 1)])
+            self.col_indices.append(val)
 
+        # These are used for transforming an array of grid_size into one of tri_size
+        # By repeating elements over rows to form an upper or a lower triangular matrix
+        self.to_lower_tri = np.concatenate(
+            [np.arange(time_idx + 1) for time_idx in np.arange(self.grid_size)])
+        self.to_upper_tri = np.concatenate(
+            [np.arange(time_idx, self.grid_size)
+                for time_idx in np.arange(self.grid_size + 1)])
 
-def forward_algorithm(ts, prior_values, grid, theta, rho, eps, matrix_indices,
-                      lls=None, progress=False):
-    """
-    Use dynamic programming to find approximate posterior to sample from
-    """
-
-    forwards = np.zeros((ts.num_nodes, len(grid)))  # store forward matrix
-    g_i = np.zeros((ts.num_nodes, len(grid)))  # store g of i
-
-    # initialize tips at time 0 to prob=1
-    # TODO - account for ancient samples at different ages
-    forwards[ts.samples(), 0] = 1
-    g_i[ts.samples(), 0] = 1
-
-    norm = np.zeros((ts.num_nodes))  # normalizing constants
-    norm[ts.samples()] = 1  # set all tips normalizing constants to 1
-
-    mut_edges = get_mut_edges(ts)
-
-    # Iterate through the nodes via groupby on parent node
-    for parent_group in tqdm(
-        iterate_parent_edges(ts), total=ts.num_nodes - ts.num_samples,
-            disable=not progress):
+    @staticmethod
+    def get_mut_edges(ts):
         """
-        for each node, find the conditional prob of age at every time
-        in time grid
+        Get the number of mutations on each edge in the tree sequence.
         """
-        parent = parent_group[0][1].parent
-        val = prior_values[parent].copy()
-        g_val = np.ones(len(grid))
-        g_val[0] = 0
-        for edge_index, edge in parent_group:
-            # Calculate vals for each edge
-            span = edge.right - edge.left
-            dt = forwards[edge.child][matrix_indices.forward_dt]
-            if theta is not None and rho is not None:
-                b_l = (edge.left != 0)
-                b_r = (edge.right != ts.get_sequence_length())
-                ll_rec = np.power(
-                    dt, b_l + b_r) * np.exp(-(dt * rho * span * 2))
-                ll_mut = lls[mut_edges[edge_index], span]
-                vv = ll_mut * ll_rec * dt
-                vv = np.add.reduceat(vv, matrix_indices.row_based_cols[0])
-                val *= vv
-                g_val *= vv
-            elif theta is not None:
-                ll_mut = lls[mut_edges[edge_index], span]
-                vv = ll_mut * dt
-                vv = np.add.reduceat(vv, matrix_indices.row_based_cols[0])
-                val *= vv
-                g_val *= vv
-            elif rho is not None:
-                b_l = (edge.left != 0)
-                b_r = (edge.right != ts.get_sequence_length())
-                ll_rec = np.power(
-                    dt, b_l + b_r) * np.exp(-(dt * rho * span * 2))
-                vv = ll_rec * dt
-                vv = np.add.reduceat(vv, matrix_indices.row_based_cols[0])
-                val *= vv
-                g_val *= vv
+        edge_diff_iter = ts.edge_diffs()
+        right = 0
+        edges_by_child = {}  # contains {child_node:edge_id}
+        mut_edges = np.zeros(ts.num_edges, dtype=np.int64)
+        for site in ts.sites():
+            while right <= site.position:
+                (left, right), edges_out, edges_in = next(edge_diff_iter)
+                for e in edges_out:
+                    del edges_by_child[e.child]
+                for e in edges_in:
+                    assert e.child not in edges_by_child
+                    edges_by_child[e.child] = e.id
+            for m in site.mutations:
+                # In some cases, mutations occur above the root
+                # These don't provide any information for the upward step
+                if m.node in edges_by_child:
+                    edge_id = edges_by_child[m.node]
+                    mut_edges[edge_id] += 1
+        return mut_edges
+
+    @staticmethod
+    def _lik(muts, span, dt, theta):
+        """
+        The likelihood of an edge given a number of mutations, as set of time deltas (dt)
+        and a span. This is a static function to allow parallelization
+        """
+        return scipy.stats.poisson.pmf(muts, dt * theta/2 * span)
+
+    @staticmethod
+    def _lik_wrapper(muts_span, dt, theta):
+        """
+        A wrapper to allow this _lik to be called by pool.imap_unordered, returning the
+        mutation and span values
+        """
+        return muts_span, Likelihoods._lik(muts_span[0], muts_span[1], dt, theta)
+
+    def precalculate_mutation_likelihoods(
+            self, num_threads=None, unique_method=0):
+        """
+        We precalculate these because the pmf function is slow, but can be trivially
+        parallelised. We store the likelihoods in a cache because they only depend on
+        the number of mutations and the span, so can potentially be reused.
+
+        However, we don't bother storing the likelihood for edges above a *fixed* node,
+        because (a) these are only used once per node and (b) sample edges are often
+        long, and hence their span will be unique. This also allows us to deal easily
+        with fixed nodes at explicit times (rather than in time slices)
+        """
+        if self.theta is None:
+            raise RuntimeError("Cannot calculate mutation likelihoods with no theta set")
+        if unique_method == 0:
+            self.unfixed_likelihood_cache = {
+                (muts, e.span): None for muts, e in
+                zip(self.mut_edges, self.ts.edges())
+                if e.child not in self.fixednodes}
+        else:
+            edges = self.ts.tables.edges
+            fixed_nodes = np.array(list(self.fixednodes))
+            keys = np.unique(
+                np.core.records.fromarrays(
+                    (self.mut_edges, edges.right-edges.left), names='muts,span')[
+                        np.logical_not(np.isin(edges.child, fixed_nodes))])
+            if unique_method == 1:
+                self.unfixed_likelihood_cache = dict.fromkeys({tuple(t) for t in keys})
             else:
-                # Topology-only clock
-                vv = np.add.reduceat(dt, matrix_indices.row_based_cols[0])
+                self.unfixed_likelihood_cache = {tuple(t): None for t in keys}
 
-        forwards[parent] = val
-        g_i[parent] = g_val
-        norm[parent] = np.max(forwards[parent, :])
-        forwards[parent, :] = np.divide(forwards[parent, :], norm[parent])
-        g_i_norm = np.max(g_i[parent, :])
-        g_i[parent, :] = np.divide(g_i[parent, :], g_i_norm)
-    logged_forwards = np.log(forwards + 1e-10)
-    logged_g_i = np.log(g_i + 1e-10)
-    return forwards, g_i, logged_forwards, logged_g_i
+        if num_threads:
+            f = functools.partial(  # Set constant values for params for static _lik
+                self._lik_wrapper, dt=self.timediff_lower_tri, theta=self.theta)
+            if num_threads == 1:
+                # Useful for testing
+                for key in self.unfixed_likelihood_cache.keys():
+                    returned_key, likelihoods = f(key)
+                    self.unfixed_likelihood_cache[returned_key] = likelihoods
+            else:
+                with multiprocessing.Pool(processes=num_threads) as pool:
+                    for key, pmf in pool.imap_unordered(
+                            f, self.unfixed_likelihood_cache.keys()):
+                        self.unfixed_likelihood_cache[key] = pmf
+        else:
+            for muts, span in self.unfixed_likelihood_cache.keys():
+                self.unfixed_likelihood_cache[muts, span] = self._lik(
+                    muts, span, dt=self.timediff_lower_tri, theta=self.theta)
+
+    def get_mut_lik_fixed_node(self, edge):
+        """
+        Get the mutation likelihoods for an edge whose child is at a
+        fixed time, but whose parent may take any of the time slices in the time grid
+        that are equal to or older than the child age. This is not cached, as it is
+        likely to be unique for each edge
+        """
+        assert edge.child in self.fixednodes, \
+            "Wrongly called fixed node function on non-fixed node"
+        assert self.theta is not None, \
+            "Cannot calculate mutation likelihoods with no theta set"
+
+        mutations_on_edge = self.mut_edges[edge.id]
+        child_time = self.ts.node(edge.child).time
+        assert child_time == 0
+        # Temporary hack - we should really take a more precise likelihood
+        return self._lik(mutations_on_edge, edge.span, self.timediff, self.theta)
+
+    def get_mut_lik_lower_tri(self, edge):
+        """
+        Get the cached mutation likelihoods for an edge with non-fixed parent and child
+        nodes, returning values for all the possible time differences between times on
+        the grid. These values are returned as a flattened lower triangular matrix, the
+        form required in the upward algorithm.
+
+        """
+        # Debugging asserts - should probably remove eventually
+        assert edge.child not in self.fixednodes, \
+            "Wrongly called lower_tri function on fixed node"
+        assert hasattr(self, "unfixed_likelihood_cache"), \
+            "Must call `precalculate_mutation_likelihoods()` before getting likelihoods"
+
+        mutations_on_edge = self.mut_edges[edge.id]
+        return self.unfixed_likelihood_cache[mutations_on_edge, edge.span]
+
+    def get_mut_lik_upper_tri(self, edge):
+        """
+        Same as :meth:`get_mut_lik_lower_tri`, but the returned array is ordered as
+        flattened upper triangular matrix (suitable for the downward algorithm), rather
+        than a lower triangular one
+        """
+        return self.get_mut_lik_lower_tri(edge)[np.concatenate(self.row_indices)]
+
+    # The following functions don't access the likelihoods directly, but allow
+    # other input arrays of length grid_size to be repeated in such a way that they can
+    # be directly multiplied by the unpacked lower triangular matrix, or arrays of length
+    # of the number of cells in the lower triangular matrix to be summed (e.g. by row)
+    # to give a shorter array of length grid_size
+
+    def make_lower_tri(self, input_array):
+        """
+        Repeat the input array row-wise to make a flattened lower triangular matrix
+        """
+        assert len(input_array) == self.grid_size
+        return input_array[self.to_lower_tri]
+
+    def rowsum_lower_tri(self, input_array):
+        """
+        Describe the reduceat trickery here. Presumably the opposite of make_lower_tri
+        """
+        assert len(input_array) == self.tri_size
+        return np.add.reduceat(input_array, self.row_indices[0])
+
+    def make_upper_tri(self, input_array):
+        """
+        Repeat the input array row-wise to make a flattened upper triangular matrix
+        """
+        assert len(input_array) == self.grid_size
+        return input_array[self.to_upper_tri]
+
+    def rowsum_upper_tri(self, input_array):
+        """
+        Describe the reduceat trickery here. Presumably the opposite of make_upper_tri
+        """
+        assert len(input_array) == self.tri_size
+        return np.add.reduceat(input_array, self.col_indices)
 
 
-# TODO: Account for multiple parents, fix the log of zero thing
-def backward_algorithm(
-        ts, forwards, g_i, grid, theta, rho, spans, eps, lls, matrix_indices,
-        dangling_nodes=None, fixed_node_set=None):
+class UpDownAlgorithms:
     """
-    Computes the full posterior distribution on nodes.
-    Input is log of forwards matrix, log of g_i matrix, time grid, population scaled
-    mutation and recombination rate. Spans of each edge, epsilon, likelihoods of each
-    edge, and the columns of the lower triangular matrix of likelihoods.
-
-    TODO - if forwards[node] is full of NaNs i
+    Contains the upward and downward algorithms, which operate over nodes to date
     """
-    if fixed_node_set is None:
-        fixed_node_set = set(ts.samples())
-    node_has_date = np.zeros(ts.num_nodes, dtype=bool)
-    node_has_date[list(fixed_node_set)] = True
-    backwards = np.zeros((ts.num_nodes, len(grid)))  # store backwards matrix
-    mut_edges = get_mut_edges(ts)
-    norm = np.zeros((ts.num_nodes))  # normalizing constants
-    norm[node_has_date] = 1  # normalizing constants of all nodes with known dates == 1
+    def __init__(self, ts, lik, progress=False):
+        self.ts = ts
+        self.lik = lik
+        self.progress = progress
+        self.fixednodes = self.lik.fixednodes
 
-    for tree in ts.trees():
-        for root in tree.roots:
-            if tree.is_isolated(root):
-                logging.debug(
-                    "Isolated node {} skipped in backwards algorithm".format(root))
-                continue
-            backwards[root, 1:] += (1 * tree.span) / spans[root]
-    backwards[node_has_date, 0] = 1
+    def iterate_parent_edges(self):
+        if self.ts.num_edges > 0:
+            # Fix this when reversed iterator is merged to main tskit
+            # tskit github issue #304
+            # but instead should iterate over edge ids in reverse
+            # i.e. edge_ids = list(reversed(range(ts.num_edges)))
+            all_edges = list(self.ts.edges())
+            parent_edges = all_edges[:1]
+            parent_edges[0] = (0, parent_edges[0])
+            cur_parent = all_edges[:1][0].parent
+            last_parent = -1
+            for index, edge in enumerate(all_edges[1:]):
+                if edge.parent != last_parent and edge.parent != cur_parent:
+                    yield parent_edges
+                    cur_parent = edge.parent
+                    parent_edges = []
+                parent_edges.append((index + 1, edge))
+            yield parent_edges
 
-    edges_by_child_time = (ts.edge(i) for i in reversed(
-        np.argsort(ts.tables.nodes.time[ts.tables.edges.child[:]])))
+    def upward(self, prior_values, theta, rho, return_log=True, progress=None):
+        """
+        Use dynamic programming to find approximate posterior to sample from
+        """
+        upward = NodeGridValues.clone_with_new_data(prior_values)  # store upward matrix
+        g_i = NodeGridValues.clone_with_new_data(upward, grid_data=0)  # store g of i
 
-    for child, edges in tqdm(
-            itertools.groupby(edges_by_child_time, key=lambda x: x.child),
-            total=ts.num_nodes - np.sum(node_has_date)):
-        if child not in fixed_node_set:
-            if child in dangling_nodes:
-                raise RuntimeError("Cannot yet date dangling nodes")
-            edges = list(edges)
-            for edge in edges:
-                dt = (backwards[edge.parent] *
-                      np.exp(np.subtract(forwards[edge.parent],
-                                         g_i[edge.child])))[matrix_indices.backward_dt]
-                span = edge.right - edge.left
+        # Iterate through the nodes via groupby on parent node
+        if progress is None:
+            progress = self.progress
+        for parent_grp in tqdm(self.iterate_parent_edges(), desc="Upward  ",
+                               total=upward.num_nonfixed, disable=not progress):
+            """
+            for each node, find the conditional prob of age at every time
+            in time grid
+            """
+            parent = parent_grp[0][1].parent
+            val = prior_values[parent].copy()
+            g_val = np.ones(self.lik.grid_size)
+            g_val[0] = 0
+            for edge_index, edge in parent_grp:
+                # Calculate vals for each edge
+                if parent in self.fixednodes:
+                    continue  # there is no hidden state for this parent - it's fixed
+                if edge.child in self.fixednodes:
+                    # this is an edge leading to a node with a fixed time
+                    prev_state = 1  # Will be broadcast to len(grid)
+                    get_mutation_likelihoods = self.lik.get_mut_lik_fixed_node
+                    sum_likelihood_rows = np.asarray  # pass though: no sum needed
+                else:
+                    prev_state = self.lik.make_lower_tri(upward[edge.child])
+                    get_mutation_likelihoods = self.lik.get_mut_lik_lower_tri
+                    sum_likelihood_rows = self.lik.rowsum_lower_tri
                 if theta is not None and rho is not None:
                     b_l = (edge.left != 0)
-                    b_r = (edge.right != ts.get_sequence_length())
-                    ll_rec = np.power(
-                        dt, b_l + b_r) * np.exp(-(dt * rho * span * 2))
-                    ll_mut = lls[mut_edges[edge.id], span][np.concatenate(
-                        matrix_indices.row_based_cols)]
-                    vv = dt * ll_mut * ll_rec
-                    vv = np.add.reduceat(vv, matrix_indices.col_based_cols)
+                    b_r = (edge.right != self.ts.get_sequence_length())
+                    ll_rec = (np.power(prev_state, b_l + b_r) *
+                              np.exp(-(prev_state * rho * edge.span * 2)))
+                    ll_mut = get_mutation_likelihoods(edge)
+                    vv = sum_likelihood_rows(ll_mut * ll_rec * prev_state)
                 elif theta is not None:
-                    ll_mut = lls[mut_edges[edge.id], span][np.concatenate(
-                        matrix_indices.row_based_cols)]
-                    vv = dt * ll_mut
-                    vv = np.add.reduceat(vv, matrix_indices.col_based_cols)
+                    ll_mut = get_mutation_likelihoods(edge)
+                    vv = sum_likelihood_rows(ll_mut * prev_state)
                 elif rho is not None:
                     b_l = (edge.left != 0)
-                    b_r = (edge.right != ts.get_sequence_length())
-                    ll_rec = np.power(
-                        dt, b_l + b_r) * np.exp(-(dt * rho * span * 2))
-                    vv = dt * ll_rec
-                    vv = np.add.reduceat(vv, matrix_indices.col_based_cols)
+                    b_r = (edge.right != self.ts.get_sequence_length())
+                    ll_rec = (np.power(prev_state, b_l + b_r) *
+                              np.exp(-(prev_state * rho * edge.span * 2)))
+                    vv = sum_likelihood_rows(ll_rec * prev_state)
                 else:
                     # Topology-only clock
-                    vv = np.add.reduceat(dt, matrix_indices.col_based_cols)
-            backwards[edge.child, 1:] = vv[1:]
-            norm[edge.child] = max(backwards[edge.child, :])
-            backwards[edge.child, :] = \
-                np.divide(backwards[edge.child, :], norm[edge.child])
-            backwards[edge.child, :][np.isnan(backwards[edge.child, :])] = 0
-    backwards_log = np.log(backwards)
-    posterior = np.exp(forwards + backwards_log)
-    posterior = posterior / np.sum(posterior, axis=1)[:, None]
-    return posterior, backwards
+                    vv = sum_likelihood_rows(prev_state)
+                val *= vv
+                g_val *= vv
+            upward[parent] = val / np.max(val)
+            g_i[parent] = g_val / np.max(g_val)
+        if return_log:
+            upward.apply_log()
+            g_i.apply_log()
+        return upward, g_i
+
+    # TODO: Account for multiple parents, fix the log of zero thing
+    def downward(self, log_upward, log_g_i, theta, rho, spans, progress=None):
+        """
+        Computes the full posterior distribution on nodes.
+        Input is log of upward matrix, log of g_i matrix, time grid, population scaled
+        mutation and recombination rate. Spans of each edge, epsilon, likelihoods of each
+        edge, and the columns of the lower triangular matrix of likelihoods.
+
+        The rows in the posterior returned correspond to node IDs as given by
+        self.nodes
+        """
+        downward = NodeGridValues.clone_with_new_data(log_upward, grid_data=0)
+
+        # TO DO here: check that no fixed_nodes have children, otherwise we can't descend
+        for tree in self.ts.trees():
+            for root in tree.roots:
+                if tree.num_children(root) == 0:
+                    # Isolated node
+                    continue
+                downward[root] += (1 * tree.span) / spans[root]
+
+        child_edges = (self.ts.edge(i) for i in reversed(
+            np.argsort(self.ts.tables.nodes.time[self.ts.tables.edges.child[:]])))
+
+        if progress is None:
+            progress = self.progress
+        for child, edges in tqdm(itertools.groupby(child_edges, key=lambda x: x.child),
+                                 desc="Downward", total=downward.num_nonfixed,
+                                 disable=not progress):
+            if child not in self.fixednodes:
+                edges = list(edges)
+                for edge in edges:
+                    prev_state = self.lik.make_upper_tri(
+                        downward[edge.parent] *
+                        np.exp(log_upward[edge.parent] - log_g_i[edge.child]))
+                    if theta is not None and rho is not None:
+                        b_l = (edge.left != 0)
+                        b_r = (edge.right != self.ts.get_sequence_length())
+                        ll_rec = (np.power(prev_state, b_l + b_r) *
+                                  np.exp(-(prev_state * rho * edge.span * 2)))
+                        ll_mut = self.lik.get_mut_lik_upper_tri(edge)
+                        vv = self.lik.rowsum_upper_tri(prev_state * ll_mut * ll_rec)
+                    elif theta is not None:
+                        ll_mut = self.lik.get_mut_lik_upper_tri(edge)
+                        vv = self.lik.rowsum_upper_tri(prev_state * ll_mut)
+                    elif rho is not None:
+                        b_l = (edge.left != 0)
+                        b_r = (edge.right != self.ts.get_sequence_length())
+                        ll_rec = (np.power(prev_state, b_l + b_r) *
+                                  np.exp(-(prev_state * rho * edge.span * 2)))
+                        vv = self.lik.rowsum_upper_tri(prev_state * ll_rec)
+                    else:
+                        # Topology-only clock
+                        vv = self.lik.rowsum_upper_tri(prev_state)
+                vv[0] = 0  # Seems a hack: internal nodes should be allowed at time 0
+                norm = max(vv)
+                assert norm > 0
+                downward[edge.child] = vv / norm
+        posterior = NodeGridValues.clone_with_new_data(
+             orig=downward,
+             grid_data=np.exp(log_upward.grid_data + np.log(downward.grid_data)),
+             fixed_data=np.nan)  # We should never use the posterior for a fixed node
+        posterior.normalize_grid()
+        return posterior, downward
 
 
-def posterior_mean_var(ts, grid, forwards, fixed_nodes=None, nodes_to_date=None):
+def posterior_mean_var(ts, grid, posterior, fixed_node_set=None):
     """
-    Mean and variance of node age in scaled time
-    If nodes_to_date is None, we attempt to date all the non-sample nodes
+    Mean and variance of node age in scaled time. Fixed nodes will be given a mean
+    of their exact time in the tree sequence, and zero variance (as long as they are
+    identified by the fixed_node_set
+    If fixed_node_set is None, we attempt to date all the non-sample nodes
     """
-    mn_post = np.zeros(ts.num_nodes)
-    vr_post = np.zeros(ts.num_nodes)
-    if nodes_to_date is None:
-        nodes_to_date = np.arange(ts.num_nodes, dtype=np.uint64)
-        nodes_to_date = nodes_to_date[~np.isin(nodes_to_date, ts.samples())]
+    mn_post = np.full(ts.num_nodes, np.nan)  # Fill with NaNs so we detect when there's
+    vr_post = np.full(ts.num_nodes, np.nan)  # been an error
 
-    for nd in nodes_to_date:
-        mn_post[nd] = sum(forwards[nd, ] * grid) / sum(forwards[nd, ])
-        vr_post[nd] = (
-            sum(forwards[nd, ] * grid ** 2) /
-            sum(forwards[nd, ]) - mn_post[nd] ** 2)
+    fixed_nodes = np.array(list(fixed_node_set))
+    mn_post[fixed_nodes] = ts.tables.nodes.time[fixed_nodes]
+    vr_post[fixed_nodes] = 0
+
+    for row, node_id in zip(posterior.grid_data, posterior.nonfixed_nodes):
+        mn_post[node_id] = np.sum(row * grid) / np.sum(row)
+        vr_post[node_id] = np.sum(row * grid ** 2) / np.sum(row) - mn_post[node_id] ** 2
     return mn_post, vr_post
 
 
-def restrict_ages_topo(ts, forwards_mn, grid, eps, nodes_to_date=None):
+def restrict_ages_topo(ts, post_mn, grid, eps, nodes_to_date=None):
     """
     If predicted node times violate topology, restrict node ages so that they
     must be older than all their children.
     """
-    new_mn_post = np.copy(forwards_mn)
+    new_mn_post = np.copy(post_mn)
     if nodes_to_date is None:
         nodes_to_date = np.arange(ts.num_nodes, dtype=np.uint64)
         nodes_to_date = nodes_to_date[~np.isin(nodes_to_date, ts.samples())]
@@ -1126,8 +1414,8 @@ def return_ts(ts, vals, Ne):
 
 def date(
         tree_sequence, Ne, mutation_rate=None, recombination_rate=None,
-        time_grid='adaptive', grid_slices=50, eps=1e-6, num_threads=0,
-        approximate_prior=None, progress=False):
+        time_grid='adaptive', grid_slices=50, eps=1e-6, num_threads=None,
+        approximate_prior=None, progress=False, check_valid_topology=True):
     """
     Take a tree sequence with arbitrary node times and recalculate node times using
     the `tsdate` algorithm. If both a mutation_rate and recombination_rate are given, a
@@ -1150,8 +1438,8 @@ def date(
         points in even quantiles over the expected prior.
     :param int grid_slices: The number of slices used in the time grid
     :param float eps: The precision required (** deeper explanation required **)
-    :param int num_threads: The number of threads to use. If
-        this is <= 0 then a simpler sequential algorithm is used (default).
+    :param int num_threads: The number of threads to use. A simpler unthreaded algorithm
+        is used unless this is >= 1 (default: None).
     :param bool approximate_prior: Whether to use a precalculated approximate prior or
         exactly calculate prior
     :param bool progress: Whether to display a progress bar.
@@ -1161,14 +1449,14 @@ def date(
     if grid_slices < 2:
         raise ValueError("You must have at least 2 slices in the time grid")
 
+    if check_valid_topology is True:
+        check_ts_for_dating(tree_sequence)
+
     # Stuff yet to be implemented. These can be deleted once fixed
     if recombination_rate is not None:
         raise NotImplementedError(
             "Using the recombination clock is not currently supported"
             ". See https://github.com/awohns/tsdate/issues/5 for details")
-    if num_threads > 0:
-        raise NotImplementedError(
-            "Using multiple threads is not yet implemented")
 
     for sample in tree_sequence.samples():
         if tree_sequence.node(sample).time != 0:
@@ -1177,49 +1465,47 @@ def date(
 
     fixed_node_set = set(tree_sequence.samples())
 
-    span_data = SpansBySamples(tree_sequence, fixed_node_set)
-    spans = span_data.node_total_span
+    span_data = SpansBySamples(tree_sequence, fixed_node_set, progress=progress)
+    spans = span_data.node_spans
     nodes_to_date = span_data.nodes_to_date
     dangling_nodes = set(span_data.dangling_only_nodes())
     max_sample_size_before_approximation = None if approximate_prior is False else 1000
-    priors = ConditionalCoalescentTimes(max_sample_size_before_approximation)
-    priors.add(tree_sequence.num_samples, approximate_prior)
-    # Add in priors for trees with different sample numbers (missing data only)
-    for num_samples in span_data.num_samples_set:
-        if num_samples != tree_sequence.num_samples:
-            priors.add(num_samples, approximate_prior)
+    base_priors = ConditionalCoalescentTimes(max_sample_size_before_approximation)
+    base_priors.add(len(fixed_node_set), approximate_prior)
+    for total_fixed in span_data.total_fixed_at_0_counts:
+        # For missing data: trees vary in total fixed node count => have different priors
+        base_priors.add(total_fixed, approximate_prior)
 
     if time_grid == 'uniform':
         grid = np.linspace(0, 8, grid_slices + 1)
     elif time_grid == 'adaptive':
         # Use the prior for the complete TS
         grid = create_time_grid(
-            priors[tree_sequence.num_samples], grid_slices + 1)
+            base_priors[tree_sequence.num_samples], grid_slices + 1)
     else:
         raise ValueError("time_grid must be either 'adaptive' or 'uniform'")
 
-    mixture_prior = get_mixture_prior(span_data, priors)
-    prior_vals = get_prior_values(mixture_prior, grid, tree_sequence, nodes_to_date)
+    prior_params = get_mixture_prior_params(span_data, base_priors)
+    prior_vals = fill_prior(prior_params, grid, tree_sequence, nodes_to_date, progress)
 
-    theta = rho = mut_lls = None
-    matrix_indices = LowerTriangularMatrix(grid)
+    theta = rho = None
 
     if mutation_rate is not None:
         theta = 4 * Ne * mutation_rate
-        mut_lls = get_mut_ll(tree_sequence, grid, theta, eps)
     if recombination_rate is not None:
         rho = 4 * Ne * recombination_rate
 
-    forwards, g_i, logged_forwards, logged_g_i = forward_algorithm(
-        tree_sequence, prior_vals, grid, theta, rho, eps, matrix_indices,
-        lls=mut_lls, progress=progress)
+    liklhd = Likelihoods(tree_sequence, grid, theta, eps, fixed_node_set)
+    if theta is not None:
+        liklhd.precalculate_mutation_likelihoods(num_threads=num_threads)
 
-    posterior, backward = backward_algorithm(
-        tree_sequence, logged_forwards, logged_g_i, grid, theta, rho, spans, eps,
-        mut_lls, matrix_indices, dangling_nodes, fixed_node_set)
-    mn_post, _ = posterior_mean_var(
-        tree_sequence, grid, posterior, nodes_to_date=nodes_to_date)
-    new_mn_post = restrict_ages_topo(
-        tree_sequence, mn_post, grid, eps, nodes_to_date=nodes_to_date)
+    dynamic_prog = UpDownAlgorithms(tree_sequence, liklhd, progress=progress)
+
+    log_upward, log_g_i = dynamic_prog.upward(prior_vals, theta, rho)
+    posterior, downward = dynamic_prog.downward(log_upward, log_g_i, theta, rho, spans)
+
+    mn_post, _ = posterior_mean_var(tree_sequence, grid, posterior, fixed_node_set)
+    new_mn_post = restrict_ages_topo(tree_sequence, mn_post, grid, eps,
+                                     nodes_to_date=nodes_to_date)
     dated_ts = return_ts(tree_sequence, new_mn_post, Ne)
     return dated_ts
