@@ -142,6 +142,21 @@ class TestSimulated(unittest.TestCase):
         dated_ts = tsdate.date(ts, Ne=1, mutation_rate=10)
         self.ts_equal_except_times(ts, dated_ts)
 
+    def test_half_dangling_node(self):
+        dangling_node_ts, dangling_node = utility_functions.half_dangling_ts()
+        dated_ts = tsdate.date(dangling_node_ts, Ne=1)
+        self.ts_equal_except_times(dangling_node_ts, dated_ts)
+
+    def test_dangling_node(self):
+        dangling_node_ts, dangling_node = utility_functions.dangling_ts()
+        self.assertRaises(RuntimeError, tsdate.date, dangling_node_ts, Ne=1)
+        # self.ts_equal_except_times(dangling_node_ts, dated_ts)
+
+    def test_dangling_node_with_missing(self):
+        dangling_node_ts, dangling_node = utility_functions.dangling_missing_ts()
+        self.assertRaises(RuntimeError, tsdate.date, dangling_node_ts, Ne=1)
+        # self.ts_equal_except_times(dangling_node_ts, dated_ts)
+
     def test_fails_multi_root(self):
         ts = msprime.simulate(8, mutation_rate=2, random_seed=2)
         tree = ts.first()

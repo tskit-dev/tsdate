@@ -50,11 +50,18 @@ tskit.Tree.is_isolated = lambda tree, node: (
 tskit.TreeIterator.__len__ = lambda it: it.tree.tree_sequence.num_trees  # NOQA
 
 
+# Hack: monkey patches to allow tsdate to work with non-dev versions of tskit
+# TODO - remove when tskit 0.2.4 is released
+tskit.Tree.num_children = lambda tree, node: (
+    len(tree.children(node)))  # NOQA
+tskit.Tree.is_isolated = lambda tree, node: (
+    tree.num_children(node) == 0 and tree.parent(node) == tskit.NULL)    # NOQA
+
+
 def gamma_approx(mean, variance):
     """
     Returns alpha and beta of a gamma distribution for a given mean and variance
     """
-
     return (mean ** 2) / variance, mean / variance
 
 
@@ -261,7 +268,7 @@ def get_mixture_prior_params(spans_by_samples, basic_priors):
 
     :param .SpansBySamples spans_by_samples: An instance of the
         :class:`SpansBySamples` class that can be used to obtain
-        weights for each .
+        mixture parameters and their respective weights for each node.
     :param .ConditionalCoalescentTimes basic_priors: An instance of
         the :class:`ConditionalCoalescentTimes` class, which provides
         a set of dataframes containing the theoretical distribution of
@@ -271,7 +278,7 @@ def get_mixture_prior_params(spans_by_samples, basic_priors):
         node id in ``spans_by_samples.nodes_to_date``, which can be used
         to approximate the probabilities of times for that node used a
         gamma distribution.
-    :rtype:  pandas.DataFrame
+    :rtype: pandas.DataFrame
     """
 
     def mixture_expect_and_var(mixture):
@@ -298,9 +305,12 @@ def get_mixture_prior_params(spans_by_samples, basic_priors):
         columns=["Alpha", "Beta"], dtype=float)
     for node in spans_by_samples.nodes_to_date:
         mixture = spans_by_samples.get_weights(node)
-        if len(mixture) == 1:
+        if len(mixture) == 0:
+            # This node is undated with no prior: indicate this using alpha=NaN
+            prior.loc[node] = [np.nan, 1]
+        elif len(mixture) == 1:
             # The norm: this node spans trees that all have the same set of samples
-            total_tips, weight_tuple = next(iter(mixture.items()))
+            total_tips, weight_tuple = next(iter(mixture.items()))  # First and only item
             if len(weight_tuple.weight) == 1:
                 d_tips = weight_tuple.descendant_tips[0]
                 # This node is not a mixture - can use the standard coalescent prior
@@ -337,7 +347,7 @@ class SpansBySamples:
     A class to calculate and return the genomic spans covered by each
     non-sample node, broken down by the number of samples that descend
     directly from that node. This is used to calculate the conditional
-    coalescent prior. The main method is :meth:`normalised_spans`, which
+    coalescent prior. The main method is :meth:`get_weights`, which
     returns the spans for a node, normalised by the total span that that
     node covers in the tree sequence.
 
@@ -362,7 +372,11 @@ class SpansBySamples:
         :attr:`.tree_sequence.num_samples`.
     :vartype total_fixed_at_0_counts: numpy.ndarray (dtype=np.uint64)
     :ivar node_spans: A numpy array of size :attr:`.tree_sequence.num_nodes`
-        containing the genomic span covered by each node (including sample nodes)
+        containing the genomic span covered by each node (including sample nodes).
+        Parts of the genome where a node to date exists but contains no fixed-date
+        descendants (i.e. "dangling nodes") are *not* included in the total;
+        similarly for fixed nodes, regions where they are isolated nodes (i.e.
+        missing data) are omitted.
     :vartype node_spans: numpy.ndarray (dtype=np.uint64)
     :ivar nodes_to_date: An numpy array containing all the node ids in the tree
         sequence that we wish to date. These are usually all the non-sample nodes,
@@ -453,12 +467,21 @@ class SpansBySamples:
         def save_to_spans(prev_tree, node, num_fixed_at_0_treenodes):
             """
             A convenience function to save accumulated tracked node data at the current
-            breakpoint. If this is a non-fixed node which needs dating, we save the
+            breakpoint. If this is a fixed node which needs dating, we save the
             span by # descendant tips into self._spans. If the node was skipped because
             it is a unary node at the top of the tree, return None.
             """
             if np.isnan(stored_pos[node]):
                 # Don't save ones that we aren't tracking
+                return False
+            if prev_tree.is_isolated(node):
+                # Omit isolated nodes & don't add their span to the total for normalising
+                return False
+            n_tips = prev_tree.num_samples(node)
+            if n_tips == 0:
+                # Dangling tip - create an empty data structure if there is nothing there
+                self._spans[node] = self._spans[node]
+                # Do not save this span to the total
                 return False
             coverage = prev_tree.interval[1] - stored_pos[node]
             node_spans[node] += coverage
@@ -660,7 +683,7 @@ class SpansBySamples:
                     if n == tskit.NULL or n in self._spans:
                         done = True
                 if n == tskit.NULL:
-                    continue
+                    continue  # Skip nodes which are not connected at all
                 else:
                     logging.debug(
                         "Assigning prior to unary node {}: connected to node {} which"
@@ -758,14 +781,26 @@ class SpansBySamples:
             span, normalised by the total span over which the node exists) for
             :math:`k` descendant samples, as a floating point number. For any node,
             the normalisation means that all the weights should sum to one.
-        :rtype: dict(int, dict(int, float))'
+        :rtype: dict(int, dict(int, float))
         """
         return self.normalised_node_span_data[node]
 
     def lookup_weight(self, node, total_tips, descendant_tips):
-        # Only used for testing
+        # Inefficient and only used for testing: return the weight for a specific # tips
         which = self.get_weights(node)[total_tips].descendant_tips == descendant_tips
         return self.get_weights(node)[total_tips].weight[which]
+
+    def dangling_only_nodes(self):
+        """
+        Return a list of the nodes that have no priors and are not fixed. These
+        should only happen if the node is dangling for its entire duration in the TS
+        """
+        return [k for k, v in self._spans.items() if len(v) == 0]
+
+    def node_undated(self, node):
+        if node == tskit.NULL:
+            raise ValueError("Tried to check a non-existent node")
+        return len(self._spans.get(node, {})) == 0
 
 
 def create_time_grid(age_prior, n_points=21):
@@ -1433,6 +1468,7 @@ def date(
     span_data = SpansBySamples(tree_sequence, fixed_node_set, progress=progress)
     spans = span_data.node_spans
     nodes_to_date = span_data.nodes_to_date
+    dangling_nodes = set(span_data.dangling_only_nodes())
     max_sample_size_before_approximation = None if approximate_prior is False else 1000
     base_priors = ConditionalCoalescentTimes(max_sample_size_before_approximation)
     base_priors.add(len(fixed_node_set), approximate_prior)
