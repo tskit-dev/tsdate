@@ -1351,13 +1351,15 @@ def restrict_ages_topo(ts, post_mn, grid, eps, nodes_to_date=None):
         nodes_to_date = nodes_to_date[~np.isin(nodes_to_date, ts.samples())]
 
     tables = ts.tables
-    for nd in sorted(nodes_to_date):
-        children = tables.edges.child[tables.edges.parent == nd]
+    parents = tables.edges.parent
+    nd_children = tables.edges.child
+    for nd in tqdm(sorted(nodes_to_date)):
+        children = nd_children[parents == nd]
         time = new_mn_post[children]
         if np.any(new_mn_post[nd] <= time):
             # closest_time = (np.abs(grid - max(time))).argmin()
             # new_mn_post[nd] = grid[closest_time] + eps
-            new_mn_post[nd] = max(time) + eps
+            new_mn_post[nd] = np.max(time) + eps
     return new_mn_post
 
 
@@ -1453,7 +1455,7 @@ def date(
     if recombination_rate is not None:
         rho = 4 * Ne * recombination_rate
 
-    liklhd = tsdate.Likelihoods(tree_sequence, grid, theta, eps, fixed_node_set)
+    liklhd = Likelihoods(tree_sequence, grid, theta, eps, fixed_node_set)
     if theta is not None:
         liklhd.precalculate_mutation_likelihoods(num_threads=num_threads)
 
