@@ -438,7 +438,7 @@ class TestPriorVals(unittest.TestCase):
 class TestLikelihoodClass(unittest.TestCase):
     def poisson(self, l, x):
         ll = np.exp(-l) * l ** x / scipy.special.factorial(x)
-        return ll / np.max(ll)
+        return np.log(ll / np.max(ll))
 
     def test_get_mut_edges(self):
         ts = utility_functions.two_tree_mutation_ts()
@@ -543,14 +543,15 @@ class TestLikelihoodClass(unittest.TestCase):
                 self.assertEqual(e.right - e.left, exp_span)
                 self.assertEqual(lik.mut_edges[e.id], exp_branch_muts)
                 pois_lambda = grid * theta / 2 * exp_span
-                cumul_pois = np.cumsum(self.poisson(pois_lambda, exp_branch_muts))
+                cumul_pois = np.log(
+                    np.cumsum(np.exp(self.poisson(pois_lambda, exp_branch_muts))))
                 lower_tri = lik.get_mut_lik_lower_tri(e)
                 self.assertTrue(
                     np.allclose(lik.rowsum_lower_tri(lower_tri), cumul_pois))
                 upper_tri = lik.get_mut_lik_upper_tri(e)
                 self.assertTrue(
                     np.allclose(
-                        np.exp(lik.rowsum_upper_tri(np.log(upper_tri))[::-1]),
+                        lik.rowsum_upper_tri(upper_tri)[::-1],
                         cumul_pois))
 
 
