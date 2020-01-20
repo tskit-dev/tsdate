@@ -11,3 +11,4 @@ tskit
 tsinfer
 scipy
 codecov
+numba
