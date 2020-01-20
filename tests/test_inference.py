@@ -136,8 +136,10 @@ class TestSimulated(unittest.TestCase):
         self.ts_equal_except_times(ts, dated_ts)
 
     def test_with_unary(self):
-        ts = utility_functions.single_tree_ts_with_unary()
-        dated_ts = tsdate.date(ts, Ne=1)
+        ts = msprime.simulate(
+            8, mutation_rate=10, recombination_rate=10,
+            record_full_arg=True, random_seed=12)
+        dated_ts = tsdate.date(ts, Ne=1, mutation_rate=10)
         self.ts_equal_except_times(ts, dated_ts)
 
     def test_fails_multi_root(self):
@@ -163,7 +165,7 @@ class TestSimulated(unittest.TestCase):
         ts = msprime.simulate(samples=samples, Ne=1, mutation_rate=2)
         self.assertRaises(NotImplementedError, tsdate.date, ts, 1, 2)
 
-    @unittest.skip("Not sure why this fails now, perhaps Yan will know")
+    @unittest.skip("YAN to fix")
     def test_truncated_ts(self):
         Ne = 1e2
         mu = 2e-4
