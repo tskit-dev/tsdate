@@ -377,7 +377,8 @@ class TestPriorVals(unittest.TestCase):
         grid = np.linspace(0, 3, 3)
         mixture_prior = tsdate.get_mixture_prior_params(span_data, priors)
         nodes_to_date = span_data.nodes_to_date
-        prior_vals = tsdate.fill_prior(mixture_prior, grid, ts, nodes_to_date, return_log=False)
+        prior_vals = tsdate.fill_prior(mixture_prior, grid, ts, nodes_to_date,
+                                       return_log=False)
         return prior_vals
 
     def test_one_tree_n2(self):
@@ -798,7 +799,7 @@ class TestTotalFunctionalValueTree(unittest.TestCase):
         posterior, downward = alg.downward(log_upward, log_g_i, norm, theta, rho, spans)
         self.assertTrue(
             np.array_equal(np.sum(upward.grid_data * downward.grid_data, axis=1),
-                           np.sum(upward.grid_data* downward.grid_data, axis=1)))
+                           np.sum(upward.grid_data * downward.grid_data, axis=1)))
         self.assertTrue(
             np.allclose(np.sum(upward.grid_data * downward.grid_data, axis=1),
                         np.sum(upward.grid_data[-1])))

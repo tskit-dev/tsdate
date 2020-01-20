@@ -928,7 +928,8 @@ class NodeGridValues:
         return new_obj
 
 
-def fill_prior(gamma_parameters, grid, ts, nodes_to_date, progress=False, return_log=True):
+def fill_prior(gamma_parameters, grid, ts, nodes_to_date, progress=False,
+               return_log=True):
     """
     Take the alpha and beta values from the gamma_parameters data frame
     and fill out a NodeGridValues object with the prior values from the
@@ -1366,7 +1367,8 @@ class UpDownAlgorithms:
                 vv[0] = 0  # Seems a hack: internal nodes should be allowed at time 0
                 assert norm[edge.child] > -np.inf
                 downward[edge.child] = val - norm[edge.child]
-        posterior = NodeGridValues.clone_with_new_data(orig=downward,
+        posterior = NodeGridValues.clone_with_new_data(
+           orig=downward,
            grid_data=log_upward.grid_data + downward.grid_data,
            fixed_data=np.nan)  # We should never use the posterior for a fixed node
         posterior.grid_data = posterior.grid_data - np.apply_along_axis(
