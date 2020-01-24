@@ -51,6 +51,12 @@ tskit.Tree.is_isolated = lambda tree, node: (
 tskit.TreeIterator.__len__ = lambda it: it.tree.tree_sequence.num_trees  # NOQA
 
 
+def lognorm_approx(mean, var):
+    lognorm_mean = np.log(mean) - 0.5 * np.log(1 + var / mean ** 2)
+    lognorm_var = np.log(var / mean ** 2 + 1)
+    return lognorm_mean, lognorm_var
+
+
 def gamma_approx(mean, variance):
     """
     Returns alpha and beta of a gamma distribution for a given mean and variance
@@ -150,7 +156,8 @@ class ConditionalCoalescentTimes():
         for var, tips in zip(variances, all_tips):
             # NB: it should be possible to vectorize this in numpy
             expectation = self.tau_expect(tips, total_tips)
-            alpha, beta = gamma_approx(expectation, var)
+            # alpha, beta = gamma_approx(expectation, var)
+            alpha, beta = lognorm_approx(expectation, var)
             prior.loc[tips] = [alpha, beta]
         prior.index.name = 'Num_Tips'
         self.prior_store[total_tips] = prior
@@ -284,12 +291,12 @@ def get_mixture_prior_params(spans_by_samples, basic_priors):
             beta = cur_age_prior['Beta'].values
 
             # Expectation
-            expectation += np.sum((alpha / beta) * tip_dict.weight)
+            expectation += np.sum(np.exp(alpha) * tip_dict.weight)
 
             # Variance
-            first += np.sum(alpha / (beta ** 2) * tip_dict.weight)
-            secnd += np.sum((alpha / beta) ** 2 * tip_dict.weight)
-            third += np.sum((alpha / beta) * tip_dict.weight) ** 2
+            first += np.sum(beta ** 2 * tip_dict.weight)
+            secnd += np.sum(alpha ** 2 * tip_dict.weight)
+            third += np.sum(alpha * tip_dict.weight) ** 2
 
         return expectation, first + secnd - third
 
@@ -316,15 +323,15 @@ def get_mixture_prior_params(spans_by_samples, basic_priors):
                     weight_tuple.weight.tostring())
                 if mixture_hash not in seen_mixtures:
                     prior.loc[node] = seen_mixtures[mixture_hash] = \
-                        gamma_approx(*mixture_expect_and_var(mixture))
+                        lognorm_approx(*mixture_expect_and_var(mixture))
                 else:
                     prior.loc[node] = seen_mixtures[mixture_hash]
             else:
                 # a large number of mixtures in this node - don't bother caching
-                prior.loc[node] = gamma_approx(*mixture_expect_and_var(mixture))
+                prior.loc[node] = lognorm_approx(*mixture_expect_and_var(mixture))
         else:
             # The node spans trees with multiple total tip numbers, don't use the cache
-            prior.loc[node] = gamma_approx(*mixture_expect_and_var(mixture))
+            prior.loc[node] = lognorm_approx(*mixture_expect_and_var(mixture))
 
     prior.index.name = "Node"
     return prior
@@ -788,16 +795,16 @@ def create_time_grid(age_prior, n_points=21):
     percentiles specifies the value of the RV such that the prob of the var
     being less than or equal to that value equals the given probability
     """
-    t_set = scipy.stats.gamma.ppf(percentiles, age_prior.loc[2, "Alpha"],
-                                  scale=1 / age_prior.loc[2, "Beta"])
+    t_set = scipy.stats.lognorm.ppf(percentiles, s=np.sqrt(age_prior.loc[2, "Beta"]),
+                                  scale=np.exp(age_prior.loc[2, "Alpha"]))
 
     # progressively add values to the grid
     max_sep = 1.0 / (n_points - 1)
     if age_prior.shape[0] > 2:
         for i in np.arange(3, age_prior.shape[0] + 1):
             # gamma percentiles of existing times in grid
-            proj = scipy.stats.gamma.cdf(t_set, age_prior.loc[i, "Alpha"],
-                                         scale=1 / age_prior.loc[i, "Beta"])
+            proj = scipy.stats.lognorm.cdf(t_set, s=np.sqrt(age_prior.loc[i, "Beta"]),
+                                         scale=np.exp(age_prior.loc[i, "Alpha"]))
             """
             thin the grid, only add additional quantiles if they're more than
             a certain max_sep fraction (e.g. 0.05) from another quantile
@@ -808,9 +815,9 @@ def create_time_grid(age_prior, n_points=21):
             if len(wd[0]) > 0:
                 t_set = np.concatenate(
                     [t_set, np.array(
-                        scipy.stats.gamma.ppf(
-                            percentiles[wd], age_prior.loc[i, "Alpha"],
-                            scale=1 / age_prior.loc[i, "Beta"]))])
+                        scipy.stats.lognorm.ppf(
+                        percentiles[wd], s=np.sqrt(age_prior.loc[i, "Beta"]),
+                        scale=np.exp(age_prior.loc[i, "Alpha"])))])
 
     t_set = sorted(t_set)
     return np.insert(t_set, 0, 0)
@@ -943,9 +950,9 @@ def fill_prior(gamma_parameters, grid, ts, nodes_to_date, progress=False,
         nodes_to_date[np.argsort(ts.tables.nodes.time[nodes_to_date])].astype(np.int32),
         len(grid))
     for node in tqdm(nodes_to_date, desc="GetPrior", disable=not progress):
-        prior_node = scipy.stats.gamma.cdf(
-            grid, gamma_parameters.loc[node, "Alpha"],
-            scale=1 / gamma_parameters.loc[node, "Beta"])
+        prior_node = scipy.stats.lognorm.cdf(
+            grid, s=np.sqrt(gamma_parameters.loc[node, "Beta"]),
+            scale=np.exp(gamma_parameters.loc[node, "Alpha"]))
         # force age to be less than max value
         prior_node = np.divide(prior_node, np.max(prior_node))
         # prior in each epoch
@@ -1218,9 +1225,8 @@ class UpDownAlgorithms:
             parent_edges = all_edges[:1]
             parent_edges[0] = (0, parent_edges[0])
             cur_parent = all_edges[:1][0].parent
-            last_parent = -1
             for index, edge in enumerate(all_edges[1:]):
-                if edge.parent != last_parent and edge.parent != cur_parent:
+                if edge.parent != tskit.NULL and edge.parent != cur_parent:
                     yield parent_edges
                     cur_parent = edge.parent
                     parent_edges = []
@@ -1391,7 +1397,31 @@ def logsumexp_stream(X):
                 r *= np.exp(alpha - x)
                 r += 1.0
                 alpha = x
-    return(np.log(r) + alpha)
+    return np.log(r) + alpha
+
+
+def ts_sampling(ts, upward, liklhd, theta, eps=1e-6, progress=False):
+    times = np.zeros(ts.num_nodes)
+    mrcas = np.arange(0, ts.num_nodes)[np.isin(
+        np.arange(0, ts.num_nodes), ts.tables.edges.child, invert=True)]
+    for i in mrcas:
+        times[i] = np.argmax(np.exp(upward[i]))
+    child_edges = (ts.edge(i) for i in reversed(
+        np.argsort(ts.tables.nodes.time[ts.tables.edges.child[:]])))
+    for child, edges in tqdm(itertools.groupby(child_edges, key=lambda x: x.child),
+                             desc="Downward", total=upward.num_nonfixed,
+                             disable=not progress):
+        if child not in ts.samples():
+            for edge in edges:
+                parent_time = liklhd.grid[times[edge.parent].astype('int')]
+                ll_mut = scipy.stats.poisson.pmf(
+                    0, (parent_time - liklhd.grid[:times[edge.parent].astype('int') + 1] +
+                        eps) * theta / 2 * edge.span)
+                upward_val = np.exp(
+                    upward.grid_data[child - ts.num_samples])[:(times[edge.parent].astype('int') + 1)]
+                result = ll_mut * upward_val
+                times[child] = np.argmax(result)
+    return liklhd.grid[np.array(times).astype('int')]
 
 
 def posterior_mean_var(ts, grid, posterior, fixed_node_set=None):
@@ -1536,11 +1566,12 @@ def date(
     dynamic_prog = UpDownAlgorithms(tree_sequence, liklhd, progress=progress)
 
     log_upward, log_g_i, norm = dynamic_prog.upward(prior_vals, theta, rho, spans)
-    posterior, downward = dynamic_prog.downward(
-        log_upward, log_g_i, norm, theta, rho, spans)
+    # posterior, downward = dynamic_prog.downward(
+    #     log_upward, log_g_i, norm, theta, rho, spans)
 
-    mn_post, _ = posterior_mean_var(tree_sequence, grid, posterior, fixed_node_set)
-    new_mn_post = restrict_ages_topo(tree_sequence, mn_post, grid, eps,
-                                     nodes_to_date=nodes_to_date)
-    dated_ts = return_ts(tree_sequence, new_mn_post, Ne)
+    # mn_post, _ = posterior_mean_var(tree_sequence, grid, posterior, fixed_node_set)
+    # new_mn_post = restrict_ages_topo(tree_sequence, mn_post, grid, eps,
+    #                                  nodes_to_date=nodes_to_date)
+    mn_post = ts_sampling(tree_sequence, log_upward, liklhd, theta, eps, progress)
+    dated_ts = return_ts(tree_sequence, mn_post, Ne)
     return dated_ts
