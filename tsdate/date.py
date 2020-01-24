@@ -795,16 +795,18 @@ def create_time_grid(age_prior, n_points=21):
     percentiles specifies the value of the RV such that the prob of the var
     being less than or equal to that value equals the given probability
     """
-    t_set = scipy.stats.lognorm.ppf(percentiles, s=np.sqrt(age_prior.loc[2, "Beta"]),
-                                  scale=np.exp(age_prior.loc[2, "Alpha"]))
+    t_set = scipy.stats.lognorm.ppf(
+        percentiles, s=np.sqrt(age_prior.loc[2, "Beta"]),
+        scale=np.exp(age_prior.loc[2, "Alpha"]))
 
     # progressively add values to the grid
     max_sep = 1.0 / (n_points - 1)
     if age_prior.shape[0] > 2:
         for i in np.arange(3, age_prior.shape[0] + 1):
             # gamma percentiles of existing times in grid
-            proj = scipy.stats.lognorm.cdf(t_set, s=np.sqrt(age_prior.loc[i, "Beta"]),
-                                         scale=np.exp(age_prior.loc[i, "Alpha"]))
+            proj = scipy.stats.lognorm.cdf(
+                t_set, s=np.sqrt(age_prior.loc[i, "Beta"]),
+                scale=np.exp(age_prior.loc[i, "Alpha"]))
             """
             thin the grid, only add additional quantiles if they're more than
             a certain max_sep fraction (e.g. 0.05) from another quantile
@@ -816,8 +818,8 @@ def create_time_grid(age_prior, n_points=21):
                 t_set = np.concatenate(
                     [t_set, np.array(
                         scipy.stats.lognorm.ppf(
-                        percentiles[wd], s=np.sqrt(age_prior.loc[i, "Beta"]),
-                        scale=np.exp(age_prior.loc[i, "Alpha"])))])
+                            percentiles[wd], s=np.sqrt(age_prior.loc[i, "Beta"]),
+                            scale=np.exp(age_prior.loc[i, "Alpha"])))])
 
     t_set = sorted(t_set)
     return np.insert(t_set, 0, 0)
@@ -842,6 +844,7 @@ class NodeGridValues:
     :ivar fill_value: What should we fill the data arrays with to start with
     :vartype fill_value: numpy.scalar
     """
+
     def __init__(self, num_nodes, nonfixed_nodes, grid_size,
                  fill_value=np.nan, dtype=FLOAT_DTYPE):
         """
@@ -977,6 +980,7 @@ class Likelihoods:
     lower triangular matrix of all the possible delta t's. This class also provides
     methods for accessing this lower triangular matrix, multiplying it, etc.
     """
+
     def __init__(self, ts, grid, theta=None, eps=0, fixed_node_set=None):
         self.ts = ts
         self.grid = grid
@@ -1048,7 +1052,7 @@ class Likelihoods:
         The likelihood of an edge given a number of mutations, as set of time deltas (dt)
         and a span. This is a static function to allow parallelization
         """
-        ll = scipy.stats.poisson.logpmf(muts, dt * theta/2 * span)
+        ll = scipy.stats.poisson.logpmf(muts, dt * theta / 2 * span)
         return ll - np.max(ll)
         # return ll
 
@@ -1400,28 +1404,61 @@ def logsumexp_stream(X):
     return np.log(r) + alpha
 
 
-def ts_sampling(ts, upward, liklhd, theta, eps=1e-6, progress=False):
-    times = np.zeros(ts.num_nodes)
-    mrcas = np.arange(0, ts.num_nodes)[np.isin(
-        np.arange(0, ts.num_nodes), ts.tables.edges.child, invert=True)]
+def ts_maximization(ts, log_upward, liklhd, spans, theta, eps=1e-6, progress=False):
+    maximized_node_times = np.zeros(ts.num_nodes, dtype='int')
+    mut_edges = liklhd.get_mut_edges(ts)
+    mrcas = np.where(np.isin(
+        np.arange(ts.num_nodes), ts.tables.edges.child, invert=True))[0]
     for i in mrcas:
-        times[i] = np.argmax(np.exp(upward[i]))
-    child_edges = (ts.edge(i) for i in reversed(
-        np.argsort(ts.tables.nodes.time[ts.tables.edges.child[:]])))
-    for child, edges in tqdm(itertools.groupby(child_edges, key=lambda x: x.child),
-                             desc="Downward", total=upward.num_nonfixed,
-                             disable=not progress):
+        if i not in ts.samples():
+            maximized_node_times[i] = np.argmax(np.exp(log_upward[i]))
+
+    # TODO: Sort on child ages then parent ages within each edge group
+    wtype = np.dtype([('Childage', 'f4'), ('Parentage', 'f4')])
+    w = np.empty(len(ts.tables.nodes.time[ts.tables.edges.child[:]]), dtype=wtype)
+    w['Childage'] = ts.tables.nodes.time[ts.tables.edges.child[:]]
+    w['Parentage'] = -ts.tables.nodes.time[ts.tables.edges.parent[:]]
+    sorted_child_parent = (ts.edge(i) for i in reversed(
+        np.argsort(w, order=('Childage', 'Parentage'))))
+
+    for child, edges in tqdm(
+        itertools.groupby(sorted_child_parent, key=lambda x: x.child),
+        desc="Maximization", total=log_upward.num_nonfixed,
+            disable=not progress):
         if child not in ts.samples():
-            for edge in edges:
-                parent_time = liklhd.grid[times[edge.parent].astype('int')]
-                ll_mut = scipy.stats.poisson.pmf(
-                    0, (parent_time - liklhd.grid[:times[edge.parent].astype('int') + 1] +
-                        eps) * theta / 2 * edge.span)
-                upward_val = np.exp(
-                    upward.grid_data[child - ts.num_samples])[:(times[edge.parent].astype('int') + 1)]
-                result = ll_mut * upward_val
-                times[child] = np.argmax(result)
-    return liklhd.grid[np.array(times).astype('int')]
+            for edge_index, edge in enumerate(edges):
+
+                if edge_index == 0:
+                    youngest_par_index = maximized_node_times[edge.parent]
+                    parent_time = liklhd.grid[maximized_node_times[edge.parent]]
+                    # TODO Geometrically scale the edges here
+                    geo_scale = edge.span / spans[edge.parent]
+                    ll_mut = scipy.stats.poisson.logpmf(
+                        mut_edges[edge.id],
+                        (parent_time - liklhd.grid[:youngest_par_index + 1] +
+                            eps) * theta / 2 * edge.span) * geo_scale
+                    result = ll_mut
+
+                else:
+                    cur_parent_index = maximized_node_times[edge.parent]
+                    if cur_parent_index < youngest_par_index:
+                        youngest_par_index = cur_parent_index
+                    parent_time = liklhd.grid[maximized_node_times[edge.parent]]
+                    geo_scale = edge.span / spans[edge.parent]
+                    ll_mut = scipy.stats.poisson.logpmf(
+                        mut_edges[edge.id], (parent_time -
+                                             liklhd.grid[:youngest_par_index + 1] +
+                                             eps) * theta / 2 * edge.span) * geo_scale
+
+                    result[:youngest_par_index + 1] += ll_mut[:youngest_par_index + 1]
+
+            upward_val = log_upward.grid_data[
+                child - ts.num_samples][:(youngest_par_index + 1)]
+
+            maximized_node_times[child] = np.argmax(
+                result[:youngest_par_index + 1] + upward_val)
+
+    return liklhd.grid[np.array(maximized_node_times).astype('int')]
 
 
 def posterior_mean_var(ts, grid, posterior, fixed_node_set=None):
@@ -1572,6 +1609,7 @@ def date(
     # mn_post, _ = posterior_mean_var(tree_sequence, grid, posterior, fixed_node_set)
     # new_mn_post = restrict_ages_topo(tree_sequence, mn_post, grid, eps,
     #                                  nodes_to_date=nodes_to_date)
-    mn_post = ts_sampling(tree_sequence, log_upward, liklhd, theta, eps, progress)
+    mn_post = ts_maximization(
+        tree_sequence, log_upward, liklhd, spans, theta, eps, progress)
     dated_ts = return_ts(tree_sequence, mn_post, Ne)
     return dated_ts
