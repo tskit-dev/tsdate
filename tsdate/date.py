@@ -65,6 +65,14 @@ def gamma_approx(mean, variance):
     return (mean ** 2) / variance, mean / variance
 
 
+def lognorm_cdf(percentiles, alpha, beta):
+    pass
+
+
+def gamma_cdf(percentiles, alpha, beta):
+    pass
+
+
 def check_ts_for_dating(ts):
     """
     Check that the tree sequence is valid for dating (e.g. it has only a single
@@ -84,7 +92,8 @@ class ConditionalCoalescentTimes():
     """
     Make and store conditional coalescent priors
     """
-    def __init__(self, precalc_approximation_n):
+
+    def __init__(self, precalc_approximation_n, prior_distr='lognorm'):
         """
         :param bool precalc_approximation_n: the size of tree used for
             approximate prior (larger numbers give a better approximation).
@@ -93,6 +102,7 @@ class ConditionalCoalescentTimes():
         """
         self.n_approx = precalc_approximation_n
         self.prior_store = {}
+
         if precalc_approximation_n:
             # Create lookup table based on a large n that can be used for n > ~50
             filename = self.precalc_approx_fn(precalc_approximation_n)
@@ -105,6 +115,11 @@ class ConditionalCoalescentTimes():
                     precalc_approximation_n)
         else:
             self.approx_prior = None
+
+        if prior_distr == 'lognorm':
+            self.func_approx = lognorm_approx
+        elif prior_distr == 'gamma':
+            self.func_approx = gamma_approx
 
     def __getitem__(self, total_tips):
         """
@@ -137,14 +152,21 @@ class ConditionalCoalescentTimes():
                 "You cannot add an approximate prior unless you initialize"
                 " the ConditionalCoalescentTimes object with a non-zero number")
 
+        # alpha/beta and mean/var are simply transformations of one another
+        # for the gamma, mean = alpha / beta and var = alpha / (beta **2)
+        # for the lognormal, see lognorm_approx for definition
+        # mean and var are used in generating the mixture prior
+        # alpha and beta are used for generating prior probabilities
+        # they are stored separately to obviate need to move between them
         prior = pd.DataFrame(
             index=np.arange(1, total_tips + 1),
-            columns=["Alpha", "Beta"], dtype=float)
+            columns=["Alpha", "Beta", "Mean", "Var"], dtype=float)
         # prior.loc[1] is distribution of times of a "coalescence node" ending
         # in a single sample - equivalent to the time of the sample itself, so
         # it should have var = 0 and mean = sample.time
         # Setting alpha = 0 and beta = 1 sets mean (a/b) == var (a / b^2) == 0
-        prior.loc[1] = [0, 1]
+        prior.loc[1] = [0, 1, 0, 0]
+        # prior.loc[1] = [np.nan, np.nan, np.nan, np.nan]
 
         if self.approximate:
             get_tau_var = self.tau_var_lookup
@@ -156,9 +178,8 @@ class ConditionalCoalescentTimes():
         for var, tips in zip(variances, all_tips):
             # NB: it should be possible to vectorize this in numpy
             expectation = self.tau_expect(tips, total_tips)
-            # alpha, beta = gamma_approx(expectation, var)
-            alpha, beta = lognorm_approx(expectation, var)
-            prior.loc[tips] = [alpha, beta]
+            alpha, beta = self.func_approx(expectation, var)
+            prior.loc[tips] = [alpha, beta, expectation, var]
         prior.index.name = 'Num_Tips'
         self.prior_store[total_tips] = prior
 
@@ -257,84 +278,81 @@ class ConditionalCoalescentTimes():
         # TODO, vectorize this properly
         return [self.tau_var(tips, total_tips) for tips in all_tips]
 
+    def get_mixture_prior_params(self, spans_by_samples):
+        """
+        Given an object that can be queried for tip weights for a node,
+        and a set of conditional coalescent priors for different
+        numbers of sample tips under a node, return the alpha and beta
+        parameters of the gamma distribution that approximates the
+        distribution of times for each node by mixing gamma distributions
+        fitted to the basic_priors.
 
-def get_mixture_prior_params(spans_by_samples, basic_priors):
-    """
-    Given an object that can be queried for tip weights for a node,
-    and a set of conditional coalescent priors for different
-    numbers of sample tips under a node, return the alpha and beta
-    parameters of the gamma distribution that approximates the
-    distribution of times for each node by mixing gamma distributions
-    fitted to the basic_priors.
+        :param .SpansBySamples spans_by_samples: An instance of the
+            :class:`SpansBySamples` class that can be used to obtain
+            weights for each.
+        :return: A data frame giving the alpha and beta parameters for each
+            node id in ``spans_by_samples.nodes_to_date``, which can be used
+            to approximate the probabilities of times for that node used a
+            gamma distribution.
+        :rtype:  pandas.DataFrame
+        """
 
-    :param .SpansBySamples spans_by_samples: An instance of the
-        :class:`SpansBySamples` class that can be used to obtain
-        weights for each .
-    :param .ConditionalCoalescentTimes basic_priors: An instance of
-        the :class:`ConditionalCoalescentTimes` class, which provides
-        a set of dataframes containing the theoretical distribution of
-        coalescent times conditioned on the numbers of tips under a node.
-        This is used to obtain the node date priors for mixing.
-    :return: A data frame giving the alpha and beta parameters for each
-        node id in ``spans_by_samples.nodes_to_date``, which can be used
-        to approximate the probabilities of times for that node used a
-        gamma distribution.
-    :rtype:  pandas.DataFrame
-    """
+        def mixture_expect_and_var(mixture):
+            expectation = 0
+            first = secnd = 0
+            for N, tip_dict in mixture.items():
+                cur_age_prior = self[N].loc[tip_dict.descendant_tips]
+                alpha = cur_age_prior['Alpha'].values
+                beta = cur_age_prior['Beta'].values
+                mean = np.exp(alpha + 0.5 * (beta))
+                var = mean ** 2 * (np.exp(beta ** 2) - 1)
 
-    def mixture_expect_and_var(mixture):
-        expectation = 0
-        first = secnd = third = 0
-        for N, tip_dict in mixture.items():
-            cur_age_prior = basic_priors[N].loc[tip_dict.descendant_tips]
-            alpha = cur_age_prior['Alpha'].values
-            beta = cur_age_prior['Beta'].values
+                # Expectation
+                expectation += np.sum(mean * tip_dict.weight)
 
-            # Expectation
-            expectation += np.sum(np.exp(alpha) * tip_dict.weight)
+                # Variance
+                first += np.sum(var * tip_dict.weight)
+                secnd += np.sum(mean ** 2 * tip_dict.weight)
 
-            # Variance
-            first += np.sum(beta ** 2 * tip_dict.weight)
-            secnd += np.sum(alpha ** 2 * tip_dict.weight)
-            third += np.sum(alpha * tip_dict.weight) ** 2
+            return expectation, first + secnd - (expectation ** 2)
 
-        return expectation, first + secnd - third
-
-    seen_mixtures = {}
-    prior = pd.DataFrame(
-        index=list(spans_by_samples.nodes_to_date),
-        columns=["Alpha", "Beta"], dtype=float)
-    for node in spans_by_samples.nodes_to_date:
-        mixture = spans_by_samples.get_weights(node)
-        if len(mixture) == 1:
-            # The norm: this node spans trees that all have the same set of samples
-            total_tips, weight_tuple = next(iter(mixture.items()))
-            if len(weight_tuple.weight) == 1:
-                d_tips = weight_tuple.descendant_tips[0]
-                # This node is not a mixture - can use the standard coalescent prior
-                prior.loc[node] = basic_priors[total_tips].loc[d_tips]
-            elif len(weight_tuple.weight) <= 5:
-                # Making mixture priors is a little expensive. We can help by caching
-                # in those cases where we have only a few mixtures (arbitrarily set here
-                # as <= 5 mixtures
-                mixture_hash = (
-                    total_tips,
-                    weight_tuple.descendant_tips.tostring(),
-                    weight_tuple.weight.tostring())
-                if mixture_hash not in seen_mixtures:
-                    prior.loc[node] = seen_mixtures[mixture_hash] = \
-                        lognorm_approx(*mixture_expect_and_var(mixture))
+        seen_mixtures = {}
+        prior = pd.DataFrame(
+            index=list(spans_by_samples.nodes_to_date),
+            columns=["Alpha", "Beta"], dtype=float)
+        for node in spans_by_samples.nodes_to_date:
+            mixture = spans_by_samples.get_weights(node)
+            if len(mixture) == 1:
+                # The norm: this node spans trees that all have the same set of samples
+                total_tips, weight_tuple = next(iter(mixture.items()))
+                if len(weight_tuple.weight) == 1:
+                    d_tips = weight_tuple.descendant_tips[0]
+                    # This node is not a mixture - can use the standard coalescent prior
+                    prior.loc[node] = (self[total_tips].loc[d_tips]['Alpha'],
+                                       self[total_tips].loc[d_tips]['Beta'])
+                elif len(weight_tuple.weight) <= 5:
+                    # Making mixture priors is a little expensive. We can help by caching
+                    # in those cases where we have only a few mixtures
+                    # (arbitrarily set here as <= 5 mixtures)
+                    mixture_hash = (
+                        total_tips,
+                        weight_tuple.descendant_tips.tostring(),
+                        weight_tuple.weight.tostring())
+                    if mixture_hash not in seen_mixtures:
+                        prior.loc[node] = seen_mixtures[mixture_hash] = \
+                            self.func_approx(*mixture_expect_and_var(mixture))
+                    else:
+                        prior.loc[node] = seen_mixtures[mixture_hash]
                 else:
-                    prior.loc[node] = seen_mixtures[mixture_hash]
+                    # a large number of mixtures in this node - don't bother caching
+                    prior.loc[node] = self.func_approx(*mixture_expect_and_var(mixture))
             else:
-                # a large number of mixtures in this node - don't bother caching
-                prior.loc[node] = lognorm_approx(*mixture_expect_and_var(mixture))
-        else:
-            # The node spans trees with multiple total tip numbers, don't use the cache
-            prior.loc[node] = lognorm_approx(*mixture_expect_and_var(mixture))
+                # The node spans trees with multiple total tip numbers,
+                # don't use the cache
+                prior.loc[node] = self.func_approx(*mixture_expect_and_var(mixture))
 
-    prior.index.name = "Node"
-    return prior
+        prior.index.name = "Node"
+        return prior
 
 
 Weights = namedtuple('Weights', 'descendant_tips weight')
@@ -776,7 +794,7 @@ class SpansBySamples:
         return self.get_weights(node)[total_tips].weight[which]
 
 
-def create_time_grid(age_prior, n_points=21):
+def create_time_grid(age_prior, prior_distr, n_points=21):
     """
     Create the time grid by finding union of the quantiles of the gammas
     For a node with k descendants we have gamma approxs.
@@ -795,18 +813,35 @@ def create_time_grid(age_prior, n_points=21):
     percentiles specifies the value of the RV such that the prob of the var
     being less than or equal to that value equals the given probability
     """
-    t_set = scipy.stats.lognorm.ppf(
-        percentiles, s=np.sqrt(age_prior.loc[2, "Beta"]),
-        scale=np.exp(age_prior.loc[2, "Alpha"]))
+    if prior_distr == 'lognorm':
+        def lognorm_ppf(percentiles, alpha, beta):
+            return scipy.stats.lognorm.ppf(percentiles, s=np.sqrt(beta),
+                                           scale=np.exp(alpha))
+        ppf = lognorm_ppf
+
+        def lognorm_cdf(t_set, alpha, beta):
+            return scipy.stats.lognorm.cdf(t_set, s=np.sqrt(beta), scale=np.exp(alpha))
+        cdf = lognorm_cdf
+
+    elif prior_distr == 'gamma':
+        def gamma_ppf(percentiles, alpha, beta):
+            return scipy.stats.gamma.ppf(percentiles, alpha, scale=1 / beta)
+        ppf = gamma_ppf
+
+        def gamma_cdf(t_set, alpha, beta):
+            return scipy.stats.gamma.cdf(t_set, alpha, scale=1 / beta)
+        cdf = gamma_cdf
+    else:
+        raise ValueError("prior distribution must be lognorm or gamma")
+
+    t_set = ppf(percentiles, age_prior.loc[2, "Alpha"], age_prior.loc[2, "Beta"])
 
     # progressively add values to the grid
     max_sep = 1.0 / (n_points - 1)
     if age_prior.shape[0] > 2:
         for i in np.arange(3, age_prior.shape[0] + 1):
             # gamma percentiles of existing times in grid
-            proj = scipy.stats.lognorm.cdf(
-                t_set, s=np.sqrt(age_prior.loc[i, "Beta"]),
-                scale=np.exp(age_prior.loc[i, "Alpha"]))
+            proj = cdf(t_set, age_prior.loc[i, "Alpha"], age_prior.loc[i, "Beta"])
             """
             thin the grid, only add additional quantiles if they're more than
             a certain max_sep fraction (e.g. 0.05) from another quantile
@@ -816,10 +851,8 @@ def create_time_grid(age_prior, n_points=21):
 
             if len(wd[0]) > 0:
                 t_set = np.concatenate(
-                    [t_set, np.array(
-                        scipy.stats.lognorm.ppf(
-                            percentiles[wd], s=np.sqrt(age_prior.loc[i, "Beta"]),
-                            scale=np.exp(age_prior.loc[i, "Alpha"])))])
+                    [t_set, np.array(ppf(percentiles[wd], age_prior.loc[i, "Alpha"],
+                                     age_prior.loc[i, "Beta"]))])
 
     t_set = sorted(t_set)
     return np.insert(t_set, 0, 0)
@@ -938,24 +971,31 @@ class NodeGridValues:
         return new_obj
 
 
-def fill_prior(gamma_parameters, grid, ts, nodes_to_date, progress=False,
-               return_log=True):
+def fill_prior(distr_parameters, grid, ts, nodes_to_date, prior_distr,
+               progress=False, return_log=True):
     """
-    Take the alpha and beta values from the gamma_parameters data frame
+    Take the alpha and beta values from the distr_parameters data frame
     and fill out a NodeGridValues object with the prior values from the
-    gamma distribution with those parameters.
+    gamma or lognormal distribution with those parameters.
 
     TODO - what if there is an internal fixed node? Should we truncate
     """
     # Sort nodes-to-date by time, as that's the order given when iterating over edges
+
     prior_times = NodeGridValues(
         ts.num_nodes,
         nodes_to_date[np.argsort(ts.tables.nodes.time[nodes_to_date])].astype(np.int32),
         len(grid))
     for node in tqdm(nodes_to_date, desc="GetPrior", disable=not progress):
-        prior_node = scipy.stats.lognorm.cdf(
-            grid, s=np.sqrt(gamma_parameters.loc[node, "Beta"]),
-            scale=np.exp(gamma_parameters.loc[node, "Alpha"]))
+        if prior_distr == 'lognorm':
+            prior_node = scipy.stats.lognorm.cdf(
+                grid, s=np.sqrt(distr_parameters.loc[node, "Beta"]),
+                scale=np.exp(distr_parameters.loc[node, "Alpha"]))
+        elif prior_distr == 'gamma':
+            prior_node = scipy.stats.gamma.cdf(
+                grid, distr_parameters.loc[node, "Alpha"],
+                scale=1 / distr_parameters.loc[node, "Beta"])
+
         # force age to be less than max value
         prior_node = np.divide(prior_node, np.max(prior_node))
         # prior in each epoch
@@ -1517,7 +1557,8 @@ def return_ts(ts, vals, Ne):
 def date(
         tree_sequence, Ne, mutation_rate=None, recombination_rate=None,
         time_grid='adaptive', grid_slices=50, eps=1e-6, num_threads=None,
-        approximate_prior=None, progress=False, check_valid_topology=True):
+        approximate_prior=None, prior_distr='lognorm', progress=False,
+        check_valid_topology=True):
     """
     Take a tree sequence with arbitrary node times and recalculate node times using
     the `tsdate` algorithm. If both a mutation_rate and recombination_rate are given, a
@@ -1571,7 +1612,12 @@ def date(
     spans = span_data.node_spans
     nodes_to_date = span_data.nodes_to_date
     max_sample_size_before_approximation = None if approximate_prior is False else 1000
-    base_priors = ConditionalCoalescentTimes(max_sample_size_before_approximation)
+
+    if prior_distr not in ('lognorm', 'gamma'):
+        raise ValueError("prior distribution must be lognorm or gamma")
+
+    base_priors = ConditionalCoalescentTimes(max_sample_size_before_approximation,
+                                             prior_distr)
     base_priors.add(len(fixed_node_set), approximate_prior)
     for total_fixed in span_data.total_fixed_at_0_counts:
         # For missing data: trees vary in total fixed node count => have different priors
@@ -1582,11 +1628,11 @@ def date(
     elif time_grid == 'adaptive':
         # Use the prior for the complete TS
         grid = create_time_grid(
-            base_priors[tree_sequence.num_samples], grid_slices + 1)
+            base_priors[tree_sequence.num_samples], prior_distr, grid_slices + 1)
     else:
         raise ValueError("time_grid must be either 'adaptive' or 'uniform'")
 
-    prior_params = get_mixture_prior_params(span_data, base_priors)
+    prior_params = base_priors.get_mixture_prior_params(span_data)
     prior_vals = fill_prior(prior_params, grid, tree_sequence, nodes_to_date, progress)
 
     theta = rho = None
