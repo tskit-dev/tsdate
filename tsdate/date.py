@@ -277,21 +277,22 @@ def get_mixture_prior_params(spans_by_samples, basic_priors):
 
     def mixture_expect_and_var(mixture):
         expectation = 0
-        first = secnd = third = 0
+        first = secnd = 0
         for N, tip_dict in mixture.items():
             cur_age_prior = basic_priors[N].loc[tip_dict.descendant_tips]
             alpha = cur_age_prior['Alpha'].values
             beta = cur_age_prior['Beta'].values
+            mean = alpha / beta
+            var = alpha / (beta ** 2)
 
             # Expectation
-            expectation += np.sum((alpha / beta) * tip_dict.weight)
+            expectation += np.sum(mean * tip_dict.weight)
 
             # Variance
-            first += np.sum(alpha / (beta ** 2) * tip_dict.weight)
-            secnd += np.sum((alpha / beta) ** 2 * tip_dict.weight)
-            third += np.sum((alpha / beta) * tip_dict.weight) ** 2
+            first += np.sum(var * tip_dict.weight)
+            secnd += np.sum(mean ** 2 * tip_dict.weight)
 
-        return expectation, first + secnd - third
+        return expectation, first + secnd - (expectation ** 2)
 
     seen_mixtures = {}
     prior = pd.DataFrame(
