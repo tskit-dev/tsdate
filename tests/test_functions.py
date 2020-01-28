@@ -282,7 +282,7 @@ class TestMixturePrior(unittest.TestCase):
         span_data = tsdate.SpansBySamples(ts)
         priors = tsdate.ConditionalCoalescentTimes(None)
         priors.add(ts.num_samples, approximate=False)
-        mixture_prior = tsdate.get_mixture_prior_params(span_data, priors)
+        mixture_prior = priors.get_mixture_prior_params(span_data)
         return(mixture_prior)
 
     def test_one_tree_n2(self):
@@ -724,15 +724,16 @@ class TestUpwardAlgorithm(unittest.TestCase):
 
 
 class TestDownwardAlgorithm(unittest.TestCase):
-    def run_downward_algorithm(self, ts):
+    def run_downward_algorithm(self, ts, prior_distr="lognorm"):
         span_data = tsdate.SpansBySamples(ts)
         spans = span_data.node_spans
         priors = tsdate.ConditionalCoalescentTimes(None)
         priors.add(ts.num_samples, approximate=False)
         grid = np.array([0, 1.2, 2])
-        mixture_prior = tsdate.get_mixture_prior_params(span_data, priors)
+        mixture_prior = priors.get_mixture_prior_params(span_data)
         nodes_to_date = span_data.nodes_to_date
-        prior_vals = tsdate.fill_prior(mixture_prior, grid, ts, nodes_to_date)
+        prior_vals = tsdate.fill_prior(
+            mixture_prior, grid, ts, nodes_to_date, prior_distr)
         theta = 1
         rho = None
         eps = 1e-6
@@ -744,32 +745,35 @@ class TestDownwardAlgorithm(unittest.TestCase):
 
     def test_one_tree_n2(self):
         ts = utility_functions.single_tree_ts_n2()
-        posterior, downward = self.run_downward_algorithm(ts)
-        # Root, should this be 0,1,1 or 1,1,1
-        self.assertTrue(np.array_equal(
-                        downward[2], np.array([1, 1, 1])))
+        for prior_distr in ('lognorm', 'gamma'):
+            posterior, downward = self.run_downward_algorithm(ts, prior_distr)
+            # Root, should this be 0,1,1 or 1,1,1
+            self.assertTrue(np.array_equal(
+                            downward[2], np.array([1, 1, 1])))
 
     def test_one_tree_n3(self):
         ts = utility_functions.single_tree_ts_n3()
-        posterior, downward = self.run_downward_algorithm(ts)
-        # self.assertTrue(np.allclose(
-        #                  downward[3], np.array([0, 1, 0.33508884])))
-        self.assertTrue(np.allclose(downward[4], np.array([1, 1, 1])))
-        # self.assertTrue(np.allclose(
-        #      posterior[3], np.array([0, 0.99616886, 0.00383114])))
-        # self.assertTrue(np.allclose(
-        #                 posterior[4], np.array([0, 0.83739361, 0.16260639])))
+        for prior_distr in ('lognorm', 'gamma'):
+            posterior, downward = self.run_downward_algorithm(ts, prior_distr)
+            # self.assertTrue(np.allclose(
+            #                  downward[3], np.array([0, 1, 0.33508884])))
+            self.assertTrue(np.allclose(downward[4], np.array([1, 1, 1])))
+            # self.assertTrue(np.allclose(
+            #      posterior[3], np.array([0, 0.99616886, 0.00383114])))
+            # self.assertTrue(np.allclose(
+            #                 posterior[4], np.array([0, 0.83739361, 0.16260639])))
 
     def test_one_tree_n4(self):
         ts = utility_functions.single_tree_ts_n4()
-        posterior, downward = self.run_downward_algorithm(ts)
-        # self.assertTrue(np.allclose(
-        #                 downward[4], np.array([0, 1, 0.02187283])))
-        # self.assertTrue(np.allclose(
-        #                 downward[5], np.array([0, 1, 0.41703272])))
-        # Root, should this be 0,1,1 or 1,1,1
-        self.assertTrue(np.allclose(
-                        downward[6], np.array([1, 1, 1])))
+        for prior_distr in ('lognorm', 'gamma'):
+            posterior, downward = self.run_downward_algorithm(ts, prior_distr)
+            # self.assertTrue(np.allclose(
+            #                 downward[4], np.array([0, 1, 0.02187283])))
+            # self.assertTrue(np.allclose(
+            #                 downward[5], np.array([0, 1, 0.41703272])))
+            # Root, should this be 0,1,1 or 1,1,1
+            self.assertTrue(np.allclose(
+                            downward[6], np.array([1, 1, 1])))
 
 
 class TestTotalFunctionalValueTree(unittest.TestCase):
