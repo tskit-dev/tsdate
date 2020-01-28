@@ -52,9 +52,13 @@ tskit.TreeIterator.__len__ = lambda it: it.tree.tree_sequence.num_trees  # NOQA
 
 
 def lognorm_approx(mean, var):
-    lognorm_mean = np.log(mean) - 0.5 * np.log(1 + var / mean ** 2)
-    lognorm_var = np.log(var / mean ** 2 + 1)
-    return lognorm_mean, lognorm_var
+    """
+    alpha is mean of underlying normal distribution
+    beta is variance of underlying normal distribution
+    """
+    beta = np.log(var / (mean ** 2) + 1)
+    alpha = np.log(mean) - 0.5 * beta
+    return alpha, beta
 
 
 def gamma_approx(mean, variance):
@@ -116,10 +120,13 @@ class ConditionalCoalescentTimes():
         else:
             self.approx_prior = None
 
+        self.prior_distr = prior_distr
         if prior_distr == 'lognorm':
             self.func_approx = lognorm_approx
         elif prior_distr == 'gamma':
             self.func_approx = gamma_approx
+        else:
+            raise ValueError("prior distribution must be lognorm or gamma")
 
     def __getitem__(self, total_tips):
         """
@@ -302,19 +309,32 @@ class ConditionalCoalescentTimes():
             first = secnd = 0
             for N, tip_dict in mixture.items():
                 cur_age_prior = self[N].loc[tip_dict.descendant_tips]
+                assert 1 not in tip_dict.descendant_tips
+
                 alpha = cur_age_prior['Alpha'].values
                 beta = cur_age_prior['Beta'].values
-                mean = np.exp(alpha + 0.5 * (beta))
-                var = mean ** 2 * (np.exp(beta ** 2) - 1)
 
+
+                if self.prior_distr == 'gamma':
+                    mean = alpha / beta
+                    var = alpha / (beta ** 2)
+                elif self.prior_distr == 'lognorm':
+                    # mean = cur_age_prior['Mean'].values
+                    # var = cur_age_prior['Var'].values
+                    mean = np.exp(alpha + 0.5 * (beta))
+                    var = mean ** 2 * (np.exp(beta) - 1)
+                    # var = mean ** 2 * (np.exp(beta ** 2) - 1)
                 # Expectation
                 expectation += np.sum(mean * tip_dict.weight)
 
                 # Variance
                 first += np.sum(var * tip_dict.weight)
                 secnd += np.sum(mean ** 2 * tip_dict.weight)
-
-            return expectation, first + secnd - (expectation ** 2)
+            mean = expectation
+            var = first + secnd - (expectation ** 2)
+            # mean = np.exp(alpha + 0.5 * (beta))
+            # var = mean ** 2 * (np.exp(beta **2) - 1)
+            return mean, var
 
         seen_mixtures = {}
         prior = pd.DataFrame(
@@ -1557,7 +1577,8 @@ def return_ts(ts, vals, Ne):
 def date(
         tree_sequence, Ne, mutation_rate=None, recombination_rate=None,
         time_grid='adaptive', grid_slices=50, eps=1e-6, num_threads=None,
-        approximate_prior=None, prior_distr='lognorm', progress=False,
+        approximate_prior=None, prior_distr='lognorm',
+        estimation_method='inside_outside', progress=False,
         check_valid_topology=True):
     """
     Take a tree sequence with arbitrary node times and recalculate node times using
@@ -1633,7 +1654,8 @@ def date(
         raise ValueError("time_grid must be either 'adaptive' or 'uniform'")
 
     prior_params = base_priors.get_mixture_prior_params(span_data)
-    prior_vals = fill_prior(prior_params, grid, tree_sequence, nodes_to_date, progress)
+    prior_vals = fill_prior(prior_params, grid, tree_sequence, nodes_to_date,
+                            prior_distr, progress)
 
     theta = rho = None
 
@@ -1649,13 +1671,20 @@ def date(
     dynamic_prog = UpDownAlgorithms(tree_sequence, liklhd, progress=progress)
 
     log_upward, log_g_i, norm = dynamic_prog.upward(prior_vals, theta, rho, spans)
-    # posterior, downward = dynamic_prog.downward(
-    #     log_upward, log_g_i, norm, theta, rho, spans)
 
-    # mn_post, _ = posterior_mean_var(tree_sequence, grid, posterior, fixed_node_set)
-    # new_mn_post = restrict_ages_topo(tree_sequence, mn_post, grid, eps,
-    #                                  nodes_to_date=nodes_to_date)
-    mn_post = ts_maximization(
-        tree_sequence, log_upward, liklhd, spans, theta, eps, progress)
-    dated_ts = return_ts(tree_sequence, mn_post, Ne)
+    if estimation_method == 'inside_outside':
+        posterior, downward = dynamic_prog.downward(
+            log_upward, log_g_i, norm, theta, rho, spans)
+        mn_post, _ = posterior_mean_var(tree_sequence, grid, posterior, fixed_node_set)
+    elif estimation_method == 'maximization':
+        mn_post = ts_maximization(
+            tree_sequence, log_upward, liklhd, spans, theta, eps, progress)
+    else:
+        raise ValueError(
+            "estimation method must be either 'inside_outside' or 'maximization'")
+
+    new_mn_post = restrict_ages_topo(tree_sequence, mn_post, grid, eps,
+                                     nodes_to_date=nodes_to_date)
+
+    dated_ts = return_ts(tree_sequence, new_mn_post, Ne)
     return dated_ts
