@@ -314,7 +314,6 @@ class ConditionalCoalescentTimes():
                 alpha = cur_age_prior['Alpha'].values
                 beta = cur_age_prior['Beta'].values
 
-
                 if self.prior_distr == 'gamma':
                     mean = alpha / beta
                     var = alpha / (beta ** 2)
@@ -1541,7 +1540,7 @@ def posterior_mean_var(ts, grid, posterior, fixed_node_set=None):
     return mn_post, vr_post
 
 
-def restrict_ages_topo(ts, post_mn, grid, eps, nodes_to_date=None):
+def constrain_ages_topo(ts, post_mn, grid, eps, nodes_to_date=None, progress=False):
     """
     If predicted node times violate topology, restrict node ages so that they
     must be older than all their children.
@@ -1554,7 +1553,7 @@ def restrict_ages_topo(ts, post_mn, grid, eps, nodes_to_date=None):
     tables = ts.tables
     parents = tables.edges.parent
     nd_children = tables.edges.child
-    for nd in tqdm(sorted(nodes_to_date)):
+    for nd in tqdm(sorted(nodes_to_date), disable=not progress):
         children = nd_children[parents == nd]
         time = new_mn_post[children]
         if np.any(new_mn_post[nd] <= time):
@@ -1564,22 +1563,7 @@ def restrict_ages_topo(ts, post_mn, grid, eps, nodes_to_date=None):
     return new_mn_post
 
 
-def return_ts(ts, vals, Ne):
-    """
-    Output new inferred tree sequence with node ages assigned.
-    """
-    tables = ts.dump_tables()
-    tables.nodes.time = vals * 2 * Ne
-    tables.sort()
-    return tables.tree_sequence()
-
-
-def date(
-        tree_sequence, Ne, mutation_rate=None, recombination_rate=None,
-        time_grid='adaptive', grid_slices=50, eps=1e-6, num_threads=None,
-        approximate_prior=None, prior_distr='lognorm',
-        estimation_method='inside_outside', progress=False,
-        check_valid_topology=True):
+def date(tree_sequence, Ne, *args, progress=False, **kwargs):
     """
     Take a tree sequence with arbitrary node times and recalculate node times using
     the `tsdate` algorithm. If both a mutation_rate and recombination_rate are given, a
@@ -1609,6 +1593,28 @@ def date(
     :param bool progress: Whether to display a progress bar.
     :return: A tree sequence with inferred node times.
     :rtype: tskit.TreeSequence
+    """
+    dates, _, grid, eps, nds = get_dates(tree_sequence, Ne, *args, **kwargs)
+    constrained = constrain_ages_topo(tree_sequence, dates, grid, eps, nds, progress)
+    tables = tree_sequence.dump_tables()
+    tables.nodes.time = constrained * 2 * Ne
+    tables.sort()
+    return tables.tree_sequence()
+
+
+def get_dates(
+        tree_sequence, Ne, mutation_rate=None, recombination_rate=None,
+        *, time_grid='adaptive', grid_slices=50, eps=1e-6, num_threads=None,
+        approximate_prior=None, prior_distr='lognorm',
+        estimation_method='inside_outside', progress=False,
+        check_valid_topology=True):
+    """
+    Infer dates for the nodes in a tree sequence, returning an array of inferred dates
+    for nodes, plus other variables such as the distribution of posterior probabilities
+    etc. Parameters are identical to the date() method, which calls this method, then
+    injects the resulting date estimates into the tree sequence
+
+    :return: tuple(mn_post, posterior, grid, eps, nodes_to_date)
     """
     if grid_slices < 2:
         raise ValueError("You must have at least 2 slices in the time grid")
@@ -1672,6 +1678,7 @@ def date(
 
     log_upward, log_g_i, norm = dynamic_prog.upward(prior_vals, theta, rho, spans)
 
+    posterior = None
     if estimation_method == 'inside_outside':
         posterior, downward = dynamic_prog.downward(
             log_upward, log_g_i, norm, theta, rho, spans)
@@ -1683,8 +1690,4 @@ def date(
         raise ValueError(
             "estimation method must be either 'inside_outside' or 'maximization'")
 
-    new_mn_post = restrict_ages_topo(tree_sequence, mn_post, grid, eps,
-                                     nodes_to_date=nodes_to_date)
-
-    dated_ts = return_ts(tree_sequence, new_mn_post, Ne)
-    return dated_ts
+    return mn_post, posterior, grid, eps, nodes_to_date
