@@ -1242,7 +1242,7 @@ class Likelihoods:
         res.append(logsumexp_stream(input_array[i:]))
 
         return np.array(res)
-        # return np.add.reduceat(input_array, self.row_indices[0])
+        # return np.logaddexp.reduceat(input_array, self.row_indices[0])
 
     def make_upper_tri(self, input_array):
         """
@@ -1265,7 +1265,7 @@ class Likelihoods:
         res.append(logsumexp_stream(input_array[i:]))
 
         return np.array(res)
-        # return np.add.reduceat(input_array, self.col_indices)
+        # return np.logaddexp.reduceat(input_array, self.col_indices)
 
 
 class UpDownAlgorithms:
