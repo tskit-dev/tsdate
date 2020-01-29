@@ -1268,6 +1268,31 @@ class Likelihoods:
         # return np.logaddexp.reduceat(input_array, self.col_indices)
 
 
+@numba.jit(nopython=True)
+def logsumexp(X):
+    r = 0.0
+    for x in X:
+        r += np.exp(x)
+    return np.log(r)
+
+
+# An alternative to logsumexp, useful for large grid sizes, see
+# http://www.nowozin.net/sebastian/blog/streaming-log-sum-exp-computation.html
+@numba.jit(nopython=True)
+def logsumexp_stream(X):
+    alpha = -np.Inf
+    r = 0.0
+    for x in X:
+        if x != -np.Inf:
+            if x <= alpha:
+                r += np.exp(x - alpha)
+            else:
+                r *= np.exp(alpha - x)
+                r += 1.0
+                alpha = x
+    return np.log(r) + alpha
+
+
 class UpDownAlgorithms:
     """
     Contains the upward and downward algorithms, which operate over nodes to date
@@ -1447,86 +1472,63 @@ class UpDownAlgorithms:
         downward.grid_data = np.exp(downward.grid_data)
         return posterior, downward
 
+    def downward_maximization(self, log_upward, theta, spans, eps=1e-6, progress=None):
+        maximized_node_times = np.zeros(self.ts.num_nodes, dtype='int')
+        mut_edges = self.lik.mut_edges
+        mrcas = np.where(np.isin(
+            np.arange(self.ts.num_nodes), self.ts.tables.edges.child, invert=True))[0]
+        for i in mrcas:
+            if i not in self.fixednodes:
+                maximized_node_times[i] = np.argmax(np.exp(log_upward[i]))
 
-@numba.jit(nopython=True)
-def logsumexp(X):
-    r = 0.0
-    for x in X:
-        r += np.exp(x)
-    return np.log(r)
+        # TODO: Sort on child ages then parent ages within each edge group
+        wtype = np.dtype([('Childage', 'f4'), ('Parentage', 'f4')])
+        w = np.empty(
+            len(self.ts.tables.nodes.time[self.ts.tables.edges.child[:]]), dtype=wtype)
+        w['Childage'] = self.ts.tables.nodes.time[self.ts.tables.edges.child[:]]
+        w['Parentage'] = -self.ts.tables.nodes.time[self.ts.tables.edges.parent[:]]
+        sorted_child_parent = (self.ts.edge(i) for i in reversed(
+            np.argsort(w, order=('Childage', 'Parentage'))))
 
+        if progress is None:
+            progress = self.progress
+        for child, edges in tqdm(
+            itertools.groupby(sorted_child_parent, key=lambda x: x.child),
+            desc="Maximization", total=log_upward.num_nonfixed,
+                disable=not progress):
+            if child in self.fixednodes:
+                continue
+            for edge_index, edge in enumerate(edges):
+                if edge_index == 0:
+                    youngest_par_index = maximized_node_times[edge.parent]
+                    parent_time = self.lik.grid[maximized_node_times[edge.parent]]
+                    # TODO Check that geometric scaling is the right thing here
+                    geo_scale = edge.span / spans[edge.parent]
+                    ll_mut = geo_scale * scipy.stats.poisson.logpmf(
+                        mut_edges[edge.id],
+                        (parent_time - self.lik.grid[:youngest_par_index + 1] + eps) *
+                        theta / 2 * edge.span)
+                    result = ll_mut
+                else:
+                    cur_parent_index = maximized_node_times[edge.parent]
+                    if cur_parent_index < youngest_par_index:
+                        youngest_par_index = cur_parent_index
+                    parent_time = self.lik.grid[maximized_node_times[edge.parent]]
+                    geo_scale = edge.span / spans[edge.parent]
+                    ll_mut = scipy.stats.poisson.logpmf(
+                        mut_edges[edge.id], (parent_time -
+                                             self.lik.grid[:youngest_par_index + 1] +
+                                             eps) * theta / 2 * edge.span) * geo_scale
 
-# An alternative to logsumexp, useful for large grid sizes, see
-# http://www.nowozin.net/sebastian/blog/streaming-log-sum-exp-computation.html
-@numba.jit(nopython=True)
-def logsumexp_stream(X):
-    alpha = -np.Inf
-    r = 0.0
-    for x in X:
-        if x != -np.Inf:
-            if x <= alpha:
-                r += np.exp(x - alpha)
-            else:
-                r *= np.exp(alpha - x)
-                r += 1.0
-                alpha = x
-    return np.log(r) + alpha
+                    result[:youngest_par_index + 1] += ll_mut[:youngest_par_index + 1]
 
+            upward_val = log_upward.grid_data[
+                child - self.ts.num_samples][:(youngest_par_index + 1)]
 
-def ts_maximization(ts, log_upward, liklhd, spans, theta, eps=1e-6, progress=False):
-    maximized_node_times = np.zeros(ts.num_nodes, dtype='int')
-    mut_edges = liklhd.get_mut_edges(ts)
-    mrcas = np.where(np.isin(
-        np.arange(ts.num_nodes), ts.tables.edges.child, invert=True))[0]
-    for i in mrcas:
-        if i not in ts.samples():
-            maximized_node_times[i] = np.argmax(np.exp(log_upward[i]))
+            maximized_node_times[child] = np.argmax(
+                result[:youngest_par_index + 1] + upward_val)
 
-    # TODO: Sort on child ages then parent ages within each edge group
-    wtype = np.dtype([('Childage', 'f4'), ('Parentage', 'f4')])
-    w = np.empty(len(ts.tables.nodes.time[ts.tables.edges.child[:]]), dtype=wtype)
-    w['Childage'] = ts.tables.nodes.time[ts.tables.edges.child[:]]
-    w['Parentage'] = -ts.tables.nodes.time[ts.tables.edges.parent[:]]
-    sorted_child_parent = (ts.edge(i) for i in reversed(
-        np.argsort(w, order=('Childage', 'Parentage'))))
-
-    for child, edges in tqdm(
-        itertools.groupby(sorted_child_parent, key=lambda x: x.child),
-        desc="Maximization", total=log_upward.num_nonfixed,
-            disable=not progress):
-        if child in ts.samples():
-            continue
-        for edge_index, edge in enumerate(edges):
-            if edge_index == 0:
-                youngest_par_index = maximized_node_times[edge.parent]
-                parent_time = liklhd.grid[maximized_node_times[edge.parent]]
-                # TODO Check that geometric scaling is the right thing here
-                geo_scale = edge.span / spans[edge.parent]
-                ll_mut = geo_scale * scipy.stats.poisson.logpmf(
-                    mut_edges[edge.id],
-                    (parent_time - liklhd.grid[:youngest_par_index + 1] + eps) *
-                    theta / 2 * edge.span)
-                result = ll_mut
-            else:
-                cur_parent_index = maximized_node_times[edge.parent]
-                if cur_parent_index < youngest_par_index:
-                    youngest_par_index = cur_parent_index
-                parent_time = liklhd.grid[maximized_node_times[edge.parent]]
-                geo_scale = edge.span / spans[edge.parent]
-                ll_mut = scipy.stats.poisson.logpmf(
-                    mut_edges[edge.id], (parent_time -
-                                         liklhd.grid[:youngest_par_index + 1] +
-                                         eps) * theta / 2 * edge.span) * geo_scale
-
-                result[:youngest_par_index + 1] += ll_mut[:youngest_par_index + 1]
-
-        upward_val = log_upward.grid_data[
-            child - ts.num_samples][:(youngest_par_index + 1)]
-
-        maximized_node_times[child] = np.argmax(
-            result[:youngest_par_index + 1] + upward_val)
-
-    return liklhd.grid[np.array(maximized_node_times).astype('int')]
+        return self.lik.grid[np.array(maximized_node_times).astype('int')]
 
 
 def posterior_mean_var(ts, grid, posterior, fixed_node_set=None):
@@ -1693,8 +1695,7 @@ def get_dates(
             log_upward, log_g_i, norm, theta, rho, spans)
         mn_post, _ = posterior_mean_var(tree_sequence, grid, posterior, fixed_node_set)
     elif estimation_method == 'maximization':
-        mn_post = ts_maximization(
-            tree_sequence, log_upward, liklhd, spans, theta, eps, progress)
+        mn_post = dynamic_prog.downward_maximization(log_upward, theta, spans, eps)
     else:
         raise ValueError(
             "estimation method must be either 'inside_outside' or 'maximization'")
