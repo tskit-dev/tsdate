@@ -1316,23 +1316,24 @@ class UpDownAlgorithms:
             in time grid
             """
             parent = parent_grp[0][1].parent
+            if parent in self.fixednodes:
+                continue  # there is no hidden state for this parent - it's fixed
             val = prior_values[parent].copy()
             g_val = np.zeros(self.lik.grid_size)
             g_val[0] = -np.inf
             for edge_index, edge in parent_grp:
-                # Geometric scaling works exactly for all nodes fixed in graph
-                # but is an approximation when times are unknown
+                # Geometric scaling works exactly when all nodes fixed in graph but is an
+                # approximation when times are unknown. We raise to the power of geoscale
+                # (i.e. multiply the logged probabilities)
                 geo_scale = edge.span / spans[parent]
                 # Calculate vals for each edge
-                if parent in self.fixednodes:
-                    continue  # there is no hidden state for this parent - it's fixed
                 if edge.child in self.fixednodes:
                     # this is an edge leading to a node with a fixed time
-                    prev_state = upward[edge.child] * geo_scale  # broadcast to len(grid)
+                    prev_state = geo_scale * upward[edge.child]  # broadcast to len(grid)
                     get_mutation_likelihoods = self.lik.get_mut_lik_fixed_node
                     sum_likelihood_rows = np.asarray  # pass though: no sum needed
                 else:
-                    prev_state = self.lik.make_lower_tri(upward[edge.child]) * geo_scale
+                    prev_state = geo_scale * self.lik.make_lower_tri(upward[edge.child])
                     get_mutation_likelihoods = self.lik.get_mut_lik_lower_tri
                     sum_likelihood_rows = self.lik.rowsum_lower_tri
                 if theta is not None and rho is not None:
@@ -1400,43 +1401,42 @@ class UpDownAlgorithms:
         for child, edges in tqdm(itertools.groupby(child_edges, key=lambda x: x.child),
                                  desc="Downward", total=downward.num_nonfixed,
                                  disable=not progress):
-            if child not in self.fixednodes:
-                # edges = list(edges)
-                val = np.zeros(self.lik.grid_size)
-                for edge in edges:
-                    # Geometric scaling works exactly for all nodes fixed in graph
-                    # but is an approximation when times are unknown
-                    geo_scale = edge.span / spans[child]
-                    prev_state = self.lik.make_upper_tri(
-                        downward[edge.parent] + np.where(
-                            log_g_i[edge.child] == -np.inf, 0,
-                            (log_upward[edge.parent] -
-                                log_g_i[edge.child]))) * geo_scale
-                    if theta is not None and rho is not None:
-                        b_l = (edge.left != 0)
-                        b_r = (edge.right != self.ts.get_sequence_length())
-                        ll_rec = (np.power(prev_state, b_l + b_r) *
-                                  np.exp(-(prev_state * rho * edge.span * 2)))
-                        ll_mut = self.lik.get_mut_lik_upper_tri(edge)
-                        vv = self.lik.rowsum_upper_tri(prev_state * ll_mut * ll_rec)
-                    elif theta is not None:
-                        ll_mut = self.lik.get_mut_lik_upper_tri(edge)
-                        vv = self.lik.rowsum_upper_tri(prev_state + ll_mut)
+            if child in self.fixednodes:
+                continue
+            val = np.zeros(self.lik.grid_size)
+            for edge in edges:
+                # Geometric scaling works exactly for all nodes fixed in graph
+                # but is an approximation when times are unknown.
+                geo_scale = edge.span / spans[child]
+                prev_state = geo_scale * self.lik.make_upper_tri(
+                    downward[edge.parent] + np.where(
+                        log_g_i[edge.child] == -np.inf, 0,
+                        (log_upward[edge.parent] - log_g_i[edge.child])))
+                if theta is not None and rho is not None:
+                    b_l = (edge.left != 0)
+                    b_r = (edge.right != self.ts.get_sequence_length())
+                    ll_rec = (np.power(prev_state, b_l + b_r) *
+                              np.exp(-(prev_state * rho * edge.span * 2)))
+                    ll_mut = self.lik.get_mut_lik_upper_tri(edge)
+                    vv = self.lik.rowsum_upper_tri(prev_state * ll_mut * ll_rec)
+                elif theta is not None:
+                    ll_mut = self.lik.get_mut_lik_upper_tri(edge)
+                    vv = self.lik.rowsum_upper_tri(prev_state + ll_mut)
 
-                        # vv = vv ** (edge.span/spans[edge.child])
-                        val += vv
-                    elif rho is not None:
-                        b_l = (edge.left != 0)
-                        b_r = (edge.right != self.ts.get_sequence_length())
-                        ll_rec = (np.power(prev_state, b_l + b_r) *
-                                  np.exp(-(prev_state * rho * edge.span * 2)))
-                        vv = self.lik.rowsum_upper_tri(prev_state * ll_rec)
-                    else:
-                        # Topology-only clock
-                        vv = self.lik.rowsum_upper_tri(prev_state)
-                vv[0] = 0  # Seems a hack: internal nodes should be allowed at time 0
-                assert norm[edge.child] > -np.inf
-                downward[edge.child] = val - norm[edge.child]
+                    # vv = vv ** (edge.span/spans[edge.child])
+                    val += vv
+                elif rho is not None:
+                    b_l = (edge.left != 0)
+                    b_r = (edge.right != self.ts.get_sequence_length())
+                    ll_rec = (np.power(prev_state, b_l + b_r) *
+                              np.exp(-(prev_state * rho * edge.span * 2)))
+                    vv = self.lik.rowsum_upper_tri(prev_state * ll_rec)
+                else:
+                    # Topology-only clock
+                    vv = self.lik.rowsum_upper_tri(prev_state)
+            vv[0] = 0  # Seems a hack: internal nodes should be allowed at time 0
+            assert norm[edge.child] > -np.inf
+            downward[edge.child] = val - norm[edge.child]
         posterior = NodeGridValues.clone_with_new_data(
            orig=downward,
            grid_data=log_upward.grid_data + downward.grid_data,
@@ -1494,38 +1494,37 @@ def ts_maximization(ts, log_upward, liklhd, spans, theta, eps=1e-6, progress=Fal
         itertools.groupby(sorted_child_parent, key=lambda x: x.child),
         desc="Maximization", total=log_upward.num_nonfixed,
             disable=not progress):
-        if child not in ts.samples():
-            for edge_index, edge in enumerate(edges):
+        if child in ts.samples():
+            continue
+        for edge_index, edge in enumerate(edges):
+            if edge_index == 0:
+                youngest_par_index = maximized_node_times[edge.parent]
+                parent_time = liklhd.grid[maximized_node_times[edge.parent]]
+                # TODO Check that geometric scaling is the right thing here
+                geo_scale = edge.span / spans[edge.parent]
+                ll_mut = geo_scale * scipy.stats.poisson.logpmf(
+                    mut_edges[edge.id],
+                    (parent_time - liklhd.grid[:youngest_par_index + 1] + eps) *
+                    theta / 2 * edge.span)
+                result = ll_mut
+            else:
+                cur_parent_index = maximized_node_times[edge.parent]
+                if cur_parent_index < youngest_par_index:
+                    youngest_par_index = cur_parent_index
+                parent_time = liklhd.grid[maximized_node_times[edge.parent]]
+                geo_scale = edge.span / spans[edge.parent]
+                ll_mut = scipy.stats.poisson.logpmf(
+                    mut_edges[edge.id], (parent_time -
+                                         liklhd.grid[:youngest_par_index + 1] +
+                                         eps) * theta / 2 * edge.span) * geo_scale
 
-                if edge_index == 0:
-                    youngest_par_index = maximized_node_times[edge.parent]
-                    parent_time = liklhd.grid[maximized_node_times[edge.parent]]
-                    # TODO Geometrically scale the edges here
-                    geo_scale = edge.span / spans[edge.parent]
-                    ll_mut = scipy.stats.poisson.logpmf(
-                        mut_edges[edge.id],
-                        (parent_time - liklhd.grid[:youngest_par_index + 1] +
-                            eps) * theta / 2 * edge.span) * geo_scale
-                    result = ll_mut
+                result[:youngest_par_index + 1] += ll_mut[:youngest_par_index + 1]
 
-                else:
-                    cur_parent_index = maximized_node_times[edge.parent]
-                    if cur_parent_index < youngest_par_index:
-                        youngest_par_index = cur_parent_index
-                    parent_time = liklhd.grid[maximized_node_times[edge.parent]]
-                    geo_scale = edge.span / spans[edge.parent]
-                    ll_mut = scipy.stats.poisson.logpmf(
-                        mut_edges[edge.id], (parent_time -
-                                             liklhd.grid[:youngest_par_index + 1] +
-                                             eps) * theta / 2 * edge.span) * geo_scale
+        upward_val = log_upward.grid_data[
+            child - ts.num_samples][:(youngest_par_index + 1)]
 
-                    result[:youngest_par_index + 1] += ll_mut[:youngest_par_index + 1]
-
-            upward_val = log_upward.grid_data[
-                child - ts.num_samples][:(youngest_par_index + 1)]
-
-            maximized_node_times[child] = np.argmax(
-                result[:youngest_par_index + 1] + upward_val)
+        maximized_node_times[child] = np.argmax(
+            result[:youngest_par_index + 1] + upward_val)
 
     return liklhd.grid[np.array(maximized_node_times).astype('int')]
 
