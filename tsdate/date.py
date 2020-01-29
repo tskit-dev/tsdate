@@ -1236,10 +1236,10 @@ class Likelihoods:
         res = list()
         i_start = self.row_indices[0][0]
         for cur_index, i in enumerate(self.row_indices[0][1:]):
-            res.append(logsumexp_stream(input_array[i_start:i]))
+            res.append(logsumexp(input_array[i_start:i]))
             i_start = i
 
-        res.append(logsumexp_stream(input_array[i:]))
+        res.append(logsumexp(input_array[i:]))
 
         return np.array(res)
         # return np.logaddexp.reduceat(input_array, self.row_indices[0])
@@ -1259,10 +1259,10 @@ class Likelihoods:
         res = list()
         i_start = self.col_indices[0]
         for cur_index, i in enumerate(self.col_indices[1:]):
-            res.append(logsumexp_stream(input_array[i_start:i]))
+            res.append(logsumexp(input_array[i_start:i]))
             i_start = i
 
-        res.append(logsumexp_stream(input_array[i:]))
+        res.append(logsumexp(input_array[i:]))
 
         return np.array(res)
         # return np.logaddexp.reduceat(input_array, self.col_indices)
@@ -1442,12 +1442,22 @@ class UpDownAlgorithms:
            grid_data=log_upward.grid_data + downward.grid_data,
            fixed_data=np.nan)  # We should never use the posterior for a fixed node
         posterior.grid_data = posterior.grid_data - np.apply_along_axis(
-            logsumexp_stream, 1, posterior.grid_data)[:, np.newaxis]
+            logsumexp, 1, posterior.grid_data)[:, np.newaxis]
         posterior.grid_data = np.exp(posterior.grid_data)
         downward.grid_data = np.exp(downward.grid_data)
         return posterior, downward
 
 
+@numba.jit(nopython=True)
+def logsumexp(X):
+    r = 0.0
+    for x in X:
+        r += np.exp(x)
+    return np.log(r)
+
+
+# An alternative to logsumexp, useful for large grid sizes, see
+# http://www.nowozin.net/sebastian/blog/streaming-log-sum-exp-computation.html
 @numba.jit(nopython=True)
 def logsumexp_stream(X):
     alpha = -np.Inf
