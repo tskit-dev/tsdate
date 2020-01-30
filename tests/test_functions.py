@@ -648,15 +648,16 @@ class TestNodeGridValuesClass(unittest.TestCase):
 
 
 class TestUpwardAlgorithm(unittest.TestCase):
-    def run_upward_algorithm(self, ts):
+    def run_upward_algorithm(self, ts, prior_distr):
         span_data = tsdate.SpansBySamples(ts)
         spans = span_data.node_spans
-        priors = tsdate.ConditionalCoalescentTimes(None)
+        priors = tsdate.ConditionalCoalescentTimes(None, prior_distr=prior_distr)
         priors.add(ts.num_samples, approximate=False)
         grid = np.array([0, 1.2, 2])
         mixture_prior = priors.get_mixture_prior_params(span_data)
         nodes_to_date = span_data.nodes_to_date
-        prior_vals = tsdate.fill_prior(mixture_prior, grid, ts, nodes_to_date)
+        prior_vals = tsdate.fill_prior(
+            mixture_prior, grid, ts, nodes_to_date, prior_distr=prior_distr)
         theta = 1
         rho = None
         eps = 1e-6
@@ -667,12 +668,12 @@ class TestUpwardAlgorithm(unittest.TestCase):
 
     def test_one_tree_n2(self):
         ts = utility_functions.single_tree_ts_n2()
-        upward = self.run_upward_algorithm(ts)
+        upward = self.run_upward_algorithm(ts, 'gamma')
         self.assertTrue(np.allclose(upward[2], np.array([0, 1, 0.10664654])))
 
     def test_one_tree_n3(self):
         ts = utility_functions.single_tree_ts_n3()
-        upward = self.run_upward_algorithm(ts)
+        upward = self.run_upward_algorithm(ts, 'gamma')
         self.assertTrue(np.allclose(upward[3],
                         np.array([0, 1, 0.0114771635])))
         self.assertTrue(np.allclose(upward[4],
@@ -680,27 +681,27 @@ class TestUpwardAlgorithm(unittest.TestCase):
 
     def test_one_tree_n4(self):
         ts = utility_functions.single_tree_ts_n4()
-        upward = self.run_upward_algorithm(ts)
+        upward = self.run_upward_algorithm(ts, 'gamma')
         self.assertTrue(np.allclose(upward[4], np.array([0, 1, 0.00548801])))
         self.assertTrue(np.allclose(upward[5], np.array([0, 1, 0.0239174])))
         self.assertTrue(np.allclose(upward[6], np.array([0, 1, 0.26222197])))
 
     def test_polytomy_tree(self):
         ts = utility_functions.polytomy_tree_ts()
-        upward = self.run_upward_algorithm(ts)
+        upward = self.run_upward_algorithm(ts, 'gamma')
         self.assertTrue(np.allclose(upward[3], np.array([0, 1, 0.12797265])))
 
     @unittest.skip("Need to fix to take geometric scaling into account")
     def test_two_tree_ts(self):
         ts = utility_functions.two_tree_ts()
-        upward = self.run_upward_algorithm(ts)
+        upward = self.run_upward_algorithm(ts, 'gamma')
         self.assertTrue(np.allclose(upward[3], np.array([0, 1, 0.02176622])))
         self.assertTrue(np.allclose(upward[4], np.array([0, 1, 0.04403458])))
         self.assertTrue(np.allclose(upward[5], np.array([0, 1, 0.23762418])))
 
     def test_tree_with_unary_nodes(self):
         ts = utility_functions.single_tree_ts_with_unary()
-        upward = self.run_upward_algorithm(ts)
+        upward = self.run_upward_algorithm(ts, 'gamma')
         self.assertTrue(np.allclose(upward[3], np.array([0, 1, 0.01147716])))
         self.assertTrue(np.allclose(upward[4], np.array([0, 1, 0.12086781])))
         self.assertTrue(np.allclose(upward[5], np.array([0, 1, 0.07506923])))
@@ -708,7 +709,7 @@ class TestUpwardAlgorithm(unittest.TestCase):
 
     def test_two_tree_mutation_ts(self):
         ts = utility_functions.two_tree_mutation_ts()
-        upward = self.run_upward_algorithm(ts)
+        upward = self.run_upward_algorithm(ts, 'gamma')
         self.assertTrue(np.allclose(upward[3], np.array([0, 1, 0.02176622])))
         # self.assertTrue(np.allclose(upward[4], np.array([0, 2.90560754e-05, 1])))
         # NB the replacement below has not been hand-calculated
