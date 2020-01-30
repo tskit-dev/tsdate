@@ -365,26 +365,26 @@ class TestMixturePrior(unittest.TestCase):
 
 
 class TestPriorVals(unittest.TestCase):
-    def verify_prior_vals(self, ts):
+    def verify_prior_vals(self, ts, prior_distr):
         span_data = tsdate.SpansBySamples(ts)
-        priors = tsdate.ConditionalCoalescentTimes(None)
+        priors = tsdate.ConditionalCoalescentTimes(None, prior_distr=prior_distr)
         priors.add(ts.num_samples, approximate=False)
         grid = np.linspace(0, 3, 3)
-        mixture_prior = tsdate.get_mixture_prior_params(span_data, priors)
+        mixture_prior = priors.get_mixture_prior_params(span_data)
         nodes_to_date = span_data.nodes_to_date
         prior_vals = tsdate.fill_prior(mixture_prior, grid, ts, nodes_to_date,
-                                       return_log=False)
+                                       prior_distr=prior_distr, return_log=False)
         return prior_vals
 
     def test_one_tree_n2(self):
         ts = utility_functions.single_tree_ts_n2()
-        prior_vals = self.verify_prior_vals(ts)
+        prior_vals = self.verify_prior_vals(ts, 'gamma')
         self.assertTrue(np.allclose(prior_vals[2],
                         np.array([0, 1, 0.22313016])))
 
     def test_one_tree_n3(self):
         ts = utility_functions.single_tree_ts_n3()
-        prior_vals = self.verify_prior_vals(ts)
+        prior_vals = self.verify_prior_vals(ts, 'gamma')
         self.assertTrue(np.allclose(prior_vals[3],
                         np.array([0, 1, 0.011109])))
         self.assertTrue(np.allclose(prior_vals[4],
@@ -392,7 +392,7 @@ class TestPriorVals(unittest.TestCase):
 
     def test_one_tree_n4(self):
         ts = utility_functions.single_tree_ts_n4()
-        prior_vals = self.verify_prior_vals(ts)
+        prior_vals = self.verify_prior_vals(ts, 'gamma')
         self.assertTrue(np.allclose(prior_vals[4],
                         np.array([0, 1, 0.00467134])))
         self.assertTrue(np.allclose(prior_vals[5],
@@ -402,13 +402,13 @@ class TestPriorVals(unittest.TestCase):
 
     def test_polytomy_tree(self):
         ts = utility_functions.polytomy_tree_ts()
-        prior_vals = self.verify_prior_vals(ts)
+        prior_vals = self.verify_prior_vals(ts, 'gamma')
         self.assertTrue(np.allclose(prior_vals[3],
                         np.array([0, 1, 0.3973851])))
 
     def test_two_tree_ts(self):
         ts = utility_functions.two_tree_ts()
-        prior_vals = self.verify_prior_vals(ts)
+        prior_vals = self.verify_prior_vals(ts, 'gamma')
         self.assertTrue(np.allclose(prior_vals[3],
                         np.array([0, 1, 0.011109])))
         self.assertTrue(np.allclose(prior_vals[4],
@@ -418,7 +418,7 @@ class TestPriorVals(unittest.TestCase):
 
     def test_tree_with_unary_nodes(self):
         ts = utility_functions.single_tree_ts_with_unary()
-        prior_vals = self.verify_prior_vals(ts)
+        prior_vals = self.verify_prior_vals(ts, 'gamma')
         self.assertTrue(np.allclose(prior_vals[3],
                         np.array([0, 1, 0.011109])))
         self.assertTrue(np.allclose(prior_vals[4],
@@ -654,7 +654,7 @@ class TestUpwardAlgorithm(unittest.TestCase):
         priors = tsdate.ConditionalCoalescentTimes(None)
         priors.add(ts.num_samples, approximate=False)
         grid = np.array([0, 1.2, 2])
-        mixture_prior = tsdate.get_mixture_prior_params(span_data, priors)
+        mixture_prior = priors.get_mixture_prior_params(span_data)
         nodes_to_date = span_data.nodes_to_date
         prior_vals = tsdate.fill_prior(mixture_prior, grid, ts, nodes_to_date)
         theta = 1
@@ -784,7 +784,7 @@ class TestTotalFunctionalValueTree(unittest.TestCase):
         priors = tsdate.ConditionalCoalescentTimes(None)
         priors.add(ts.num_samples, approximate=False)
         grid = np.array([0, 1.2, 2])
-        mixture_prior = tsdate.get_mixture_prior_params(span_data, priors)
+        mixture_prior = priors.get_mixture_prior_params(span_data)
         nodes_to_date = span_data.nodes_to_date
         prior_vals = tsdate.fill_prior(mixture_prior, grid, ts, nodes_to_date)
         theta = 1
