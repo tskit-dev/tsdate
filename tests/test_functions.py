@@ -90,7 +90,6 @@ class TestNodeTipWeights(unittest.TestCase):
                     nonsample_nodes[n] += tree.span
         self.assertEqual(set(span_data.nodes_to_date), set(nonsample_nodes.keys()))
         for id, span in nonsample_nodes.items():
-            print(id)
             self.assertAlmostEqual(span, span_data.node_spans[id])
         for focal_node in span_data.nodes_to_date:
             for num_samples, weights in span_data.get_weights(focal_node).items():
@@ -204,8 +203,6 @@ class TestMakePrior(unittest.TestCase):
         ts = utility_functions.single_tree_ts_n3()
         for distr in ('gamma', 'lognorm'):
             prior = self.verify_prior(ts, distr)
-            print(distr, prior[2])
-            print(distr, prior[3])
             self.assertTrue(np.allclose(prior[2, [MEAN, VAR]], [1/3, 1/9]))
             expected_ab = [1., 3.] if distr == 'gamma' else [-1.44518588, 0.69314718]
             self.assertTrue(np.allclose(prior[2, [ALPHA, BETA]], expected_ab))
