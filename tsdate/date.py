@@ -172,8 +172,7 @@ class ConditionalCoalescentTimes():
         # in a single sample - equivalent to the time of the sample itself, so
         # it should have var = 0 and mean = sample.time
         # Setting alpha = 0 and beta = 1 sets mean (a/b) == var (a / b^2) == 0
-        prior.loc[1] = [0, 1, 0, 0]
-        # prior.loc[1] = [np.nan, np.nan, np.nan, np.nan]
+        prior.loc[1] = [np.nan, np.nan, np.nan, np.nan]
 
         if self.approximate:
             get_tau_var = self.tau_var_lookup
@@ -311,18 +310,8 @@ class ConditionalCoalescentTimes():
                 cur_age_prior = self[N].loc[tip_dict.descendant_tips]
                 assert 1 not in tip_dict.descendant_tips
 
-                alpha = cur_age_prior['Alpha'].values
-                beta = cur_age_prior['Beta'].values
-
-                if self.prior_distr == 'gamma':
-                    mean = alpha / beta
-                    var = alpha / (beta ** 2)
-                elif self.prior_distr == 'lognorm':
-                    # mean = cur_age_prior['Mean'].values
-                    # var = cur_age_prior['Var'].values
-                    mean = np.exp(alpha + 0.5 * (beta))
-                    var = mean ** 2 * (np.exp(beta) - 1)
-                    # var = mean ** 2 * (np.exp(beta ** 2) - 1)
+                mean = cur_age_prior['Mean'].values
+                var = cur_age_prior['Var'].values
                 # Expectation
                 expectation += np.sum(mean * tip_dict.weight)
 
@@ -331,8 +320,6 @@ class ConditionalCoalescentTimes():
                 secnd += np.sum(mean ** 2 * tip_dict.weight)
             mean = expectation
             var = first + secnd - (expectation ** 2)
-            # mean = np.exp(alpha + 0.5 * (beta))
-            # var = mean ** 2 * (np.exp(beta **2) - 1)
             return mean, var
 
         seen_mixtures = {}
