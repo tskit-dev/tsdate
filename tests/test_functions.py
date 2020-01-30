@@ -183,9 +183,9 @@ class TestNodeTipWeights(unittest.TestCase):
 
 class TestMakePrior(unittest.TestCase):
     # We only test make_prior() on single trees
-    def verify_prior(self, ts):
+    def verify_prior(self, ts, prior_distr):
         # Check prior contains all possible tips
-        priors = tsdate.ConditionalCoalescentTimes(None)  # Don't use approximation
+        priors = tsdate.ConditionalCoalescentTimes(None, prior_distr=prior_distr)
         priors.add(ts.num_samples)
         prior_df = priors[ts.num_samples]
         self.assertEqual(prior_df.shape[0], ts.num_samples + 1)
@@ -193,15 +193,26 @@ class TestMakePrior(unittest.TestCase):
 
     def test_one_tree_n2(self):
         ts = utility_functions.single_tree_ts_n2()
-        prior = self.verify_prior(ts)
+        prior = self.verify_prior(ts, 'gamma')
         self.assertTrue(np.allclose(prior[2, [MEAN, VAR]], [1., 1.]))
+        self.assertTrue(np.allclose(prior[2, [ALPHA, BETA]], [1., 1.]))
+        prior = self.verify_prior(ts, 'lognorm')
+        self.assertTrue(np.allclose(prior[2, [MEAN, VAR]], [1., 1.]))
+        self.assertTrue(np.allclose(prior[2, [ALPHA, BETA]], [-0.34657359,  0.69314718]))
 
     def test_one_tree_n3(self):
         ts = utility_functions.single_tree_ts_n3()
-        prior = self.verify_prior(ts)
-        self.skipTest("Fill in values instead of np.nan")
-        self.assertTrue(np.allclose(prior[2, [MEAN, VAR]], [np.nan, np.nan]))
-        self.assertTrue(np.allclose(prior[3, [MEAN, VAR]], [np.nan, np.nan]))
+        for distr in ('gamma', 'lognorm'):
+            prior = self.verify_prior(ts, distr)
+            print(distr, prior[2])
+            print(distr, prior[3])
+            self.assertTrue(np.allclose(prior[2, [MEAN, VAR]], [1/3, 1/9]))
+            expected_ab = [1., 3.] if distr == 'gamma' else [-1.44518588, 0.69314718]
+            self.assertTrue(np.allclose(prior[2, [ALPHA, BETA]], expected_ab))
+
+            self.assertTrue(np.allclose(prior[3, [MEAN, VAR]], [1+1/3, 1+1/9]))
+            expected_ab = [1.6, 1.2] if distr == 'gamma' else [0.04492816, 0.48550782]
+            self.assertTrue(np.allclose(prior[3, [ALPHA, BETA]], expected_ab))
 
     def test_one_tree_n4(self):
         ts = utility_functions.single_tree_ts_n4()
@@ -273,95 +284,86 @@ class TestMakePrior(unittest.TestCase):
 
 
 class TestMixturePrior(unittest.TestCase):
-    def get_mixture_prior_params(self, ts):
+    def get_mixture_prior_params(self, ts, prior_distr):
         span_data = tsdate.SpansBySamples(ts)
-        priors = tsdate.ConditionalCoalescentTimes(None)
+        priors = tsdate.ConditionalCoalescentTimes(None, prior_distr=prior_distr)
         priors.add(ts.num_samples, approximate=False)
         mixture_prior = priors.get_mixture_prior_params(span_data)
         return(mixture_prior)
 
     def test_one_tree_n2(self):
         ts = utility_functions.single_tree_ts_n2()
-        mixture_prior = self.get_mixture_prior_params(ts)
-        [self.assertAlmostEqual(x, y)
-         for x, y in zip(mixture_prior.loc[2].values,
-                         [1., 1.])]
+        mixture_prior = self.get_mixture_prior_params(ts, 'gamma')
+        self.assertTrue(
+            np.allclose(mixture_prior[2, [ALPHA, BETA]], [1., 1.]))
+        mixture_prior = self.get_mixture_prior_params(ts, 'lognorm')
+        self.assertTrue(
+            np.allclose(mixture_prior[2, [ALPHA, BETA]], [-0.34657359, 0.69314718]))
 
     def test_one_tree_n3(self):
         ts = utility_functions.single_tree_ts_n3()
-        mixture_prior = self.get_mixture_prior_params(ts)
-        [self.assertAlmostEqual(x, y)
-         for x, y in zip(mixture_prior.loc[3].values,
-                         [1., 3.])]
-        [self.assertAlmostEqual(x, y)
-         for x, y in zip(mixture_prior.loc[4].values,
-                         [1.6, 1.2])]
+        mixture_prior = self.get_mixture_prior_params(ts, 'gamma')
+        self.assertTrue(
+            np.allclose(mixture_prior[3, [ALPHA, BETA]], [1., 3.]))
+        self.assertTrue(
+            np.allclose(mixture_prior[4, [ALPHA, BETA]], [1.6, 1.2]))
+        mixture_prior = self.get_mixture_prior_params(ts, 'lognorm')
+        self.assertTrue(
+            np.allclose(mixture_prior[3, [ALPHA, BETA]], [-1.44518588, 0.69314718]))
+        self.assertTrue(
+            np.allclose(mixture_prior[4, [ALPHA, BETA]], [0.04492816, 0.48550782]))
 
     def test_one_tree_n4(self):
         ts = utility_functions.single_tree_ts_n4()
-        mixture_prior = self.get_mixture_prior_params(ts)
-        [self.assertAlmostEqual(x, y)
-         for x, y in zip(mixture_prior.loc[4].values,
-                         [0.81818182, 3.27272727])]
-        [self.assertAlmostEqual(x, y)
-         for x, y in zip(mixture_prior.loc[5].values,
-                         [1.8, 3.6])]
-        [self.assertAlmostEqual(x, y)
-         for x, y in zip(mixture_prior.loc[6].values,
-                         [1.97560976, 1.31707317])]
+        mixture_prior = self.get_mixture_prior_params(ts, 'gamma')
+        self.assertTrue(
+            np.allclose(mixture_prior[4, [ALPHA, BETA]], [0.81818182, 3.27272727]))
+        self.assertTrue(
+            np.allclose(mixture_prior[5, [ALPHA, BETA]], [1.8, 3.6]))
+        self.assertTrue(
+            np.allclose(mixture_prior[6, [ALPHA, BETA]], [1.97560976, 1.31707317]))
 
     def test_polytomy_tree(self):
         ts = utility_functions.polytomy_tree_ts()
-        mixture_prior = self.get_mixture_prior_params(ts)
-        [self.assertAlmostEqual(x, y)
-         for x, y in zip(mixture_prior.loc[3].values,
-                         [1.6, 1.2])]
+        mixture_prior = self.get_mixture_prior_params(ts, 'gamma')
+        self.assertTrue(
+            np.allclose(mixture_prior[3, [ALPHA, BETA]], [1.6, 1.2]))
 
     def test_two_trees(self):
         ts = utility_functions.two_tree_ts()
-        mixture_prior = self.get_mixture_prior_params(ts)
-        [self.assertAlmostEqual(x, y)
-         for x, y in zip(mixture_prior.loc[3].values,
-                         [1., 3.])]
+        mixture_prior = self.get_mixture_prior_params(ts, 'gamma')
+        self.assertTrue(
+            np.allclose(mixture_prior[3, [ALPHA, BETA]], [1., 3.]))
         # Node 4 should be a mixture between 2 and 3 tips
-        [self.assertAlmostEqual(x, y, places=4)
-         for x, y in zip(mixture_prior.loc[4].values,
-                         [0.60377, 1.13207])]
-        [self.assertAlmostEqual(x, y)
-         for x, y in zip(mixture_prior.loc[5].values,
-                         [1.6, 1.2])]
+        self.assertTrue(
+            np.allclose(mixture_prior[4, [ALPHA, BETA]], [0.60377, 1.13207]))
+        self.assertTrue(
+            np.allclose(mixture_prior[5, [ALPHA, BETA]], [1.6, 1.2]))
 
     def test_single_tree_ts_with_unary(self):
         ts = utility_functions.single_tree_ts_with_unary()
-        mixture_prior = self.get_mixture_prior_params(ts)
-        [self.assertAlmostEqual(x, y)
-         for x, y in zip(mixture_prior.loc[3].values,
-                         [1., 3.])]
+        mixture_prior = self.get_mixture_prior_params(ts, 'gamma')
+        self.assertTrue(
+            np.allclose(mixture_prior[3, [ALPHA, BETA]], [1., 3.]))
         # Node 4 should be a mixture between 2 and 3 tips
-        [self.assertAlmostEqual(x, y, places=4)
-         for x, y in zip(mixture_prior.loc[4].values,
-                         [0.80645, 0.96774])]
+        self.assertTrue(
+            np.allclose(mixture_prior[4, [ALPHA, BETA]], [0.80645, 0.96774]))
         # Node 5 should be a mixture between 1 and 3 tips
-        [self.assertAlmostEqual(x, y, places=4)
-         for x, y in zip(mixture_prior.loc[5].values,
-                         [0.44444, 0.66666])]
-        [self.assertAlmostEqual(x, y)
-            for x, y in zip(mixture_prior.loc[6].values,
-                            [1.6, 1.2])]
+        self.assertTrue(
+            np.allclose(mixture_prior[5, [ALPHA, BETA]], [0.44444, 0.66666]))
+        self.assertTrue(
+            np.allclose(mixture_prior[6, [ALPHA, BETA]], [1.6, 1.2]))
 
     def test_two_tree_mutation_ts(self):
         ts = utility_functions.two_tree_mutation_ts()
-        mixture_prior = self.get_mixture_prior_params(ts)
-        [self.assertAlmostEqual(x, y)
-         for x, y in zip(mixture_prior.loc[3].values,
-                         [1., 3.])]
+        mixture_prior = self.get_mixture_prior_params(ts, 'gamma')
+        self.assertTrue(
+            np.allclose(mixture_prior[3, [ALPHA, BETA]], [1., 3.]))
         # Node 4 should be a mixture between 2 and 3 tips
-        [self.assertAlmostEqual(x, y, places=4)
-         for x, y in zip(mixture_prior.loc[4].values,
-                         [0.60377, 1.13207])]
-        [self.assertAlmostEqual(x, y)
-         for x, y in zip(mixture_prior.loc[5].values,
-                         [1.6, 1.2])]
+        self.assertTrue(
+            np.allclose(mixture_prior[4, [ALPHA, BETA]], [0.60377, 1.13207]))
+        self.assertTrue(
+            np.allclose(mixture_prior[5, [ALPHA, BETA]], [1.6, 1.2]))
 
 
 class TestPriorVals(unittest.TestCase):
