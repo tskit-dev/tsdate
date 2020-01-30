@@ -779,15 +779,16 @@ class TestTotalFunctionalValueTree(unittest.TestCase):
     all node times are known (or all bar one).
     """
 
-    def find_posterior(self, ts):
+    def find_posterior(self, ts, prior_distr):
         span_data = tsdate.SpansBySamples(ts)
         spans = span_data.node_spans
-        priors = tsdate.ConditionalCoalescentTimes(None)
+        priors = tsdate.ConditionalCoalescentTimes(None, prior_distr=prior_distr)
         priors.add(ts.num_samples, approximate=False)
         grid = np.array([0, 1.2, 2])
         mixture_prior = priors.get_mixture_prior_params(span_data)
         nodes_to_date = span_data.nodes_to_date
-        prior_vals = tsdate.fill_prior(mixture_prior, grid, ts, nodes_to_date)
+        prior_vals = tsdate.fill_prior(
+            mixture_prior, grid, ts, nodes_to_date, prior_distr=prior_distr)
         theta = 1
         rho = None
         eps = 1e-6
@@ -807,24 +808,30 @@ class TestTotalFunctionalValueTree(unittest.TestCase):
 
     def test_one_tree_n2(self):
         ts = utility_functions.single_tree_ts_n2()
-        posterior, upward, downward = self.find_posterior(ts)
+        for distr in ('gamma', 'lognorm'):
+            posterior, upward, downward = self.find_posterior(ts, distr)
 
     def test_one_tree_n3(self):
         ts = utility_functions.single_tree_ts_n3()
-        posterior, upward, downward = self.find_posterior(ts)
+        for distr in ('gamma', 'lognorm'):
+            posterior, upward, downward = self.find_posterior(ts, distr)
 
     def test_one_tree_n4(self):
         ts = utility_functions.single_tree_ts_n4()
-        posterior, upward, downward = self.find_posterior(ts)
+        for distr in ('gamma', 'lognorm'):
+            posterior, upward, downward = self.find_posterior(ts, distr)
 
     def test_one_tree_n3_mutation(self):
         ts = utility_functions.single_tree_ts_mutation_n3()
-        posterior, upward, downward = self.find_posterior(ts)
+        for distr in ('gamma', 'lognorm'):
+            posterior, upward, downward = self.find_posterior(ts, distr)
 
     def test_polytomy_tree(self):
         ts = utility_functions.polytomy_tree_ts()
-        posterior, upward, downward = self.find_posterior(ts)
+        for distr in ('gamma', 'lognorm'):
+            posterior, upward, downward = self.find_posterior(ts, distr)
 
     def test_tree_with_unary_nodes(self):
         ts = utility_functions.single_tree_ts_with_unary()
-        posterior, upward, downward = self.find_posterior(ts)
+        for distr in ('gamma', 'lognorm'):
+            posterior, upward, downward = self.find_posterior(ts, distr)
