@@ -554,18 +554,21 @@ class SpansBySamples:
             disappearing_nodes = set()
             changed_nodes = set()
             for e in e_out:
-                # Since a node only has one parent edge, any edge children going out
-                # will be lost, unless they are reintroduced in the edges_in
-                if e.child in self.fixed_at_0_nodes:
-                    fixed_at_0_nodes_out.add(e.child)
                 # No need to add the parents, as we'll traverse up the previous tree
                 # from these points and be guaranteed to hit them too.
                 changed_nodes.add(e.child)
-                disappearing_nodes.add(e.child)
                 if e.parent != tskit.NULL:
                     num_children[e.parent] -= 1
                     if num_children[e.parent] == 0:
                         disappearing_nodes.add(e.parent)
+            for e in e_out:
+                # Since a node only has one parent edge, any edge children going out
+                # will be lost, unless they are reintroduced in the edges_in, or are
+                # the root node
+                if num_children[e.child] == 0:
+                    disappearing_nodes.add(e.child)
+                    if e.child in self.fixed_at_0_nodes:
+                        fixed_at_0_nodes_out.add(e.child)
 
             for e in e_in:
                 # Edge children are always new
@@ -582,7 +585,6 @@ class SpansBySamples:
                     # If a parent or child come in, they definitely won't be disappearing
                     num_children[e.parent] += 1
                     disappearing_nodes.discard(e.parent)
-
             # Add unary nodes below the altered ones, as their result is calculated
             # from the coalescent node above
             unary_descendants = set()
@@ -914,7 +916,6 @@ class NodeGridValues:
     def __setitem__(self, node_id, value):
         index = self.row_lookup[node_id]
         if index < 0:
-            print(index)
             self.fixed_data[1 + index] = value
         else:
             self.grid_data[index, :] = value
