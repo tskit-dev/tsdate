@@ -988,6 +988,8 @@ def fill_prior(distr_parameters, grid, ts, nodes_to_date, prior_distr,
         cdf_func = scipy.stats.gamma.cdf
         main_param = distr_parameters[:, ALPHA]
         scale_param = 1 / distr_parameters[:, BETA]
+    else:
+        raise ValueError("prior distribution must be lognorm or gamma")
 
     for node in tqdm(nodes_to_date, desc="GetPrior", disable=not progress):
         prior_node = cdf_func(grid, main_param[node], scale=scale_param[node])
