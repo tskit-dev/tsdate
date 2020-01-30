@@ -167,7 +167,7 @@ class ConditionalCoalescentTimes():
         # they are stored separately to obviate need to move between them
         prior = pd.DataFrame(
             index=np.arange(1, total_tips + 1),
-            columns=["Alpha", "Beta", "Mean", "Var"], dtype=float)
+            columns=["Alpha", "Beta", "Mean", "Var"], dtype=FLOAT_DTYPE)
         # prior.loc[1] is distribution of times of a "coalescence node" ending
         # in a single sample - equivalent to the time of the sample itself, so
         # it should have var = 0 and mean = sample.time
@@ -325,7 +325,7 @@ class ConditionalCoalescentTimes():
         seen_mixtures = {}
         prior = pd.DataFrame(
             index=list(spans_by_samples.nodes_to_date),
-            columns=["Alpha", "Beta"], dtype=float)
+            columns=["Alpha", "Beta"], dtype=FLOAT_DTYPE)
         for node in spans_by_samples.nodes_to_date:
             mixture = spans_by_samples.get_weights(node)
             if len(mixture) == 1:
@@ -425,7 +425,7 @@ class SpansBySamples:
                                  if self.ts.node(n).time == 0}
 
         # We will store the spans in here, and normalise them at the end
-        self._spans = defaultdict(lambda: defaultdict(lambda: defaultdict(float)))
+        self._spans = defaultdict(lambda: defaultdict(lambda: defaultdict(FLOAT_DTYPE)))
 
         with tqdm(total=3, desc="TipCount", disable=not self.progress) as progressbar:
             node_spans, trees_with_undated, total_fixed_at_0_per_tree = self.first_pass()
@@ -790,7 +790,7 @@ class SpansBySamples:
             span, normalised by the total span over which the node exists) for
             :math:`k` descendant samples, as a floating point number. For any node,
             the normalisation means that all the weights should sum to one.
-        :rtype: dict(int, dict(int, float))'
+        :rtype: dict(int, dict(int, FLOAT_DTYPE))'
         """
         return self.normalised_node_span_data[node]
 
