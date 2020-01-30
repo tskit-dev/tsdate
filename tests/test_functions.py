@@ -213,46 +213,51 @@ class TestMakePrior(unittest.TestCase):
 
     def test_one_tree_n4(self):
         ts = utility_functions.single_tree_ts_n4()
-        prior = self.verify_prior(ts)
-        self.skipTest("Fill in values instead of np.nan")
-        # prior.loc[2].values == [0.81818182, 3.27272727])
-        self.assertTrue(np.allclose(prior[2, [MEAN, VAR]], [np.nan, np.nan]))
-        self.assertTrue(np.allclose(prior[3, [MEAN, VAR]], [np.nan, np.nan]))
-        self.assertTrue(np.allclose(prior[4, [MEAN, VAR]], [np.nan, np.nan]))
+        for distr in ('gamma', 'lognorm'):
+            prior = self.verify_prior(ts, distr)
+            self.skipTest("Fill in values instead of np.nan")
+            # prior.loc[2].values == [0.81818182, 3.27272727])
+            self.assertTrue(np.allclose(prior[2, [MEAN, VAR]], [np.nan, np.nan]))
+            self.assertTrue(np.allclose(prior[3, [MEAN, VAR]], [np.nan, np.nan]))
+            self.assertTrue(np.allclose(prior[4, [MEAN, VAR]], [np.nan, np.nan]))
 
     def test_polytomy_tree(self):
         ts = utility_functions.polytomy_tree_ts()
-        prior = self.verify_prior(ts)
-        self.skipTest("Fill in values instead of np.nan")
-        # prior.loc[3].values == [1.6, 1.2])
-        self.assertTrue(np.allclose(prior[3, [MEAN, VAR]], [np.nan, np.nan]))
+        for distr in ('gamma', 'lognorm'):
+            prior = self.verify_prior(ts, distr)
+            self.skipTest("Fill in values instead of np.nan")
+            # prior.loc[3].values == [1.6, 1.2])
+            self.assertTrue(np.allclose(prior[3, [MEAN, VAR]], [np.nan, np.nan]))
 
     def test_two_tree_ts(self):
         ts = utility_functions.two_tree_ts()
-        prior = self.verify_prior(ts)
-        self.skipTest("Fill in values instead of np.nan")
-        # (prior.loc[2].values == [1., 3.])]
-        # (prior.loc[3].values == [1.6, 1.2])]
-        self.assertTrue(np.allclose(prior[2, [MEAN, VAR]], [np.nan, np.nan]))
-        self.assertTrue(np.allclose(prior[3, [MEAN, VAR]], [np.nan, np.nan]))
+        for distr in ('gamma', 'lognorm'):
+            prior = self.verify_prior(ts, distr)
+            self.skipTest("Fill in values instead of np.nan")
+            # (prior.loc[2].values == [1., 3.])]
+            # (prior.loc[3].values == [1.6, 1.2])]
+            self.assertTrue(np.allclose(prior[2, [MEAN, VAR]], [np.nan, np.nan]))
+            self.assertTrue(np.allclose(prior[3, [MEAN, VAR]], [np.nan, np.nan]))
 
     def test_single_tree_ts_with_unary(self):
         ts = utility_functions.single_tree_ts_with_unary()
-        prior = self.verify_prior(ts)
-        self.skipTest("Fill in values instead of np.nan")
-        # (prior.loc[2].values == [1., 3.])]
-        # (prior.loc[3].values == [1.6, 1.2])]
-        self.assertTrue(np.allclose(prior[2, [MEAN, VAR]], [np.nan, np.nan]))
-        self.assertTrue(np.allclose(prior[3, [MEAN, VAR]], [np.nan, np.nan]))
+        for distr in ('gamma', 'lognorm'):
+            prior = self.verify_prior(ts, distr)
+            self.skipTest("Fill in values instead of np.nan")
+            # (prior.loc[2].values == [1., 3.])]
+            # (prior.loc[3].values == [1.6, 1.2])]
+            self.assertTrue(np.allclose(prior[2, [MEAN, VAR]], [np.nan, np.nan]))
+            self.assertTrue(np.allclose(prior[3, [MEAN, VAR]], [np.nan, np.nan]))
 
     def test_two_tree_mutation_ts(self):
         ts = utility_functions.two_tree_mutation_ts()
-        prior = self.verify_prior(ts)
-        self.skipTest("Fill in values instead of np.nan")
-        # (prior.loc[2].values == [1., 3.])]
-        # (prior.loc[3].values == [1.6, 1.2])]
-        self.assertTrue(np.allclose(prior[2, [MEAN, VAR]], [np.nan, np.nan]))
-        self.assertTrue(np.allclose(prior[3, [MEAN, VAR]], [np.nan, np.nan]))
+        for distr in ('gamma', 'lognorm'):
+            prior = self.verify_prior(ts, distr)
+            self.skipTest("Fill in values instead of np.nan")
+            # (prior.loc[2].values == [1., 3.])]
+            # (prior.loc[3].values == [1.6, 1.2])]
+            self.assertTrue(np.allclose(prior[2, [MEAN, VAR]], [np.nan, np.nan]))
+            self.assertTrue(np.allclose(prior[3, [MEAN, VAR]], [np.nan, np.nan]))
 
     def test_precalculated_prior(self):
         # Force approx prior with a tiny n
@@ -722,7 +727,7 @@ class TestDownwardAlgorithm(unittest.TestCase):
     def run_downward_algorithm(self, ts, prior_distr="lognorm"):
         span_data = tsdate.SpansBySamples(ts)
         spans = span_data.node_spans
-        priors = tsdate.ConditionalCoalescentTimes(None)
+        priors = tsdate.ConditionalCoalescentTimes(None, prior_distr)
         priors.add(ts.num_samples, approximate=False)
         grid = np.array([0, 1.2, 2])
         mixture_prior = priors.get_mixture_prior_params(span_data)
