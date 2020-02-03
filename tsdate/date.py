@@ -1602,7 +1602,7 @@ def get_dates(
 
     :return: tuple(mn_post, posterior, grid, eps, nodes_to_date)
     """
-    if grid_slices < 2:
+    if time_grid != 'manual' and grid_slices < 2:
         raise ValueError("You must have at least 2 slices in the time grid")
 
     if check_valid_topology is True:
@@ -1642,8 +1642,13 @@ def get_dates(
         # Use the prior for the complete TS
         grid = create_time_grid(
             base_priors[tree_sequence.num_samples], prior_distr, grid_slices + 1)
+    elif time_grid == 'manual':
+        if type(grid_slices) == list:
+            grid = np.array(sorted(grid_slices))
+        else:
+            raise ValueError("grid slices must be a list of time points such as [0, 1, 2]")
     else:
-        raise ValueError("time_grid must be either 'adaptive' or 'uniform'")
+        raise ValueError("time_grid must be either 'adaptive', 'uniform', or 'manual'")
 
     prior_params = base_priors.get_mixture_prior_params(span_data)
     prior_vals = fill_prior(prior_params, grid, tree_sequence, nodes_to_date,
