@@ -326,6 +326,47 @@ def two_tree_mutation_ts():
                            mutations=mutations, strict=False)
 
 
+def loopy_tree():
+    r"""
+    Simple case where we have n = 3, 2 trees, three mutations.
+                   .          7
+                   .         / \
+                   .        /  |
+                   .       /   |
+         6         .      /    6
+        / \        .     /    / \
+       /   5       .    /    /   |
+      /   / \      .   /    /    |
+     |   /   \     .  |    |     |
+     |   |    \    .  |    |     |
+     |   4     |    . |    4     |
+     |  / \    |    . |   / \    |
+     0 1   2   3    . 0  1   2   3
+    """
+    nodes = io.StringIO("""\
+    id      is_sample   time
+    0       1           0
+    1       1           0
+    2       1           0
+    3       1           0
+    4       0           1
+    5       0           2
+    6       0           3
+    7       0           4
+    """)
+    edges = io.StringIO("""\
+    left    right   parent  child
+    0       1       4       0,1
+    0       0.2     5       2,4
+    0       0.2     6       5
+    0       1       6       3
+    0.2     1       6       4
+    0.2     1       7       2
+    0.2     1       7       6
+    """)
+    return tskit.load_text(nodes=nodes, edges=edges, strict=False)
+
+
 def truncate_ts_samples(ts, average_span, random_seed, min_span=5):
     """
     Create a tree sequence that has sample nodes which have been truncated
