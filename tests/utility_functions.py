@@ -29,6 +29,20 @@ import tskit
 import io
 
 
+def add_grand_mrca(ts):
+    """
+    Function to add a grand mrca node to a tree sequence
+    """
+    grand_mrca = ts.max_root_time + 1
+    tables = ts.dump_tables()
+    new_node_number = tables.nodes.add_row(time=grand_mrca)
+    for tree in ts.trees():
+        tables.edges.add_row(
+            tree.interval[0], tree.interval[1], new_node_number, tree.root)
+    tables.sort()
+    return tables.tree_sequence()
+
+
 def single_tree_ts_n2():
     r"""
     Simple case where we have n = 2 and one tree.
