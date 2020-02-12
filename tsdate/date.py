@@ -1367,7 +1367,8 @@ class UpDownAlgorithms:
         return upward, g_i, norm
 
     # TODO: Account for multiple parents, fix the log of zero thing
-    def downward(self, log_upward, log_g_i, norm, theta, rho, spans, progress=None):
+    def downward(self, upward, log_g_i, norm, theta, rho, spans, normalise=False,
+                 progress=None):
         """
         Computes the full posterior distribution on nodes.
         Input is log of upward matrix, log of g_i matrix, time grid, population scaled
@@ -1377,7 +1378,7 @@ class UpDownAlgorithms:
         The rows in the posterior returned correspond to node IDs as given by
         self.nodes
         """
-        downward = NodeGridValues.clone_with_new_data(log_upward, grid_data=0)
+        downward = NodeGridValues.clone_with_new_data(upward, grid_data=0)
 
         # TO DO here: check that no fixed_nodes have children, otherwise we can't descend
         for tree in self.ts.trees():
@@ -1403,14 +1404,25 @@ class UpDownAlgorithms:
                 # but is an approximation when times are unknown.
                 geo_scale = edge.span / spans[child]
                 cur_g_i = self.lik.rowsum_lower_tri(
-                    (self.lik.make_lower_tri(log_upward[edge.child]) ** geo_scale) *
+                    (self.lik.make_lower_tri(upward[edge.child]) ** geo_scale) *
                     self.lik.get_mut_lik_lower_tri(edge)) / norm[child]
                 assert np.all(cur_g_i == log_g_i[edge.id]), (log_g_i[edge.id], cur_g_i)
-                prev_state = self.lik.make_upper_tri(
-                    (downward[edge.parent] ** geo_scale) * (np.where(
-                        cur_g_i == 0, 1,
-                        (log_upward[edge.parent] / cur_g_i)) ** geo_scale))
 
+                # try:
+                upward_div_gi = np.zeros(len(cur_g_i))
+                nonzeros = np.logical_and(upward[edge.parent] != 0, cur_g_i != 0)
+                
+                upward_div_gi[nonzeros] = (upward[edge.parent][nonzeros] / 
+                    cur_g_i[nonzeros])
+
+                prev_state = self.lik.make_upper_tri((downward[edge.parent] *upward_div_gi) ** geo_scale)
+                # prev_state = self.lik.make_upper_tri(
+                #     (downward[edge.parent] ** geo_scale) * 
+                #         (upward[edge.parent] * np.where(cur_g_i == 0, 0, 
+                #             1 / np.where(cur_g_i == 0, np.inf, cur_g_i))) ** geo_scale)
+
+                # except:
+                #     print(cur_g_i, geo_scale, upward[edge.parent])
                 if theta is not None and rho is not None:
                     b_l = (edge.left != 0)
                     b_r = (edge.right != self.ts.get_sequence_length())
@@ -1420,10 +1432,11 @@ class UpDownAlgorithms:
                     vv = self.lik.rowsum_upper_tri(prev_state * ll_mut * ll_rec)
                 elif theta is not None:
                     ll_mut = self.lik.get_mut_lik_upper_tri(edge)
+
                     vv = self.lik.rowsum_upper_tri(prev_state * ll_mut)
 
                     # vv = vv ** (edge.span/spans[edge.child])
-                    val *= vv
+                    
                 elif rho is not None:
                     b_l = (edge.left != 0)
                     b_r = (edge.right != self.ts.get_sequence_length())
@@ -1433,12 +1446,16 @@ class UpDownAlgorithms:
                 else:
                     # Topology-only clock
                     vv = self.lik.rowsum_upper_tri(prev_state)
+                if normalise:
+                    val *= (vv / np.max(vv))
+                else:
+                    val *= vv
             vv[0] = 0  # Seems a hack: internal nodes should be allowed at time 0
             assert norm[edge.child] > -np.inf
             downward[child] = val / norm[child]
         posterior = NodeGridValues.clone_with_new_data(
            orig=downward,
-           grid_data=log_upward.grid_data * downward.grid_data,
+           grid_data=upward.grid_data * downward.grid_data,
            fixed_data=np.nan)  # We should never use the posterior for a fixed node
         posterior.grid_data = (posterior.grid_data /
                                np.sum(posterior.grid_data, axis=1)[:, None])
@@ -1446,14 +1463,14 @@ class UpDownAlgorithms:
         # downward.grid_data = np.exp(downward.grid_data)
         return posterior, downward
 
-    def downward_maximization(self, log_upward, theta, spans, eps=1e-6, progress=None):
+    def downward_maximization(self, upward, theta, spans, eps=1e-6, progress=None):
         maximized_node_times = np.zeros(self.ts.num_nodes, dtype='int')
         mut_edges = self.lik.mut_edges
         mrcas = np.where(np.isin(
             np.arange(self.ts.num_nodes), self.ts.tables.edges.child, invert=True))[0]
         for i in mrcas:
             if i not in self.fixednodes:
-                maximized_node_times[i] = np.argmax(np.exp(log_upward[i]))
+                maximized_node_times[i] = np.argmax(np.exp(upward[i]))
 
         # TODO: Sort on child ages then parent ages within each edge group
         wtype = np.dtype([('Childage', 'f4'), ('Parentage', 'f4')])
@@ -1468,7 +1485,7 @@ class UpDownAlgorithms:
             progress = self.progress
         for child, edges in tqdm(
             itertools.groupby(sorted_child_parent, key=lambda x: x.child),
-            desc="Maximization", total=log_upward.num_nonfixed,
+            desc="Maximization", total=upward.num_nonfixed,
                 disable=not progress):
             if child in self.fixednodes:
                 continue
@@ -1496,7 +1513,7 @@ class UpDownAlgorithms:
 
                     result[:youngest_par_index + 1] += ll_mut[:youngest_par_index + 1]
 
-            upward_val = log_upward.grid_data[
+            upward_val = upward.grid_data[
                 child - self.ts.num_samples][:(youngest_par_index + 1)]
 
             maximized_node_times[child] = np.argmax(
@@ -1591,7 +1608,7 @@ def get_dates(
         tree_sequence, Ne, mutation_rate=None, recombination_rate=None,
         *, time_grid='adaptive', grid_slices=50, eps=1e-6, num_threads=None,
         approximate_prior=None, prior_distr='lognorm',
-        estimation_method='inside_outside', progress=False,
+        estimation_method='inside_outside', downward_normalise=False, progress=False,
         check_valid_topology=True):
     """
     Infer dates for the nodes in a tree sequence, returning an array of inferred dates
@@ -1667,15 +1684,15 @@ def get_dates(
 
     dynamic_prog = UpDownAlgorithms(tree_sequence, liklhd, progress=progress)
 
-    log_upward, log_g_i, norm = dynamic_prog.upward(prior_vals, theta, rho, spans)
+    upward, log_g_i, norm = dynamic_prog.upward(prior_vals, theta, rho, spans)
 
     posterior = None
     if estimation_method == 'inside_outside':
         posterior, downward = dynamic_prog.downward(
-            log_upward, log_g_i, norm, theta, rho, spans)
+            upward, log_g_i, norm, theta, rho, spans, normalise=downward_normalise)
         mn_post, _ = posterior_mean_var(tree_sequence, grid, posterior, fixed_node_set)
     elif estimation_method == 'maximization':
-        mn_post = dynamic_prog.downward_maximization(log_upward, theta, spans, eps)
+        mn_post = dynamic_prog.downward_maximization(upward, theta, spans, eps)
     else:
         raise ValueError(
             "estimation method must be either 'inside_outside' or 'maximization'")
