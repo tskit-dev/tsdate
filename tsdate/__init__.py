@@ -22,8 +22,8 @@
 
 from .date import (  # NOQA
     date, get_dates, constrain_ages_topo, create_time_grid, fill_prior,
-    ConditionalCoalescentTimes, SpansBySamples, Likelihoods, NodeGridValues,
-    UpDownAlgorithms, posterior_mean_var, gamma_approx
+    ConditionalCoalescentTimes, SpansBySamples, Likelihoods, LogLikelihoods,
+    NodeGridValues, InOutAlgorithms, posterior_mean_var, gamma_approx
     )
 
 

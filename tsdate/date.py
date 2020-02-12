@@ -27,6 +27,7 @@ import logging
 import os
 import itertools
 import multiprocessing
+import operator
 import functools
 
 import tskit
@@ -895,16 +896,36 @@ class NodeGridValues:
         # fixed nodes get a negative value from -1, indicating lookup in the scalar array
         self.row_lookup[np.logical_not(np.isin(np.arange(num_nodes), nonfixed_nodes))] =\
             -np.arange(num_nodes - self.num_nonfixed) - 1
+        self.probability_space = "linear"
 
-    def apply_log(self):
-        self.grid_data = np.log(self.grid_data)
-        self.fixed_data = np.log(self.fixed_data)
+    def to_log(self):
+        if self.probability_space == "linear":
+            self.grid_data = np.log(self.grid_data)
+            self.fixed_data = np.log(self.fixed_data)
+            self.probability_space = "logarithmic"
+        else:
+            logging.warning("Tried to apply log to non-linear grid values")
 
-    def normalize_grid(self):
+    def from_log(self):
+        if self.probability_space == "logarithmic":
+            self.grid_data = np.exp(self.grid_data)
+            self.fixed_data = np.exp(self.fixed_data)
+            self.probability_space = "linear"
+        else:
+            logging.warning("Tried to remove log from non-logged grid values")
+
+    def normalize(self):
         """
-        normalise the grid data so it sums to one
+        normalise grid and fixed data so the max is one
         """
-        self.grid_data = self.grid_data / np.sum(self.grid_data, axis=1)[:, np.newaxis]
+        rowmax = self.grid_data[:, 1:].max(axis=1)
+        if self.probability_space == "linear":
+            self.grid_data = self.grid_data / rowmax[:, np.newaxis]
+        elif self.probability_space == "logarithmic":
+            rowmax = self.grid_data[:, 1:].max(axis=1)
+            self.grid_data = self.grid_data - rowmax[:, np.newaxis]
+        else:
+            raise RuntimeError("Probability space is not linear or logarithmic")
 
     def __getitem__(self, node_id):
         index = self.row_lookup[node_id]
@@ -920,8 +941,8 @@ class NodeGridValues:
         else:
             self.grid_data[index, :] = value
 
-    @staticmethod
-    def clone_with_new_data(orig, grid_data=np.nan, fixed_data=None):
+    def clone_with_new_data(
+            self, grid_data=np.nan, fixed_data=None, probability_space=None):
         """
         Take the row indices etc from an existing NodeGridValues object and make a new
         similar one but with different data. If grid_data is a single number, fill the
@@ -941,33 +962,36 @@ class NodeGridValues:
             else:
                 return np.full(
                     orig.fixed_data.shape, fixed_data, dtype=orig.fixed_data.dtype)
-
         new_obj = NodeGridValues.__new__(NodeGridValues)
-        new_obj.num_nodes = orig.num_nodes
-        new_obj.nonfixed_nodes = orig.nonfixed_nodes
-        new_obj.num_nonfixed = orig.num_nonfixed
-        new_obj.row_lookup = orig.row_lookup
+        new_obj.num_nodes = self.num_nodes
+        new_obj.nonfixed_nodes = self.nonfixed_nodes
+        new_obj.num_nonfixed = self.num_nonfixed
+        new_obj.row_lookup = self.row_lookup
         if type(grid_data) is np.ndarray:
-            if orig.grid_data.shape != grid_data.shape:
+            if self.grid_data.shape != grid_data.shape:
                 raise ValueError(
                     "The grid data array must be the same shape as the original")
             new_obj.grid_data = grid_data
             new_obj.fixed_data = fill_fixed(
-                orig, np.nan if fixed_data is None else fixed_data)
+                self, np.nan if fixed_data is None else fixed_data)
         else:
             if grid_data == 0:  # Fast allocation
                 new_obj.grid_data = np.zeros(
-                    orig.grid_data.shape, dtype=orig.grid_data.dtype)
+                    self.grid_data.shape, dtype=self.grid_data.dtype)
             else:
                 new_obj.grid_data = np.full(
-                    orig.grid_data.shape, grid_data, dtype=orig.grid_data.dtype)
+                    self.grid_data.shape, grid_data, dtype=self.grid_data.dtype)
             new_obj.fixed_data = fill_fixed(
-                orig, grid_data if fixed_data is None else fixed_data)
+                self, grid_data if fixed_data is None else fixed_data)
+        if probability_space is None:
+            new_obj.probability_space = self.probability_space
+        else:
+            new_obj.probability_space = probability_space
         return new_obj
 
 
 def fill_prior(distr_parameters, grid, ts, nodes_to_date, prior_distr,
-               progress=False, return_log=False):
+               progress=False):
     """
     Take the alpha and beta values from the distr_parameters data frame
     and fill out a NodeGridValues object with the prior values from the
@@ -996,27 +1020,24 @@ def fill_prior(distr_parameters, grid, ts, nodes_to_date, prior_distr,
         # force age to be less than max value
         prior_node = np.divide(prior_node, np.max(prior_node))
         # prior in each epoch
-        prior_intervals = np.concatenate([np.array([0]), np.diff(prior_node)])
-        if return_log:
-            prior_intervals = np.log(prior_intervals)
-            # normalize so max value is 1
-            prior_intervals = np.subtract(prior_intervals, np.max(prior_intervals[1:]))
-        else:
-            # normalize so max value is 1
-            prior_intervals = np.divide(prior_intervals, np.max(prior_intervals[1:]))
-        prior_times[node] = prior_intervals
+        prior_times[node] = np.concatenate([np.array([0]), np.diff(prior_node)])
+    # normalize so max value is 1
+    prior_times.normalize()
     return prior_times
 
 
 class Likelihoods:
     """
-    A class to store the likelihoods for edges. These are stored as a flattened
-    lower triangular matrix of all the possible delta t's. This class also provides
-    methods for accessing this lower triangular matrix, multiplying it, etc.
+    A class to store and process likelihoods. Likelihoods for edges are stored as a
+    flattened lower triangular matrix of all the possible delta t's. This class also
+    provides methods for accessing this lower triangular matrix, multiplying it, etc.
     """
 
     def __init__(self, ts, grid, theta=None, eps=0, fixed_node_set=None):
+        self.probability_space = "linear"
         self.ts = ts
+        self.identity_constant = 1.0
+        self.null_constant = 0.0
         self.grid = grid
         self.fixednodes = set(ts.samples()) if fixed_node_set is None else fixed_node_set
         self.theta = theta
@@ -1185,7 +1206,7 @@ class Likelihoods:
     def get_mut_lik_upper_tri(self, edge):
         """
         Same as :meth:`get_mut_lik_lower_tri`, but the returned array is ordered as
-        flattened upper triangular matrix (suitable for the downward algorithm), rather
+        flattened upper triangular matrix (suitable for the outside algorithm), rather
         than a lower triangular one
         """
         return self.get_mut_lik_lower_tri(edge)[np.concatenate(self.row_indices)]
@@ -1208,15 +1229,6 @@ class Likelihoods:
         Describe the reduceat trickery here. Presumably the opposite of make_lower_tri
         """
         assert len(input_array) == self.tri_size
-        # res = list()
-        # i_start = self.row_indices[0][0]
-        # for cur_index, i in enumerate(self.row_indices[0][1:]):
-        #     res.append(logsumexp(input_array[i_start:i]))
-        #     i_start = i
-
-        # res.append(logsumexp(input_array[i:]))
-
-        # return np.array(res)
         return np.add.reduceat(input_array, self.row_indices[0])
 
     def make_upper_tri(self, input_array):
@@ -1231,248 +1243,254 @@ class Likelihoods:
         Describe the reduceat trickery here. Presumably the opposite of make_upper_tri
         """
         assert len(input_array) == self.tri_size
-        # res = list()
-        # i_start = self.col_indices[0]
-        # for cur_index, i in enumerate(self.col_indices[1:]):
-        #     res.append(logsumexp(input_array[i_start:i]))
-        #     i_start = i
-
-        # res.append(logsumexp(input_array[i:]))
-
-        # return np.array(res)
         return np.add.reduceat(input_array, self.col_indices)
 
+    # Mutation & recombination algorithms on a tree sequence
 
-@numba.jit(nopython=True)
-def logsumexp(X):
-    r = 0.0
-    for x in X:
-        r += np.exp(x)
-    return np.log(r)
+    def n_breaks(self, edge):
+        """
+        Number of known breakpoints, only used in recombination likelihood calc
+        """
+        return (edge.left != 0) + (edge.right != self.ts.get_sequence_length())
+
+    def combine(self, lik_1, lik_2):
+        return lik_1 * lik_2
+
+    def reduce(self, lik_1, lik_2, div_0_null=False):
+        """
+        In linear space, this divides lik_1 by lik_2
+        If div_0_null==True, then if either is 0 it returns 0 (the null_constant)
+        This is not a very good name for it: can we think of something better that will
+        also be meaningful in log space?
+        """
+        if div_0_null:
+            # we can't use np.where, as that does actually calculate both sides of the
+            # where clause
+            ret = np.full_like(lik_1, self.null_constant)
+            ok = np.logical_and(lik_1 != self.null_constant, lik_2 != self.null_constant)
+            if np.any(ok):
+                if np.isscalar(lik_2):
+                    ret[ok] = lik_1[ok]/lik_2
+                else:
+                    ret[ok] = lik_1[ok]/lik_2[ok]
+            return ret
+        else:
+            return lik_1/lik_2
+
+    def _recombination_lik(self, rho, edge, fixed=True):
+        # Needs to return a lower tri *or* flattened array depending on `fixed`
+        raise NotImplementedError
+        # return (
+        #     np.power(prev_state, self.n_breaks(edge)) *
+        #     np.exp(-(prev_state * rho * edge.span * 2)))
+
+    def get_inside(self, arr, edge, theta=None, rho=None):
+        liks = self.identity_constant
+        if rho is not None:
+            liks = self._recombination_lik(rho, edge)
+        if theta is not None:
+            liks *= self.get_mut_lik_lower_tri(edge)
+        return self.rowsum_lower_tri(arr * liks)
+
+    def get_outside(self, arr, edge, theta=None, rho=None):
+        liks = self.identity_constant
+        if rho is not None:
+            liks = self._recombination_lik(rho, edge)
+        if theta is not None:
+            liks *= self.get_mut_lik_upper_tri(edge)
+        return self.rowsum_upper_tri(arr * liks)
+
+    def get_fixed(self, arr, edge, theta=None, rho=None):
+        liks = self.identity_constant
+        if rho is not None:
+            liks = self._recombination_lik(rho, edge, fixed=True)
+        if theta is not None:
+            liks *= self.get_mut_lik_fixed_node(edge)
+        return arr * liks
+
+    def scale_geometric(self, fraction, value):
+        return value ** fraction
 
 
-# An alternative to logsumexp, useful for large grid sizes, see
-# http://www.nowozin.net/sebastian/blog/streaming-log-sum-exp-computation.html
-@numba.jit(nopython=True)
-def logsumexp_stream(X):
-    alpha = -np.Inf
-    r = 0.0
-    for x in X:
-        if x != -np.Inf:
-            if x <= alpha:
-                r += np.exp(x - alpha)
-            else:
-                r *= np.exp(alpha - x)
-                r += 1.0
-                alpha = x
-    return np.log(r) + alpha
-
-
-class UpDownAlgorithms:
+class LogLikelihoods(Likelihoods):
     """
-    Contains the upward and downward algorithms, which operate over nodes to date
+    Identical to the Likelihoods class but stores and returns log likelihoods
     """
-    def __init__(self, ts, lik, progress=False):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.probability_space = "logarithmic"
+        self.identity_constant = 0.0
+        self.null_constant = -np.inf
+
+    @staticmethod
+    @numba.jit(nopython=True)
+    def logsumexp(X):
+        r = 0.0
+        for x in X:
+            r += np.exp(x)
+        return np.log(r)
+
+    @staticmethod
+    def _lik(muts, span, dt, theta, normalize=False):
+        """
+        The likelihood of an edge given a number of mutations, as set of time deltas (dt)
+        and a span. This is a static function to allow parallelization
+        """
+        ll = scipy.stats.poisson.logpmf(muts, dt * theta / 2 * span)
+        if normalize:
+            return ll - np.max(ll)
+        else:
+            return ll
+
+    def rowsum_lower_tri(self, input_array):
+        """
+        The function below is equivalent to (but numba makes it faster than)
+        np.logaddexp.reduceat(input_array, self.row_indices[0])
+        """
+        assert len(input_array) == self.tri_size
+        res = list()
+        i_start = self.row_indices[0][0]
+        for cur_index, i in enumerate(self.row_indices[0][1:]):
+            res.append(self.logsumexp(input_array[i_start:i]))
+            i_start = i
+        res.append(self.logsumexp(input_array[i:]))
+        return np.array(res)
+
+    def rowsum_upper_tri(self, input_array):
+        """
+        The function below is equivalent to (but numba makes it faster than)
+        np.logaddexp.reduceat(input_array, self.col_indices)
+        """
+        assert len(input_array) == self.tri_size
+        res = list()
+        i_start = self.col_indices[0]
+        for cur_index, i in enumerate(self.col_indices[1:]):
+            res.append(self.logsumexp(input_array[i_start:i]))
+            i_start = i
+        res.append(self.logsumexp(input_array[i:]))
+        return np.array(res)
+
+    def _recombination_loglik(self, rho, edge, fixed=True):
+        # Needs to return a lower tri *or* flattened array depending on `fixed`
+        raise NotImplementedError
+        # return (
+        #     np.power(prev_state, self.n_breaks(edge)) *
+        #     np.exp(-(prev_state * rho * edge.span * 2)))
+
+    def combine(self, loglik_1, loglik_2):
+        return loglik_1 + loglik_2
+
+    def reduce(self, loglik_1, loglik_2, div_0_null=False):
+        """
+        In log space, loglik_1 - loglik_2
+        If div_0_null==True, then if either is -inf it returns -inf (the null_constant)
+        """
+        if div_0_null:
+            # we can't use np.where, as that does actually calculate both sides of the
+            # where clause
+            ret = np.full_like(loglik_1, self.null_constant)
+            ok = np.logical_and(
+                loglik_1 != self.null_constant, loglik_2 != self.null_constant)
+            if np.any(ok):
+                if np.isscalar(loglik_2):
+                    ret[ok] = loglik_1[ok] - loglik_2
+                else:
+                    ret[ok] = loglik_1[ok] - loglik_2[ok]
+            return ret
+        else:
+            return loglik_1 - loglik_2
+
+    def get_inside(self, arr, edge, theta=None, rho=None):
+        log_liks = self.identity_constant
+        if rho is not None:
+            log_liks = self._recombination_loglik(rho, edge)
+        if theta is not None:
+            log_liks += self.get_mut_lik_lower_tri(edge)
+        return self.rowsum_lower_tri(arr + log_liks)
+
+    def get_outside(self, arr, edge, theta=None, rho=None):
+        log_liks = self.identity_constant
+        if rho is not None:
+            log_liks = self._recombination_loglik(rho, edge)
+        if theta is not None:
+            log_liks += self.get_mut_lik_upper_tri(edge)
+        return self.rowsum_upper_tri(arr + log_liks)
+
+    def get_fixed(self, arr, edge, theta=None, rho=None):
+        log_liks = self.identity_constant
+        if rho is not None:
+            log_liks = self._recombination_loglik(rho, edge, fixed=True)
+        if theta is not None:
+            log_liks += self.get_mut_lik_fixed_node(edge)
+        return arr + log_liks
+
+    def scale_geometric(self, fraction, value):
+        return fraction * value
+
+
+class LogLikelihoodsStreaming(LogLikelihoods):
+    """
+    Identical to the LogLikelihoods class but uses an alternative to logsumexp,
+    useful for large grid sizes, see
+    http://www.nowozin.net/sebastian/blog/streaming-log-sum-exp-computation.html
+    """
+    @numba.jit(nopython=True)
+    def logsumexp(X):
+        alpha = -np.Inf
+        r = 0.0
+        for x in X:
+            if x != -np.Inf:
+                if x <= alpha:
+                    r += np.exp(x - alpha)
+                else:
+                    r *= np.exp(alpha - x)
+                    r += 1.0
+                    alpha = x
+        return np.log(r) + alpha
+
+
+class InOutAlgorithms:
+    """
+    Contains the inside and outside algorithms
+    """
+    def __init__(self, ts, prior, lik, spans, progress=False, extended_checks=False):
         self.ts = ts
+        self.prior = prior
+        self.nonfixed_nodes = prior.nonfixed_nodes
+        self.spans = spans
         self.lik = lik
+        self.fixednodes = lik.fixednodes
         self.progress = progress
-        self.fixednodes = self.lik.fixednodes
+        self.extended_checks = extended_checks
+        if lik.probability_space == "logarithmic":
+            self.prior.to_log()
 
-    def iterate_parent_edges(self):
-        if self.ts.num_edges > 0:
-            # Fix this when reversed iterator is merged to main tskit
-            # tskit github issue #304
-            # but instead should iterate over edge ids in reverse
-            # i.e. edge_ids = list(reversed(range(ts.num_edges)))
-            all_edges = list(self.ts.edges())
-            parent_edges = all_edges[:1]
-            parent_edges[0] = (0, parent_edges[0])
-            cur_parent = all_edges[:1][0].parent
-            for index, edge in enumerate(all_edges[1:]):
-                if edge.parent != tskit.NULL and edge.parent != cur_parent:
-                    yield parent_edges
-                    cur_parent = edge.parent
-                    parent_edges = []
-                parent_edges.append((index + 1, edge))
-            yield parent_edges
+    # === Grouped edge iterators ===
 
-    def upward(self, prior_values, theta, rho, spans, return_log=False, progress=None):
+    def edges_by_parent_asc(self):
         """
-        Use dynamic programming to find approximate posterior to sample from
+        Return an itertools.groupby object of edges grouped by parent in ascending order
+        of the time of the parent. Since tree sequence properties guarantee that edges
+        are listed in nondecreasing order of parent time
+        (https://tskit.readthedocs.io/en/latest/data-model.html#edge-requirements)
+        we can simply use the standard edge order
         """
-        upward = NodeGridValues.clone_with_new_data(prior_values, grid_data=np.nan,
-                                                    fixed_data=1)  # store upward matrix
-        # g_i = NodeGridValues.clone_with_new_data(upward, grid_data=0)  # store g of i
-        g_i = np.zeros((self.ts.num_edges, self.lik.grid_size))
-        norm = np.full(self.ts.num_nodes, np.nan)
+        return itertools.groupby(self.ts.edges(), operator.attrgetter('parent'))
 
-        # Iterate through the nodes via groupby on parent node
-        if progress is None:
-            progress = self.progress
-        for parent_grp in tqdm(self.iterate_parent_edges(), desc="Upward  ",
-                               total=upward.num_nonfixed, disable=not progress):
-            """
-            for each node, find the conditional prob of age at every time
-            in time grid
-            """
-            parent = parent_grp[0][1].parent
-            if parent in self.fixednodes:
-                continue  # there is no hidden state for this parent - it's fixed
-            val = prior_values[parent].copy()
-
-            for edge_index, edge in parent_grp:
-                # Geometric scaling works exactly when all nodes fixed in graph but is an
-                # approximation when times are unknown. We raise to the power of geoscale
-                # (i.e. multiply the logged probabilities)
-                geo_scale = edge.span / spans[edge.child]
-                # Calculate vals for each edge
-                if edge.child in self.fixednodes:
-                    # this is an edge leading to a node with a fixed time
-                    # broadcast to len(grid)
-                    prev_state = upward[edge.child] ** geo_scale
-                    get_mutation_likelihoods = self.lik.get_mut_lik_fixed_node
-                    sum_likelihood_rows = np.asarray  # pass though: no sum needed
-                else:
-                    prev_state = self.lik.make_lower_tri(upward[edge.child]) ** geo_scale
-                    get_mutation_likelihoods = self.lik.get_mut_lik_lower_tri
-                    sum_likelihood_rows = self.lik.rowsum_lower_tri
-                if theta is not None and rho is not None:
-                    b_l = (edge.left != 0)
-                    b_r = (edge.right != self.ts.get_sequence_length())
-                    ll_rec = (np.power(prev_state, b_l + b_r) *
-                              np.exp(-(prev_state * rho * edge.span * 2)))
-                    ll_mut = get_mutation_likelihoods(edge)
-                    vv = sum_likelihood_rows(ll_mut * ll_rec * prev_state)
-                elif theta is not None:
-                    ll_mut = get_mutation_likelihoods(edge)
-                    vv = sum_likelihood_rows(ll_mut * prev_state)
-                    # vv = vv ** (edge.span/spans[parent])
-                elif rho is not None:
-                    b_l = (edge.left != 0)
-                    b_r = (edge.right != self.ts.get_sequence_length())
-                    ll_rec = (np.power(prev_state, b_l + b_r) *
-                              np.exp(-(prev_state * rho * edge.span * 2)))
-                    vv = sum_likelihood_rows(ll_rec * prev_state)
-                else:
-                    # Topology-only clock
-                    vv = sum_likelihood_rows(prev_state)
-                val *= vv
-                g_i[edge.id] = vv
-            norm[parent] = np.max(val)
-            upward[parent] = val / np.max(val)
-        g_i = g_i / norm[self.ts.tables.edges.child, None]
-        if return_log is True:
-            upward.grid_data = np.log(upward.grid_data)
-            g_i = np.log(g_i)
-        return upward, g_i, norm
-
-    # TODO: Account for multiple parents, fix the log of zero thing
-    def downward(self, upward, log_g_i, norm, theta, rho, spans, normalise=False,
-                 progress=None):
+    def edges_by_child_desc(self):
         """
-        Computes the full posterior distribution on nodes.
-        Input is log of upward matrix, log of g_i matrix, time grid, population scaled
-        mutation and recombination rate. Spans of each edge, epsilon, likelihoods of each
-        edge, and the columns of the lower triangular matrix of likelihoods.
-
-        The rows in the posterior returned correspond to node IDs as given by
-        self.nodes
+        Return an itertools.groupby object of edges grouped by child in descending order
+        of the time of the parent.
         """
-        downward = NodeGridValues.clone_with_new_data(upward, grid_data=0)
-
-        # TO DO here: check that no fixed_nodes have children, otherwise we can't descend
-        for tree in self.ts.trees():
-            for root in tree.roots:
-                if tree.num_children(root) == 0:
-                    # Isolated node
-                    continue
-                downward[root] += (1 * tree.span) / spans[root]
         child_edges = (self.ts.edge(i) for i in reversed(
             np.argsort(self.ts.tables.nodes.time[self.ts.tables.edges.child[:]])))
-        downward.grid_data = downward.grid_data
+        return itertools.groupby(child_edges, operator.attrgetter('child'))
 
-        if progress is None:
-            progress = self.progress
-        for child, edges in tqdm(itertools.groupby(child_edges, key=lambda x: x.child),
-                                 desc="Downward", total=downward.num_nonfixed,
-                                 disable=not progress):
-            if child in self.fixednodes:
-                continue
-            val = np.ones(self.lik.grid_size)
-            for edge in edges:
-                # Geometric scaling works exactly for all nodes fixed in graph
-                # but is an approximation when times are unknown.
-                geo_scale = edge.span / spans[child]
-                cur_g_i = self.lik.rowsum_lower_tri(
-                    (self.lik.make_lower_tri(upward[edge.child]) ** geo_scale) *
-                    self.lik.get_mut_lik_lower_tri(edge)) / norm[child]
-                assert np.all(cur_g_i == log_g_i[edge.id]), (log_g_i[edge.id], cur_g_i)
-
-                # try:
-                upward_div_gi = np.zeros(len(cur_g_i))
-                nonzeros = np.logical_and(upward[edge.parent] != 0, cur_g_i != 0)
-                
-                upward_div_gi[nonzeros] = (upward[edge.parent][nonzeros] / 
-                    cur_g_i[nonzeros])
-
-                prev_state = self.lik.make_upper_tri((downward[edge.parent] *upward_div_gi) ** geo_scale)
-                # prev_state = self.lik.make_upper_tri(
-                #     (downward[edge.parent] ** geo_scale) * 
-                #         (upward[edge.parent] * np.where(cur_g_i == 0, 0, 
-                #             1 / np.where(cur_g_i == 0, np.inf, cur_g_i))) ** geo_scale)
-
-                # except:
-                #     print(cur_g_i, geo_scale, upward[edge.parent])
-                if theta is not None and rho is not None:
-                    b_l = (edge.left != 0)
-                    b_r = (edge.right != self.ts.get_sequence_length())
-                    ll_rec = (np.power(prev_state, b_l + b_r) *
-                              np.exp(-(prev_state * rho * edge.span * 2)))
-                    ll_mut = self.lik.get_mut_lik_upper_tri(edge)
-                    vv = self.lik.rowsum_upper_tri(prev_state * ll_mut * ll_rec)
-                elif theta is not None:
-                    ll_mut = self.lik.get_mut_lik_upper_tri(edge)
-
-                    vv = self.lik.rowsum_upper_tri(prev_state * ll_mut)
-
-                    # vv = vv ** (edge.span/spans[edge.child])
-                    
-                elif rho is not None:
-                    b_l = (edge.left != 0)
-                    b_r = (edge.right != self.ts.get_sequence_length())
-                    ll_rec = (np.power(prev_state, b_l + b_r) *
-                              np.exp(-(prev_state * rho * edge.span * 2)))
-                    vv = self.lik.rowsum_upper_tri(prev_state * ll_rec)
-                else:
-                    # Topology-only clock
-                    vv = self.lik.rowsum_upper_tri(prev_state)
-                if normalise:
-                    val *= (vv / np.max(vv))
-                else:
-                    val *= vv
-            vv[0] = 0  # Seems a hack: internal nodes should be allowed at time 0
-            assert norm[edge.child] > -np.inf
-            downward[child] = val / norm[child]
-        posterior = NodeGridValues.clone_with_new_data(
-           orig=downward,
-           grid_data=upward.grid_data * downward.grid_data,
-           fixed_data=np.nan)  # We should never use the posterior for a fixed node
-        posterior.grid_data = (posterior.grid_data /
-                               np.sum(posterior.grid_data, axis=1)[:, None])
-        # posterior.grid_data = np.exp(posterior.grid_data)
-        # downward.grid_data = np.exp(downward.grid_data)
-        return posterior, downward
-
-    def downward_maximization(self, upward, theta, spans, eps=1e-6, progress=None):
-        maximized_node_times = np.zeros(self.ts.num_nodes, dtype='int')
-        mut_edges = self.lik.mut_edges
-        mrcas = np.where(np.isin(
-            np.arange(self.ts.num_nodes), self.ts.tables.edges.child, invert=True))[0]
-        for i in mrcas:
-            if i not in self.fixednodes:
-                maximized_node_times[i] = np.argmax(np.exp(upward[i]))
-
-        # TODO: Sort on child ages then parent ages within each edge group
+    def edges_by_child_then_parent_desc(self):
+        """
+        Return an itertools.groupby object of edges grouped by child in descending order
+        of the time of the parent, then by descending order of age of child
+        """
         wtype = np.dtype([('Childage', 'f4'), ('Parentage', 'f4')])
         w = np.empty(
             len(self.ts.tables.nodes.time[self.ts.tables.edges.child[:]]), dtype=wtype)
@@ -1480,13 +1498,152 @@ class UpDownAlgorithms:
         w['Parentage'] = -self.ts.tables.nodes.time[self.ts.tables.edges.parent[:]]
         sorted_child_parent = (self.ts.edge(i) for i in reversed(
             np.argsort(w, order=('Childage', 'Parentage'))))
+        return itertools.groupby(sorted_child_parent, operator.attrgetter('child'))
 
+    # === MAIN ALGORITHMS ===
+
+    def inside_pass(self, theta, rho, *, normalize=True, progress=None):
+        """
+        Use dynamic programming to find approximate posterior to sample from
+        """
         if progress is None:
             progress = self.progress
+
+        inside = self.prior.clone_with_new_data(  # store inside matrix values
+            grid_data=np.nan, fixed_data=self.lik.identity_constant)
+        g_i = np.full(
+            (self.ts.num_edges, self.lik.grid_size), self.lik.identity_constant)
+        norm = np.full(self.ts.num_nodes, np.nan)
+        if self.extended_checks:
+            spantot = np.zeros(self.ts.num_nodes)
+        # Iterate through the nodes via groupby on parent node
+        for parent, edges in tqdm(
+                self.edges_by_parent_asc(), desc="Inside ",
+                total=inside.num_nonfixed, disable=not progress):
+            """
+            for each node, find the conditional prob of age at every time
+            in time grid
+            """
+            if parent in self.fixednodes:
+                continue  # there is no hidden state for this parent - it's fixed
+            val = self.prior[parent].copy()
+            for edge in edges:
+                spanfrac = edge.span / self.spans[edge.child]
+                if self.extended_checks:
+                    spantot[edge.child] += edge.span
+                # Calculate vals for each edge
+                if edge.child in self.fixednodes:
+                    # NB: geometric scaling works exactly when all nodes fixed in graph
+                    # but is an approximation when times are unknown.
+                    daughter_val = self.lik.scale_geometric(spanfrac, inside[edge.child])
+                    edge_lik = self.lik.get_fixed(daughter_val, edge, theta, rho)
+                else:
+                    daughter_val = self.lik.scale_geometric(
+                        spanfrac, self.lik.make_lower_tri(inside[edge.child]))
+                    edge_lik = self.lik.get_inside(daughter_val, edge, theta, rho)
+                val = self.lik.combine(val, edge_lik)
+                g_i[edge.id] = edge_lik
+            norm[parent] = np.max(val) if normalize else 1
+            inside[parent] = self.lik.reduce(val, norm[parent])
+        g_i = self.lik.reduce(g_i, norm[self.ts.tables.edges.child, None])
+        
+        # Keep the results in this object
+        self.inside = inside
+        self.g_i = g_i
+        self.norm = norm
+        if self.extended_checks:
+            pass
+            #assert np.allclose(
+            #    spantot[self.prior.nonfixed_nodes],
+            #    self.spans[self.prior.nonfixed_nodes])
+
+    def outside_pass(self, theta, rho, *, normalize=False, progress=None):
+        """
+        Computes the full posterior distribution on nodes.
+        Input is population scaled mutation and recombination rates.
+
+        Normalising may be necessary if there is overflow, but means that we cannot
+        check the total functional value at each node
+
+        The rows in the posterior returned correspond to node IDs as given by
+        self.nodes
+        """
+        if progress is None:
+            progress = self.progress
+        if not hasattr(self, "inside"):
+            raise RuntimeError("You have not yet run the inside algorithm")
+
+        outside = self.inside.clone_with_new_data(grid_data=self.lik.null_constant)
+
+        # TO DO here: check that no fixed_nodes have children, otherwise we can't descend
+        for tree in self.ts.trees():
+            for root in tree.roots:
+                if tree.num_children(root) == 0:
+                    # Isolated node
+                    continue
+                outside[root] += (1 * tree.span) / self.spans[root]
+
         for child, edges in tqdm(
-            itertools.groupby(sorted_child_parent, key=lambda x: x.child),
-            desc="Maximization", total=upward.num_nonfixed,
-                disable=not progress):
+                self.edges_by_child_desc(), desc="Outside",
+                total=outside.num_nonfixed, disable=not progress):
+            if child in self.fixednodes:
+                continue
+            val = np.full(self.lik.grid_size, self.lik.identity_constant)
+            for edge in edges:
+                if edge.parent in self.fixednodes:
+                    raise RuntimeError(
+                        "Fixed nodes cannot currently be parents in the TS")
+                # Geometric scaling works exactly for all nodes fixed in graph
+                # but is an approximation when times are unknown.
+                spanfrac = edge.span / self.spans[child]
+                if self.extended_checks:
+                    cur_g_i = self.lik.reduce(
+                        self.lik.rowsum_lower_tri(
+                            self.lik.combine(
+                                self.lik.scale_geometric(
+                                    spanfrac,
+                                    self.lik.make_lower_tri(self.inside[edge.child])),
+                                self.lik.get_mut_lik_lower_tri(edge))),
+                        self.norm[child])
+                    assert np.all(cur_g_i == self.g_i[edge.id])
+                inside_div_gi = self.lik.reduce(
+                    self.inside[edge.parent], self.g_i[edge.id], div_0_null=True)
+                parent_val = self.lik.scale_geometric(
+                    spanfrac,
+                    self.lik.make_upper_tri(
+                        self.lik.combine(outside[edge.parent], inside_div_gi)))
+                edge_lik = self.lik.get_outside(parent_val, edge, theta, rho)
+                val = self.lik.combine(val, edge_lik)
+
+            # vv[0] = 0  # Seems a hack: internal nodes should be allowed at time 0
+            assert self.norm[edge.child] > self.lik.null_constant
+            if normalize:
+                outside[child] = self.lik.reduce(val, self.norm[child])
+            else:
+                outside[child] = val
+        posterior = outside.clone_with_new_data(
+           grid_data=self.lik.combine(self.inside.grid_data, outside.grid_data),
+           fixed_data=np.nan)  # We should never use the posterior for a fixed node
+        posterior.normalize()
+        self.outside = outside
+        return posterior
+
+    def outside_maximization(self, theta, eps=1e-6, progress=None):
+        if progress is None:
+            progress = self.progress
+        if not hasattr(self, "inside"):
+            raise RuntimeError("You have not yet run the inside algorithm")
+        maximized_node_times = np.zeros(self.ts.num_nodes, dtype='int')
+        mut_edges = self.lik.mut_edges
+        mrcas = np.where(np.isin(
+            np.arange(self.ts.num_nodes), self.ts.tables.edges.child, invert=True))[0]
+        for i in mrcas:
+            if i not in self.fixednodes:
+                maximized_node_times[i] = np.argmax(self.inside[i])
+
+        for child, edges in tqdm(
+                self.edges_by_child_then_parent_desc(), desc="MaxOut  ",
+                total=self.inside.num_nonfixed, disable=not progress):
             if child in self.fixednodes:
                 continue
             for edge_index, edge in enumerate(edges):
@@ -1494,8 +1651,8 @@ class UpDownAlgorithms:
                     youngest_par_index = maximized_node_times[edge.parent]
                     parent_time = self.lik.grid[maximized_node_times[edge.parent]]
                     # TODO Check that geometric scaling is the right thing here
-                    geo_scale = edge.span / spans[edge.parent]
-                    ll_mut = geo_scale * scipy.stats.poisson.logpmf(
+                    spanfrac = edge.span / self.spans[edge.parent]
+                    ll_mut = spanfrac * scipy.stats.poisson.logpmf(
                         mut_edges[edge.id],
                         (parent_time - self.lik.grid[:youngest_par_index + 1] + eps) *
                         theta / 2 * edge.span)
@@ -1505,19 +1662,19 @@ class UpDownAlgorithms:
                     if cur_parent_index < youngest_par_index:
                         youngest_par_index = cur_parent_index
                     parent_time = self.lik.grid[maximized_node_times[edge.parent]]
-                    geo_scale = edge.span / spans[edge.parent]
+                    spanfrac = edge.span / self.spans[edge.parent]
                     ll_mut = scipy.stats.poisson.logpmf(
                         mut_edges[edge.id], (parent_time -
                                              self.lik.grid[:youngest_par_index + 1] +
-                                             eps) * theta / 2 * edge.span) * geo_scale
+                                             eps) * theta / 2 * edge.span) * spanfrac
 
                     result[:youngest_par_index + 1] += ll_mut[:youngest_par_index + 1]
 
-            upward_val = upward.grid_data[
+            inside_val = self.inside.grid_data[
                 child - self.ts.num_samples][:(youngest_par_index + 1)]
 
             maximized_node_times[child] = np.argmax(
-                result[:youngest_par_index + 1] + upward_val)
+                result[:youngest_par_index + 1] + inside_val)
 
         return self.lik.grid[np.array(maximized_node_times).astype('int')]
 
@@ -1606,9 +1763,9 @@ def date(tree_sequence, Ne, *args, progress=False, **kwargs):
 
 def get_dates(
         tree_sequence, Ne, mutation_rate=None, recombination_rate=None,
-        *, time_grid='adaptive', grid_slices=50, eps=1e-6, num_threads=None,
+        *, time_grid='adaptive', grid_slices=10, eps=1e-6, num_threads=None,
         approximate_prior=None, prior_distr='lognorm',
-        estimation_method='inside_outside', downward_normalise=False, progress=False,
+        estimation_method='inside_outside', outside_normalize=False, progress=False,
         check_valid_topology=True):
     """
     Infer dates for the nodes in a tree sequence, returning an array of inferred dates
@@ -1638,7 +1795,6 @@ def get_dates(
     fixed_node_set = set(tree_sequence.samples())
 
     span_data = SpansBySamples(tree_sequence, fixed_node_set, progress=progress)
-    spans = span_data.node_spans
     nodes_to_date = span_data.nodes_to_date
     max_sample_size_before_approximation = None if approximate_prior is False else 1000
 
@@ -1679,20 +1835,22 @@ def get_dates(
         rho = 4 * Ne * recombination_rate
 
     liklhd = Likelihoods(tree_sequence, grid, theta, eps, fixed_node_set)
+    # liklhd = LogLikelihoods(tree_sequence, grid, theta, eps, fixed_node_set)
     if theta is not None:
         liklhd.precalculate_mutation_likelihoods(num_threads=num_threads)
 
-    dynamic_prog = UpDownAlgorithms(tree_sequence, liklhd, progress=progress)
+    dynamic_prog = InOutAlgorithms(
+        tree_sequence, prior_vals, liklhd, span_data.node_spans,
+        progress=progress, extended_checks=True)
 
-    upward, log_g_i, norm = dynamic_prog.upward(prior_vals, theta, rho, spans)
+    dynamic_prog.inside_pass(theta, rho)
 
     posterior = None
     if estimation_method == 'inside_outside':
-        posterior, downward = dynamic_prog.downward(
-            upward, log_g_i, norm, theta, rho, spans, normalise=downward_normalise)
+        posterior = dynamic_prog.outside_pass(theta, rho, normalize=outside_normalize)
         mn_post, _ = posterior_mean_var(tree_sequence, grid, posterior, fixed_node_set)
     elif estimation_method == 'maximization':
-        mn_post = dynamic_prog.downward_maximization(upward, theta, spans, eps)
+        mn_post = dynamic_prog.outside_maximization(theta, eps)
     else:
         raise ValueError(
             "estimation method must be either 'inside_outside' or 'maximization'")
