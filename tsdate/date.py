@@ -967,7 +967,7 @@ class NodeGridValues:
 
 
 def fill_prior(distr_parameters, grid, ts, nodes_to_date, prior_distr,
-               progress=False, return_log=True):
+               progress=False, return_log=False):
     """
     Take the alpha and beta values from the distr_parameters data frame
     and fill out a NodeGridValues object with the prior values from the
@@ -1086,8 +1086,8 @@ class Likelihoods:
         The likelihood of an edge given a number of mutations, as set of time deltas (dt)
         and a span. This is a static function to allow parallelization
         """
-        ll = scipy.stats.poisson.logpmf(muts, dt * theta / 2 * span)
-        return ll - np.max(ll)
+        ll = scipy.stats.poisson.pmf(muts, dt * theta / 2 * span)
+        return ll / np.max(ll)
         # return ll
 
     @staticmethod
@@ -1208,16 +1208,16 @@ class Likelihoods:
         Describe the reduceat trickery here. Presumably the opposite of make_lower_tri
         """
         assert len(input_array) == self.tri_size
-        res = list()
-        i_start = self.row_indices[0][0]
-        for cur_index, i in enumerate(self.row_indices[0][1:]):
-            res.append(logsumexp(input_array[i_start:i]))
-            i_start = i
+        # res = list()
+        # i_start = self.row_indices[0][0]
+        # for cur_index, i in enumerate(self.row_indices[0][1:]):
+        #     res.append(logsumexp(input_array[i_start:i]))
+        #     i_start = i
 
-        res.append(logsumexp(input_array[i:]))
+        # res.append(logsumexp(input_array[i:]))
 
-        return np.array(res)
-        # return np.logaddexp.reduceat(input_array, self.row_indices[0])
+        # return np.array(res)
+        return np.add.reduceat(input_array, self.row_indices[0])
 
     def make_upper_tri(self, input_array):
         """
@@ -1231,16 +1231,16 @@ class Likelihoods:
         Describe the reduceat trickery here. Presumably the opposite of make_upper_tri
         """
         assert len(input_array) == self.tri_size
-        res = list()
-        i_start = self.col_indices[0]
-        for cur_index, i in enumerate(self.col_indices[1:]):
-            res.append(logsumexp(input_array[i_start:i]))
-            i_start = i
+        # res = list()
+        # i_start = self.col_indices[0]
+        # for cur_index, i in enumerate(self.col_indices[1:]):
+        #     res.append(logsumexp(input_array[i_start:i]))
+        #     i_start = i
 
-        res.append(logsumexp(input_array[i:]))
+        # res.append(logsumexp(input_array[i:]))
 
-        return np.array(res)
-        # return np.logaddexp.reduceat(input_array, self.col_indices)
+        # return np.array(res)
+        return np.add.reduceat(input_array, self.col_indices)
 
 
 @numba.jit(nopython=True)
@@ -1296,15 +1296,15 @@ class UpDownAlgorithms:
                 parent_edges.append((index + 1, edge))
             yield parent_edges
 
-    def upward(self, prior_values, theta, rho, spans, return_log=True, progress=None):
+    def upward(self, prior_values, theta, rho, spans, return_log=False, progress=None):
         """
         Use dynamic programming to find approximate posterior to sample from
         """
         upward = NodeGridValues.clone_with_new_data(prior_values, grid_data=np.nan,
-                                                    fixed_data=0)  # store upward matrix
+                                                    fixed_data=1)  # store upward matrix
         # g_i = NodeGridValues.clone_with_new_data(upward, grid_data=0)  # store g of i
-        g_i = np.ones((self.ts.num_nodes, self.lik.grid_size))
-        norm = np.ones(self.ts.num_nodes)
+        g_i = np.zeros((self.ts.num_edges, self.lik.grid_size))
+        norm = np.full(self.ts.num_nodes, np.nan)
 
         # Iterate through the nodes via groupby on parent node
         if progress is None:
@@ -1319,21 +1319,21 @@ class UpDownAlgorithms:
             if parent in self.fixednodes:
                 continue  # there is no hidden state for this parent - it's fixed
             val = prior_values[parent].copy()
-            g_val = np.zeros(self.lik.grid_size)
-            g_val[0] = -np.inf
+
             for edge_index, edge in parent_grp:
                 # Geometric scaling works exactly when all nodes fixed in graph but is an
                 # approximation when times are unknown. We raise to the power of geoscale
                 # (i.e. multiply the logged probabilities)
-                geo_scale = edge.span / spans[parent]
+                geo_scale = edge.span / spans[edge.child]
                 # Calculate vals for each edge
                 if edge.child in self.fixednodes:
                     # this is an edge leading to a node with a fixed time
-                    prev_state = geo_scale * upward[edge.child]  # broadcast to len(grid)
+                    # broadcast to len(grid)
+                    prev_state = upward[edge.child] ** geo_scale
                     get_mutation_likelihoods = self.lik.get_mut_lik_fixed_node
                     sum_likelihood_rows = np.asarray  # pass though: no sum needed
                 else:
-                    prev_state = geo_scale * self.lik.make_lower_tri(upward[edge.child])
+                    prev_state = self.lik.make_lower_tri(upward[edge.child]) ** geo_scale
                     get_mutation_likelihoods = self.lik.get_mut_lik_lower_tri
                     sum_likelihood_rows = self.lik.rowsum_lower_tri
                 if theta is not None and rho is not None:
@@ -1345,7 +1345,7 @@ class UpDownAlgorithms:
                     vv = sum_likelihood_rows(ll_mut * ll_rec * prev_state)
                 elif theta is not None:
                     ll_mut = get_mutation_likelihoods(edge)
-                    vv = sum_likelihood_rows(ll_mut + prev_state)
+                    vv = sum_likelihood_rows(ll_mut * prev_state)
                     # vv = vv ** (edge.span/spans[parent])
                 elif rho is not None:
                     b_l = (edge.left != 0)
@@ -1356,20 +1356,14 @@ class UpDownAlgorithms:
                 else:
                     # Topology-only clock
                     vv = sum_likelihood_rows(prev_state)
-                val += vv
-                # Normalise after each edge and accumulate the normalisation factors
-                if np.sum(norm[parent]) != 0:
-                    norm[parent] += np.max(val)
-                else:
-                    norm[parent] = np.max(val)
-                val = val - np.max(val)
-                g_i[edge.child] = vv
-            # norm[parent] = np.max(val)
-            upward[parent] = val
-        g_i = g_i - norm[:, None]
-        if return_log is False:
-            upward.grid_data = np.exp(upward.grid_data)
-            g_i = np.exp(g_i)
+                val *= vv
+                g_i[edge.id] = vv
+            norm[parent] = np.max(val)
+            upward[parent] = val / np.max(val)
+        g_i = g_i / norm[self.ts.tables.edges.child, None]
+        if return_log is True:
+            upward.grid_data = np.log(upward.grid_data)
+            g_i = np.log(g_i)
         return upward, g_i, norm
 
     # TODO: Account for multiple parents, fix the log of zero thing
@@ -1394,7 +1388,7 @@ class UpDownAlgorithms:
                 downward[root] += (1 * tree.span) / spans[root]
         child_edges = (self.ts.edge(i) for i in reversed(
             np.argsort(self.ts.tables.nodes.time[self.ts.tables.edges.child[:]])))
-        downward.grid_data = np.log(downward.grid_data)
+        downward.grid_data = downward.grid_data
 
         if progress is None:
             progress = self.progress
@@ -1403,15 +1397,20 @@ class UpDownAlgorithms:
                                  disable=not progress):
             if child in self.fixednodes:
                 continue
-            val = np.zeros(self.lik.grid_size)
+            val = np.ones(self.lik.grid_size)
             for edge in edges:
                 # Geometric scaling works exactly for all nodes fixed in graph
                 # but is an approximation when times are unknown.
                 geo_scale = edge.span / spans[child]
-                prev_state = geo_scale * self.lik.make_upper_tri(
-                    downward[edge.parent] + np.where(
-                        log_g_i[edge.child] == -np.inf, 0,
-                        (log_upward[edge.parent] - log_g_i[edge.child])))
+                cur_g_i = self.lik.rowsum_lower_tri(
+                    (self.lik.make_lower_tri(log_upward[edge.child]) ** geo_scale) *
+                    self.lik.get_mut_lik_lower_tri(edge)) / norm[child]
+                assert np.all(cur_g_i == log_g_i[edge.id]), (log_g_i[edge.id], cur_g_i)
+                prev_state = self.lik.make_upper_tri(
+                    (downward[edge.parent] ** geo_scale) * (np.where(
+                        cur_g_i == 0, 1,
+                        (log_upward[edge.parent] / cur_g_i)) ** geo_scale))
+
                 if theta is not None and rho is not None:
                     b_l = (edge.left != 0)
                     b_r = (edge.right != self.ts.get_sequence_length())
@@ -1421,10 +1420,10 @@ class UpDownAlgorithms:
                     vv = self.lik.rowsum_upper_tri(prev_state * ll_mut * ll_rec)
                 elif theta is not None:
                     ll_mut = self.lik.get_mut_lik_upper_tri(edge)
-                    vv = self.lik.rowsum_upper_tri(prev_state + ll_mut)
+                    vv = self.lik.rowsum_upper_tri(prev_state * ll_mut)
 
                     # vv = vv ** (edge.span/spans[edge.child])
-                    val += vv
+                    val *= vv
                 elif rho is not None:
                     b_l = (edge.left != 0)
                     b_r = (edge.right != self.ts.get_sequence_length())
@@ -1436,15 +1435,15 @@ class UpDownAlgorithms:
                     vv = self.lik.rowsum_upper_tri(prev_state)
             vv[0] = 0  # Seems a hack: internal nodes should be allowed at time 0
             assert norm[edge.child] > -np.inf
-            downward[edge.child] = val - norm[edge.child]
+            downward[child] = val / norm[child]
         posterior = NodeGridValues.clone_with_new_data(
            orig=downward,
-           grid_data=log_upward.grid_data + downward.grid_data,
+           grid_data=log_upward.grid_data * downward.grid_data,
            fixed_data=np.nan)  # We should never use the posterior for a fixed node
-        posterior.grid_data = posterior.grid_data - np.apply_along_axis(
-            logsumexp, 1, posterior.grid_data)[:, np.newaxis]
-        posterior.grid_data = np.exp(posterior.grid_data)
-        downward.grid_data = np.exp(downward.grid_data)
+        posterior.grid_data = (posterior.grid_data /
+                               np.sum(posterior.grid_data, axis=1)[:, None])
+        # posterior.grid_data = np.exp(posterior.grid_data)
+        # downward.grid_data = np.exp(downward.grid_data)
         return posterior, downward
 
     def downward_maximization(self, log_upward, theta, spans, eps=1e-6, progress=None):
@@ -1646,7 +1645,8 @@ def get_dates(
         if type(grid_slices) == list:
             grid = np.array(sorted(grid_slices))
         else:
-            raise ValueError("grid slices must be a list of time points such as [0, 1, 2]")
+            raise ValueError(
+                "grid slices must be a list of time points such as [0, 1, 2]")
     else:
         raise ValueError("time_grid must be either 'adaptive', 'uniform', or 'manual'")
 
