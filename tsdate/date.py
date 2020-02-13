@@ -1260,23 +1260,16 @@ class Likelihoods:
     def reduce(self, lik_1, lik_2, div_0_null=False):
         """
         In linear space, this divides lik_1 by lik_2
-        If div_0_null==True, then if either is 0 it returns 0 (the null_constant)
-        This is not a very good name for it: can we think of something better that will
-        also be meaningful in log space?
+        If div_0_null==True, then 0/0 is set to the null_constant
+
+        NB: "reduce" is not a very good name for the function: can we think of
+        something better that will also be meaningful in log space?
         """
+        with np.errstate(divide='ignore', invalid='ignore'):
+            ret = lik_1/lik_2
         if div_0_null:
-            # we can't use np.where, as that does actually calculate both sides of the
-            # where clause
-            ret = np.full_like(lik_1, self.null_constant)
-            ok = np.logical_and(lik_1 != self.null_constant, lik_2 != self.null_constant)
-            if np.any(ok):
-                if np.isscalar(lik_2):
-                    ret[ok] = lik_1[ok]/lik_2
-                else:
-                    ret[ok] = lik_1[ok]/lik_2[ok]
-            return ret
-        else:
-            return lik_1/lik_2
+            ret[np.isnan(ret)] = self.null_constant
+        return ret
 
     def _recombination_lik(self, rho, edge, fixed=True):
         # Needs to return a lower tri *or* flattened array depending on `fixed`
@@ -1386,20 +1379,11 @@ class LogLikelihoods(Likelihoods):
         In log space, loglik_1 - loglik_2
         If div_0_null==True, then if either is -inf it returns -inf (the null_constant)
         """
+        with np.errstate(divide='ignore', invalid='ignore'):
+            ret = loglik_1 - loglik_2
         if div_0_null:
-            # we can't use np.where, as that does actually calculate both sides of the
-            # where clause
-            ret = np.full_like(loglik_1, self.null_constant)
-            ok = np.logical_and(
-                loglik_1 != self.null_constant, loglik_2 != self.null_constant)
-            if np.any(ok):
-                if np.isscalar(loglik_2):
-                    ret[ok] = loglik_1[ok] - loglik_2
-                else:
-                    ret[ok] = loglik_1[ok] - loglik_2[ok]
-            return ret
-        else:
-            return loglik_1 - loglik_2
+            ret[np.isnan(ret)] = self.null_constant
+        return ret
 
     def get_inside(self, arr, edge, theta=None, rho=None):
         log_liks = self.identity_constant
