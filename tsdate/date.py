@@ -923,7 +923,6 @@ class NodeGridValues:
         if self.probability_space == "linear":
             self.grid_data = self.grid_data / rowmax[:, np.newaxis]
         elif self.probability_space == "logarithmic":
-            rowmax = self.grid_data[:, 1:].max(axis=1)
             self.grid_data = self.grid_data - rowmax[:, np.newaxis]
         else:
             raise RuntimeError("Probability space is not linear or logarithmic")
@@ -1033,12 +1032,12 @@ class Likelihoods:
     flattened lower triangular matrix of all the possible delta t's. This class also
     provides methods for accessing this lower triangular matrix, multiplying it, etc.
     """
+    probability_space = "linear"
+    identity_constant = 1.0
+    null_constant = 0.0
 
     def __init__(self, ts, grid, theta=None, eps=0, fixed_node_set=None):
-        self.probability_space = "linear"
         self.ts = ts
-        self.identity_constant = 1.0
-        self.null_constant = 0.0
         self.grid = grid
         self.fixednodes = set(ts.samples()) if fixed_node_set is None else fixed_node_set
         self.theta = theta
@@ -1310,11 +1309,9 @@ class LogLikelihoods(Likelihoods):
     """
     Identical to the Likelihoods class but stores and returns log likelihoods
     """
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.probability_space = "logarithmic"
-        self.identity_constant = 0.0
-        self.null_constant = -np.inf
+    probability_space = "logarithmic"
+    identity_constant = 0.0
+    null_constant = -np.inf
 
     @staticmethod
     @numba.jit(nopython=True)
@@ -1559,7 +1556,8 @@ class InOutAlgorithms:
         if not hasattr(self, "inside"):
             raise RuntimeError("You have not yet run the inside algorithm")
 
-        outside = self.inside.clone_with_new_data(grid_data=self.lik.null_constant)
+        outside = self.inside.clone_with_new_data(
+            grid_data=0, probability_space="linear")
 
         # TO DO here: check that no fixed_nodes have children, otherwise we can't descend
         for tree in self.ts.trees():
@@ -1568,6 +1566,9 @@ class InOutAlgorithms:
                     # Isolated node
                     continue
                 outside[root] += (1 * tree.span) / self.spans[root]
+
+        if self.inside.probability_space == "logarithmic":
+            outside.to_log()
 
         for child, edges in tqdm(
                 self.edges_by_child_desc(), desc="Outside",
@@ -1610,6 +1611,7 @@ class InOutAlgorithms:
         posterior = outside.clone_with_new_data(
            grid_data=self.lik.combine(self.inside.grid_data, outside.grid_data),
            fixed_data=np.nan)  # We should never use the posterior for a fixed node
+
         posterior.normalize()
         self.outside = outside
         return posterior
@@ -1840,5 +1842,4 @@ def get_dates(
     else:
         raise ValueError(
             "estimation method must be either 'inside_outside' or 'maximization'")
-
     return mn_post, posterior, grid, eps, nodes_to_date
