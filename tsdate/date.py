@@ -900,8 +900,9 @@ class NodeGridValues:
 
     def to_log(self):
         if self.probability_space == "linear":
-            self.grid_data = np.log(self.grid_data)
-            self.fixed_data = np.log(self.fixed_data)
+            with np.errstate(divide='ignore'):
+                self.grid_data = np.log(self.grid_data)
+                self.fixed_data = np.log(self.fixed_data)
             self.probability_space = "logarithmic"
         else:
             logging.warning("Tried to apply log to non-linear grid values")
@@ -1546,16 +1547,16 @@ class InOutAlgorithms:
             norm[parent] = np.max(val) if normalize else 1
             inside[parent] = self.lik.reduce(val, norm[parent])
         g_i = self.lik.reduce(g_i, norm[self.ts.tables.edges.child, None])
-        
+
         # Keep the results in this object
         self.inside = inside
         self.g_i = g_i
         self.norm = norm
         if self.extended_checks:
             pass
-            #assert np.allclose(
-            #    spantot[self.prior.nonfixed_nodes],
-            #    self.spans[self.prior.nonfixed_nodes])
+            # assert np.allclose(
+            #     spantot[self.prior.nonfixed_nodes],
+            #     self.spans[self.prior.nonfixed_nodes])
 
     def outside_pass(self, theta, rho, *, normalize=False, progress=None):
         """
