@@ -1327,13 +1327,12 @@ class LogLikelihoods(Likelihoods):
     null_constant = -np.inf
 
     @staticmethod
-    # @numba.jit(nopython=True)
+    @numba.jit(nopython=True)
     def logsumexp(X):
-        with np.errstate(divide='ignore'):
-            r = 0.0
-            for x in X:
-                r += np.exp(x)
-            return np.log(r)
+        r = 0.0
+        for x in X:
+            r += np.exp(x)
+        return np.log(r)
 
     @staticmethod
     def _lik(muts, span, dt, theta, normalize=True):
