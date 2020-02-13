@@ -365,8 +365,8 @@ class SpansBySamples:
     A class to calculate and return the genomic spans covered by each
     non-sample node, broken down by the number of samples that descend
     directly from that node. This is used to calculate the conditional
-    coalescent prior. The main method is :meth:`normalised_spans`, which
-    returns the spans for a node, normalised by the total span that that
+    coalescent prior. The main method is :meth:`normalized_spans`, which
+    returns the spans for a node, normalized by the total span that that
     node covers in the tree sequence.
 
     .. note:: This assumes that all edges connect to the same tree - i.e.
@@ -420,7 +420,7 @@ class SpansBySamples:
         self.fixed_at_0_nodes = {n for n in self.fixed_nodes
                                  if self.ts.node(n).time == 0}
 
-        # We will store the spans in here, and normalise them at the end
+        # We will store the spans in here, and normalize them at the end
         self._spans = defaultdict(lambda: defaultdict(lambda: defaultdict(FLOAT_DTYPE)))
 
         with tqdm(total=3, desc="TipCount", disable=not self.progress) as progressbar:
@@ -736,12 +736,12 @@ class SpansBySamples:
 
     def finalise(self):
         """
-        Normalise the spans in self._spans by the values in self.node_spans,
+        normalize the spans in self._spans by the values in self.node_spans,
         and overwrite the results (as we don't need them any more), providing a
-        shortcut to by setting normalised_node_span_data. Also provide the
+        shortcut to by setting normalized_node_span_data. Also provide the
         nodes_to_date value.
         """
-        assert not hasattr(self, 'normalised_node_span_data'), "Already finalised"
+        assert not hasattr(self, 'normalized_node_span_data'), "Already finalised"
         if self.nodes_remain_to_date():
             raise ValueError(
                 "When finalising node spans, found the following nodes not in any tree;"
@@ -756,14 +756,14 @@ class SpansBySamples:
                     descendant_tips=np.array(list(weights.keys()), dtype=np.int64),
                     weight=np.array(list(weights.values()))/self.node_spans[node])
         # Assign into the instance, for further reference
-        self.normalised_node_span_data = self._spans
+        self.normalized_node_span_data = self._spans
         self.nodes_to_date = np.array(list(self._spans.keys()), dtype=np.uint64)
 
     def get_weights(self, node):
         """
         Access the main calculated results from this class, returning weights
         for a node contained within a dict of dicts. Weights for each node
-        (i.e. normalised genomic spans) sum to one, and are used to construct
+        (i.e. normalized genomic spans) sum to one, and are used to construct
         the mixed conditional coalescent prior. For each coalescent node, the
         returned weights are categorised firstly by the total number of sample
         nodes (or "tips") ( :math:`T` ) in the tree(s) covered by this node,
@@ -785,12 +785,12 @@ class SpansBySamples:
         :return: A dictionary, whose keys ( :math:`n_t` ) are the total number of
             samples in the trees in a tree sequence, and whose values are
             themselves a dictionary where key :math:`k` gives the weight (genomic
-            span, normalised by the total span over which the node exists) for
+            span, normalized by the total span over which the node exists) for
             :math:`k` descendant samples, as a floating point number. For any node,
             the normalisation means that all the weights should sum to one.
         :rtype: dict(int, dict(int, FLOAT_DTYPE))'
         """
-        return self.normalised_node_span_data[node]
+        return self.normalized_node_span_data[node]
 
     def lookup_weight(self, node, total_tips, descendant_tips):
         # Only used for testing
@@ -935,7 +935,7 @@ class NodeGridValues:
 
     def normalize(self):
         """
-        normalise grid and fixed data so the max is one
+        normalize grid and fixed data so the max is one
         """
         rowmax = self.grid_data[:, 1:].max(axis=1)
         if self.probability_space == LIN:
@@ -1054,12 +1054,12 @@ class Likelihoods:
     identity_constant = 1.0
     null_constant = 0.0
 
-    def __init__(self, ts, grid, theta=None, eps=0, fixed_node_set=None, normalise=True):
+    def __init__(self, ts, grid, theta=None, eps=0, fixed_node_set=None, normalize=True):
         self.ts = ts
         self.grid = grid
         self.fixednodes = set(ts.samples()) if fixed_node_set is None else fixed_node_set
         self.theta = theta
-        self.normalise = normalise
+        self.normalize = normalize
         self.grid_size = len(grid)
         self.tri_size = self.grid_size * (self.grid_size + 1) / 2
         self.ll_mut = {}
@@ -1114,32 +1114,32 @@ class Likelihoods:
                     edges_by_child[e.child] = e.id
             for m in site.mutations:
                 # In some cases, mutations occur above the root
-                # These don't provide any information for the upward step
+                # These don't provide any information for the inside step
                 if m.node in edges_by_child:
                     edge_id = edges_by_child[m.node]
                     mut_edges[edge_id] += 1
         return mut_edges
 
     @staticmethod
-    def _lik(muts, span, dt, theta, normalise=True):
+    def _lik(muts, span, dt, theta, normalize=True):
         """
         The likelihood of an edge given a number of mutations, as set of time deltas (dt)
         and a span. This is a static function to allow parallelization
         """
         ll = scipy.stats.poisson.pmf(muts, dt * theta / 2 * span)
-        if normalise:
+        if normalize:
             return ll / np.max(ll)
         else:
             return ll
 
     @staticmethod
-    def _lik_wrapper(muts_span, dt, theta, normalise=True):
+    def _lik_wrapper(muts_span, dt, theta, normalize=True):
         """
         A wrapper to allow this _lik to be called by pool.imap_unordered, returning the
         mutation and span values
         """
         return muts_span, Likelihoods._lik(muts_span[0], muts_span[1], dt, theta,
-                                           normalise=normalise)
+                                           normalize=normalize)
 
     def precalculate_mutation_likelihoods(
             self, num_threads=None, unique_method=0):
@@ -1189,7 +1189,7 @@ class Likelihoods:
             for muts, span in self.unfixed_likelihood_cache.keys():
                 self.unfixed_likelihood_cache[muts, span] = self._lik(
                     muts, span, dt=self.timediff_lower_tri, theta=self.theta,
-                    normalise=self.normalise)
+                    normalize=self.normalize)
 
     def get_mut_lik_fixed_node(self, edge):
         """
@@ -1208,14 +1208,14 @@ class Likelihoods:
         assert child_time == 0
         # Temporary hack - we should really take a more precise likelihood
         return self._lik(mutations_on_edge, edge.span, self.timediff, self.theta,
-                         normalise=self.normalise)
+                         normalize=self.normalize)
 
     def get_mut_lik_lower_tri(self, edge):
         """
         Get the cached mutation likelihoods for an edge with non-fixed parent and child
         nodes, returning values for all the possible time differences between times on
         the grid. These values are returned as a flattened lower triangular matrix, the
-        form required in the upward algorithm.
+        form required in the inside algorithm.
 
         """
         # Debugging asserts - should probably remove eventually
@@ -1616,7 +1616,7 @@ class InOutAlgorithms:
                                     self.lik.make_lower_tri(self.inside[edge.child])),
                                 self.lik.get_mut_lik_lower_tri(edge))),
                         self.norm[child])
-                    assert np.all(cur_g_i == self.g_i[edge.id])
+                    assert np.all(cur_g_i == self.g_i[edge.id]), (cur_g_i, self.g_i[edge.id])
                 inside_div_gi = self.lik.reduce(
                     self.inside[edge.parent], self.g_i[edge.id], div_0_null=True)
                 parent_val = self.lik.scale_geometric(
@@ -1628,10 +1628,9 @@ class InOutAlgorithms:
 
             # vv[0] = 0  # Seems a hack: internal nodes should be allowed at time 0
             assert self.norm[edge.child] > self.lik.null_constant
+            outside[child] = self.lik.reduce(val, self.norm[child])
             if normalize:
-                outside[child] = self.lik.reduce(val, self.norm[child])
-            else:
-                outside[child] = val
+                outside[child] = self.lik.reduce(val, np.max(val))
         posterior = outside.clone_with_new_data(
            grid_data=self.lik.combine(self.inside.grid_data, outside.grid_data),
            fixed_data=np.nan)  # We should never use the posterior for a fixed node
@@ -1680,13 +1679,13 @@ class InOutAlgorithms:
                     result[:youngest_par_index + 1] *= (
                         ll_mut[:youngest_par_index + 1] /
                         np.max(ll_mut[:youngest_par_index + 1]))
-            upward_val = upward[child][:(youngest_par_index + 1)]
+            inside_val = self.inside[child][:(youngest_par_index + 1)]
             maximized_node_times[child] = np.argmax(
-                result[:youngest_par_index + 1] * upward_val)
+                result[:youngest_par_index + 1] * inside_val)
             # If we maximize the child node time to 0, we've probably missed some of the
             # upper end of the distribution. We take the mean instead
             if maximized_node_times[child] == 0:
-                row = result[:youngest_par_index + 1] * upward_val
+                row = result[:youngest_par_index + 1] * inside_val
                 row = row / np.sum(row)
                 maximized_node_times[child] = np.sum(
                     row * self.lik.grid[:youngest_par_index + 1]) / np.sum(row)
@@ -1774,7 +1773,7 @@ def date(tree_sequence, Ne, *args, progress=False, **kwargs):
         "maximization" (worse empirically, especially with a gamma approximated prior,
         but theoretically robust). Default: "inside-outside".
     :param bool outside_normalize: If carrying out the "inside_outside" method, should
-        we normalise on the outside pass, which reduces the risk of numerical overflow,
+        we normalize on the outside pass, which reduces the risk of numerical overflow,
         but makes it harder to check empirical consistency. Default: False
     :param bool check_valid_topology: Should we take time to check that the input tree
         sequence has only a single tree topology at each position, which is a requirement

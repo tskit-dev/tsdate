@@ -377,7 +377,7 @@ class TestPriorVals(unittest.TestCase):
         mixture_prior = priors.get_mixture_prior_params(span_data)
         nodes_to_date = span_data.nodes_to_date
         prior_vals = tsdate.fill_prior(mixture_prior, grid, ts, nodes_to_date,
-                                       prior_distr=prior_distr, return_log=False)
+                                       prior_distr=prior_distr)
         return prior_vals
 
     def test_one_tree_n2(self):
@@ -650,8 +650,8 @@ class TestNodeGridValuesClass(unittest.TestCase):
             orig, 0, np.array([[1, 2], [4, 5]]))
 
 
-class TestUpwardAlgorithm(unittest.TestCase):
-    def run_upward_algorithm(self, ts, prior_distr, normalise=True):
+class TestInsideAlgorithm(unittest.TestCase):
+    def run_inside_algorithm(self, ts, prior_distr, normalize=True):
         span_data = tsdate.SpansBySamples(ts)
         spans = span_data.node_spans
         priors = tsdate.ConditionalCoalescentTimes(None, prior_distr=prior_distr)
@@ -666,45 +666,43 @@ class TestUpwardAlgorithm(unittest.TestCase):
         eps = 1e-6
         lls = tsdate.Likelihoods(ts, grid, theta, eps)
         lls.precalculate_mutation_likelihoods()
-        algo = tsdate.UpDownAlgorithms(ts, lls)
-        return algo.upward(prior_vals, theta, rho, spans, return_log=False,
-                           normalise=normalise)[0], prior_vals
+        algo = tsdate.InOutAlgorithms(ts, prior_vals, lls, spans, extended_checks=True)
+        algo.inside_pass(theta, rho, normalize=normalize)
+        return algo, prior_vals
 
     def test_one_tree_n2(self):
         ts = utility_functions.single_tree_ts_n2()
-        upward = self.run_upward_algorithm(ts, 'gamma')[0]
-        self.assertTrue(np.allclose(upward[2], np.array([0, 1, 0.10664654])))
+        algo = self.run_inside_algorithm(ts, 'gamma')[0]
+        self.assertTrue(np.allclose(algo.inside[2], np.array([0, 1, 0.10664654])))
 
     def test_one_tree_n3(self):
         ts = utility_functions.single_tree_ts_n3()
-        upward = self.run_upward_algorithm(ts, 'gamma')[0]
-        self.assertTrue(np.allclose(upward[3],
-                        np.array([0, 1, 0.0114771635])))
-        self.assertTrue(np.allclose(upward[4],
-                        np.array([0, 1, 0.1941815518])))
+        algo = self.run_inside_algorithm(ts, 'gamma')[0]
+        self.assertTrue(np.allclose(algo.inside[3], np.array([0, 1, 0.0114771635])))
+        self.assertTrue(np.allclose(algo.inside[4], np.array([0, 1, 0.1941815518])))
 
     def test_one_tree_n4(self):
         ts = utility_functions.single_tree_ts_n4()
-        upward = self.run_upward_algorithm(ts, 'gamma')[0]
-        self.assertTrue(np.allclose(upward[4], np.array([0, 1, 0.00548801])))
-        self.assertTrue(np.allclose(upward[5], np.array([0, 1, 0.0239174])))
-        self.assertTrue(np.allclose(upward[6], np.array([0, 1, 0.26222197])))
+        algo = self.run_inside_algorithm(ts, 'gamma')[0]
+        self.assertTrue(np.allclose(algo.inside[4], np.array([0, 1, 0.00548801])))
+        self.assertTrue(np.allclose(algo.inside[5], np.array([0, 1, 0.0239174])))
+        self.assertTrue(np.allclose(algo.inside[6], np.array([0, 1, 0.26222197])))
 
     def test_polytomy_tree(self):
         ts = utility_functions.polytomy_tree_ts()
-        upward = self.run_upward_algorithm(ts, 'gamma')[0]
-        self.assertTrue(np.allclose(upward[3], np.array([0, 1, 0.12797265])))
+        algo = self.run_inside_algorithm(ts, 'gamma')[0]
+        self.assertTrue(np.allclose(algo.inside[3], np.array([0, 1, 0.12797265])))
 
     def test_two_tree_ts(self):
         ts = utility_functions.two_tree_ts()
-        upward, prior_vals = self.run_upward_algorithm(ts, 'gamma', normalise=False)
+        algo, prior_vals = self.run_inside_algorithm(ts, 'gamma', normalize=False)
         # Prior[3][1] * Ll_(0->3)(1.2 - 0 + eps) ** 2
         node3_t1 = prior_vals[3][1] * scipy.stats.poisson.pmf(
             0, (1.2 + 1e-6) * 0.5 * 0.2) ** 2
         # Prior[3][2] * sum(Ll_(0->3)(2 - t + eps))
         node3_t2 = prior_vals[3][2] * scipy.stats.poisson.pmf(
             0, (2 + 1e-6) * 0.5 * 0.2) ** 2
-        self.assertTrue(np.allclose(upward[3],
+        self.assertTrue(np.allclose(algo.inside[3],
                                     np.array([0, node3_t1, node3_t2])))
         """
         Prior[4][1] * (Ll_(2->4)(1.2 - 0 + eps) * (Ll_(1->4)(1.2 - 0 + eps)) *
@@ -723,7 +721,7 @@ class TestUpwardAlgorithm(unittest.TestCase):
             0, (2 + 1e-6) * 0.5 * 0.8) * ((scipy.stats.poisson.pmf(
                 0, (0.8 + 1e-6) * 0.5 * 0.2) * node3_t1) +
             (scipy.stats.poisson.pmf(0, (1e-6 + 1e-6) * 0.5 * 0.2) * node3_t2)))
-        self.assertTrue(np.allclose(upward[4], np.array([0, node4_t1, node4_t2])))
+        self.assertTrue(np.allclose(algo.inside[4], np.array([0, node4_t1, node4_t2])))
         """
         Prior[5][1] * (Ll_(4->5)(1.2 - 1.2 + eps) * (node3_t ** 0.8)) *
         (Ll_(0->5)(1.2 - 0 + eps) * 1)
@@ -741,30 +739,30 @@ class TestUpwardAlgorithm(unittest.TestCase):
             (scipy.stats.poisson.pmf(0, (1e-6 + 1e-6) * 0.5 * 0.8) *
                 (node4_t2 ** 0.8))) * (scipy.stats.poisson.pmf(
                     0, (2 + 1e-6) * 0.5 * 0.8))
-        self.assertTrue(np.allclose(upward[5], np.array([0, node5_t1, node5_t2])))
+        self.assertTrue(np.allclose(algo.inside[5], np.array([0, node5_t1, node5_t2])))
 
     def test_tree_with_unary_nodes(self):
         ts = utility_functions.single_tree_ts_with_unary()
-        upward = self.run_upward_algorithm(ts, 'gamma')[0]
-        self.assertTrue(np.allclose(upward[3], np.array([0, 1, 0.01147716])))
-        self.assertTrue(np.allclose(upward[4], np.array([0, 1, 0.12086781])))
-        self.assertTrue(np.allclose(upward[5], np.array([0, 1, 0.07506923])))
-        self.assertTrue(np.allclose(upward[6], np.array([0, 1, 0.25057244])))
+        algo = self.run_inside_algorithm(ts, 'gamma')[0]
+        self.assertTrue(np.allclose(algo.inside[3], np.array([0, 1, 0.01147716])))
+        self.assertTrue(np.allclose(algo.inside[4], np.array([0, 1, 0.12086781])))
+        self.assertTrue(np.allclose(algo.inside[5], np.array([0, 1, 0.07506923])))
+        self.assertTrue(np.allclose(algo.inside[6], np.array([0, 1, 0.25057244])))
 
     def test_two_tree_mutation_ts(self):
         ts = utility_functions.two_tree_mutation_ts()
-        upward = self.run_upward_algorithm(ts, 'gamma')[0]
-        self.assertTrue(np.allclose(upward[3], np.array([0, 1, 0.02176622])))
+        algo = self.run_inside_algorithm(ts, 'gamma')[0]
+        self.assertTrue(np.allclose(algo.inside[3], np.array([0, 1, 0.02176622])))
         # self.assertTrue(np.allclose(upward[4], np.array([0, 2.90560754e-05, 1])))
         # NB the replacement below has not been hand-calculated
-        self.assertTrue(np.allclose(upward[4], np.array([0, 3.63200499e-11, 1])))
+        self.assertTrue(np.allclose(algo.inside[4], np.array([0, 3.63200499e-11, 1])))
         # self.assertTrue(np.allclose(upward[5], np.array([0, 5.65044738e-05, 1])))
         # NB the replacement below has not been hand-calculated
-        self.assertTrue(np.allclose(upward[5], np.array([0, 7.06320034e-11, 1])))
+        self.assertTrue(np.allclose(algo.inside[5], np.array([0, 7.06320034e-11, 1])))
 
 
 class TestDownwardAlgorithm(unittest.TestCase):
-    def run_downward_algorithm(self, ts, prior_distr="lognorm"):
+    def run_outside_algorithm(self, ts, prior_distr="lognorm"):
         span_data = tsdate.SpansBySamples(ts)
         spans = span_data.node_spans
         priors = tsdate.ConditionalCoalescentTimes(None, prior_distr)
@@ -779,25 +777,26 @@ class TestDownwardAlgorithm(unittest.TestCase):
         eps = 1e-6
         lls = tsdate.Likelihoods(ts, grid, theta, eps)
         lls.precalculate_mutation_likelihoods()
-        alg = tsdate.UpDownAlgorithms(ts, lls)
-        upward, g_i, norm = alg.upward(prior_vals, theta, rho, spans)
-        return alg.downward(upward, g_i, norm, theta, rho, spans)
+        algo = tsdate.InOutAlgorithms(ts, prior_vals, lls, spans, extended_checks=True)
+        algo.inside_pass(theta, rho)
+        algo.outside_pass(theta, rho, normalize=False)
+        return algo
 
     def test_one_tree_n2(self):
         ts = utility_functions.single_tree_ts_n2()
         for prior_distr in ('lognorm', 'gamma'):
-            posterior, downward = self.run_downward_algorithm(ts, prior_distr)
+            algo = self.run_outside_algorithm(ts, prior_distr)
             # Root, should this be 0,1,1 or 1,1,1
             self.assertTrue(np.array_equal(
-                            downward[2], np.array([1, 1, 1])))
+                            algo.outside[2], np.array([1, 1, 1])))
 
     def test_one_tree_n3(self):
         ts = utility_functions.single_tree_ts_n3()
         for prior_distr in ('lognorm', 'gamma'):
-            posterior, downward = self.run_downward_algorithm(ts, prior_distr)
+            algo = self.run_outside_algorithm(ts, prior_distr)
             # self.assertTrue(np.allclose(
             #                  downward[3], np.array([0, 1, 0.33508884])))
-            self.assertTrue(np.allclose(downward[4], np.array([1, 1, 1])))
+            self.assertTrue(np.allclose(algo.outside[4], np.array([1, 1, 1])))
             # self.assertTrue(np.allclose(
             #      posterior[3], np.array([0, 0.99616886, 0.00383114])))
             # self.assertTrue(np.allclose(
@@ -806,14 +805,14 @@ class TestDownwardAlgorithm(unittest.TestCase):
     def test_one_tree_n4(self):
         ts = utility_functions.single_tree_ts_n4()
         for prior_distr in ('lognorm', 'gamma'):
-            posterior, downward = self.run_downward_algorithm(ts, prior_distr)
+            algo = self.run_outside_algorithm(ts, prior_distr)
             # self.assertTrue(np.allclose(
             #                 downward[4], np.array([0, 1, 0.02187283])))
             # self.assertTrue(np.allclose(
             #                 downward[5], np.array([0, 1, 0.41703272])))
             # Root, should this be 0,1,1 or 1,1,1
             self.assertTrue(np.allclose(
-                            downward[6], np.array([1, 1, 1])))
+                            algo.outside[6], np.array([1, 1, 1])))
 
 
 class TestTotalFunctionalValueTree(unittest.TestCase):
@@ -838,47 +837,48 @@ class TestTotalFunctionalValueTree(unittest.TestCase):
         eps = 1e-6
         lls = tsdate.Likelihoods(ts, grid, theta, eps)
         lls.precalculate_mutation_likelihoods()
-        alg = tsdate.UpDownAlgorithms(ts, lls)
-        upward, g_i, norm = alg.upward(prior_vals, theta, rho, spans, return_log=False)
-        posterior, downward = alg.downward(upward, g_i, norm, theta, rho, spans,
-                                           normalise=False)
-        self.assertTrue(
-            np.array_equal(np.sum(upward.grid_data * downward.grid_data, axis=1),
-                           np.sum(upward.grid_data * downward.grid_data, axis=1)))
-        self.assertTrue(
-            np.allclose(np.sum(upward.grid_data * downward.grid_data, axis=1),
-                        np.sum(upward.grid_data[-1])))
-        return posterior, upward, downward
+        algo = tsdate.InOutAlgorithms(ts, prior_vals, lls, spans)
+        algo.inside_pass(theta, rho)
+        posterior = algo.outside_pass(theta, rho, normalize=False)
+        print(np.sum(
+            algo.inside.grid_data * algo.outside.grid_data, axis=1))
+        self.assertTrue(np.array_equal(np.sum(
+            algo.inside.grid_data * algo.outside.grid_data, axis=1),
+            np.sum(algo.inside.grid_data * algo.outside.grid_data, axis=1)))
+        self.assertTrue(np.allclose(np.sum(
+            algo.inside.grid_data * algo.outside.grid_data, axis=1),
+            np.sum(algo.inside.grid_data[-1])))
+        return posterior, algo
 
     def test_one_tree_n2(self):
         ts = utility_functions.single_tree_ts_n2()
         for distr in ('gamma', 'lognorm'):
-            posterior, upward, downward = self.find_posterior(ts, distr)
+            posterior, algo = self.find_posterior(ts, distr)
 
     def test_one_tree_n3(self):
         ts = utility_functions.single_tree_ts_n3()
         for distr in ('gamma', 'lognorm'):
-            posterior, upward, downward = self.find_posterior(ts, distr)
+            posterior, algo = self.find_posterior(ts, distr)
 
     def test_one_tree_n4(self):
         ts = utility_functions.single_tree_ts_n4()
         for distr in ('gamma', 'lognorm'):
-            posterior, upward, downward = self.find_posterior(ts, distr)
+            posterior, algo = self.find_posterior(ts, distr)
 
     def test_one_tree_n3_mutation(self):
         ts = utility_functions.single_tree_ts_mutation_n3()
         for distr in ('gamma', 'lognorm'):
-            posterior, upward, downward = self.find_posterior(ts, distr)
+            posterior, algo = self.find_posterior(ts, distr)
 
     def test_polytomy_tree(self):
         ts = utility_functions.polytomy_tree_ts()
         for distr in ('gamma', 'lognorm'):
-            posterior, upward, downward = self.find_posterior(ts, distr)
+            posterior, algo = self.find_posterior(ts, distr)
 
     def test_tree_with_unary_nodes(self):
         ts = utility_functions.single_tree_ts_with_unary()
         for distr in ('gamma', 'lognorm'):
-            posterior, upward, downward = self.find_posterior(ts, distr)
+            posterior, algo = self.find_posterior(ts, distr)
 
 
 class TestGilTree(unittest.TestCase):
@@ -903,25 +903,24 @@ class TestGilTree(unittest.TestCase):
         theta = 2
         rho = None
         eps = 0.01
-        lls = tsdate.Likelihoods(ts, grid, theta, eps, normalise=False)
+        lls = tsdate.Likelihoods(ts, grid, theta, eps, normalize=False)
         lls.precalculate_mutation_likelihoods()
-        alg = tsdate.UpDownAlgorithms(ts, lls)
-        upward, g_i, norm = alg.upward(prior_vals, theta, rho, spans, normalise=False)
-        posterior, downward = alg.downward(upward, g_i, norm, theta, rho, spans,
-                                           normalise=False)
+        algo = tsdate.InOutAlgorithms(ts, prior_vals, lls, spans)
+        algo.inside_pass(theta, rho, normalize=False)
+        algo.outside_pass(theta, rho, normalize=False)
         self.assertTrue(
-            np.allclose(np.sum(upward.grid_data * downward.grid_data, axis=1),
+            np.allclose(np.sum(algo.inside.grid_data * algo.outside.grid_data, axis=1),
                         [7.44449E-05, 7.44449E-05]))
         self.assertTrue(
-            np.allclose(np.sum(upward.grid_data * downward.grid_data, axis=1),
-                        np.sum(upward.grid_data[-1])))
+            np.allclose(np.sum(algo.inside.grid_data * algo.outside.grid_data, axis=1),
+                        np.sum(algo.inside.grid_data[-1])))
 
 
 class TestMaximization(unittest.TestCase):
     """
     Test the downward maximization function
     """
-    def run_downward_maximization(self, ts, prior_distr="lognorm"):
+    def run_outside_maximization(self, ts, prior_distr="lognorm"):
         span_data = tsdate.SpansBySamples(ts)
         spans = span_data.node_spans
         priors = tsdate.ConditionalCoalescentTimes(None, prior_distr)
@@ -936,30 +935,30 @@ class TestMaximization(unittest.TestCase):
         eps = 1e-6
         lls = tsdate.Likelihoods(ts, grid, theta, eps)
         lls.precalculate_mutation_likelihoods()
-        alg = tsdate.UpDownAlgorithms(ts, lls)
-        upward, g_i, norm = alg.upward(prior_vals, theta, rho, spans)
-        return lls, upward, alg.downward_maximization(upward, theta, spans)
+        algo = tsdate.InOutAlgorithms(ts, prior_vals, lls, spans)
+        algo.inside_pass(theta, rho)
+        return lls, algo, algo.outside_maximization(theta)
 
     def test_one_tree_n2(self):
         ts = utility_functions.single_tree_ts_n2()
         for prior_distr in ('lognorm', 'gamma'):
-            lls, upward, maximized_ages = self.run_downward_maximization(ts, prior_distr)
+            lls, algo, maximized_ages = self.run_outside_maximization(ts, prior_distr)
             self.assertTrue(np.array_equal(
                             maximized_ages,
-                            np.array([0, 0, lls.grid[np.argmax(upward[2])]])))
+                            np.array([0, 0, lls.grid[np.argmax(algo.inside[2])]])))
 
     def test_one_tree_n3(self):
         ts = utility_functions.single_tree_ts_n3()
         for prior_distr in ('lognorm', 'gamma'):
-            lls, upward, maximized_ages = self.run_downward_maximization(ts, prior_distr)
-            node_4 = lls.grid[np.argmax(upward[4])]
+            lls, algo, maximized_ages = self.run_outside_maximization(ts, prior_distr)
+            node_4 = lls.grid[np.argmax(algo.inside[4])]
             ll_mut = scipy.stats.poisson.pmf(
-                0, (node_4 - lls.grid[:np.argmax(upward[4]) + 1] + 1e-6) *
+                0, (node_4 - lls.grid[:np.argmax(algo.inside[4]) + 1] + 1e-6) *
                 1 / 2 * 1)
             result = ll_mut / np.max(ll_mut)
-            upward_val = upward[3][:(np.argmax(upward[4]) + 1)]
+            inside_val = algo.inside[3][:(np.argmax(algo.inside[4]) + 1)]
             node_3 = lls.grid[np.argmax(
-                result[:np.argmax(upward[4]) + 1] * upward_val)]
+                result[:np.argmax(algo.inside[4]) + 1] * inside_val)]
             self.assertTrue(np.array_equal(
                             maximized_ages,
                             np.array([0, 0, 0, node_3, node_4])))
