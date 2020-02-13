@@ -1616,7 +1616,7 @@ class InOutAlgorithms:
                                     self.lik.make_lower_tri(self.inside[edge.child])),
                                 self.lik.get_mut_lik_lower_tri(edge))),
                         self.norm[child])
-                    assert np.all(cur_g_i == self.g_i[edge.id]), (cur_g_i, self.g_i[edge.id])
+                    assert np.all(cur_g_i == self.g_i[edge.id])
                 inside_div_gi = self.lik.reduce(
                     self.inside[edge.parent], self.g_i[edge.id], div_0_null=True)
                 parent_val = self.lik.scale_geometric(
