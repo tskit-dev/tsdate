@@ -25,6 +25,7 @@ Test cases for the python API for tsdate.
 """
 import unittest
 import os
+import collections
 
 import numpy as np
 import scipy
@@ -32,6 +33,7 @@ import tskit  # NOQA
 import msprime
 
 import tsdate
+from tsdate.date import ALPHA, BETA, MEAN, VAR  # NOQA
 
 import utility_functions
 
@@ -81,12 +83,14 @@ class TestNodeTipWeights(unittest.TestCase):
 
         # total_samples, weights_by_node, _ = tsdate.find_node_tip_weights(ts)
         # Check all non-sample nodes in a tree are represented
-        nonsample_nodes = set()
+        nonsample_nodes = collections.defaultdict(float)
         for tree in ts.trees():
             for n in tree.nodes():
                 if not tree.is_sample(n):
-                    nonsample_nodes.add(n)
-        self.assertEqual(set(span_data.nodes_to_date), nonsample_nodes)
+                    nonsample_nodes[n] += tree.span
+        self.assertEqual(set(span_data.nodes_to_date), set(nonsample_nodes.keys()))
+        for id, span in nonsample_nodes.items():
+            self.assertAlmostEqual(span, span_data.node_spans[id])
         for focal_node in span_data.nodes_to_date:
             for num_samples, weights in span_data.get_weights(focal_node).items():
                 self.assertTrue(0 <= focal_node < ts.num_nodes)
@@ -178,80 +182,82 @@ class TestNodeTipWeights(unittest.TestCase):
 
 class TestMakePrior(unittest.TestCase):
     # We only test make_prior() on single trees
-    def verify_prior(self, ts):
+    def verify_prior(self, ts, prior_distr):
         # Check prior contains all possible tips
-        priors = tsdate.ConditionalCoalescentTimes(None)  # Don't use approximation
+        priors = tsdate.ConditionalCoalescentTimes(None, prior_distr=prior_distr)
         priors.add(ts.num_samples)
         prior_df = priors[ts.num_samples]
-        self.assertEqual(prior_df.shape[0], ts.num_samples)
+        self.assertEqual(prior_df.shape[0], ts.num_samples + 1)
         return(prior_df)
 
     def test_one_tree_n2(self):
         ts = utility_functions.single_tree_ts_n2()
-        prior = self.verify_prior(ts)
-        [self.assertAlmostEqual(x, y)
-         for x, y in zip(prior.loc[2].values,
-                         [1., 1.])]
+        prior = self.verify_prior(ts, 'gamma')
+        self.assertTrue(np.allclose(prior[2, [MEAN, VAR]], [1., 1.]))
+        self.assertTrue(np.allclose(prior[2, [ALPHA, BETA]], [1., 1.]))
+        prior = self.verify_prior(ts, 'lognorm')
+        self.assertTrue(np.allclose(prior[2, [MEAN, VAR]], [1., 1.]))
+        self.assertTrue(np.allclose(prior[2, [ALPHA, BETA]], [-0.34657359,  0.69314718]))
 
     def test_one_tree_n3(self):
         ts = utility_functions.single_tree_ts_n3()
-        prior = self.verify_prior(ts)
-        [self.assertAlmostEqual(x, y)
-         for x, y in zip(prior.loc[2].values,
-                         [1., 3.])]
-        [self.assertAlmostEqual(x, y)
-         for x, y in zip(prior.loc[3].values,
-                         [1.6, 1.2])]
+        for distr in ('gamma', 'lognorm'):
+            prior = self.verify_prior(ts, distr)
+            self.assertTrue(np.allclose(prior[2, [MEAN, VAR]], [1/3, 1/9]))
+            expected_ab = [1., 3.] if distr == 'gamma' else [-1.44518588, 0.69314718]
+            self.assertTrue(np.allclose(prior[2, [ALPHA, BETA]], expected_ab))
+
+            self.assertTrue(np.allclose(prior[3, [MEAN, VAR]], [1+1/3, 1+1/9]))
+            expected_ab = [1.6, 1.2] if distr == 'gamma' else [0.04492816, 0.48550782]
+            self.assertTrue(np.allclose(prior[3, [ALPHA, BETA]], expected_ab))
 
     def test_one_tree_n4(self):
         ts = utility_functions.single_tree_ts_n4()
-        prior = self.verify_prior(ts)
-        [self.assertAlmostEqual(x, y)
-         for x, y in zip(prior.loc[2].values,
-                         [0.81818182, 3.27272727])]
-        [self.assertAlmostEqual(x, y)
-         for x, y in zip(prior.loc[3].values,
-                         [1.8, 3.6])]
-        [self.assertAlmostEqual(x, y)
-         for x, y in zip(prior.loc[4].values,
-                         [1.97560976, 1.31707317])]
+        for distr in ('gamma', 'lognorm'):
+            prior = self.verify_prior(ts, distr)
+            self.skipTest("Fill in values instead of np.nan")
+            # prior.loc[2].values == [0.81818182, 3.27272727])
+            self.assertTrue(np.allclose(prior[2, [MEAN, VAR]], [np.nan, np.nan]))
+            self.assertTrue(np.allclose(prior[3, [MEAN, VAR]], [np.nan, np.nan]))
+            self.assertTrue(np.allclose(prior[4, [MEAN, VAR]], [np.nan, np.nan]))
 
     def test_polytomy_tree(self):
         ts = utility_functions.polytomy_tree_ts()
-        prior = self.verify_prior(ts)
-        [self.assertAlmostEqual(x, y)
-         for x, y in zip(prior.loc[3].values,
-                         [1.6, 1.2])]
+        for distr in ('gamma', 'lognorm'):
+            prior = self.verify_prior(ts, distr)
+            self.skipTest("Fill in values instead of np.nan")
+            # prior.loc[3].values == [1.6, 1.2])
+            self.assertTrue(np.allclose(prior[3, [MEAN, VAR]], [np.nan, np.nan]))
 
     def test_two_tree_ts(self):
         ts = utility_functions.two_tree_ts()
-        prior = self.verify_prior(ts)
-        [self.assertAlmostEqual(x, y)
-         for x, y in zip(prior.loc[2].values,
-                         [1., 3.])]
-        [self.assertAlmostEqual(x, y)
-         for x, y in zip(prior.loc[3].values,
-                         [1.6, 1.2])]
+        for distr in ('gamma', 'lognorm'):
+            prior = self.verify_prior(ts, distr)
+            self.skipTest("Fill in values instead of np.nan")
+            # (prior.loc[2].values == [1., 3.])]
+            # (prior.loc[3].values == [1.6, 1.2])]
+            self.assertTrue(np.allclose(prior[2, [MEAN, VAR]], [np.nan, np.nan]))
+            self.assertTrue(np.allclose(prior[3, [MEAN, VAR]], [np.nan, np.nan]))
 
     def test_single_tree_ts_with_unary(self):
         ts = utility_functions.single_tree_ts_with_unary()
-        prior = self.verify_prior(ts)
-        [self.assertAlmostEqual(x, y)
-         for x, y in zip(prior.loc[2].values,
-                         [1., 3.])]
-        [self.assertAlmostEqual(x, y)
-         for x, y in zip(prior.loc[3].values,
-                         [1.6, 1.2])]
+        for distr in ('gamma', 'lognorm'):
+            prior = self.verify_prior(ts, distr)
+            self.skipTest("Fill in values instead of np.nan")
+            # (prior.loc[2].values == [1., 3.])]
+            # (prior.loc[3].values == [1.6, 1.2])]
+            self.assertTrue(np.allclose(prior[2, [MEAN, VAR]], [np.nan, np.nan]))
+            self.assertTrue(np.allclose(prior[3, [MEAN, VAR]], [np.nan, np.nan]))
 
     def test_two_tree_mutation_ts(self):
         ts = utility_functions.two_tree_mutation_ts()
-        prior = self.verify_prior(ts)
-        [self.assertAlmostEqual(x, y)
-         for x, y in zip(prior.loc[2].values,
-                         [1., 3.])]
-        [self.assertAlmostEqual(x, y)
-         for x, y in zip(prior.loc[3].values,
-                         [1.6, 1.2])]
+        for distr in ('gamma', 'lognorm'):
+            prior = self.verify_prior(ts, distr)
+            self.skipTest("Fill in values instead of np.nan")
+            # (prior.loc[2].values == [1., 3.])]
+            # (prior.loc[3].values == [1.6, 1.2])]
+            self.assertTrue(np.allclose(prior[2, [MEAN, VAR]], [np.nan, np.nan]))
+            self.assertTrue(np.allclose(prior[3, [MEAN, VAR]], [np.nan, np.nan]))
 
     def test_precalculated_prior(self):
         # Force approx prior with a tiny n
@@ -262,13 +268,15 @@ class TestMakePrior(unittest.TestCase):
             os.path.isfile(tsdate.ConditionalCoalescentTimes.precalc_approx_fn(10)))
         priors_approxNone = tsdate.ConditionalCoalescentTimes(None)
         priors_approxNone.add(10)
-        self.assertTrue(priors_approx10[10].equals(priors_approxNone[10]))
+        self.assertTrue(
+            np.allclose(priors_approx10[10], priors_approxNone[10], equal_nan=True))
         # Test when using a bigger n that we're using the precalculated version
         priors_approx10.add(100)
-        self.assertEquals(len(priors_approx10[100].index), 100)
+        self.assertEquals(priors_approx10[100].shape[0], 100 + 1)
         priors_approxNone.add(100, approximate=False)
-        self.assertEquals(len(priors_approxNone[100].index), 100)
-        self.assertFalse(priors_approx10[100].equals(priors_approxNone[100]))
+        self.assertEquals(priors_approxNone[100].shape[0], 100 + 1)
+        self.assertFalse(
+            np.allclose(priors_approx10[100], priors_approxNone[100], equal_nan=True))
 
         priors_approx10.clear_precalculated_prior()
         self.assertFalse(
@@ -278,118 +286,109 @@ class TestMakePrior(unittest.TestCase):
 
 
 class TestMixturePrior(unittest.TestCase):
-    def get_mixture_prior_params(self, ts):
+    def get_mixture_prior_params(self, ts, prior_distr):
         span_data = tsdate.SpansBySamples(ts)
-        priors = tsdate.ConditionalCoalescentTimes(None)
+        priors = tsdate.ConditionalCoalescentTimes(None, prior_distr=prior_distr)
         priors.add(ts.num_samples, approximate=False)
-        mixture_prior = tsdate.get_mixture_prior_params(span_data, priors)
+        mixture_prior = priors.get_mixture_prior_params(span_data)
         return(mixture_prior)
 
     def test_one_tree_n2(self):
         ts = utility_functions.single_tree_ts_n2()
-        mixture_prior = self.get_mixture_prior_params(ts)
-        [self.assertAlmostEqual(x, y)
-         for x, y in zip(mixture_prior.loc[2].values,
-                         [1., 1.])]
+        mixture_prior = self.get_mixture_prior_params(ts, 'gamma')
+        self.assertTrue(
+            np.allclose(mixture_prior[2, [ALPHA, BETA]], [1., 1.]))
+        mixture_prior = self.get_mixture_prior_params(ts, 'lognorm')
+        self.assertTrue(
+            np.allclose(mixture_prior[2, [ALPHA, BETA]], [-0.34657359, 0.69314718]))
 
     def test_one_tree_n3(self):
         ts = utility_functions.single_tree_ts_n3()
-        mixture_prior = self.get_mixture_prior_params(ts)
-        [self.assertAlmostEqual(x, y)
-         for x, y in zip(mixture_prior.loc[3].values,
-                         [1., 3.])]
-        [self.assertAlmostEqual(x, y)
-         for x, y in zip(mixture_prior.loc[4].values,
-                         [1.6, 1.2])]
+        mixture_prior = self.get_mixture_prior_params(ts, 'gamma')
+        self.assertTrue(
+            np.allclose(mixture_prior[3, [ALPHA, BETA]], [1., 3.]))
+        self.assertTrue(
+            np.allclose(mixture_prior[4, [ALPHA, BETA]], [1.6, 1.2]))
+        mixture_prior = self.get_mixture_prior_params(ts, 'lognorm')
+        self.assertTrue(
+            np.allclose(mixture_prior[3, [ALPHA, BETA]], [-1.44518588, 0.69314718]))
+        self.assertTrue(
+            np.allclose(mixture_prior[4, [ALPHA, BETA]], [0.04492816, 0.48550782]))
 
     def test_one_tree_n4(self):
         ts = utility_functions.single_tree_ts_n4()
-        mixture_prior = self.get_mixture_prior_params(ts)
-        [self.assertAlmostEqual(x, y)
-         for x, y in zip(mixture_prior.loc[4].values,
-                         [0.81818182, 3.27272727])]
-        [self.assertAlmostEqual(x, y)
-         for x, y in zip(mixture_prior.loc[5].values,
-                         [1.8, 3.6])]
-        [self.assertAlmostEqual(x, y)
-         for x, y in zip(mixture_prior.loc[6].values,
-                         [1.97560976, 1.31707317])]
+        mixture_prior = self.get_mixture_prior_params(ts, 'gamma')
+        self.assertTrue(
+            np.allclose(mixture_prior[4, [ALPHA, BETA]], [0.81818182, 3.27272727]))
+        self.assertTrue(
+            np.allclose(mixture_prior[5, [ALPHA, BETA]], [1.8, 3.6]))
+        self.assertTrue(
+            np.allclose(mixture_prior[6, [ALPHA, BETA]], [1.97560976, 1.31707317]))
 
     def test_polytomy_tree(self):
         ts = utility_functions.polytomy_tree_ts()
-        mixture_prior = self.get_mixture_prior_params(ts)
-        [self.assertAlmostEqual(x, y)
-         for x, y in zip(mixture_prior.loc[3].values,
-                         [1.6, 1.2])]
+        mixture_prior = self.get_mixture_prior_params(ts, 'gamma')
+        self.assertTrue(
+            np.allclose(mixture_prior[3, [ALPHA, BETA]], [1.6, 1.2]))
 
     def test_two_trees(self):
         ts = utility_functions.two_tree_ts()
-        mixture_prior = self.get_mixture_prior_params(ts)
-        [self.assertAlmostEqual(x, y)
-         for x, y in zip(mixture_prior.loc[3].values,
-                         [1., 3.])]
+        mixture_prior = self.get_mixture_prior_params(ts, 'gamma')
+        self.assertTrue(
+            np.allclose(mixture_prior[3, [ALPHA, BETA]], [1., 3.]))
         # Node 4 should be a mixture between 2 and 3 tips
-        [self.assertAlmostEqual(x, y, places=4)
-         for x, y in zip(mixture_prior.loc[4].values,
-                         [0.60377, 1.13207])]
-        [self.assertAlmostEqual(x, y)
-         for x, y in zip(mixture_prior.loc[5].values,
-                         [1.6, 1.2])]
+        self.assertTrue(
+            np.allclose(mixture_prior[4, [ALPHA, BETA]], [0.60377, 1.13207]))
+        self.assertTrue(
+            np.allclose(mixture_prior[5, [ALPHA, BETA]], [1.6, 1.2]))
 
     def test_single_tree_ts_with_unary(self):
         ts = utility_functions.single_tree_ts_with_unary()
-        mixture_prior = self.get_mixture_prior_params(ts)
-        [self.assertAlmostEqual(x, y)
-         for x, y in zip(mixture_prior.loc[3].values,
-                         [1., 3.])]
+        mixture_prior = self.get_mixture_prior_params(ts, 'gamma')
+        self.assertTrue(
+            np.allclose(mixture_prior[3, [ALPHA, BETA]], [1., 3.]))
         # Node 4 should be a mixture between 2 and 3 tips
-        [self.assertAlmostEqual(x, y, places=4)
-         for x, y in zip(mixture_prior.loc[4].values,
-                         [0.80645, 0.96774])]
+        self.assertTrue(
+            np.allclose(mixture_prior[4, [ALPHA, BETA]], [0.80645, 0.96774]))
         # Node 5 should be a mixture between 1 and 3 tips
-        [self.assertAlmostEqual(x, y, places=4)
-         for x, y in zip(mixture_prior.loc[5].values,
-                         [0.44444, 0.66666])]
-        [self.assertAlmostEqual(x, y)
-            for x, y in zip(mixture_prior.loc[6].values,
-                            [1.6, 1.2])]
+        self.assertTrue(
+            np.allclose(mixture_prior[5, [ALPHA, BETA]], [0.44444, 0.66666]))
+        self.assertTrue(
+            np.allclose(mixture_prior[6, [ALPHA, BETA]], [1.6, 1.2]))
 
     def test_two_tree_mutation_ts(self):
         ts = utility_functions.two_tree_mutation_ts()
-        mixture_prior = self.get_mixture_prior_params(ts)
-        [self.assertAlmostEqual(x, y)
-         for x, y in zip(mixture_prior.loc[3].values,
-                         [1., 3.])]
+        mixture_prior = self.get_mixture_prior_params(ts, 'gamma')
+        self.assertTrue(
+            np.allclose(mixture_prior[3, [ALPHA, BETA]], [1., 3.]))
         # Node 4 should be a mixture between 2 and 3 tips
-        [self.assertAlmostEqual(x, y, places=4)
-         for x, y in zip(mixture_prior.loc[4].values,
-                         [0.60377, 1.13207])]
-        [self.assertAlmostEqual(x, y)
-         for x, y in zip(mixture_prior.loc[5].values,
-                         [1.6, 1.2])]
+        self.assertTrue(
+            np.allclose(mixture_prior[4, [ALPHA, BETA]], [0.60377, 1.13207]))
+        self.assertTrue(
+            np.allclose(mixture_prior[5, [ALPHA, BETA]], [1.6, 1.2]))
 
 
 class TestPriorVals(unittest.TestCase):
-    def verify_prior_vals(self, ts):
+    def verify_prior_vals(self, ts, prior_distr):
         span_data = tsdate.SpansBySamples(ts)
-        priors = tsdate.ConditionalCoalescentTimes(None)
+        priors = tsdate.ConditionalCoalescentTimes(None, prior_distr=prior_distr)
         priors.add(ts.num_samples, approximate=False)
         grid = np.linspace(0, 3, 3)
-        mixture_prior = tsdate.get_mixture_prior_params(span_data, priors)
+        mixture_prior = priors.get_mixture_prior_params(span_data)
         nodes_to_date = span_data.nodes_to_date
         prior_vals = tsdate.fill_prior(mixture_prior, grid, ts, nodes_to_date,
-                                       return_log=False)
+                                       prior_distr=prior_distr)
         return prior_vals
 
     def test_one_tree_n2(self):
         ts = utility_functions.single_tree_ts_n2()
-        prior_vals = self.verify_prior_vals(ts)
+        prior_vals = self.verify_prior_vals(ts, 'gamma')
         self.assertTrue(np.allclose(prior_vals[2],
                         np.array([0, 1, 0.22313016])))
 
     def test_one_tree_n3(self):
         ts = utility_functions.single_tree_ts_n3()
-        prior_vals = self.verify_prior_vals(ts)
+        prior_vals = self.verify_prior_vals(ts, 'gamma')
         self.assertTrue(np.allclose(prior_vals[3],
                         np.array([0, 1, 0.011109])))
         self.assertTrue(np.allclose(prior_vals[4],
@@ -397,7 +396,7 @@ class TestPriorVals(unittest.TestCase):
 
     def test_one_tree_n4(self):
         ts = utility_functions.single_tree_ts_n4()
-        prior_vals = self.verify_prior_vals(ts)
+        prior_vals = self.verify_prior_vals(ts, 'gamma')
         self.assertTrue(np.allclose(prior_vals[4],
                         np.array([0, 1, 0.00467134])))
         self.assertTrue(np.allclose(prior_vals[5],
@@ -407,13 +406,13 @@ class TestPriorVals(unittest.TestCase):
 
     def test_polytomy_tree(self):
         ts = utility_functions.polytomy_tree_ts()
-        prior_vals = self.verify_prior_vals(ts)
+        prior_vals = self.verify_prior_vals(ts, 'gamma')
         self.assertTrue(np.allclose(prior_vals[3],
                         np.array([0, 1, 0.3973851])))
 
     def test_two_tree_ts(self):
         ts = utility_functions.two_tree_ts()
-        prior_vals = self.verify_prior_vals(ts)
+        prior_vals = self.verify_prior_vals(ts, 'gamma')
         self.assertTrue(np.allclose(prior_vals[3],
                         np.array([0, 1, 0.011109])))
         self.assertTrue(np.allclose(prior_vals[4],
@@ -423,7 +422,7 @@ class TestPriorVals(unittest.TestCase):
 
     def test_tree_with_unary_nodes(self):
         ts = utility_functions.single_tree_ts_with_unary()
-        prior_vals = self.verify_prior_vals(ts)
+        prior_vals = self.verify_prior_vals(ts, 'gamma')
         self.assertTrue(np.allclose(prior_vals[3],
                         np.array([0, 1, 0.011109])))
         self.assertTrue(np.allclose(prior_vals[4],
@@ -437,7 +436,7 @@ class TestPriorVals(unittest.TestCase):
 class TestLikelihoodClass(unittest.TestCase):
     def poisson(self, l, x):
         ll = np.exp(-l) * l ** x / scipy.special.factorial(x)
-        return np.log(ll / np.max(ll))
+        return ll / np.max(ll)
 
     def test_get_mut_edges(self):
         ts = utility_functions.two_tree_mutation_ts()
@@ -542,8 +541,7 @@ class TestLikelihoodClass(unittest.TestCase):
                 self.assertEqual(e.right - e.left, exp_span)
                 self.assertEqual(lik.mut_edges[e.id], exp_branch_muts)
                 pois_lambda = grid * theta / 2 * exp_span
-                cumul_pois = np.log(
-                    np.cumsum(np.exp(self.poisson(pois_lambda, exp_branch_muts))))
+                cumul_pois = np.cumsum(self.poisson(pois_lambda, exp_branch_muts))
                 lower_tri = lik.get_mut_lik_lower_tri(e)
                 self.assertTrue(
                     np.allclose(lik.rowsum_lower_tri(lower_tri), cumul_pois))
@@ -652,124 +650,169 @@ class TestNodeGridValuesClass(unittest.TestCase):
             orig, 0, np.array([[1, 2], [4, 5]]))
 
 
-class TestUpwardAlgorithm(unittest.TestCase):
-    def run_upward_algorithm(self, ts):
+class TestInsideAlgorithm(unittest.TestCase):
+    def run_inside_algorithm(self, ts, prior_distr, normalize=True):
         span_data = tsdate.SpansBySamples(ts)
         spans = span_data.node_spans
-        priors = tsdate.ConditionalCoalescentTimes(None)
+        priors = tsdate.ConditionalCoalescentTimes(None, prior_distr=prior_distr)
         priors.add(ts.num_samples, approximate=False)
         grid = np.array([0, 1.2, 2])
-        mixture_prior = tsdate.get_mixture_prior_params(span_data, priors)
+        mixture_prior = priors.get_mixture_prior_params(span_data)
         nodes_to_date = span_data.nodes_to_date
-        prior_vals = tsdate.fill_prior(mixture_prior, grid, ts, nodes_to_date)
+        prior_vals = tsdate.fill_prior(
+            mixture_prior, grid, ts, nodes_to_date, prior_distr=prior_distr)
         theta = 1
         rho = None
         eps = 1e-6
         lls = tsdate.Likelihoods(ts, grid, theta, eps)
         lls.precalculate_mutation_likelihoods()
-        algo = tsdate.UpDownAlgorithms(ts, lls)
-        return algo.upward(prior_vals, theta, rho, spans, return_log=False)[0]
+        algo = tsdate.InOutAlgorithms(ts, prior_vals, lls, spans, extended_checks=True)
+        algo.inside_pass(theta, rho, normalize=normalize)
+        return algo, prior_vals
 
     def test_one_tree_n2(self):
         ts = utility_functions.single_tree_ts_n2()
-        upward = self.run_upward_algorithm(ts)
-        self.assertTrue(np.allclose(upward[2], np.array([0, 1, 0.10664654])))
+        algo = self.run_inside_algorithm(ts, 'gamma')[0]
+        self.assertTrue(np.allclose(algo.inside[2], np.array([0, 1, 0.10664654])))
 
     def test_one_tree_n3(self):
         ts = utility_functions.single_tree_ts_n3()
-        upward = self.run_upward_algorithm(ts)
-        self.assertTrue(np.allclose(upward[3],
-                        np.array([0, 1, 0.0114771635])))
-        self.assertTrue(np.allclose(upward[4],
-                        np.array([0, 1, 0.1941815518])))
+        algo = self.run_inside_algorithm(ts, 'gamma')[0]
+        self.assertTrue(np.allclose(algo.inside[3], np.array([0, 1, 0.0114771635])))
+        self.assertTrue(np.allclose(algo.inside[4], np.array([0, 1, 0.1941815518])))
 
     def test_one_tree_n4(self):
         ts = utility_functions.single_tree_ts_n4()
-        upward = self.run_upward_algorithm(ts)
-        self.assertTrue(np.allclose(upward[4], np.array([0, 1, 0.00548801])))
-        self.assertTrue(np.allclose(upward[5], np.array([0, 1, 0.0239174])))
-        self.assertTrue(np.allclose(upward[6], np.array([0, 1, 0.26222197])))
+        algo = self.run_inside_algorithm(ts, 'gamma')[0]
+        self.assertTrue(np.allclose(algo.inside[4], np.array([0, 1, 0.00548801])))
+        self.assertTrue(np.allclose(algo.inside[5], np.array([0, 1, 0.0239174])))
+        self.assertTrue(np.allclose(algo.inside[6], np.array([0, 1, 0.26222197])))
 
     def test_polytomy_tree(self):
         ts = utility_functions.polytomy_tree_ts()
-        upward = self.run_upward_algorithm(ts)
-        self.assertTrue(np.allclose(upward[3], np.array([0, 1, 0.12797265])))
+        algo = self.run_inside_algorithm(ts, 'gamma')[0]
+        self.assertTrue(np.allclose(algo.inside[3], np.array([0, 1, 0.12797265])))
 
-    @unittest.skip("Need to fix to take geometric scaling into account")
     def test_two_tree_ts(self):
         ts = utility_functions.two_tree_ts()
-        upward = self.run_upward_algorithm(ts)
-        self.assertTrue(np.allclose(upward[3], np.array([0, 1, 0.02176622])))
-        self.assertTrue(np.allclose(upward[4], np.array([0, 1, 0.04403458])))
-        self.assertTrue(np.allclose(upward[5], np.array([0, 1, 0.23762418])))
+        algo, prior_vals = self.run_inside_algorithm(ts, 'gamma', normalize=False)
+        # Prior[3][1] * Ll_(0->3)(1.2 - 0 + eps) ** 2
+        node3_t1 = prior_vals[3][1] * scipy.stats.poisson.pmf(
+            0, (1.2 + 1e-6) * 0.5 * 0.2) ** 2
+        # Prior[3][2] * sum(Ll_(0->3)(2 - t + eps))
+        node3_t2 = prior_vals[3][2] * scipy.stats.poisson.pmf(
+            0, (2 + 1e-6) * 0.5 * 0.2) ** 2
+        self.assertTrue(np.allclose(algo.inside[3],
+                                    np.array([0, node3_t1, node3_t2])))
+        """
+        Prior[4][1] * (Ll_(2->4)(1.2 - 0 + eps) * (Ll_(1->4)(1.2 - 0 + eps)) *
+        (Ll_(3->4)(1.2-1.2+eps) * node3_t1)
+        """
+        node4_t1 = prior_vals[4][1] * (scipy.stats.poisson.pmf(
+            0, (1.2 + 1e-6) * 0.5 * 1) * scipy.stats.poisson.pmf(
+            0, (1.2 + 1e-6) * 0.5 * 0.8) *
+            ((scipy.stats.poisson.pmf(0, (1e-6) * 0.5 * 0.2) * node3_t1)))
+        """
+        Prior[4][2] * (Ll_(2->4)(2 - 0 + eps) * Ll_(1->4)(2 - 0 + eps) *
+        (sum_(t'<2)(Ll_(3->4)(2-t'+eps) * node3_t))
+        """
+        node4_t2 = prior_vals[4][2] * (scipy.stats.poisson.pmf(
+            0, (2 + 1e-6) * 0.5 * 1) * scipy.stats.poisson.pmf(
+            0, (2 + 1e-6) * 0.5 * 0.8) * ((scipy.stats.poisson.pmf(
+                0, (0.8 + 1e-6) * 0.5 * 0.2) * node3_t1) +
+            (scipy.stats.poisson.pmf(0, (1e-6 + 1e-6) * 0.5 * 0.2) * node3_t2)))
+        self.assertTrue(np.allclose(algo.inside[4], np.array([0, node4_t1, node4_t2])))
+        """
+        Prior[5][1] * (Ll_(4->5)(1.2 - 1.2 + eps) * (node3_t ** 0.8)) *
+        (Ll_(0->5)(1.2 - 0 + eps) * 1)
+        raising node4_t to 0.8 is geometric scaling
+        """
+        node5_t1 = prior_vals[5][1] * (scipy.stats.poisson.pmf(
+            0, (1e-6) * 0.5 * 0.8) * (node4_t1 ** 0.8)) * (scipy.stats.poisson.pmf(
+                0, (1.2 + 1e-6) * 0.5 * 0.8))
+        """
+        Prior[5][2] * (sum_(t'<1.2)(Ll_(4->5)(1.2 - 0 + eps) * (node3_t ** 0.8)) *
+        (Ll_(0->5)(1.2 - 0 + eps) * 1)
+        """
+        node5_t2 = prior_vals[5][2] * ((scipy.stats.poisson.pmf(
+            0, (0.8 + 1e-6) * 0.5 * 0.8) * (node4_t1 ** 0.8)) +
+            (scipy.stats.poisson.pmf(0, (1e-6 + 1e-6) * 0.5 * 0.8) *
+                (node4_t2 ** 0.8))) * (scipy.stats.poisson.pmf(
+                    0, (2 + 1e-6) * 0.5 * 0.8))
+        self.assertTrue(np.allclose(algo.inside[5], np.array([0, node5_t1, node5_t2])))
 
     def test_tree_with_unary_nodes(self):
         ts = utility_functions.single_tree_ts_with_unary()
-        upward = self.run_upward_algorithm(ts)
-        self.assertTrue(np.allclose(upward[3], np.array([0, 1, 0.01147716])))
-        self.assertTrue(np.allclose(upward[4], np.array([0, 1, 0.12086781])))
-        self.assertTrue(np.allclose(upward[5], np.array([0, 1, 0.07506923])))
-        self.assertTrue(np.allclose(upward[6], np.array([0, 1, 0.25057244])))
+        algo = self.run_inside_algorithm(ts, 'gamma')[0]
+        self.assertTrue(np.allclose(algo.inside[3], np.array([0, 1, 0.01147716])))
+        self.assertTrue(np.allclose(algo.inside[4], np.array([0, 1, 0.12086781])))
+        self.assertTrue(np.allclose(algo.inside[5], np.array([0, 1, 0.07506923])))
+        self.assertTrue(np.allclose(algo.inside[6], np.array([0, 1, 0.25057244])))
 
     def test_two_tree_mutation_ts(self):
         ts = utility_functions.two_tree_mutation_ts()
-        upward = self.run_upward_algorithm(ts)
-        self.assertTrue(np.allclose(upward[3], np.array([0, 1, 0.02176622])))
+        algo = self.run_inside_algorithm(ts, 'gamma')[0]
+        self.assertTrue(np.allclose(algo.inside[3], np.array([0, 1, 0.02176622])))
         # self.assertTrue(np.allclose(upward[4], np.array([0, 2.90560754e-05, 1])))
         # NB the replacement below has not been hand-calculated
-        self.assertTrue(np.allclose(upward[4], np.array([0, 3.63200499e-11, 1])))
+        self.assertTrue(np.allclose(algo.inside[4], np.array([0, 3.63200499e-11, 1])))
         # self.assertTrue(np.allclose(upward[5], np.array([0, 5.65044738e-05, 1])))
         # NB the replacement below has not been hand-calculated
-        self.assertTrue(np.allclose(upward[5], np.array([0, 7.06320034e-11, 1])))
+        self.assertTrue(np.allclose(algo.inside[5], np.array([0, 7.06320034e-11, 1])))
 
 
 class TestDownwardAlgorithm(unittest.TestCase):
-    def run_downward_algorithm(self, ts):
+    def run_outside_algorithm(self, ts, prior_distr="lognorm"):
         span_data = tsdate.SpansBySamples(ts)
         spans = span_data.node_spans
-        priors = tsdate.ConditionalCoalescentTimes(None)
+        priors = tsdate.ConditionalCoalescentTimes(None, prior_distr)
         priors.add(ts.num_samples, approximate=False)
         grid = np.array([0, 1.2, 2])
-        mixture_prior = tsdate.get_mixture_prior_params(span_data, priors)
+        mixture_prior = priors.get_mixture_prior_params(span_data)
         nodes_to_date = span_data.nodes_to_date
-        prior_vals = tsdate.fill_prior(mixture_prior, grid, ts, nodes_to_date)
+        prior_vals = tsdate.fill_prior(
+            mixture_prior, grid, ts, nodes_to_date, prior_distr)
         theta = 1
         rho = None
         eps = 1e-6
         lls = tsdate.Likelihoods(ts, grid, theta, eps)
         lls.precalculate_mutation_likelihoods()
-        alg = tsdate.UpDownAlgorithms(ts, lls)
-        log_upward, log_g_i, norm = alg.upward(prior_vals, theta, rho, spans)
-        return alg.downward(log_upward, log_g_i, norm, theta, rho, spans)
+        algo = tsdate.InOutAlgorithms(ts, prior_vals, lls, spans, extended_checks=True)
+        algo.inside_pass(theta, rho)
+        algo.outside_pass(theta, rho, normalize=False)
+        return algo
 
     def test_one_tree_n2(self):
         ts = utility_functions.single_tree_ts_n2()
-        posterior, downward = self.run_downward_algorithm(ts)
-        # Root, should this be 0,1,1 or 1,1,1
-        self.assertTrue(np.array_equal(
-                        downward[2], np.array([1, 1, 1])))
+        for prior_distr in ('lognorm', 'gamma'):
+            algo = self.run_outside_algorithm(ts, prior_distr)
+            # Root, should this be 0,1,1 or 1,1,1
+            self.assertTrue(np.array_equal(
+                            algo.outside[2], np.array([1, 1, 1])))
 
     def test_one_tree_n3(self):
         ts = utility_functions.single_tree_ts_n3()
-        posterior, downward = self.run_downward_algorithm(ts)
-        # self.assertTrue(np.allclose(
-        #                  downward[3], np.array([0, 1, 0.33508884])))
-        self.assertTrue(np.allclose(downward[4], np.array([1, 1, 1])))
-        # self.assertTrue(np.allclose(
-        #      posterior[3], np.array([0, 0.99616886, 0.00383114])))
-        # self.assertTrue(np.allclose(
-        #                 posterior[4], np.array([0, 0.83739361, 0.16260639])))
+        for prior_distr in ('lognorm', 'gamma'):
+            algo = self.run_outside_algorithm(ts, prior_distr)
+            # self.assertTrue(np.allclose(
+            #                  downward[3], np.array([0, 1, 0.33508884])))
+            self.assertTrue(np.allclose(algo.outside[4], np.array([1, 1, 1])))
+            # self.assertTrue(np.allclose(
+            #      posterior[3], np.array([0, 0.99616886, 0.00383114])))
+            # self.assertTrue(np.allclose(
+            #                 posterior[4], np.array([0, 0.83739361, 0.16260639])))
 
     def test_one_tree_n4(self):
         ts = utility_functions.single_tree_ts_n4()
-        posterior, downward = self.run_downward_algorithm(ts)
-        # self.assertTrue(np.allclose(
-        #                 downward[4], np.array([0, 1, 0.02187283])))
-        # self.assertTrue(np.allclose(
-        #                 downward[5], np.array([0, 1, 0.41703272])))
-        # Root, should this be 0,1,1 or 1,1,1
-        self.assertTrue(np.allclose(
-                        downward[6], np.array([1, 1, 1])))
+        for prior_distr in ('lognorm', 'gamma'):
+            algo = self.run_outside_algorithm(ts, prior_distr)
+            # self.assertTrue(np.allclose(
+            #                 downward[4], np.array([0, 1, 0.02187283])))
+            # self.assertTrue(np.allclose(
+            #                 downward[5], np.array([0, 1, 0.41703272])))
+            # Root, should this be 0,1,1 or 1,1,1
+            self.assertTrue(np.allclose(
+                            algo.outside[6], np.array([1, 1, 1])))
 
 
 class TestTotalFunctionalValueTree(unittest.TestCase):
@@ -779,52 +822,143 @@ class TestTotalFunctionalValueTree(unittest.TestCase):
     all node times are known (or all bar one).
     """
 
-    def find_posterior(self, ts):
+    def find_posterior(self, ts, prior_distr):
         span_data = tsdate.SpansBySamples(ts)
         spans = span_data.node_spans
-        priors = tsdate.ConditionalCoalescentTimes(None)
+        priors = tsdate.ConditionalCoalescentTimes(None, prior_distr=prior_distr)
         priors.add(ts.num_samples, approximate=False)
         grid = np.array([0, 1.2, 2])
-        mixture_prior = tsdate.get_mixture_prior_params(span_data, priors)
+        mixture_prior = priors.get_mixture_prior_params(span_data)
         nodes_to_date = span_data.nodes_to_date
-        prior_vals = tsdate.fill_prior(mixture_prior, grid, ts, nodes_to_date)
+        prior_vals = tsdate.fill_prior(
+            mixture_prior, grid, ts, nodes_to_date, prior_distr=prior_distr)
         theta = 1
         rho = None
         eps = 1e-6
         lls = tsdate.Likelihoods(ts, grid, theta, eps)
         lls.precalculate_mutation_likelihoods()
-        alg = tsdate.UpDownAlgorithms(ts, lls)
-        log_upward, log_g_i, norm = alg.upward(prior_vals, theta, rho, spans)
-        upward, g_i, norm = alg.upward(prior_vals, theta, rho, spans, return_log=False)
-        posterior, downward = alg.downward(log_upward, log_g_i, norm, theta, rho, spans)
-        self.assertTrue(
-            np.array_equal(np.sum(upward.grid_data * downward.grid_data, axis=1),
-                           np.sum(upward.grid_data * downward.grid_data, axis=1)))
-        self.assertTrue(
-            np.allclose(np.sum(upward.grid_data * downward.grid_data, axis=1),
-                        np.sum(upward.grid_data[-1])))
-        return posterior, upward, downward
+        algo = tsdate.InOutAlgorithms(ts, prior_vals, lls, spans)
+        algo.inside_pass(theta, rho)
+        posterior = algo.outside_pass(theta, rho, normalize=False)
+        print(np.sum(
+            algo.inside.grid_data * algo.outside.grid_data, axis=1))
+        self.assertTrue(np.array_equal(np.sum(
+            algo.inside.grid_data * algo.outside.grid_data, axis=1),
+            np.sum(algo.inside.grid_data * algo.outside.grid_data, axis=1)))
+        self.assertTrue(np.allclose(np.sum(
+            algo.inside.grid_data * algo.outside.grid_data, axis=1),
+            np.sum(algo.inside.grid_data[-1])))
+        return posterior, algo
 
     def test_one_tree_n2(self):
         ts = utility_functions.single_tree_ts_n2()
-        posterior, upward, downward = self.find_posterior(ts)
+        for distr in ('gamma', 'lognorm'):
+            posterior, algo = self.find_posterior(ts, distr)
 
     def test_one_tree_n3(self):
         ts = utility_functions.single_tree_ts_n3()
-        posterior, upward, downward = self.find_posterior(ts)
+        for distr in ('gamma', 'lognorm'):
+            posterior, algo = self.find_posterior(ts, distr)
 
     def test_one_tree_n4(self):
         ts = utility_functions.single_tree_ts_n4()
-        posterior, upward, downward = self.find_posterior(ts)
+        for distr in ('gamma', 'lognorm'):
+            posterior, algo = self.find_posterior(ts, distr)
 
     def test_one_tree_n3_mutation(self):
         ts = utility_functions.single_tree_ts_mutation_n3()
-        posterior, upward, downward = self.find_posterior(ts)
+        for distr in ('gamma', 'lognorm'):
+            posterior, algo = self.find_posterior(ts, distr)
 
     def test_polytomy_tree(self):
         ts = utility_functions.polytomy_tree_ts()
-        posterior, upward, downward = self.find_posterior(ts)
+        for distr in ('gamma', 'lognorm'):
+            posterior, algo = self.find_posterior(ts, distr)
 
     def test_tree_with_unary_nodes(self):
         ts = utility_functions.single_tree_ts_with_unary()
-        posterior, upward, downward = self.find_posterior(ts)
+        for distr in ('gamma', 'lognorm'):
+            posterior, algo = self.find_posterior(ts, distr)
+
+
+class TestGilTree(unittest.TestCase):
+    """
+    Test results against hardcoded values Gil independently worked out
+    """
+
+    def test_gil_tree(self):
+        ts = utility_functions.gils_example_tree()
+        span_data = tsdate.SpansBySamples(ts)
+        prior_distr = 'lognorm'
+        spans = span_data.node_spans
+        priors = tsdate.ConditionalCoalescentTimes(None, prior_distr=prior_distr)
+        priors.add(ts.num_samples, approximate=False)
+        grid = np.array([0, 0.1, 0.2, 0.5, 1, 2, 5])
+        mixture_prior = priors.get_mixture_prior_params(span_data)
+        nodes_to_date = span_data.nodes_to_date
+        prior_vals = tsdate.fill_prior(
+            mixture_prior, grid, ts, nodes_to_date, prior_distr)
+        prior_vals.grid_data[0] = [0, 0.5, 0.3, 0.1, 0.05, 0.02, 0.03]
+        prior_vals.grid_data[1] = [0, 0.05, 0.1, 0.2, 0.45, 0.1, 0.1]
+        theta = 2
+        rho = None
+        eps = 0.01
+        lls = tsdate.Likelihoods(ts, grid, theta, eps, normalize=False)
+        lls.precalculate_mutation_likelihoods()
+        algo = tsdate.InOutAlgorithms(ts, prior_vals, lls, spans)
+        algo.inside_pass(theta, rho, normalize=False)
+        algo.outside_pass(theta, rho, normalize=False)
+        self.assertTrue(
+            np.allclose(np.sum(algo.inside.grid_data * algo.outside.grid_data, axis=1),
+                        [7.44449E-05, 7.44449E-05]))
+        self.assertTrue(
+            np.allclose(np.sum(algo.inside.grid_data * algo.outside.grid_data, axis=1),
+                        np.sum(algo.inside.grid_data[-1])))
+
+
+class TestMaximization(unittest.TestCase):
+    """
+    Test the downward maximization function
+    """
+    def run_outside_maximization(self, ts, prior_distr="lognorm"):
+        span_data = tsdate.SpansBySamples(ts)
+        spans = span_data.node_spans
+        priors = tsdate.ConditionalCoalescentTimes(None, prior_distr)
+        priors.add(ts.num_samples, approximate=False)
+        grid = tsdate.create_time_grid(priors[ts.num_samples], prior_distr, 50 + 1)
+        mixture_prior = priors.get_mixture_prior_params(span_data)
+        nodes_to_date = span_data.nodes_to_date
+        prior_vals = tsdate.fill_prior(
+            mixture_prior, grid, ts, nodes_to_date, prior_distr)
+        theta = 1
+        rho = None
+        eps = 1e-6
+        lls = tsdate.Likelihoods(ts, grid, theta, eps)
+        lls.precalculate_mutation_likelihoods()
+        algo = tsdate.InOutAlgorithms(ts, prior_vals, lls, spans)
+        algo.inside_pass(theta, rho)
+        return lls, algo, algo.outside_maximization(theta)
+
+    def test_one_tree_n2(self):
+        ts = utility_functions.single_tree_ts_n2()
+        for prior_distr in ('lognorm', 'gamma'):
+            lls, algo, maximized_ages = self.run_outside_maximization(ts, prior_distr)
+            self.assertTrue(np.array_equal(
+                            maximized_ages,
+                            np.array([0, 0, lls.grid[np.argmax(algo.inside[2])]])))
+
+    def test_one_tree_n3(self):
+        ts = utility_functions.single_tree_ts_n3()
+        for prior_distr in ('lognorm', 'gamma'):
+            lls, algo, maximized_ages = self.run_outside_maximization(ts, prior_distr)
+            node_4 = lls.grid[np.argmax(algo.inside[4])]
+            ll_mut = scipy.stats.poisson.pmf(
+                0, (node_4 - lls.grid[:np.argmax(algo.inside[4]) + 1] + 1e-6) *
+                1 / 2 * 1)
+            result = ll_mut / np.max(ll_mut)
+            inside_val = algo.inside[3][:(np.argmax(algo.inside[4]) + 1)]
+            node_3 = lls.grid[np.argmax(
+                result[:np.argmax(algo.inside[4]) + 1] * inside_val)]
+            self.assertTrue(np.array_equal(
+                            maximized_ages,
+                            np.array([0, 0, 0, node_3, node_4])))

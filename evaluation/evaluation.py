@@ -163,10 +163,12 @@ def run_vanilla_simulation(
     """
     Run simulation
     """
+    print(seed)
     ts = msprime.simulate(
         sample_size=sample_size, Ne=Ne, length=length,
         mutation_rate=mutation_rate, recombination_rate=recombination_rate,
         random_seed=seed)
+    print(ts.num_mutations)
     return ts
 
 
@@ -503,7 +505,8 @@ def find_tmrcas_snps(ts_dict):
     return(data)
 
 
-def run_tsdate(ts, n, Ne, mut_rate, time_grid, grid_slices, approximate_prior):
+def run_tsdate(ts, n, Ne, mut_rate, time_grid, grid_slices, estimation_method,
+               approximate_prior):
     """
     Runs tsdate on true and inferred tree sequence
     Be sure to input HAPLOID effective population size
@@ -511,11 +514,13 @@ def run_tsdate(ts, n, Ne, mut_rate, time_grid, grid_slices, approximate_prior):
     sample_data = tsinfer.formats.SampleData.from_tree_sequence(ts, use_times=False)
     inferred_ts = tsinfer.infer(sample_data).simplify()
     dated_ts = tsdate.date(ts, Ne, mutation_rate=mut_rate, time_grid=time_grid,
-                           approximate_prior=approximate_prior, grid_slices=grid_slices)
+                           approximate_prior=approximate_prior, grid_slices=grid_slices,
+                           estimation_method=estimation_method)
     dated_inferred_ts = tsdate.date(inferred_ts, Ne, mutation_rate=mut_rate,
                                     time_grid=time_grid,
                                     approximate_prior=approximate_prior,
-                                    grid_slices=grid_slices)
+                                    grid_slices=grid_slices,
+                                    estimation_method=estimation_method)
     # sample_data_wtimes = tsinfer.formats.SampleData.from_tree_sequence(
     #    ts, use_times=True)
     # inferred_ts_wtimes = tsinfer.infer(sample_data_wtimes)
@@ -533,7 +538,7 @@ def run_tsdate(ts, n, Ne, mut_rate, time_grid, grid_slices, approximate_prior):
 
 def run_all_methods_compare(
         index, ts, n, Ne, mutation_rate, recombination_rate, time_grid, grid_slices,
-        approximate_prior, error_model, include_geva, seed):
+        estimation_method, approximate_prior, error_model, include_geva, seed):
     """
     Function to run all comparisons and return dataframe of mutations
     """
@@ -547,7 +552,8 @@ def run_all_methods_compare(
         samples = generate_samples(ts, "comparison_" + str(index))
         sampledata_to_vcf(samples, "comparison_" + str(index))
     dated_ts, inferred_ts, dated_inferred_ts = run_tsdate(
-        ts, n, Ne, mutation_rate, time_grid, grid_slices, approximate_prior)
+        ts, n, Ne, mutation_rate, time_grid, grid_slices, estimation_method,
+        approximate_prior)
     if include_geva:
         geva_ages = geva_age_estimate("comparison_" + str(index),
                                       Ne, mutation_rate, recombination_rate)
@@ -605,20 +611,21 @@ def run_all_tests(params):
     model = params[6]
     time_grid = params[7]
     grid_slices = params[8]
-    approximate_prior = params[9]
-    error_model = params[10]
-    include_geva = params[11]
-    seed = float(params[12])
+    estimation_method = params[9]
+    approximate_prior = params[10]
+    error_model = params[11]
+    include_geva = params[12]
+    seed = float(params[13])
 
     if model == 'vanilla':
         ts = run_vanilla_simulation(
             n, Ne, length, mutation_rate, recombination_rate, seed)
     elif model == 'out_of_africa':
         ts = out_of_africa(n, mutation_rate, recombination_rate, length)
-
     compare_df, tmrca_compare = run_all_methods_compare(
         index, ts, n, Ne, mutation_rate, recombination_rate, time_grid,
-        grid_slices, approximate_prior, error_model, include_geva, seed)
+        grid_slices, estimation_method, approximate_prior, error_model, include_geva,
+        seed)
 
     return compare_df, tmrca_compare
 
@@ -672,8 +679,10 @@ def main():
                         default=None, help="recombination rate")
     parser.add_argument('--model', type=str, default='vanilla',
                         help="choose vanilla or out of africa model")
-    parser.add_argument('-g', '--grid-slices', type=int,
+    parser.add_argument('-g', '--grid-slices', type=int, default=50,
                         help="how many slices/quantiles to pass to time grid")
+    parser.add_argument('--estimation-method', type=str, default="inside_outside",
+                        help="use inside-outside or maximization method")
     parser.add_argument('-e', '--error-model', type=str,
                         default=None, help="input error model")
     parser.add_argument('-t', '--time-grid', type=str, default="adaptive",
@@ -692,10 +701,9 @@ def main():
     np.random.seed(args.seed)
     rng = random.Random(args.seed)
     seeds = [rng.randint(1, 2**31) for i in range(args.replicates)]
-
     inputted_params = [int(args.num_samples), args.Ne, args.length,
                        args.mutation_rate, args.recombination_rate, args.model,
-                       args.time_grid, args.grid_slices,
+                       args.time_grid, args.grid_slices, args.estimation_method,
                        args.approximate_prior, args.error_model, args.include_geva]
     params = iter([np.concatenate([[index], inputted_params, [seed]])
                   for index, seed in enumerate(seeds)])

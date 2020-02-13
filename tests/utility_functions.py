@@ -29,6 +29,20 @@ import tskit
 import io
 
 
+def add_grand_mrca(ts):
+    """
+    Function to add a grand mrca node to a tree sequence
+    """
+    grand_mrca = ts.max_root_time + 1
+    tables = ts.dump_tables()
+    new_node_number = tables.nodes.add_row(time=grand_mrca)
+    for tree in ts.trees():
+        tables.edges.add_row(
+            tree.interval[0], tree.interval[1], new_node_number, tree.root)
+    tables.sort()
+    return tables.tree_sequence()
+
+
 def single_tree_ts_n2():
     r"""
     Simple case where we have n = 2 and one tree.
@@ -167,6 +181,57 @@ def single_tree_all_samples_one_mutation_n3():
     mutations = io.StringIO("""\
     site    node    derived_state
     0       2       1
+    """)
+    return tskit.load_text(nodes=nodes, edges=edges, sites=sites,
+                           mutations=mutations, strict=False)
+
+
+def gils_example_tree():
+    r"""
+    Simple case where we have n = 3 and one tree.
+    Number of mutations on each branch are in parentheses.
+             4
+            / \
+          (0)  \
+          /    (4)
+         3       \
+        / \       \
+      (2) (1)      \
+      /     \       \
+     0       1       2
+    """
+    nodes = io.StringIO("""\
+    id      is_sample   time
+    0       1           0
+    1       1           0
+    2       1           0
+    3       0           1
+    4       0           2
+    """)
+    edges = io.StringIO("""\
+    left    right   parent  child
+    0       1       3       0,1
+    0       1       4       2,3
+    """)
+    sites = io.StringIO("""\
+    position    ancestral_state
+    0.1         0
+    0.2         0
+    0.3         0
+    0.4         0
+    0.5         0
+    0.6         0
+    0.7         0
+    """)
+    mutations = io.StringIO("""\
+    site    node    derived_state
+    0       0       1
+    1       0       1
+    2       1       1
+    3       2       1
+    4       2       1
+    5       2       1
+    6       2       1
     """)
     return tskit.load_text(nodes=nodes, edges=edges, sites=sites,
                            mutations=mutations, strict=False)
@@ -324,6 +389,47 @@ def two_tree_mutation_ts():
     """)
     return tskit.load_text(nodes=nodes, edges=edges, sites=sites,
                            mutations=mutations, strict=False)
+
+
+def loopy_tree():
+    r"""
+    Simple case where we have n = 3, 2 trees, three mutations.
+                   .          7
+                   .         / \
+                   .        /  |
+                   .       /   |
+         6         .      /    6
+        / \        .     /    / \
+       /   5       .    /    /   |
+      /   / \      .   /    /    |
+     |   /   \     .  |    |     |
+     |   |    \    .  |    |     |
+     |   4     |    . |    4     |
+     |  / \    |    . |   / \    |
+     0 1   2   3    . 0  1   2   3
+    """
+    nodes = io.StringIO("""\
+    id      is_sample   time
+    0       1           0
+    1       1           0
+    2       1           0
+    3       1           0
+    4       0           1
+    5       0           2
+    6       0           3
+    7       0           4
+    """)
+    edges = io.StringIO("""\
+    left    right   parent  child
+    0       1       4       0,1
+    0       0.2     5       2,4
+    0       0.2     6       5
+    0       1       6       3
+    0.2     1       6       4
+    0.2     1       7       2
+    0.2     1       7       6
+    """)
+    return tskit.load_text(nodes=nodes, edges=edges, strict=False)
 
 
 def truncate_ts_samples(ts, average_span, random_seed, min_span=5):
