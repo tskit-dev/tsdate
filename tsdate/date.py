@@ -1087,7 +1087,7 @@ class Likelihoods:
         and a span. This is a static function to allow parallelization
         """
         ll = scipy.stats.poisson.pmf(muts, dt * theta / 2 * span)
-        return ll / np.max(ll)
+        return ll #/ np.max(ll)
         # return ll
 
     @staticmethod
@@ -1303,7 +1303,7 @@ class UpDownAlgorithms:
         upward = NodeGridValues.clone_with_new_data(prior_values, grid_data=np.nan,
                                                     fixed_data=1)  # store upward matrix
         # g_i = NodeGridValues.clone_with_new_data(upward, grid_data=0)  # store g of i
-        g_i = np.zeros((self.ts.num_edges, self.lik.grid_size))
+        g_i = np.ones((self.ts.num_edges, self.lik.grid_size))
         norm = np.full(self.ts.num_nodes, np.nan)
 
         # Iterate through the nodes via groupby on parent node
@@ -1319,6 +1319,7 @@ class UpDownAlgorithms:
             if parent in self.fixednodes:
                 continue  # there is no hidden state for this parent - it's fixed
             val = prior_values[parent].copy()
+            norm[parent] = np.max(val)
 
             for edge_index, edge in parent_grp:
                 # Geometric scaling works exactly when all nodes fixed in graph but is an
@@ -1367,7 +1368,7 @@ class UpDownAlgorithms:
         return upward, g_i, norm
 
     # TODO: Account for multiple parents, fix the log of zero thing
-    def downward(self, upward, log_g_i, norm, theta, rho, spans, normalise=False,
+    def downward(self, upward, g_i, norm, theta, rho, spans, normalise=False,
                  progress=None):
         """
         Computes the full posterior distribution on nodes.
@@ -1399,6 +1400,7 @@ class UpDownAlgorithms:
             if child in self.fixednodes:
                 continue
             val = np.ones(self.lik.grid_size)
+            # G_i = g_i[child]
             for edge in edges:
                 # Geometric scaling works exactly for all nodes fixed in graph
                 # but is an approximation when times are unknown.
@@ -1406,23 +1408,16 @@ class UpDownAlgorithms:
                 cur_g_i = self.lik.rowsum_lower_tri(
                     (self.lik.make_lower_tri(upward[edge.child]) ** geo_scale) *
                     self.lik.get_mut_lik_lower_tri(edge)) / norm[child]
-                assert np.all(cur_g_i == log_g_i[edge.id]), (log_g_i[edge.id], cur_g_i)
+                assert np.all(cur_g_i == g_i[edge.id]), (g_i[edge.id], cur_g_i)
 
-                # try:
                 upward_div_gi = np.zeros(len(cur_g_i))
                 nonzeros = np.logical_and(upward[edge.parent] != 0, cur_g_i != 0)
-                
-                upward_div_gi[nonzeros] = (upward[edge.parent][nonzeros] / 
-                    cur_g_i[nonzeros])
 
-                prev_state = self.lik.make_upper_tri((downward[edge.parent] *upward_div_gi) ** geo_scale)
-                # prev_state = self.lik.make_upper_tri(
-                #     (downward[edge.parent] ** geo_scale) * 
-                #         (upward[edge.parent] * np.where(cur_g_i == 0, 0, 
-                #             1 / np.where(cur_g_i == 0, np.inf, cur_g_i))) ** geo_scale)
+                upward_div_gi[nonzeros] = (upward[edge.parent][nonzeros] /
+                                           cur_g_i[nonzeros])
+                prev_state = (self.lik.make_upper_tri((downward[edge.parent] *
+                                                       upward_div_gi) ** geo_scale))
 
-                # except:
-                #     print(cur_g_i, geo_scale, upward[edge.parent])
                 if theta is not None and rho is not None:
                     b_l = (edge.left != 0)
                     b_r = (edge.right != self.ts.get_sequence_length())
@@ -1432,11 +1427,7 @@ class UpDownAlgorithms:
                     vv = self.lik.rowsum_upper_tri(prev_state * ll_mut * ll_rec)
                 elif theta is not None:
                     ll_mut = self.lik.get_mut_lik_upper_tri(edge)
-
                     vv = self.lik.rowsum_upper_tri(prev_state * ll_mut)
-
-                    # vv = vv ** (edge.span/spans[edge.child])
-                    
                 elif rho is not None:
                     b_l = (edge.left != 0)
                     b_r = (edge.right != self.ts.get_sequence_length())
@@ -1446,12 +1437,21 @@ class UpDownAlgorithms:
                 else:
                     # Topology-only clock
                     vv = self.lik.rowsum_upper_tri(prev_state)
+                vv[0] = 0  # Seems a hack: internal nodes should be allowed at time 0
                 if normalise:
                     val *= (vv / np.max(vv))
                 else:
                     val *= vv
             vv[0] = 0  # Seems a hack: internal nodes should be allowed at time 0
+
             assert norm[edge.child] > -np.inf
+            # if normalise:
+            #     val *= (vv / np.max(vv))
+            # else:
+            #     val *= vv
+            # val_div_Gi = np.zeros(len(val))
+            # val_div_Gi[G_i != 0] = 1 / G_i[G_i != 0]
+            # val = val * val_div_Gi
             downward[child] = val / norm[child]
         posterior = NodeGridValues.clone_with_new_data(
            orig=downward,
@@ -1465,12 +1465,13 @@ class UpDownAlgorithms:
 
     def downward_maximization(self, upward, theta, spans, eps=1e-6, progress=None):
         maximized_node_times = np.zeros(self.ts.num_nodes, dtype='int')
+
         mut_edges = self.lik.mut_edges
         mrcas = np.where(np.isin(
             np.arange(self.ts.num_nodes), self.ts.tables.edges.child, invert=True))[0]
         for i in mrcas:
             if i not in self.fixednodes:
-                maximized_node_times[i] = np.argmax(np.exp(upward[i]))
+                maximized_node_times[i] = np.argmax(upward[i])
 
         # TODO: Sort on child ages then parent ages within each edge group
         wtype = np.dtype([('Childage', 'f4'), ('Parentage', 'f4')])
@@ -1493,31 +1494,34 @@ class UpDownAlgorithms:
                 if edge_index == 0:
                     youngest_par_index = maximized_node_times[edge.parent]
                     parent_time = self.lik.grid[maximized_node_times[edge.parent]]
-                    # TODO Check that geometric scaling is the right thing here
-                    geo_scale = edge.span / spans[edge.parent]
-                    ll_mut = geo_scale * scipy.stats.poisson.logpmf(
+                    ll_mut = scipy.stats.poisson.pmf(
                         mut_edges[edge.id],
                         (parent_time - self.lik.grid[:youngest_par_index + 1] + eps) *
                         theta / 2 * edge.span)
-                    result = ll_mut
+                    result = ll_mut / np.max(ll_mut)
                 else:
                     cur_parent_index = maximized_node_times[edge.parent]
                     if cur_parent_index < youngest_par_index:
                         youngest_par_index = cur_parent_index
                     parent_time = self.lik.grid[maximized_node_times[edge.parent]]
-                    geo_scale = edge.span / spans[edge.parent]
-                    ll_mut = scipy.stats.poisson.logpmf(
+                    ll_mut = scipy.stats.poisson.pmf(
                         mut_edges[edge.id], (parent_time -
                                              self.lik.grid[:youngest_par_index + 1] +
-                                             eps) * theta / 2 * edge.span) * geo_scale
+                                             eps) * theta / 2 * edge.span)
 
-                    result[:youngest_par_index + 1] += ll_mut[:youngest_par_index + 1]
-
-            upward_val = upward.grid_data[
-                child - self.ts.num_samples][:(youngest_par_index + 1)]
-
+                    result[:youngest_par_index + 1] *= (
+                        ll_mut[:youngest_par_index + 1] /
+                        np.max(ll_mut[:youngest_par_index + 1]))
+            upward_val = upward[child][:(youngest_par_index + 1)]
             maximized_node_times[child] = np.argmax(
-                result[:youngest_par_index + 1] + upward_val)
+                result[:youngest_par_index + 1] * upward_val)
+            # If we maximize the child node time to 0, we've probably missed some of the
+            # upper end of the distribution. We take the mean instead
+            if maximized_node_times[child] == 0:
+                row = result[:youngest_par_index + 1] * upward_val
+                row = row / np.sum(row)
+                maximized_node_times[child] = np.sum(
+                    row * self.lik.grid[:youngest_par_index + 1]) / np.sum(row)
 
         return self.lik.grid[np.array(maximized_node_times).astype('int')]
 
@@ -1608,7 +1612,7 @@ def get_dates(
         tree_sequence, Ne, mutation_rate=None, recombination_rate=None,
         *, time_grid='adaptive', grid_slices=50, eps=1e-6, num_threads=None,
         approximate_prior=None, prior_distr='lognorm',
-        estimation_method='inside_outside', downward_normalise=False, progress=False,
+        estimation_method='inside_outside', downward_normalise=True, progress=False,
         check_valid_topology=True):
     """
     Infer dates for the nodes in a tree sequence, returning an array of inferred dates
@@ -1684,12 +1688,12 @@ def get_dates(
 
     dynamic_prog = UpDownAlgorithms(tree_sequence, liklhd, progress=progress)
 
-    upward, log_g_i, norm = dynamic_prog.upward(prior_vals, theta, rho, spans)
+    upward, g_i, norm = dynamic_prog.upward(prior_vals, theta, rho, spans)
 
     posterior = None
     if estimation_method == 'inside_outside':
         posterior, downward = dynamic_prog.downward(
-            upward, log_g_i, norm, theta, rho, spans, normalise=downward_normalise)
+            upward, g_i, norm, theta, rho, spans, normalise=downward_normalise)
         mn_post, _ = posterior_mean_var(tree_sequence, grid, posterior, fixed_node_set)
     elif estimation_method == 'maximization':
         mn_post = dynamic_prog.downward_maximization(upward, theta, spans, eps)
