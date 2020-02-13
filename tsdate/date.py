@@ -1419,6 +1419,7 @@ class LogLikelihoodsStreaming(LogLikelihoods):
     useful for large grid sizes, see
     http://www.nowozin.net/sebastian/blog/streaming-log-sum-exp-computation.html
     """
+    @staticmethod
     @numba.jit(nopython=True)
     def logsumexp(X):
         alpha = -np.Inf
