@@ -42,6 +42,8 @@ FORMAT_NAME = "tsdate"
 FORMAT_VERSION = [1, 0]
 FLOAT_DTYPE = np.float64
 ALPHA, BETA, MEAN, VAR = 0, 1, 2, 3  # Column names for storing the prior tables
+LIN = "linear"
+LOG = "logarithmic"
 
 # Hack: monkey patches to allow tsdate to work with non-dev versions of tskit
 # TODO - remove when tskit 0.2.4 is released
@@ -896,36 +898,47 @@ class NodeGridValues:
         # fixed nodes get a negative value from -1, indicating lookup in the scalar array
         self.row_lookup[np.logical_not(np.isin(np.arange(num_nodes), nonfixed_nodes))] =\
             -np.arange(num_nodes - self.num_nonfixed) - 1
-        self.probability_space = "linear"
+        self.probability_space = LIN
 
-    def to_log(self):
-        if self.probability_space == "linear":
-            with np.errstate(divide='ignore'):
-                self.grid_data = np.log(self.grid_data)
-                self.fixed_data = np.log(self.fixed_data)
-            self.probability_space = "logarithmic"
+    def force_probability_space(self, probability_space):
+        """
+        probability_space can be "logarithmic" or "linear": this function will force
+        the current probability space to the desired type
+        """
+        descr = self.probability_space, " probabilities into", probability_space, "space"
+        if probability_space == LIN:
+            if self.probability_space == LIN:
+                pass
+            elif self.probability_space == LOG:
+                self.grid_data = np.exp(self.grid_data)
+                self.fixed_data = np.exp(self.fixed_data)
+                self.probability_space = LIN
+            else:
+                logging.warning("Cannot force", *descr)
+        elif probability_space == LOG:
+            if self.probability_space == LOG:
+                pass
+            elif self.probability_space == LIN:
+                with np.errstate(divide='ignore'):
+                    self.grid_data = np.log(self.grid_data)
+                    self.fixed_data = np.log(self.fixed_data)
+                self.probability_space = LOG
+            else:
+                logging.warning("Cannot force", *descr)
         else:
-            logging.warning("Tried to apply log to non-linear grid values")
-
-    def from_log(self):
-        if self.probability_space == "logarithmic":
-            self.grid_data = np.exp(self.grid_data)
-            self.fixed_data = np.exp(self.fixed_data)
-            self.probability_space = "linear"
-        else:
-            logging.warning("Tried to remove log from non-logged grid values")
+            logging.warning("Cannot force", *descr)
 
     def normalize(self):
         """
         normalise grid and fixed data so the max is one
         """
         rowmax = self.grid_data[:, 1:].max(axis=1)
-        if self.probability_space == "linear":
+        if self.probability_space == LIN:
             self.grid_data = self.grid_data / rowmax[:, np.newaxis]
-        elif self.probability_space == "logarithmic":
+        elif self.probability_space == LOG:
             self.grid_data = self.grid_data - rowmax[:, np.newaxis]
         else:
-            raise RuntimeError("Probability space is not linear or logarithmic")
+            raise RuntimeError("Probability space is not", LIN, "or", LOG)
 
     def __getitem__(self, node_id):
         index = self.row_lookup[node_id]
@@ -1032,7 +1045,7 @@ class Likelihoods:
     flattened lower triangular matrix of all the possible delta t's. This class also
     provides methods for accessing this lower triangular matrix, multiplying it, etc.
     """
-    probability_space = "linear"
+    probability_space = LIN
     identity_constant = 1.0
     null_constant = 0.0
 
@@ -1309,20 +1322,21 @@ class LogLikelihoods(Likelihoods):
     """
     Identical to the Likelihoods class but stores and returns log likelihoods
     """
-    probability_space = "logarithmic"
+    probability_space = LOG
     identity_constant = 0.0
     null_constant = -np.inf
 
     @staticmethod
-    @numba.jit(nopython=True)
+    # @numba.jit(nopython=True)
     def logsumexp(X):
-        r = 0.0
-        for x in X:
-            r += np.exp(x)
-        return np.log(r)
+        with np.errstate(divide='ignore'):
+            r = 0.0
+            for x in X:
+                r += np.exp(x)
+            return np.log(r)
 
     @staticmethod
-    def _lik(muts, span, dt, theta, normalize=False):
+    def _lik(muts, span, dt, theta, normalize=True):
         """
         The likelihood of an edge given a number of mutations, as set of time deltas (dt)
         and a span. This is a static function to allow parallelization
@@ -1445,8 +1459,8 @@ class InOutAlgorithms:
         self.fixednodes = lik.fixednodes
         self.progress = progress
         self.extended_checks = extended_checks
-        if lik.probability_space == "logarithmic":
-            self.prior.to_log()
+        # If necessary, convert prior to log space
+        self.prior.force_probability_space(lik.probability_space)
 
     # === Grouped edge iterators ===
 
@@ -1540,7 +1554,9 @@ class InOutAlgorithms:
             #     spantot[self.prior.nonfixed_nodes],
             #     self.spans[self.prior.nonfixed_nodes])
 
-    def outside_pass(self, theta, rho, *, normalize=False, progress=None):
+    def outside_pass(
+            self, theta, rho, *,
+            normalize=False, progress=None, probability_space_returned=LIN):
         """
         Computes the full posterior distribution on nodes.
         Input is population scaled mutation and recombination rates.
@@ -1557,7 +1573,7 @@ class InOutAlgorithms:
             raise RuntimeError("You have not yet run the inside algorithm")
 
         outside = self.inside.clone_with_new_data(
-            grid_data=0, probability_space="linear")
+            grid_data=0, probability_space=LIN)
 
         # TO DO here: check that no fixed_nodes have children, otherwise we can't descend
         for tree in self.ts.trees():
@@ -1566,9 +1582,7 @@ class InOutAlgorithms:
                     # Isolated node
                     continue
                 outside[root] += (1 * tree.span) / self.spans[root]
-
-        if self.inside.probability_space == "logarithmic":
-            outside.to_log()
+        outside.force_probability_space(self.inside.probability_space)
 
         for child, edges in tqdm(
                 self.edges_by_child_desc(), desc="Outside",
@@ -1613,6 +1627,7 @@ class InOutAlgorithms:
            fixed_data=np.nan)  # We should never use the posterior for a fixed node
 
         posterior.normalize()
+        posterior.force_probability_space(probability_space_returned)
         self.outside = outside
         return posterior
 
@@ -1737,6 +1752,24 @@ def date(tree_sequence, Ne, *args, progress=False, **kwargs):
         is used unless this is >= 1 (default: None).
     :param bool approximate_prior: Whether to use a precalculated approximate prior or
         exactly calculate prior
+    :param string prior_distr: What distribution to use to approximate the conditional
+        coalescent prior. Can be "lognorm" for the lognormal distribution (generally a
+        better fit, but slightly slower to calculate) or "gamma" for the gamma
+        distribution (slightly faster, but a poorer fit for recent nodes). Default:
+        "lognorm"
+    :param string estimation_method: What estimation method to use: can be
+        "inside_outside" (empirically better, theoretically problematic) or
+        "maximization" (worse empirically, especially with a gamma approximated prior,
+        but theoretically robust). Default: "inside-outside".
+    :param bool outside_normalize: If carrying out the "inside_outside" method, should
+        we normalise on the outside pass, which reduces the risk of numerical overflow,
+        but makes it harder to check empirical consistency. Default: False
+    :param bool check_valid_topology: Should we take time to check that the input tree
+        sequence has only a single tree topology at each position, which is a requirement
+        for tsdate (note that single "isolated" nodes are allowed). Default: True
+    :param bool probability_space: Should the internal algorithm save probabilities in
+        "logarithmic" (slower, less liable to to overflow) or "linear" space (fast, may
+        overflow). Default: "linear"
     :param bool progress: Whether to display a progress bar.
     :return: A tree sequence with inferred node times.
     :rtype: tskit.TreeSequence
@@ -1754,7 +1787,7 @@ def get_dates(
         *, time_grid='adaptive', grid_slices=10, eps=1e-6, num_threads=None,
         approximate_prior=None, prior_distr='lognorm',
         estimation_method='inside_outside', outside_normalize=False, progress=False,
-        check_valid_topology=True):
+        check_valid_topology=True, probability_space=LIN):
     """
     Infer dates for the nodes in a tree sequence, returning an array of inferred dates
     for nodes, plus other variables such as the distribution of posterior probabilities
@@ -1822,8 +1855,11 @@ def get_dates(
     if recombination_rate is not None:
         rho = 4 * Ne * recombination_rate
 
-    liklhd = Likelihoods(tree_sequence, grid, theta, eps, fixed_node_set)
-    # liklhd = LogLikelihoods(tree_sequence, grid, theta, eps, fixed_node_set)
+    if probability_space != LOG:
+        liklhd = Likelihoods(tree_sequence, grid, theta, eps, fixed_node_set)
+    else:
+        liklhd = LogLikelihoods(tree_sequence, grid, theta, eps, fixed_node_set)
+
     if theta is not None:
         liklhd.precalculate_mutation_likelihoods(num_threads=num_threads)
 
