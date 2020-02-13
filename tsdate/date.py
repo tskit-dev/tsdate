@@ -176,6 +176,11 @@ class ConditionalCoalescentTimes():
 
         all_tips = np.arange(2, total_tips + 1)
         variances = get_tau_var(total_tips, all_tips)
+        # prior.loc[1] is distribution of times of a "coalescence node" ending
+        # in a single sample - equivalent to the time of the sample itself, so
+        # it should have var = 0 and mean = sample.time
+        # Setting alpha = 0 and beta = 1 sets mean (a/b) == var (a / b^2) == 0
+        prior[1] = [0, 1, 0, 0]
         for var, tips in zip(variances, all_tips):
             # NB: it should be possible to vectorize this in numpy
             expectation = self.tau_expect(tips, total_tips)
@@ -1020,7 +1025,7 @@ class Likelihoods:
         self.grid = grid
         self.fixednodes = set(ts.samples()) if fixed_node_set is None else fixed_node_set
         self.theta = theta
-        self.normalise=normalise
+        self.normalise = normalise
         self.grid_size = len(grid)
         self.tri_size = self.grid_size * (self.grid_size + 1) / 2
         self.ll_mut = {}
@@ -1302,7 +1307,8 @@ class UpDownAlgorithms:
                 parent_edges.append((index + 1, edge))
             yield parent_edges
 
-    def upward(self, prior_values, theta, rho, spans, return_log=False, normalise=True, progress=None):
+    def upward(self, prior_values, theta, rho, spans, return_log=False, normalise=True,
+               progress=None):
         """
         Use dynamic programming to find approximate posterior to sample from
         """
@@ -1444,10 +1450,10 @@ class UpDownAlgorithms:
                     # Topology-only clock
                     vv = self.lik.rowsum_upper_tri(prev_state)
                 vv[0] = 0  # Seems a hack: internal nodes should be allowed at time 0
-                # if normalise:
-                #     val *= (vv / np.max(vv))
-                # else:
-                val *= vv
+                if normalise:
+                    val *= (vv / np.max(vv))
+                else:
+                    val *= vv
             vv[0] = 0  # Seems a hack: internal nodes should be allowed at time 0
 
             assert norm[edge.child] > -np.inf
@@ -1686,7 +1692,7 @@ def get_dates(
     dynamic_prog = UpDownAlgorithms(tree_sequence, liklhd, progress=progress)
 
     upward, g_i, norm = dynamic_prog.upward(prior_vals, theta, rho, spans)
-    print(upward.grid_data)
+
     posterior = None
     if estimation_method == 'inside_outside':
         posterior, downward = dynamic_prog.downward(

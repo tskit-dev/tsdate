@@ -436,7 +436,7 @@ class TestPriorVals(unittest.TestCase):
 class TestLikelihoodClass(unittest.TestCase):
     def poisson(self, l, x):
         ll = np.exp(-l) * l ** x / scipy.special.factorial(x)
-        return np.log(ll / np.max(ll))
+        return ll / np.max(ll)
 
     def test_get_mut_edges(self):
         ts = utility_functions.two_tree_mutation_ts()
@@ -541,8 +541,7 @@ class TestLikelihoodClass(unittest.TestCase):
                 self.assertEqual(e.right - e.left, exp_span)
                 self.assertEqual(lik.mut_edges[e.id], exp_branch_muts)
                 pois_lambda = grid * theta / 2 * exp_span
-                cumul_pois = np.log(
-                    np.cumsum(np.exp(self.poisson(pois_lambda, exp_branch_muts))))
+                cumul_pois = np.cumsum(self.poisson(pois_lambda, exp_branch_muts))
                 lower_tri = lik.get_mut_lik_lower_tri(e)
                 self.assertTrue(
                     np.allclose(lik.rowsum_lower_tri(lower_tri), cumul_pois))
@@ -799,9 +798,9 @@ class TestTotalFunctionalValueTree(unittest.TestCase):
         lls = tsdate.Likelihoods(ts, grid, theta, eps)
         lls.precalculate_mutation_likelihoods()
         alg = tsdate.UpDownAlgorithms(ts, lls)
-        log_upward, log_g_i, norm = alg.upward(prior_vals, theta, rho, spans)
         upward, g_i, norm = alg.upward(prior_vals, theta, rho, spans, return_log=False)
-        posterior, downward = alg.downward(log_upward, log_g_i, norm, theta, rho, spans)
+        posterior, downward = alg.downward(upward, g_i, norm, theta, rho, spans,
+                                           normalise=False)
         self.assertTrue(
             np.array_equal(np.sum(upward.grid_data * downward.grid_data, axis=1),
                            np.sum(upward.grid_data * downward.grid_data, axis=1)))
@@ -871,7 +870,7 @@ class TestGilTree(unittest.TestCase):
                                            normalise=False)
         self.assertTrue(
             np.allclose(np.sum(upward.grid_data * downward.grid_data, axis=1),
-                           [7.44449E-05, 7.44449E-05]))
+                        [7.44449E-05, 7.44449E-05]))
         self.assertTrue(
             np.allclose(np.sum(upward.grid_data * downward.grid_data, axis=1),
                         np.sum(upward.grid_data[-1])))
