@@ -301,7 +301,7 @@ class ConditionalCoalescentTimes():
             expectation = 0
             first = secnd = 0
             for N, tip_dict in mixture.items():
-                assert 1 not in tip_dict.descendant_tips
+                # assert 1 not in tip_dict.descendant_tips
                 mean = self[N][tip_dict.descendant_tips, MEAN]
                 var = self[N][tip_dict.descendant_tips, VAR]
                 # Mixture expectation
@@ -1015,11 +1015,12 @@ class Likelihoods:
     methods for accessing this lower triangular matrix, multiplying it, etc.
     """
 
-    def __init__(self, ts, grid, theta=None, eps=0, fixed_node_set=None):
+    def __init__(self, ts, grid, theta=None, eps=0, fixed_node_set=None, normalise=True):
         self.ts = ts
         self.grid = grid
         self.fixednodes = set(ts.samples()) if fixed_node_set is None else fixed_node_set
         self.theta = theta
+        self.normalise=normalise
         self.grid_size = len(grid)
         self.tri_size = self.grid_size * (self.grid_size + 1) / 2
         self.ll_mut = {}
@@ -1081,22 +1082,25 @@ class Likelihoods:
         return mut_edges
 
     @staticmethod
-    def _lik(muts, span, dt, theta):
+    def _lik(muts, span, dt, theta, normalise=True):
         """
         The likelihood of an edge given a number of mutations, as set of time deltas (dt)
         and a span. This is a static function to allow parallelization
         """
         ll = scipy.stats.poisson.pmf(muts, dt * theta / 2 * span)
-        return ll #/ np.max(ll)
-        # return ll
+        if normalise:
+            return ll / np.max(ll)
+        else:
+            return ll
 
     @staticmethod
-    def _lik_wrapper(muts_span, dt, theta):
+    def _lik_wrapper(muts_span, dt, theta, normalise=True):
         """
         A wrapper to allow this _lik to be called by pool.imap_unordered, returning the
         mutation and span values
         """
-        return muts_span, Likelihoods._lik(muts_span[0], muts_span[1], dt, theta)
+        return muts_span, Likelihoods._lik(muts_span[0], muts_span[1], dt, theta,
+                                           normalise=normalise)
 
     def precalculate_mutation_likelihoods(
             self, num_threads=None, unique_method=0):
@@ -1145,7 +1149,8 @@ class Likelihoods:
         else:
             for muts, span in self.unfixed_likelihood_cache.keys():
                 self.unfixed_likelihood_cache[muts, span] = self._lik(
-                    muts, span, dt=self.timediff_lower_tri, theta=self.theta)
+                    muts, span, dt=self.timediff_lower_tri, theta=self.theta,
+                    normalise=self.normalise)
 
     def get_mut_lik_fixed_node(self, edge):
         """
@@ -1163,7 +1168,8 @@ class Likelihoods:
         child_time = self.ts.node(edge.child).time
         assert child_time == 0
         # Temporary hack - we should really take a more precise likelihood
-        return self._lik(mutations_on_edge, edge.span, self.timediff, self.theta)
+        return self._lik(mutations_on_edge, edge.span, self.timediff, self.theta,
+                         normalise=self.normalise)
 
     def get_mut_lik_lower_tri(self, edge):
         """
@@ -1296,7 +1302,7 @@ class UpDownAlgorithms:
                 parent_edges.append((index + 1, edge))
             yield parent_edges
 
-    def upward(self, prior_values, theta, rho, spans, return_log=False, progress=None):
+    def upward(self, prior_values, theta, rho, spans, return_log=False, normalise=True, progress=None):
         """
         Use dynamic programming to find approximate posterior to sample from
         """
@@ -1304,7 +1310,7 @@ class UpDownAlgorithms:
                                                     fixed_data=1)  # store upward matrix
         # g_i = NodeGridValues.clone_with_new_data(upward, grid_data=0)  # store g of i
         g_i = np.ones((self.ts.num_edges, self.lik.grid_size))
-        norm = np.full(self.ts.num_nodes, np.nan)
+        norm = np.ones(self.ts.num_nodes)
 
         # Iterate through the nodes via groupby on parent node
         if progress is None:
@@ -1319,7 +1325,6 @@ class UpDownAlgorithms:
             if parent in self.fixednodes:
                 continue  # there is no hidden state for this parent - it's fixed
             val = prior_values[parent].copy()
-            norm[parent] = np.max(val)
 
             for edge_index, edge in parent_grp:
                 # Geometric scaling works exactly when all nodes fixed in graph but is an
@@ -1359,8 +1364,10 @@ class UpDownAlgorithms:
                     vv = sum_likelihood_rows(prev_state)
                 val *= vv
                 g_i[edge.id] = vv
-            norm[parent] = np.max(val)
-            upward[parent] = val / np.max(val)
+            if normalise:
+                norm[parent] = np.max(val)
+                val = val / np.max(val)
+            upward[parent] = val
         g_i = g_i / norm[self.ts.tables.edges.child, None]
         if return_log is True:
             upward.grid_data = np.log(upward.grid_data)
@@ -1368,7 +1375,7 @@ class UpDownAlgorithms:
         return upward, g_i, norm
 
     # TODO: Account for multiple parents, fix the log of zero thing
-    def downward(self, upward, g_i, norm, theta, rho, spans, normalise=False,
+    def downward(self, upward, g_i, norm, theta, rho, spans, normalise=True,
                  progress=None):
         """
         Computes the full posterior distribution on nodes.
@@ -1400,7 +1407,6 @@ class UpDownAlgorithms:
             if child in self.fixednodes:
                 continue
             val = np.ones(self.lik.grid_size)
-            # G_i = g_i[child]
             for edge in edges:
                 # Geometric scaling works exactly for all nodes fixed in graph
                 # but is an approximation when times are unknown.
@@ -1438,20 +1444,13 @@ class UpDownAlgorithms:
                     # Topology-only clock
                     vv = self.lik.rowsum_upper_tri(prev_state)
                 vv[0] = 0  # Seems a hack: internal nodes should be allowed at time 0
-                if normalise:
-                    val *= (vv / np.max(vv))
-                else:
-                    val *= vv
+                # if normalise:
+                #     val *= (vv / np.max(vv))
+                # else:
+                val *= vv
             vv[0] = 0  # Seems a hack: internal nodes should be allowed at time 0
 
             assert norm[edge.child] > -np.inf
-            # if normalise:
-            #     val *= (vv / np.max(vv))
-            # else:
-            #     val *= vv
-            # val_div_Gi = np.zeros(len(val))
-            # val_div_Gi[G_i != 0] = 1 / G_i[G_i != 0]
-            # val = val * val_div_Gi
             downward[child] = val / norm[child]
         posterior = NodeGridValues.clone_with_new_data(
            orig=downward,
@@ -1459,8 +1458,6 @@ class UpDownAlgorithms:
            fixed_data=np.nan)  # We should never use the posterior for a fixed node
         posterior.grid_data = (posterior.grid_data /
                                np.sum(posterior.grid_data, axis=1)[:, None])
-        # posterior.grid_data = np.exp(posterior.grid_data)
-        # downward.grid_data = np.exp(downward.grid_data)
         return posterior, downward
 
     def downward_maximization(self, upward, theta, spans, eps=1e-6, progress=None):
@@ -1689,7 +1686,7 @@ def get_dates(
     dynamic_prog = UpDownAlgorithms(tree_sequence, liklhd, progress=progress)
 
     upward, g_i, norm = dynamic_prog.upward(prior_vals, theta, rho, spans)
-
+    print(upward.grid_data)
     posterior = None
     if estimation_method == 'inside_outside':
         posterior, downward = dynamic_prog.downward(

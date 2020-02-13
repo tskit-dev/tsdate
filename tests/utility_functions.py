@@ -186,6 +186,57 @@ def single_tree_all_samples_one_mutation_n3():
                            mutations=mutations, strict=False)
 
 
+def gils_example_tree():
+    r"""
+    Simple case where we have n = 3 and one tree.
+    Number of mutations on each branch are in parentheses.
+             4
+            / \
+          (0)  \
+          /    (4)
+         3       \
+        / \       \
+      (2) (1)      \
+      /     \       \
+     0       1       2
+    """
+    nodes = io.StringIO("""\
+    id      is_sample   time
+    0       1           0
+    1       1           0
+    2       1           0
+    3       0           1
+    4       0           2
+    """)
+    edges = io.StringIO("""\
+    left    right   parent  child
+    0       1       3       0,1
+    0       1       4       2,3
+    """)
+    sites = io.StringIO("""\
+    position    ancestral_state
+    0.1         0
+    0.2         0
+    0.3         0
+    0.4         0
+    0.5         0
+    0.6         0
+    0.7         0
+    """)
+    mutations = io.StringIO("""\
+    site    node    derived_state
+    0       0       1
+    1       0       1
+    2       1       1
+    3       2       1
+    4       2       1
+    5       2       1
+    6       2       1
+    """)
+    return tskit.load_text(nodes=nodes, edges=edges, sites=sites,
+                           mutations=mutations, strict=False)
+
+
 def polytomy_tree_ts():
     r"""
     Simple case where we have n = 3 and a polytomy.
