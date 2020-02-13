@@ -1370,9 +1370,12 @@ class UpDownAlgorithms:
                     vv = sum_likelihood_rows(prev_state)
                 val *= vv
                 g_i[edge.id] = vv
-            if normalise:
-                norm[parent] = np.max(val)
-                val = val / np.max(val)
+                if normalise:
+                    norm[parent] *= np.max(val)
+                    val = val / np.max(val)
+            # if normalise:
+            #     norm[parent] = np.max(val)
+            #     val = val / np.max(val)
             upward[parent] = val
         g_i = g_i / norm[self.ts.tables.edges.child, None]
         if return_log is True:
