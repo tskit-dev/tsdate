@@ -45,13 +45,22 @@ ALPHA, BETA, MEAN, VAR = 0, 1, 2, 3  # Column names for storing the prior tables
 LIN = "linear"
 LOG = "logarithmic"
 
-# Hack: monkey patches to allow tsdate to work with non-dev versions of tskit
-# TODO - remove when tskit 0.2.4 is released
-tskit.Edge.span = property(lambda edge: (edge.right - edge.left))  # NOQA
-tskit.Tree.num_children = lambda tree, node: len(tree.children(node))  # NOQA
-tskit.Tree.is_isolated = lambda tree, node: (
-     tree.num_children(node) == 0 and tree.parent(node) == tskit.NULL)  # NOQA
-tskit.TreeIterator.__len__ = lambda it: it.tree.tree_sequence.num_trees  # NOQA
+
+# Local functions to allow tsdate to work with non-dev versions of tskit
+def edge_span(edge):
+    return edge.right - edge.left
+
+
+def tree_num_children(tree, node):
+    return len(tree.children(node))
+
+
+def tree_is_isolated(tree, node):
+    return tree.num_children(node) == 0 and tree.parent(node) == tskit.NULL
+
+
+def tree_iterator_len(it):
+    return it.tree_sequence.num_trees
 
 
 def lognorm_approx(mean, var):
@@ -88,7 +97,7 @@ def check_ts_for_dating(ts):
     for tree in ts.trees():
         main_roots = 0
         for root in tree.roots:
-            main_roots += 0 if tree.is_isolated(root) else 1
+            main_roots += 0 if tree_is_isolated(tree, root) else 1
         if main_roots > 1:
             raise ValueError(
                 "The tree sequence you are trying to date has more than"
@@ -494,14 +503,14 @@ class SpansBySamples:
                 return True
             n_fixed_at_0 = prev_tree.num_tracked_samples(node)
             assert n_fixed_at_0 > 0
-            if prev_tree.num_children(node) > 1:
+            if tree_num_children(prev_tree, node) > 1:
                 # This is a coalescent node
                 self._spans[node][num_fixed_at_0_treenodes][n_fixed_at_0] += coverage
             else:
                 # Treat unary nodes differently: mixture of coalescent nodes above+below
                 top_node = prev_tree.parent(node)
                 try:  # Find coalescent node above
-                    while prev_tree.num_children(top_node) == 1:
+                    while tree_num_children(prev_tree, top_node) == 1:
                         top_node = prev_tree.parent(top_node)
                 except ValueError:  # Happens if we have hit the root
                     assert top_node == tskit.NULL
@@ -682,7 +691,7 @@ class SpansBySamples:
                     # node is either the root or (more likely) not in
                     # this tree
                 assert tree.num_samples(node) > 0
-                assert tree.num_children(node) == 1
+                assert tree_num_children(tree, node) == 1
                 n = node
                 done = False
                 while not done:
@@ -702,7 +711,7 @@ class SpansBySamples:
                                     "Node {} has no fixed descendants".format(n))
                             local_weight = v / self.node_spans[n]
                             self._spans[node][n_tips][k] += tree.span * local_weight / 2
-                    assert tree.num_children(node) == 1
+                    assert tree_num_children(tree, node) == 1
                     total_tips = n_tips_per_tree[tree_id]
                     desc_tips = tree.num_samples(node)
                     self._spans[node][total_tips][desc_tips] += tree.span / 2
@@ -726,7 +735,7 @@ class SpansBySamples:
                 tree = next(tree_iter)
             for node in unassigned_nodes:
                 if tree.is_internal(node):
-                    assert tree.num_children(node) == 1
+                    assert tree_num_children(tree, node) == 1
                     total_tips = n_tips_per_tree[tree_id]
                     # above, we set the maximum
                     self._spans[node][max_samples][max_samples] += tree.span / 2
@@ -1207,7 +1216,7 @@ class Likelihoods:
         child_time = self.ts.node(edge.child).time
         assert child_time == 0
         # Temporary hack - we should really take a more precise likelihood
-        return self._lik(mutations_on_edge, edge.span, self.timediff, self.theta,
+        return self._lik(mutations_on_edge, edge_span(edge), self.timediff, self.theta,
                          normalize=self.normalize)
 
     def get_mut_lik_lower_tri(self, edge):
@@ -1225,7 +1234,7 @@ class Likelihoods:
             "Must call `precalculate_mutation_likelihoods()` before getting likelihoods"
 
         mutations_on_edge = self.mut_edges[edge.id]
-        return self.unfixed_likelihood_cache[mutations_on_edge, edge.span]
+        return self.unfixed_likelihood_cache[mutations_on_edge, edge_span(edge)]
 
     def get_mut_lik_upper_tri(self, edge):
         """
@@ -1535,9 +1544,9 @@ class InOutAlgorithms:
                 continue  # there is no hidden state for this parent - it's fixed
             val = self.prior[parent].copy()
             for edge in edges:
-                spanfrac = edge.span / self.spans[edge.child]
+                spanfrac = edge_span(edge) / self.spans[edge.child]
                 if self.extended_checks:
-                    spantot[edge.child] += edge.span
+                    spantot[edge.child] += edge_span(edge)
                 # Calculate vals for each edge
                 if edge.child in self.fixednodes:
                     # NB: geometric scaling works exactly when all nodes fixed in graph
@@ -1588,7 +1597,7 @@ class InOutAlgorithms:
         # TO DO here: check that no fixed_nodes have children, otherwise we can't descend
         for tree in self.ts.trees():
             for root in tree.roots:
-                if tree.num_children(root) == 0:
+                if tree_num_children(tree, root) == 0:
                     # Isolated node
                     continue
                 outside[root] += (1 * tree.span) / self.spans[root]
@@ -1606,7 +1615,7 @@ class InOutAlgorithms:
                         "Fixed nodes cannot currently be parents in the TS")
                 # Geometric scaling works exactly for all nodes fixed in graph
                 # but is an approximation when times are unknown.
-                spanfrac = edge.span / self.spans[child]
+                spanfrac = edge_span(edge) / self.spans[child]
                 if self.extended_checks:
                     cur_g_i = self.lik.reduce(
                         self.lik.rowsum_lower_tri(
@@ -1665,7 +1674,7 @@ class InOutAlgorithms:
                     ll_mut = scipy.stats.poisson.pmf(
                         mut_edges[edge.id],
                         (parent_time - self.lik.grid[:youngest_par_index + 1] + eps) *
-                        theta / 2 * edge.span)
+                        theta / 2 * edge_span(edge))
                     result = ll_mut / np.max(ll_mut)
                 else:
                     cur_parent_index = maximized_node_times[edge.parent]
@@ -1675,7 +1684,7 @@ class InOutAlgorithms:
                     ll_mut = scipy.stats.poisson.pmf(
                         mut_edges[edge.id], (parent_time -
                                              self.lik.grid[:youngest_par_index + 1] +
-                                             eps) * theta / 2 * edge.span)
+                                             eps) * theta / 2 * edge_span(edge))
                     result[:youngest_par_index + 1] *= (
                         ll_mut[:youngest_par_index + 1] /
                         np.max(ll_mut[:youngest_par_index + 1]))
