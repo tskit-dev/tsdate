@@ -81,7 +81,7 @@ def gamma_approx(mean, variance):
     return (mean ** 2) / variance, mean / variance
 
 
-def check_ts_for_dating(ts):
+def is_datable_ts(ts):
     """
     Check that the tree sequence is valid for dating (e.g. it has only a single
     tree topology at each position)
@@ -91,9 +91,8 @@ def check_ts_for_dating(ts):
         for root in tree.roots:
             main_roots += 0 if tree_is_isolated(tree, root) else 1
         if main_roots > 1:
-            raise ValueError(
-                "The tree sequence you are trying to date has more than"
-                " one tree at position {}".format(tree.interval[0]))
+            return False 
+    return True
 
 
 class ConditionalCoalescentTimes():
@@ -799,11 +798,11 @@ class SpansBySamples:
         return self.get_weights(node)[total_tips].weight[which]
 
 
-def create_time_grid(age_prior, prior_distr, n_points=21):
+def create_timepoints(age_prior, prior_distr, n_points=21):
     """
-    Create the time grid by finding union of the quantiles of the gammas
+    Create the time points by finding union of the quantiles of the gammas
     For a node with k descendants we have gamma approxs.
-    Natural grid would be to take all the distributions
+    Reasonable way to create timepoints is to take all the distributions
     quantile them up, and then take the union of the quantiles.
     Then thin this, making it no more than 0.05 of a quantile apart.
     Takes all the gamma distributions, finds quantiles, takes union,
@@ -841,14 +840,14 @@ def create_time_grid(age_prior, prior_distr, n_points=21):
 
     t_set = ppf(percentiles, age_prior[2, ALPHA], age_prior[2, BETA])
 
-    # progressively add values to the grid
+    # progressively add timepoints 
     max_sep = 1.0 / (n_points - 1)
     if age_prior.shape[0] > 2:
         for i in np.arange(3, age_prior.shape[0]):
-            # gamma percentiles of existing times in grid
+            # gamma percentiles of existing timepoints 
             proj = cdf(t_set, age_prior[i, ALPHA], age_prior[i, BETA])
             """
-            thin the grid, only add additional quantiles if they're more than
+            thin the timepoints, only add additional quantiles if they're more than
             a certain max_sep fraction (e.g. 0.05) from another quantile
             """
             tmp = np.asarray([min(abs(val - proj)) for val in percentiles])
@@ -877,13 +876,13 @@ class NodeGridValues:
         associated with it. All others (up to num_nodes) will be associated with a single
         scalar value instead.
     :vartype nonfixed_nodes: numpy.ndarray
-    :ivar grid_size: The size of the time grid used for non-fixed nodes
-    :vartype grid: int
+    :ivar timepoints: Array of time points 
+    :vartype timepoints: numpy.ndarray
     :ivar fill_value: What should we fill the data arrays with to start with
     :vartype fill_value: numpy.scalar
     """
 
-    def __init__(self, num_nodes, nonfixed_nodes, grid_size,
+    def __init__(self, num_nodes, nonfixed_nodes, timepoints,
                  fill_value=np.nan, dtype=FLOAT_DTYPE):
         """
         :param numpy.ndarray grid: The input numpy.ndarray.
@@ -893,6 +892,10 @@ class NodeGridValues:
         if np.any((nonfixed_nodes < 0) | (nonfixed_nodes >= num_nodes)):
             raise ValueError(
                 "All non fixed node ids must be between zero and the total node number")
+        grid_size = len(timepoints)
+        self.timepoints=timepoints
+        # Make timepoints an immutable attribute so no risk of overwritting them in a copy
+        self.timepoints.writable=False 
         self.num_nodes = num_nodes
         self.nonfixed_nodes = nonfixed_nodes
         self.num_nonfixed = len(nonfixed_nodes)
@@ -986,6 +989,7 @@ class NodeGridValues:
         new_obj.nonfixed_nodes = self.nonfixed_nodes
         new_obj.num_nonfixed = self.num_nonfixed
         new_obj.row_lookup = self.row_lookup
+        new_obj.timepoints = self.timepoints
         if type(grid_data) is np.ndarray:
             if self.grid_data.shape != grid_data.shape:
                 raise ValueError(
@@ -1009,7 +1013,7 @@ class NodeGridValues:
         return new_obj
 
 
-def fill_prior(distr_parameters, grid, ts, nodes_to_date, prior_distr,
+def fill_prior(distr_parameters, timepoints, ts, nodes_to_date, prior_distr,
                progress=False):
     """
     Take the alpha and beta values from the distr_parameters data frame
@@ -1022,7 +1026,7 @@ def fill_prior(distr_parameters, grid, ts, nodes_to_date, prior_distr,
     prior_times = NodeGridValues(
         ts.num_nodes,
         nodes_to_date[np.argsort(ts.tables.nodes.time[nodes_to_date])].astype(np.int32),
-        len(grid))
+        timepoints)
     if prior_distr == 'lognorm':
         cdf_func = scipy.stats.lognorm.cdf
         main_param = np.sqrt(distr_parameters[:, BETA])
@@ -1035,7 +1039,7 @@ def fill_prior(distr_parameters, grid, ts, nodes_to_date, prior_distr,
         raise ValueError("prior distribution must be lognorm or gamma")
 
     for node in tqdm(nodes_to_date, desc="GetPrior", disable=not progress):
-        prior_node = cdf_func(grid, main_param[node], scale=scale_param[node])
+        prior_node = cdf_func(timepoints, main_param[node], scale=scale_param[node])
         # force age to be less than max value
         prior_node = np.divide(prior_node, np.max(prior_node))
         # prior in each epoch
@@ -1055,22 +1059,22 @@ class Likelihoods:
     identity_constant = 1.0
     null_constant = 0.0
 
-    def __init__(self, ts, grid, theta=None, eps=0, fixed_node_set=None, normalize=True):
+    def __init__(self, ts, timepoints, theta=None, eps=0, fixed_node_set=None, normalize=True):
         self.ts = ts
-        self.grid = grid
+        self.timepoints = timepoints 
         self.fixednodes = set(ts.samples()) if fixed_node_set is None else fixed_node_set
         self.theta = theta
         self.normalize = normalize
-        self.grid_size = len(grid)
+        self.grid_size = len(timepoints)
         self.tri_size = self.grid_size * (self.grid_size + 1) / 2
         self.ll_mut = {}
         self.mut_edges = self.get_mut_edges(ts)
         # Need to set eps properly in the 2 lines below, to account for values in the
         # same timeslice
         self.timediff_lower_tri = np.concatenate(
-            [self.grid[time_index] - self.grid[0:time_index + 1] + eps
-                for time_index in np.arange(len(self.grid))])
-        self.timediff = self.grid - self.grid[0] + eps
+            [self.timepoints[time_index] - self.timepoints[0:time_index + 1] + eps
+                for time_index in np.arange(len(self.timepoints))])
+        self.timediff = self.timepoints - self.timepoints[0] + eps
 
         # The mut_ll contains unpacked (1D) lower triangular matrices. We need to
         # index this by row and by column index.
@@ -1195,7 +1199,7 @@ class Likelihoods:
     def get_mut_lik_fixed_node(self, edge):
         """
         Get the mutation likelihoods for an edge whose child is at a
-        fixed time, but whose parent may take any of the time slices in the time grid
+        fixed time, but whose parent may take any of the time slices in the timepoints
         that are equal to or older than the child age. This is not cached, as it is
         likely to be unique for each edge
         """
@@ -1214,8 +1218,8 @@ class Likelihoods:
     def get_mut_lik_lower_tri(self, edge):
         """
         Get the cached mutation likelihoods for an edge with non-fixed parent and child
-        nodes, returning values for all the possible time differences between times on
-        the grid. These values are returned as a flattened lower triangular matrix, the
+        nodes, returning values for all the possible time differences between timepoints
+        These values are returned as a flattened lower triangular matrix, the
         form required in the inside algorithm.
 
         """
@@ -1662,20 +1666,20 @@ class InOutAlgorithms:
             for edge_index, edge in enumerate(edges):
                 if edge_index == 0:
                     youngest_par_index = maximized_node_times[edge.parent]
-                    parent_time = self.lik.grid[maximized_node_times[edge.parent]]
+                    parent_time = self.lik.timepoints[maximized_node_times[edge.parent]]
                     ll_mut = scipy.stats.poisson.pmf(
                         mut_edges[edge.id],
-                        (parent_time - self.lik.grid[:youngest_par_index + 1] + eps) *
+                        (parent_time - self.lik.timepoints[:youngest_par_index + 1] + eps) *
                         theta / 2 * edge_span(edge))
                     result = ll_mut / np.max(ll_mut)
                 else:
                     cur_parent_index = maximized_node_times[edge.parent]
                     if cur_parent_index < youngest_par_index:
                         youngest_par_index = cur_parent_index
-                    parent_time = self.lik.grid[maximized_node_times[edge.parent]]
+                    parent_time = self.lik.timepoints[maximized_node_times[edge.parent]]
                     ll_mut = scipy.stats.poisson.pmf(
                         mut_edges[edge.id], (parent_time -
-                                             self.lik.grid[:youngest_par_index + 1] +
+                                             self.lik.timepoints[:youngest_par_index + 1] +
                                              eps) * theta / 2 * edge_span(edge))
                     result[:youngest_par_index + 1] *= (
                         ll_mut[:youngest_par_index + 1] /
@@ -1689,12 +1693,12 @@ class InOutAlgorithms:
                 row = result[:youngest_par_index + 1] * inside_val
                 row = row / np.sum(row)
                 maximized_node_times[child] = np.sum(
-                    row * self.lik.grid[:youngest_par_index + 1]) / np.sum(row)
+                    row * self.lik.timepoints[:youngest_par_index + 1]) / np.sum(row)
 
-        return self.lik.grid[np.array(maximized_node_times).astype('int')]
+        return self.lik.timepoints[np.array(maximized_node_times).astype('int')]
 
 
-def posterior_mean_var(ts, grid, posterior, fixed_node_set=None):
+def posterior_mean_var(ts, timepoints, posterior, fixed_node_set=None):
     """
     Mean and variance of node age in scaled time. Fixed nodes will be given a mean
     of their exact time in the tree sequence, and zero variance (as long as they are
@@ -1709,12 +1713,12 @@ def posterior_mean_var(ts, grid, posterior, fixed_node_set=None):
     vr_post[fixed_nodes] = 0
 
     for row, node_id in zip(posterior.grid_data, posterior.nonfixed_nodes):
-        mn_post[node_id] = np.sum(row * grid) / np.sum(row)
-        vr_post[node_id] = np.sum(row * grid ** 2) / np.sum(row) - mn_post[node_id] ** 2
+        mn_post[node_id] = np.sum(row * timepoints) / np.sum(row)
+        vr_post[node_id] = np.sum(row * timepoints ** 2) / np.sum(row) - mn_post[node_id] ** 2
     return mn_post, vr_post
 
 
-def constrain_ages_topo(ts, post_mn, grid, eps, nodes_to_date=None, progress=False):
+def constrain_ages_topo(ts, post_mn, timepoints, eps, nodes_to_date=None, progress=False):
     """
     If predicted node times violate topology, restrict node ages so that they
     must be older than all their children.
@@ -1737,10 +1741,53 @@ def constrain_ages_topo(ts, post_mn, grid, eps, nodes_to_date=None, progress=Fal
     return new_mn_post
 
 
-def build_prior(distribution="lognorm", approximate_prior=None):
+def build_prior_grid(tree_sequence, timepoints, approximate_prior, prior_distribution,
+                     eps, progress):
     """
+    Create prior distribution for the age of each node and the discretised time slices at
+    which to evaluate node age.
+    :param TreeSequence tree_sequence: The input :class:`tskit.TreeSequence`, treated as
+        undated
+    :param int_or_array_like timepoints: The number of quantiles used to create the
+        time slices, or manually-specified time slices as a numpy array
+    :param bool approximate_prior: Whether to use a precalculated approximate prior or
+        exactly calculate prior
+    :param string prior_distr: What distribution to use to approximate the conditional
+        coalescent prior. Can be "lognorm" for the lognormal distribution (generally a
+        better fit, but slightly slower to calculate) or "gamma" for the gamma
+        distribution (slightly faster, but a poorer fit for recent nodes). Default:
+        "lognorm"
+    :param float eps: Specify minimum distance separating points in the time grid. Also
+        specifies the error factor in time difference calculations.
+    """
+    fixed_node_set = set(tree_sequence.samples())
+    span_data = SpansBySamples(tree_sequence, fixed_node_set, progress=progress)
+    nodes_to_date = span_data.nodes_to_date
+    max_sample_size_before_approximation = None if approximate_prior is False else 1000
 
-    """
+    if prior_distribution not in ('lognorm', 'gamma'):
+        raise ValueError("prior distribution must be lognorm or gamma")
+
+    base_priors = ConditionalCoalescentTimes(max_sample_size_before_approximation,
+                                             prior_distribution)
+    base_priors.add(len(fixed_node_set), approximate_prior)
+    for total_fixed in span_data.total_fixed_at_0_counts:
+        # For missing data: trees vary in total fixed node count => have different priors
+        base_priors.add(total_fixed, approximate_prior)
+
+    if isinstance(timepoints, int):
+        timepoints = create_timepoints(
+            base_priors[tree_sequence.num_samples], prior_distribution, timepoints + 1)
+        if timepoints < 2:
+            raise ValueError("You must have at least 2 time points")
+    elif isinstance(timepoints, np.ndarray):
+        timepoints = np.sort(timepoints.astype(FLOAT_DTYPE, casting='safe')) 
+    else:
+        raise ValueError("time_slices must either be an integer or a numpy array of floats")
+
+    prior_params = base_priors.get_mixture_prior_params(span_data)
+    prior = fill_prior(prior_params, timepoints, tree_sequence, nodes_to_date,
+                            prior_distribution, progress)
     return prior
 
 
@@ -1755,36 +1802,21 @@ def date(tree_sequence, Ne, *args, progress=False, **kwargs):
 
     :param TreeSequence tree_sequence: The input :class:`tskit.TreeSequence`, treated as
         undated.
-    :param float Ne: The estimated effective population size
+    :param float Ne: The inputted effective population size
     :param float mutation_rate: The estimated mutation rate per unit of genome. If
         provided, the dating algorithm will use a mutation rate clock to help estimate
         node dates
     :param float recombination_rate: The estimated recombination rate per unit of genome.
         If provided, the dating algorithm will use a recombination rate clock to help
         estimate node dates
-    :param string time_grid: How to space out the time grid. Currently can be either
-        "adaptive" (the default) or "uniform". The adaptive time grid spaces out time
-        points in even quantiles over the expected prior.
-    :param int_or_array_like time_slices: The number of quantiles used in the adaptive
-        time grid or a manually-specified numpy array time grid
-    :param float eps: Specify minimum distance separating points in the time grid. Also
-        specifies the error factor in time difference calculations.
+    :param float eps: Specify minimum distance separating time points. Also specifies
+        the error factor in time difference calculations.
     :param int num_threads: The number of threads to use. A simpler unthreaded algorithm
         is used unless this is >= 1 (default: None).
-    :param bool approximate_prior: Whether to use a precalculated approximate prior or
-        exactly calculate prior
-    :param string prior_distr: What distribution to use to approximate the conditional
-        coalescent prior. Can be "lognorm" for the lognormal distribution (generally a
-        better fit, but slightly slower to calculate) or "gamma" for the gamma
-        distribution (slightly faster, but a poorer fit for recent nodes). Default:
-        "lognorm"
-    :param string estimation_method: What estimation method to use: can be
+    :param string method: What estimation method to use: can be
         "inside_outside" (empirically better, theoretically problematic) or
         "maximization" (worse empirically, especially with a gamma approximated prior,
         but theoretically robust). Default: "inside-outside".
-    :param bool outside_normalize: If carrying out the "inside_outside" method, should
-        we normalize on the outside pass, which reduces the risk of numerical overflow,
-        but makes it harder to check empirical consistency. Default: False
     :param bool check_valid_topology: Should we take time to check that the input tree
         sequence has only a single tree topology at each position, which is a requirement
         for tsdate (note that single "isolated" nodes are allowed). Default: True
@@ -1795,8 +1827,8 @@ def date(tree_sequence, Ne, *args, progress=False, **kwargs):
     :return: A tree sequence with inferred node times.
     :rtype: tskit.TreeSequence
     """
-    dates, _, grid, eps, nds = get_dates(tree_sequence, Ne, *args, **kwargs)
-    constrained = constrain_ages_topo(tree_sequence, dates, grid, eps, nds, progress)
+    dates, _, timepoints, eps, nds = get_dates(tree_sequence, Ne, *args, **kwargs)
+    constrained = constrain_ages_topo(tree_sequence, dates, timepoints, eps, nds, progress)
     tables = tree_sequence.dump_tables()
     tables.nodes.time = constrained * 2 * Ne
     tables.sort()
@@ -1805,23 +1837,18 @@ def date(tree_sequence, Ne, *args, progress=False, **kwargs):
 
 def get_dates(
         tree_sequence, Ne, mutation_rate=None, recombination_rate=None,
-        *, time_grid='adaptive', grid_slices=10, eps=1e-6, num_threads=None,
-        approximate_prior=None, prior_distr='lognorm',
-        estimation_method='inside_outside', outside_normalize=False, progress=False,
-        check_valid_topology=True, probability_space=LIN):
+        prior=prior, eps=1e-6, num_threads=None,
+        method='inside_outside', outside_normalize=False, progress=False,
+        probability_space=LIN):
     """
     Infer dates for the nodes in a tree sequence, returning an array of inferred dates
     for nodes, plus other variables such as the distribution of posterior probabilities
     etc. Parameters are identical to the date() method, which calls this method, then
     injects the resulting date estimates into the tree sequence
 
-    :return: tuple(mn_post, posterior, grid, eps, nodes_to_date)
+    :return: tuple(mn_post, posterior, timepoints, eps, nodes_to_date)
     """
-    if time_grid != 'manual' and grid_slices < 2:
-        raise ValueError("You must have at least 2 slices in the time grid")
-
-    if check_valid_topology is True:
-        check_ts_for_dating(tree_sequence)
+    assert is_datable_ts(tree_sequence)
 
     # Stuff yet to be implemented. These can be deleted once fixed
     if recombination_rate is not None:
@@ -1836,38 +1863,10 @@ def get_dates(
 
     fixed_node_set = set(tree_sequence.samples())
 
-    span_data = SpansBySamples(tree_sequence, fixed_node_set, progress=progress)
-    nodes_to_date = span_data.nodes_to_date
-    max_sample_size_before_approximation = None if approximate_prior is False else 1000
-
-    if prior_distr not in ('lognorm', 'gamma'):
-        raise ValueError("prior distribution must be lognorm or gamma")
-
-    base_priors = ConditionalCoalescentTimes(max_sample_size_before_approximation,
-                                             prior_distr)
-    base_priors.add(len(fixed_node_set), approximate_prior)
-    for total_fixed in span_data.total_fixed_at_0_counts:
-        # For missing data: trees vary in total fixed node count => have different priors
-        base_priors.add(total_fixed, approximate_prior)
-
-    if time_grid == 'uniform':
-        grid = np.linspace(0, 8, grid_slices + 1)
-    elif time_grid == 'adaptive':
-        # Use the prior for the complete TS
-        grid = create_time_grid(
-            base_priors[tree_sequence.num_samples], prior_distr, grid_slices + 1)
-    elif time_grid == 'manual':
-        if type(grid_slices) == list:
-            grid = np.array(sorted(grid_slices))
-        else:
-            raise ValueError(
-                "grid slices must be a list of time points such as [0, 1, 2]")
+    if prior is None:
+        prior = build_prior_grid(tree_sequence)
     else:
-        raise ValueError("time_grid must be either 'adaptive', 'uniform', or 'manual'")
-
-    prior_params = base_priors.get_mixture_prior_params(span_data)
-    prior_vals = fill_prior(prior_params, grid, tree_sequence, nodes_to_date,
-                            prior_distr, progress)
+        prior = prior
 
     theta = rho = None
 
@@ -1877,9 +1876,9 @@ def get_dates(
         rho = 4 * Ne * recombination_rate
 
     if probability_space != LOG:
-        liklhd = Likelihoods(tree_sequence, grid, theta, eps, fixed_node_set)
+        liklhd = Likelihoods(tree_sequence, timepoints, theta, eps, fixed_node_set)
     else:
-        liklhd = LogLikelihoods(tree_sequence, grid, theta, eps, fixed_node_set)
+        liklhd = LogLikelihoods(tree_sequence, timepoints, theta, eps, fixed_node_set)
 
     if theta is not None:
         liklhd.precalculate_mutation_likelihoods(num_threads=num_threads)
@@ -1893,10 +1892,10 @@ def get_dates(
     posterior = None
     if estimation_method == 'inside_outside':
         posterior = dynamic_prog.outside_pass(theta, rho, normalize=outside_normalize)
-        mn_post, _ = posterior_mean_var(tree_sequence, grid, posterior, fixed_node_set)
+        mn_post, _ = posterior_mean_var(tree_sequence, timepoints, posterior, fixed_node_set)
     elif estimation_method == 'maximization':
         mn_post = dynamic_prog.outside_maximization(theta, eps)
     else:
         raise ValueError(
             "estimation method must be either 'inside_outside' or 'maximization'")
-    return mn_post, posterior, grid, eps, nodes_to_date
+    return mn_post, posterior, timepoints, eps, nodes_to_date

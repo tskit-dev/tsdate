@@ -18,8 +18,8 @@
 # -- Project information -----------------------------------------------------
 
 project = 'tsdate'
-copyright = '2019, Anthony Wilder Wohns'
-author = 'Anthony Wilder Wohns'
+copyright = '2020, University of Oxford'
+author = 'Anthony Wilder Wohns and Yan Wong'
 
 # The full version, including alpha/beta/rc tags
 release = '1.0.0'
@@ -35,10 +35,11 @@ extensions = [
     'sphinx.ext.intersphinx',
     'sphinxarg.ext',
     'sphinx_issues',
+    'recommonmark'
 ]
 
 # Github repo
-issues_github_path = "aowhns/tsdate"
+issues_github_path = "awohns/tsdate"
 
 # Add any paths that contain templates here, relative to this directory.
 templates_path = ['_templates']
