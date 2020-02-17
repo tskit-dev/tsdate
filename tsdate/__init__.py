@@ -21,7 +21,7 @@
 # SOFTWARE.
 
 from .date import (  # NOQA
-    date 
+    date, build_prior_grid
     )
 
 

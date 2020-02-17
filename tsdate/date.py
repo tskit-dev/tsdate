@@ -81,20 +81,6 @@ def gamma_approx(mean, variance):
     return (mean ** 2) / variance, mean / variance
 
 
-def is_datable_ts(ts):
-    """
-    Check that the tree sequence is valid for dating (e.g. it has only a single
-    tree topology at each position)
-    """
-    for tree in ts.trees():
-        main_roots = 0
-        for root in tree.roots:
-            main_roots += 0 if tree_is_isolated(tree, root) else 1
-        if main_roots > 1:
-            return False
-    return True
-
-
 class ConditionalCoalescentTimes():
     """
     Make and store conditional coalescent priors
@@ -1466,17 +1452,35 @@ class InOutAlgorithms:
     """
     Contains the inside and outside algorithms
     """
-    def __init__(self, ts, prior, lik, spans, progress=False, extended_checks=False):
+    def __init__(self, ts, prior, lik, progress=False, extended_checks=False):
         self.ts = ts
         self.prior = prior
         self.nonfixed_nodes = prior.nonfixed_nodes
-        self.spans = spans
         self.lik = lik
         self.fixednodes = lik.fixednodes
         self.progress = progress
         self.extended_checks = extended_checks
         # If necessary, convert prior to log space
         self.prior.force_probability_space(lik.probability_space)
+
+        self.spans = np.bincount(
+            self.ts.tables.edges.child,
+            weights=self.ts.tables.edges.right - self.ts.tables.edges.left)
+        self.spans = np.pad(self.spans, (0, self.ts.num_nodes-len(self.spans)))
+
+        self.root_spans = defaultdict(float)
+        for tree in self.ts.trees():
+            n_roots_in_tree = 0
+            for root in tree.roots:
+                if tree.num_children(root) == 0:
+                    # Isolated node
+                    continue
+                n_roots_in_tree += 1
+                self.root_spans[root] += tree.span
+                assert n_roots_in_tree == 1  # Can't date trees with >1 topological roots
+        # Add on the spans when this is a root
+        for root, span_when_root in self.root_spans.items():
+            self.spans[root] += span_when_root
 
     # === Grouped edge iterators ===
 
@@ -1564,11 +1568,6 @@ class InOutAlgorithms:
         self.inside = inside
         self.g_i = g_i
         self.norm = norm
-        if self.extended_checks:
-            pass
-            # assert np.allclose(
-            #     spantot[self.prior.nonfixed_nodes],
-            #     self.spans[self.prior.nonfixed_nodes])
 
     def outside_pass(
             self, theta, rho, *,
@@ -1591,13 +1590,8 @@ class InOutAlgorithms:
         outside = self.inside.clone_with_new_data(
             grid_data=0, probability_space=LIN)
 
-        # TO DO here: check that no fixed_nodes have children, otherwise we can't descend
-        for tree in self.ts.trees():
-            for root in tree.roots:
-                if tree_num_children(tree, root) == 0:
-                    # Isolated node
-                    continue
-                outside[root] += (1 * tree.span) / self.spans[root]
+        for root, span_when_root in self.root_spans:
+            outside[root] = span_when_root / self.spans[root]
         outside.force_probability_space(self.inside.probability_space)
 
         for child, edges in tqdm(
@@ -1854,8 +1848,6 @@ def get_dates(
 
     :return: tuple(mn_post, posterior, timepoints, eps, nodes_to_date)
     """
-    assert is_datable_ts(tree_sequence)
-
     # Stuff yet to be implemented. These can be deleted once fixed
     if recombination_rate is not None:
         raise NotImplementedError(

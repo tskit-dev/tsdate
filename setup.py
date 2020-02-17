@@ -1,6 +1,4 @@
 from setuptools import setup
-from setuptools.command.build_ext import build_ext as _build_ext
-
 
 with open("README.md", "r") as fh:
     long_description = fh.read()
