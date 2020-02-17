@@ -1,6 +1,6 @@
 # MIT License
 #
-# Copyright (c) 2019 Anthony Wilder Wohns
+# Copyright (c) University of Oxford
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -79,14 +79,6 @@ def gamma_approx(mean, variance):
     """
 
     return (mean ** 2) / variance, mean / variance
-
-
-def lognorm_cdf(percentiles, alpha, beta):
-    pass
-
-
-def gamma_cdf(percentiles, alpha, beta):
-    pass
 
 
 def check_ts_for_dating(ts):
@@ -1745,6 +1737,13 @@ def constrain_ages_topo(ts, post_mn, grid, eps, nodes_to_date=None, progress=Fal
     return new_mn_post
 
 
+def build_prior(distribution="lognorm", approximate_prior=None):
+    """
+
+    """
+    return prior
+
+
 def date(tree_sequence, Ne, *args, progress=False, **kwargs):
     """
     Take a tree sequence with arbitrary node times and recalculate node times using
@@ -1766,8 +1765,10 @@ def date(tree_sequence, Ne, *args, progress=False, **kwargs):
     :param string time_grid: How to space out the time grid. Currently can be either
         "adaptive" (the default) or "uniform". The adaptive time grid spaces out time
         points in even quantiles over the expected prior.
-    :param int grid_slices: The number of slices used in the time grid
-    :param float eps: The precision required (** deeper explanation required **)
+    :param int_or_array_like time_slices: The number of quantiles used in the adaptive
+        time grid or a manually-specified numpy array time grid
+    :param float eps: Specify minimum distance separating points in the time grid. Also
+        specifies the error factor in time difference calculations.
     :param int num_threads: The number of threads to use. A simpler unthreaded algorithm
         is used unless this is >= 1 (default: None).
     :param bool approximate_prior: Whether to use a precalculated approximate prior or
