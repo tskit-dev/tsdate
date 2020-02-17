@@ -91,7 +91,7 @@ def is_datable_ts(ts):
         for root in tree.roots:
             main_roots += 0 if tree_is_isolated(tree, root) else 1
         if main_roots > 1:
-            return False 
+            return False
     return True
 
 
@@ -840,11 +840,11 @@ def create_timepoints(age_prior, prior_distr, n_points=21):
 
     t_set = ppf(percentiles, age_prior[2, ALPHA], age_prior[2, BETA])
 
-    # progressively add timepoints 
+    # progressively add timepoints
     max_sep = 1.0 / (n_points - 1)
     if age_prior.shape[0] > 2:
         for i in np.arange(3, age_prior.shape[0]):
-            # gamma percentiles of existing timepoints 
+            # gamma percentiles of existing timepoints
             proj = cdf(t_set, age_prior[i, ALPHA], age_prior[i, BETA])
             """
             thin the timepoints, only add additional quantiles if they're more than
@@ -876,7 +876,7 @@ class NodeGridValues:
         associated with it. All others (up to num_nodes) will be associated with a single
         scalar value instead.
     :vartype nonfixed_nodes: numpy.ndarray
-    :ivar timepoints: Array of time points 
+    :ivar timepoints: Array of time points
     :vartype timepoints: numpy.ndarray
     :ivar fill_value: What should we fill the data arrays with to start with
     :vartype fill_value: numpy.scalar
@@ -893,9 +893,9 @@ class NodeGridValues:
             raise ValueError(
                 "All non fixed node ids must be between zero and the total node number")
         grid_size = len(timepoints)
-        self.timepoints=timepoints
-        # Make timepoints an immutable attribute so no risk of overwritting them in a copy
-        self.timepoints.writable=False 
+        self.timepoints = timepoints
+        # Make timepoints immutable so no risk of overwritting them with copy
+        self.timepoints.writable = False
         self.num_nodes = num_nodes
         self.nonfixed_nodes = nonfixed_nodes
         self.num_nonfixed = len(nonfixed_nodes)
@@ -1059,9 +1059,10 @@ class Likelihoods:
     identity_constant = 1.0
     null_constant = 0.0
 
-    def __init__(self, ts, timepoints, theta=None, eps=0, fixed_node_set=None, normalize=True):
+    def __init__(self, ts, timepoints, theta=None, eps=0, fixed_node_set=None,
+                 normalize=True):
         self.ts = ts
-        self.timepoints = timepoints 
+        self.timepoints = timepoints
         self.fixednodes = set(ts.samples()) if fixed_node_set is None else fixed_node_set
         self.theta = theta
         self.normalize = normalize
@@ -1669,8 +1670,8 @@ class InOutAlgorithms:
                     parent_time = self.lik.timepoints[maximized_node_times[edge.parent]]
                     ll_mut = scipy.stats.poisson.pmf(
                         mut_edges[edge.id],
-                        (parent_time - self.lik.timepoints[:youngest_par_index + 1] + eps) *
-                        theta / 2 * edge_span(edge))
+                        (parent_time - self.lik.timepoints[:youngest_par_index + 1] +
+                            eps) * theta / 2 * edge_span(edge))
                     result = ll_mut / np.max(ll_mut)
                 else:
                     cur_parent_index = maximized_node_times[edge.parent]
@@ -1678,9 +1679,9 @@ class InOutAlgorithms:
                         youngest_par_index = cur_parent_index
                     parent_time = self.lik.timepoints[maximized_node_times[edge.parent]]
                     ll_mut = scipy.stats.poisson.pmf(
-                        mut_edges[edge.id], (parent_time -
-                                             self.lik.timepoints[:youngest_par_index + 1] +
-                                             eps) * theta / 2 * edge_span(edge))
+                        mut_edges[edge.id],
+                        (parent_time - self.lik.timepoints[:youngest_par_index + 1] +
+                            eps) * theta / 2 * edge_span(edge))
                     result[:youngest_par_index + 1] *= (
                         ll_mut[:youngest_par_index + 1] /
                         np.max(ll_mut[:youngest_par_index + 1]))
@@ -1714,11 +1715,13 @@ def posterior_mean_var(ts, timepoints, posterior, fixed_node_set=None):
 
     for row, node_id in zip(posterior.grid_data, posterior.nonfixed_nodes):
         mn_post[node_id] = np.sum(row * timepoints) / np.sum(row)
-        vr_post[node_id] = np.sum(row * timepoints ** 2) / np.sum(row) - mn_post[node_id] ** 2
+        vr_post[node_id] = (np.sum(row * timepoints ** 2) / np.sum(row) -
+                            mn_post[node_id] ** 2)
     return mn_post, vr_post
 
 
-def constrain_ages_topo(ts, post_mn, timepoints, eps, nodes_to_date=None, progress=False):
+def constrain_ages_topo(ts, post_mn, timepoints, eps, nodes_to_date=None,
+                        progress=False):
     """
     If predicted node times violate topology, restrict node ages so that they
     must be older than all their children.
@@ -1781,13 +1784,13 @@ def build_prior_grid(tree_sequence, timepoints, approximate_prior, prior_distrib
         if timepoints < 2:
             raise ValueError("You must have at least 2 time points")
     elif isinstance(timepoints, np.ndarray):
-        timepoints = np.sort(timepoints.astype(FLOAT_DTYPE, casting='safe')) 
+        timepoints = np.sort(timepoints.astype(FLOAT_DTYPE, casting='safe'))
     else:
-        raise ValueError("time_slices must either be an integer or a numpy array of floats")
+        raise ValueError("time_slices must be an integer or a numpy array of floats")
 
     prior_params = base_priors.get_mixture_prior_params(span_data)
     prior = fill_prior(prior_params, timepoints, tree_sequence, nodes_to_date,
-                            prior_distribution, progress)
+                       prior_distribution, progress)
     return prior
 
 
@@ -1809,6 +1812,8 @@ def date(tree_sequence, Ne, *args, progress=False, **kwargs):
     :param float recombination_rate: The estimated recombination rate per unit of genome.
         If provided, the dating algorithm will use a recombination rate clock to help
         estimate node dates
+    :param NodeGridValues prior: NodeGridValue object containing the prior and
+        time points
     :param float eps: Specify minimum distance separating time points. Also specifies
         the error factor in time difference calculations.
     :param int num_threads: The number of threads to use. A simpler unthreaded algorithm
@@ -1828,7 +1833,8 @@ def date(tree_sequence, Ne, *args, progress=False, **kwargs):
     :rtype: tskit.TreeSequence
     """
     dates, _, timepoints, eps, nds = get_dates(tree_sequence, Ne, *args, **kwargs)
-    constrained = constrain_ages_topo(tree_sequence, dates, timepoints, eps, nds, progress)
+    constrained = constrain_ages_topo(tree_sequence, dates, timepoints, eps, nds,
+                                      progress)
     tables = tree_sequence.dump_tables()
     tables.nodes.time = constrained * 2 * Ne
     tables.sort()
@@ -1837,7 +1843,7 @@ def date(tree_sequence, Ne, *args, progress=False, **kwargs):
 
 def get_dates(
         tree_sequence, Ne, mutation_rate=None, recombination_rate=None,
-        prior=prior, eps=1e-6, num_threads=None,
+        prior=None, eps=1e-6, num_threads=None,
         method='inside_outside', outside_normalize=False, progress=False,
         probability_space=LIN):
     """
@@ -1876,26 +1882,29 @@ def get_dates(
         rho = 4 * Ne * recombination_rate
 
     if probability_space != LOG:
-        liklhd = Likelihoods(tree_sequence, timepoints, theta, eps, fixed_node_set)
+        liklhd = Likelihoods(tree_sequence, prior.timepoints, theta, eps,
+                             fixed_node_set)
     else:
-        liklhd = LogLikelihoods(tree_sequence, timepoints, theta, eps, fixed_node_set)
+        liklhd = LogLikelihoods(tree_sequence, prior.timepoints, theta, eps,
+                                fixed_node_set)
 
     if theta is not None:
         liklhd.precalculate_mutation_likelihoods(num_threads=num_threads)
 
     dynamic_prog = InOutAlgorithms(
-        tree_sequence, prior_vals, liklhd, span_data.node_spans,
+        tree_sequence, prior, liklhd,
         progress=progress, extended_checks=True)
 
     dynamic_prog.inside_pass(theta, rho)
 
     posterior = None
-    if estimation_method == 'inside_outside':
+    if method == 'inside_outside':
         posterior = dynamic_prog.outside_pass(theta, rho, normalize=outside_normalize)
-        mn_post, _ = posterior_mean_var(tree_sequence, timepoints, posterior, fixed_node_set)
-    elif estimation_method == 'maximization':
+        mn_post, _ = posterior_mean_var(tree_sequence, prior.timepoints, posterior,
+                                        fixed_node_set)
+    elif method == 'maximization':
         mn_post = dynamic_prog.outside_maximization(theta, eps)
     else:
         raise ValueError(
             "estimation method must be either 'inside_outside' or 'maximization'")
-    return mn_post, posterior, timepoints, eps, nodes_to_date
+    return mn_post, posterior, prior.timepoints, eps, prior.nonfixed_nodes
