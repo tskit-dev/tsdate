@@ -1836,8 +1836,8 @@ def date(tree_sequence, Ne, *args, progress=False, **kwargs):
 def get_dates(
         tree_sequence, Ne, mutation_rate=None, recombination_rate=None,
         prior=None, eps=1e-6, num_threads=None,
-        method='inside_outside', outside_normalize=False, progress=False,
-        probability_space=LIN):
+        method='inside_outside', outside_normalize=True, progress=False,
+        probability_space=LOG):
     """
     Infer dates for the nodes in a tree sequence, returning an array of inferred dates
     for nodes, plus other variables such as the distribution of posterior probabilities
@@ -1862,7 +1862,7 @@ def get_dates(
         prior = build_prior_grid(tree_sequence)
     else:
         prior = prior
-    print(prior.grid_data)
+
     theta = rho = None
 
     if mutation_rate is not None:
@@ -1896,4 +1896,5 @@ def get_dates(
     else:
         raise ValueError(
             "estimation method must be either 'inside_outside' or 'maximization'")
+
     return mn_post, posterior, prior.timepoints, eps, prior.nonfixed_nodes

@@ -586,9 +586,9 @@ class TestNodeGridValuesClass(unittest.TestCase):
 
     def test_bad_init(self):
         ids = [3, 4]
-        self.assertRaises(ValueError, NodeGridValues, 3, np.array(ids), 5)
-        self.assertRaises(ValueError, NodeGridValues, 5, np.array(ids), -1)
-        self.assertRaises(ValueError, NodeGridValues, 5, np.array([-1]), -1)
+        self.assertRaises(ValueError, NodeGridValues, 3, np.array(ids), np.array([0, 1.2, 2]))
+        self.assertRaises(AttributeError, NodeGridValues, 5, np.array(ids), -1)
+        self.assertRaises(ValueError, NodeGridValues, 5, np.array([-1]), np.array([0, 1.2, 2]))
 
     def test_clone(self):
         num_nodes = 10
@@ -636,9 +636,8 @@ class TestNodeGridValuesClass(unittest.TestCase):
 
     def test_bad_clone(self):
         num_nodes = 10
-        grid_size = 2
         ids = [3, 4]
-        orig = NodeGridValues(num_nodes, np.array(ids), grid_size)
+        orig = NodeGridValues(num_nodes, np.array(ids), np.array([0, 1.2]))
         self.assertRaises(
             ValueError,
             NodeGridValues.clone_with_new_data,
