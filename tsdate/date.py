@@ -881,7 +881,7 @@ class NodeGridValues:
         grid_size = len(timepoints) if type(timepoints) is np.ndarray else timepoints
         self.timepoints = timepoints
         # Make timepoints immutable so no risk of overwritting them with copy
-        self.timepoints.setflags(write= False)
+        self.timepoints.setflags(write=False)
         self.num_nodes = num_nodes
         self.nonfixed_nodes = nonfixed_nodes
         self.num_nonfixed = len(nonfixed_nodes)
@@ -1525,7 +1525,6 @@ class InOutAlgorithms:
         """
         if progress is None:
             progress = self.progress
- 
         inside = self.prior.clone_with_new_data(  # store inside matrix values
             grid_data=np.nan, fixed_data=self.lik.identity_constant)
         g_i = np.full(
@@ -1737,7 +1736,7 @@ def constrain_ages_topo(ts, post_mn, timepoints, eps, nodes_to_date=None,
     return new_mn_post
 
 
-def build_prior_grid(tree_sequence, timepoints=50, approximate_prior=None, 
+def build_prior_grid(tree_sequence, timepoints=50, approximate_prior=None,
                      prior_distribution="lognorm", eps=1e-6, progress=False):
     """
     Create prior distribution for the age of each node and the discretised time slices at

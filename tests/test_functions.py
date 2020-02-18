@@ -33,9 +33,10 @@ import tskit  # NOQA
 import msprime
 
 import tsdate
-from tsdate.date import (ALPHA, BETA, MEAN, VAR, SpansBySamples, 
+from tsdate.date import (ALPHA, BETA, MEAN, VAR, SpansBySamples,
                          ConditionalCoalescentTimes, fill_prior, Likelihoods,
-                         InOutAlgorithms, NodeGridValues) # NOQA
+                         InOutAlgorithms, NodeGridValues, posterior_mean_var,
+                         constrain_ages_topo, LogLikelihoods)  # NOQA
 
 import utility_functions
 
@@ -375,7 +376,7 @@ class TestPriorVals(unittest.TestCase):
         mixture_prior = priors.get_mixture_prior_params(span_data)
         nodes_to_date = span_data.nodes_to_date
         prior_vals = fill_prior(mixture_prior, grid, ts, nodes_to_date,
-                                       prior_distr=prior_distr)
+                                prior_distr=prior_distr)
         return prior_vals
 
     def test_one_tree_n2(self):
@@ -555,16 +556,16 @@ class TestNodeGridValuesClass(unittest.TestCase):
     def test_init(self):
         num_nodes = 5
         ids = np.array([3, 4])
-        grid_size = 10
-        store = NodeGridValues(num_nodes, ids, grid_size, fill_value=6)
-        self.assertEquals(store.grid_data.shape, (len(ids), grid_size))
+        timepoints = np.array(range(10))
+        store = NodeGridValues(num_nodes, ids, timepoints, fill_value=6)
+        self.assertEquals(store.grid_data.shape, (len(ids), len(timepoints)))
         self.assertEquals(len(store.fixed_data), (num_nodes-len(ids)))
         self.assertTrue(np.all(store.grid_data == 6))
         self.assertTrue(np.all(store.fixed_data == 6))
 
         ids = np.array([3, 4], dtype=np.int32)
-        store = NodeGridValues(num_nodes, ids, grid_size, fill_value=5)
-        self.assertEquals(store.grid_data.shape, (len(ids), grid_size))
+        store = NodeGridValues(num_nodes, ids, timepoints, fill_value=5)
+        self.assertEquals(store.grid_data.shape, (len(ids), len(timepoints)))
         self.assertEquals(len(store.fixed_data), num_nodes-len(ids))
         self.assertTrue(np.all(store.fixed_data == 5))
 
@@ -650,23 +651,17 @@ class TestNodeGridValuesClass(unittest.TestCase):
 
 class TestInsideAlgorithm(unittest.TestCase):
     def run_inside_algorithm(self, ts, prior_distr, normalize=True):
-        span_data = SpansBySamples(ts)
-        spans = span_data.node_spans
-        priors = ConditionalCoalescentTimes(None, prior_distr=prior_distr)
-        priors.add(ts.num_samples, approximate=False)
-        grid = np.array([0, 1.2, 2])
-        mixture_prior = priors.get_mixture_prior_params(span_data)
-        nodes_to_date = span_data.nodes_to_date
-        prior_vals = fill_prior(
-            mixture_prior, grid, ts, nodes_to_date, prior_distr=prior_distr)
+        prior = tsdate.build_prior_grid(ts, timepoints=np.array([0, 1.2, 2]), 
+                                        approximate_prior=False,
+                                        prior_distribution=prior_distr)
         theta = 1
         rho = None
         eps = 1e-6
-        lls = Likelihoods(ts, grid, theta, eps)
+        lls = Likelihoods(ts, prior.timepoints, theta, eps)
         lls.precalculate_mutation_likelihoods()
-        algo = InOutAlgorithms(ts, prior_vals, lls, extended_checks=True)
+        algo = InOutAlgorithms(ts, prior, lls, extended_checks=True)
         algo.inside_pass(theta, rho, normalize=normalize)
-        return algo, prior_vals
+        return algo, prior 
 
     def test_one_tree_n2(self):
         ts = utility_functions.single_tree_ts_n2()
@@ -693,12 +688,12 @@ class TestInsideAlgorithm(unittest.TestCase):
 
     def test_two_tree_ts(self):
         ts = utility_functions.two_tree_ts()
-        algo, prior_vals = self.run_inside_algorithm(ts, 'gamma', normalize=False)
+        algo, prior = self.run_inside_algorithm(ts, 'gamma', normalize=False)
         # Prior[3][1] * Ll_(0->3)(1.2 - 0 + eps) ** 2
-        node3_t1 = prior_vals[3][1] * scipy.stats.poisson.pmf(
+        node3_t1 = prior[3][1] * scipy.stats.poisson.pmf(
             0, (1.2 + 1e-6) * 0.5 * 0.2) ** 2
         # Prior[3][2] * sum(Ll_(0->3)(2 - t + eps))
-        node3_t2 = prior_vals[3][2] * scipy.stats.poisson.pmf(
+        node3_t2 = prior[3][2] * scipy.stats.poisson.pmf(
             0, (2 + 1e-6) * 0.5 * 0.2) ** 2
         self.assertTrue(np.allclose(algo.inside[3],
                                     np.array([0, node3_t1, node3_t2])))
@@ -706,7 +701,7 @@ class TestInsideAlgorithm(unittest.TestCase):
         Prior[4][1] * (Ll_(2->4)(1.2 - 0 + eps) * (Ll_(1->4)(1.2 - 0 + eps)) *
         (Ll_(3->4)(1.2-1.2+eps) * node3_t1)
         """
-        node4_t1 = prior_vals[4][1] * (scipy.stats.poisson.pmf(
+        node4_t1 = prior[4][1] * (scipy.stats.poisson.pmf(
             0, (1.2 + 1e-6) * 0.5 * 1) * scipy.stats.poisson.pmf(
             0, (1.2 + 1e-6) * 0.5 * 0.8) *
             ((scipy.stats.poisson.pmf(0, (1e-6) * 0.5 * 0.2) * node3_t1)))
@@ -714,7 +709,7 @@ class TestInsideAlgorithm(unittest.TestCase):
         Prior[4][2] * (Ll_(2->4)(2 - 0 + eps) * Ll_(1->4)(2 - 0 + eps) *
         (sum_(t'<2)(Ll_(3->4)(2-t'+eps) * node3_t))
         """
-        node4_t2 = prior_vals[4][2] * (scipy.stats.poisson.pmf(
+        node4_t2 = prior[4][2] * (scipy.stats.poisson.pmf(
             0, (2 + 1e-6) * 0.5 * 1) * scipy.stats.poisson.pmf(
             0, (2 + 1e-6) * 0.5 * 0.8) * ((scipy.stats.poisson.pmf(
                 0, (0.8 + 1e-6) * 0.5 * 0.2) * node3_t1) +
@@ -725,14 +720,14 @@ class TestInsideAlgorithm(unittest.TestCase):
         (Ll_(0->5)(1.2 - 0 + eps) * 1)
         raising node4_t to 0.8 is geometric scaling
         """
-        node5_t1 = prior_vals[5][1] * (scipy.stats.poisson.pmf(
+        node5_t1 = prior[5][1] * (scipy.stats.poisson.pmf(
             0, (1e-6) * 0.5 * 0.8) * (node4_t1 ** 0.8)) * (scipy.stats.poisson.pmf(
                 0, (1.2 + 1e-6) * 0.5 * 0.8))
         """
         Prior[5][2] * (sum_(t'<1.2)(Ll_(4->5)(1.2 - 0 + eps) * (node3_t ** 0.8)) *
         (Ll_(0->5)(1.2 - 0 + eps) * 1)
         """
-        node5_t2 = prior_vals[5][2] * ((scipy.stats.poisson.pmf(
+        node5_t2 = prior[5][2] * ((scipy.stats.poisson.pmf(
             0, (0.8 + 1e-6) * 0.5 * 0.8) * (node4_t1 ** 0.8)) +
             (scipy.stats.poisson.pmf(0, (1e-6 + 1e-6) * 0.5 * 0.8) *
                 (node4_t2 ** 0.8))) * (scipy.stats.poisson.pmf(
@@ -762,7 +757,6 @@ class TestInsideAlgorithm(unittest.TestCase):
 class TestDownwardAlgorithm(unittest.TestCase):
     def run_outside_algorithm(self, ts, prior_distr="lognorm"):
         span_data = SpansBySamples(ts)
-        spans = span_data.node_spans
         priors = ConditionalCoalescentTimes(None, prior_distr)
         priors.add(ts.num_samples, approximate=False)
         grid = np.array([0, 1.2, 2])
@@ -822,7 +816,6 @@ class TestTotalFunctionalValueTree(unittest.TestCase):
 
     def find_posterior(self, ts, prior_distr):
         span_data = SpansBySamples(ts)
-        spans = span_data.node_spans
         priors = ConditionalCoalescentTimes(None, prior_distr=prior_distr)
         priors.add(ts.num_samples, approximate=False)
         grid = np.array([0, 1.2, 2])
@@ -835,7 +828,7 @@ class TestTotalFunctionalValueTree(unittest.TestCase):
         eps = 1e-6
         lls = Likelihoods(ts, grid, theta, eps)
         lls.precalculate_mutation_likelihoods()
-        algo = InOutAlgorithms(ts, prior_vals, lls) 
+        algo = InOutAlgorithms(ts, prior_vals, lls)
         algo.inside_pass(theta, rho)
         posterior = algo.outside_pass(theta, rho, normalize=False)
         print(np.sum(
@@ -888,7 +881,6 @@ class TestGilTree(unittest.TestCase):
         ts = utility_functions.gils_example_tree()
         span_data = SpansBySamples(ts)
         prior_distr = 'lognorm'
-        spans = span_data.node_spans
         priors = ConditionalCoalescentTimes(None, prior_distr=prior_distr)
         priors.add(ts.num_samples, approximate=False)
         grid = np.array([0, 0.1, 0.2, 0.5, 1, 2, 5])
@@ -935,19 +927,19 @@ class TestMaximization(unittest.TestCase):
             lls, algo, maximized_ages = self.run_outside_maximization(ts, prior_distr)
             self.assertTrue(np.array_equal(
                             maximized_ages,
-                            np.array([0, 0, lls.grid[np.argmax(algo.inside[2])]])))
+                            np.array([0, 0, lls.timepoints[np.argmax(algo.inside[2])]])))
 
     def test_one_tree_n3(self):
         ts = utility_functions.single_tree_ts_n3()
         for prior_distr in ('lognorm', 'gamma'):
             lls, algo, maximized_ages = self.run_outside_maximization(ts, prior_distr)
-            node_4 = lls.grid[np.argmax(algo.inside[4])]
+            node_4 = lls.timepoints[np.argmax(algo.inside[4])]
             ll_mut = scipy.stats.poisson.pmf(
-                0, (node_4 - lls.grid[:np.argmax(algo.inside[4]) + 1] + 1e-6) *
+                0, (node_4 - lls.timepoints[:np.argmax(algo.inside[4]) + 1] + 1e-6) *
                 1 / 2 * 1)
             result = ll_mut / np.max(ll_mut)
             inside_val = algo.inside[3][:(np.argmax(algo.inside[4]) + 1)]
-            node_3 = lls.grid[np.argmax(
+            node_3 = lls.timepoints[np.argmax(
                 result[:np.argmax(algo.inside[4]) + 1] * inside_val)]
             self.assertTrue(np.array_equal(
                             maximized_ages,
