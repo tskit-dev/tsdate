@@ -1862,7 +1862,7 @@ def get_dates(
         prior = build_prior_grid(tree_sequence)
     else:
         prior = prior
-
+    print(prior.grid_data)
     theta = rho = None
 
     if mutation_rate is not None:

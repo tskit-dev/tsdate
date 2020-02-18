@@ -35,7 +35,7 @@ import msprime
 import tsdate
 from tsdate.date import (ALPHA, BETA, MEAN, VAR, SpansBySamples,
                          ConditionalCoalescentTimes, fill_prior, Likelihoods,
-                         InOutAlgorithms, NodeGridValues,
+                         InOutAlgorithms, NodeGridValues, gamma_approx
                          )  # NOQA
 
 import utility_functions
@@ -72,8 +72,8 @@ class TestBasicFunctions(unittest.TestCase):
             ConditionalCoalescentTimes.tau_var(50, 50), 1.15946186)
 
     def test_gamma_approx(self):
-        self.assertEqual(tsdate.gamma_approx(2, 1), (4., 2.))
-        self.assertEqual(tsdate.gamma_approx(0.5, 0.1), (2.5, 5.0))
+        self.assertEqual(gamma_approx(2, 1), (4., 2.))
+        self.assertEqual(gamma_approx(0.5, 0.1), (2.5, 5.0))
 
 
 class TestNodeTipWeights(unittest.TestCase):
