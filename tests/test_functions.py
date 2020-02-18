@@ -35,8 +35,8 @@ import msprime
 import tsdate
 from tsdate.date import (ALPHA, BETA, MEAN, VAR, SpansBySamples,
                          ConditionalCoalescentTimes, fill_prior, Likelihoods,
-                         InOutAlgorithms, NodeGridValues, posterior_mean_var,
-                         constrain_ages_topo, LogLikelihoods)  # NOQA
+                         InOutAlgorithms, NodeGridValues,
+                         )  # NOQA
 
 import utility_functions
 
@@ -651,7 +651,7 @@ class TestNodeGridValuesClass(unittest.TestCase):
 
 class TestInsideAlgorithm(unittest.TestCase):
     def run_inside_algorithm(self, ts, prior_distr, normalize=True):
-        prior = tsdate.build_prior_grid(ts, timepoints=np.array([0, 1.2, 2]), 
+        prior = tsdate.build_prior_grid(ts, timepoints=np.array([0, 1.2, 2]),
                                         approximate_prior=False,
                                         prior_distribution=prior_distr)
         theta = 1
@@ -661,7 +661,7 @@ class TestInsideAlgorithm(unittest.TestCase):
         lls.precalculate_mutation_likelihoods()
         algo = InOutAlgorithms(ts, prior, lls, extended_checks=True)
         algo.inside_pass(theta, rho, normalize=normalize)
-        return algo, prior 
+        return algo, prior
 
     def test_one_tree_n2(self):
         ts = utility_functions.single_tree_ts_n2()
