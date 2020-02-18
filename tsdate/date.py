@@ -878,10 +878,10 @@ class NodeGridValues:
         if np.any((nonfixed_nodes < 0) | (nonfixed_nodes >= num_nodes)):
             raise ValueError(
                 "All non fixed node ids must be between zero and the total node number")
-        grid_size = len(timepoints)
+        grid_size = len(timepoints) if type(timepoints) is np.ndarray else timepoints
         self.timepoints = timepoints
         # Make timepoints immutable so no risk of overwritting them with copy
-        self.timepoints.writable = False
+        self.timepoints.setflags(write= False)
         self.num_nodes = num_nodes
         self.nonfixed_nodes = nonfixed_nodes
         self.num_nonfixed = len(nonfixed_nodes)
@@ -1525,7 +1525,7 @@ class InOutAlgorithms:
         """
         if progress is None:
             progress = self.progress
-
+ 
         inside = self.prior.clone_with_new_data(  # store inside matrix values
             grid_data=np.nan, fixed_data=self.lik.identity_constant)
         g_i = np.full(
@@ -1589,8 +1589,7 @@ class InOutAlgorithms:
 
         outside = self.inside.clone_with_new_data(
             grid_data=0, probability_space=LIN)
-
-        for root, span_when_root in self.root_spans:
+        for root, span_when_root in self.root_spans.items():
             outside[root] = span_when_root / self.spans[root]
         outside.force_probability_space(self.inside.probability_space)
 
@@ -1738,8 +1737,8 @@ def constrain_ages_topo(ts, post_mn, timepoints, eps, nodes_to_date=None,
     return new_mn_post
 
 
-def build_prior_grid(tree_sequence, timepoints, approximate_prior, prior_distribution,
-                     eps, progress):
+def build_prior_grid(tree_sequence, timepoints=50, approximate_prior=None, 
+                     prior_distribution="lognorm", eps=1e-6, progress=False):
     """
     Create prior distribution for the age of each node and the discretised time slices at
     which to evaluate node age.
@@ -1773,10 +1772,10 @@ def build_prior_grid(tree_sequence, timepoints, approximate_prior, prior_distrib
         base_priors.add(total_fixed, approximate_prior)
 
     if isinstance(timepoints, int):
-        timepoints = create_timepoints(
-            base_priors[tree_sequence.num_samples], prior_distribution, timepoints + 1)
         if timepoints < 2:
             raise ValueError("You must have at least 2 time points")
+        timepoints = create_timepoints(
+            base_priors[tree_sequence.num_samples], prior_distribution, timepoints + 1)
     elif isinstance(timepoints, np.ndarray):
         timepoints = np.sort(timepoints.astype(FLOAT_DTYPE, casting='safe'))
     else:
@@ -1858,7 +1857,6 @@ def get_dates(
         if tree_sequence.node(sample).time != 0:
             raise NotImplementedError(
                 "Samples must all be at time 0")
-
     fixed_node_set = set(tree_sequence.samples())
 
     if prior is None:
