@@ -33,7 +33,7 @@ import tskit  # NOQA
 import msprime
 
 import tsdate
-from tsdate.date import (ALPHA, BETA, MEAN, VAR, SpansBySamples,
+from tsdate.date import (SpansBySamples, PriorParams,
                          ConditionalCoalescentTimes, fill_prior, Likelihoods,
                          LogLikelihoods, LogLikelihoodsStreaming, InOutAlgorithms,
                          NodeGridValues, gamma_approx)  # NOQA
@@ -192,71 +192,116 @@ class TestMakePrior(unittest.TestCase):
     def test_one_tree_n2(self):
         ts = utility_functions.single_tree_ts_n2()
         prior = self.verify_prior(ts, 'gamma')
-        self.assertTrue(np.allclose(prior[2, [MEAN, VAR]], [1., 1.]))
-        self.assertTrue(np.allclose(prior[2, [ALPHA, BETA]], [1., 1.]))
+        self.assertTrue(np.allclose(
+            prior[2], PriorParams(alpha=1., beta=1., mean=1., var=1.)))
         prior = self.verify_prior(ts, 'lognorm')
-        self.assertTrue(np.allclose(prior[2, [MEAN, VAR]], [1., 1.]))
-        self.assertTrue(np.allclose(prior[2, [ALPHA, BETA]], [-0.34657359,  0.69314718]))
+        self.assertTrue(np.allclose(
+            prior[2], PriorParams(alpha=-0.34657359, beta=0.69314718, mean=1., var=1.)))
 
     def test_one_tree_n3(self):
         ts = utility_functions.single_tree_ts_n3()
-        for distr in ('gamma', 'lognorm'):
-            prior = self.verify_prior(ts, distr)
-            self.assertTrue(np.allclose(prior[2, [MEAN, VAR]], [1/3, 1/9]))
-            expected_ab = [1., 3.] if distr == 'gamma' else [-1.44518588, 0.69314718]
-            self.assertTrue(np.allclose(prior[2, [ALPHA, BETA]], expected_ab))
-
-            self.assertTrue(np.allclose(prior[3, [MEAN, VAR]], [1+1/3, 1+1/9]))
-            expected_ab = [1.6, 1.2] if distr == 'gamma' else [0.04492816, 0.48550782]
-            self.assertTrue(np.allclose(prior[3, [ALPHA, BETA]], expected_ab))
+        prior2mv = {'mean': 1/3, 'var': 1/9}
+        prior3mv = {'mean': 1+1/3, 'var': 1+1/9}
+        prior = self.verify_prior(ts, 'lognorm')
+        self.assertTrue(np.allclose(
+            prior[2], PriorParams(alpha=-1.44518588, beta=0.69314718, **prior2mv)))
+        self.assertTrue(np.allclose(
+            prior[3], PriorParams(alpha=0.04492816, beta=0.48550782, **prior3mv)))
+        prior = self.verify_prior(ts, 'gamma')
+        self.assertTrue(np.allclose(
+            prior[2], PriorParams(alpha=1., beta=3., **prior2mv)))
+        self.assertTrue(np.allclose(
+            prior[3], PriorParams(alpha=1.6, beta=1.2, **prior3mv)))
 
     def test_one_tree_n4(self):
         ts = utility_functions.single_tree_ts_n4()
-        for distr in ('gamma', 'lognorm'):
-            prior = self.verify_prior(ts, distr)
-            self.skipTest("Fill in values instead of np.nan")
-            # prior.loc[2].values == [0.81818182, 3.27272727])
-            self.assertTrue(np.allclose(prior[2, [MEAN, VAR]], [np.nan, np.nan]))
-            self.assertTrue(np.allclose(prior[3, [MEAN, VAR]], [np.nan, np.nan]))
-            self.assertTrue(np.allclose(prior[4, [MEAN, VAR]], [np.nan, np.nan]))
+        self.skipTest("Fill in values instead of np.nan")
+        prior2mv = {'mean': np.nan, 'var': np.nan}
+        prior3mv = {'mean': np.nan, 'var': np.nan}
+        prior4mv = {'mean': np.nan, 'var': np.nan}
+
+        prior = self.verify_prior(ts, 'lognorm')
+        self.assertTrue(np.allclose(
+            prior[2], PriorParams(alpha=np.nan, beta=np.nan, **prior2mv)))
+        self.assertTrue(np.allclose(
+            prior[3], PriorParams(alpha=np.nan, beta=np.nan, **prior3mv)))
+        self.assertTrue(np.allclose(
+            prior[4], PriorParams(alpha=np.nan, beta=np.nan, **prior4mv)))
+
+        prior = self.verify_prior(ts, 'gamma')
+        self.assertTrue(np.allclose(
+            prior[2], PriorParams(alpha=np.nan, beta=np.nan, **prior2mv)))
+        self.assertTrue(np.allclose(
+            prior[3], PriorParams(alpha=np.nan, beta=np.nan, **prior3mv)))
+        self.assertTrue(np.allclose(
+            prior[4], PriorParams(alpha=np.nan, beta=np.nan, **prior4mv)))
 
     def test_polytomy_tree(self):
         ts = utility_functions.polytomy_tree_ts()
-        for distr in ('gamma', 'lognorm'):
-            prior = self.verify_prior(ts, distr)
-            self.skipTest("Fill in values instead of np.nan")
-            # prior.loc[3].values == [1.6, 1.2])
-            self.assertTrue(np.allclose(prior[3, [MEAN, VAR]], [np.nan, np.nan]))
+        self.skipTest("Fill in values instead of np.nan")
+        prior3mv = {'mean': np.nan, 'var': np.nan}
+
+        prior = self.verify_prior(ts, 'lognorm')
+        self.assertTrue(np.allclose(
+            prior[3], PriorParams(alpha=np.nan, beta=np.nan, **prior3mv)))
+
+        prior = self.verify_prior(ts, 'gamma')
+        self.assertTrue(np.allclose(
+            prior[3], PriorParams(alpha=np.nan, beta=np.nan, **prior3mv)))
 
     def test_two_tree_ts(self):
         ts = utility_functions.two_tree_ts()
-        for distr in ('gamma', 'lognorm'):
-            prior = self.verify_prior(ts, distr)
-            self.skipTest("Fill in values instead of np.nan")
-            # (prior.loc[2].values == [1., 3.])]
-            # (prior.loc[3].values == [1.6, 1.2])]
-            self.assertTrue(np.allclose(prior[2, [MEAN, VAR]], [np.nan, np.nan]))
-            self.assertTrue(np.allclose(prior[3, [MEAN, VAR]], [np.nan, np.nan]))
+        self.skipTest("Fill in values instead of np.nan")
+        prior2mv = {'mean': np.nan, 'var': np.nan}
+        prior3mv = {'mean': np.nan, 'var': np.nan}
+
+        prior = self.verify_prior(ts, 'lognorm')
+        self.assertTrue(np.allclose(
+            prior[2], PriorParams(alpha=np.nan, beta=np.nan, **prior2mv)))
+        self.assertTrue(np.allclose(
+            prior[3], PriorParams(alpha=np.nan, beta=np.nan, **prior3mv)))
+
+        prior = self.verify_prior(ts, 'gamma')
+        self.assertTrue(np.allclose(
+            prior[2], PriorParams(alpha=np.nan, beta=np.nan, **prior2mv)))
+        self.assertTrue(np.allclose(
+            prior[3], PriorParams(alpha=np.nan, beta=np.nan, **prior3mv)))
 
     def test_single_tree_ts_with_unary(self):
         ts = utility_functions.single_tree_ts_with_unary()
-        for distr in ('gamma', 'lognorm'):
-            prior = self.verify_prior(ts, distr)
-            self.skipTest("Fill in values instead of np.nan")
-            # (prior.loc[2].values == [1., 3.])]
-            # (prior.loc[3].values == [1.6, 1.2])]
-            self.assertTrue(np.allclose(prior[2, [MEAN, VAR]], [np.nan, np.nan]))
-            self.assertTrue(np.allclose(prior[3, [MEAN, VAR]], [np.nan, np.nan]))
+        self.skipTest("Fill in values instead of np.nan")
+        prior2mv = {'mean': np.nan, 'var': np.nan}
+        prior3mv = {'mean': np.nan, 'var': np.nan}
+
+        prior = self.verify_prior(ts, 'lognorm')
+        self.assertTrue(np.allclose(
+            prior[2], PriorParams(alpha=np.nan, beta=np.nan, **prior2mv)))
+        self.assertTrue(np.allclose(
+            prior[3], PriorParams(alpha=np.nan, beta=np.nan, **prior3mv)))
+
+        prior = self.verify_prior(ts, 'gamma')
+        self.assertTrue(np.allclose(
+            prior[2], PriorParams(alpha=1., beta=3., **prior2mv)))
+        self.assertTrue(np.allclose(
+            prior[3], PriorParams(alpha=1.6, beta=1.2, **prior3mv)))
 
     def test_two_tree_mutation_ts(self):
         ts = utility_functions.two_tree_mutation_ts()
-        for distr in ('gamma', 'lognorm'):
-            prior = self.verify_prior(ts, distr)
-            self.skipTest("Fill in values instead of np.nan")
-            # (prior.loc[2].values == [1., 3.])]
-            # (prior.loc[3].values == [1.6, 1.2])]
-            self.assertTrue(np.allclose(prior[2, [MEAN, VAR]], [np.nan, np.nan]))
-            self.assertTrue(np.allclose(prior[3, [MEAN, VAR]], [np.nan, np.nan]))
+        self.skipTest("Fill in values instead of np.nan")
+        prior2mv = {'mean': np.nan, 'var': np.nan}
+        prior3mv = {'mean': np.nan, 'var': np.nan}
+
+        prior = self.verify_prior(ts, 'lognorm')
+        self.assertTrue(np.allclose(
+            prior[2], PriorParams(alpha=np.nan, beta=np.nan, **prior2mv)))
+        self.assertTrue(np.allclose(
+            prior[3], PriorParams(alpha=np.nan, beta=np.nan, **prior3mv)))
+
+        prior = self.verify_prior(ts, 'gamma')
+        self.assertTrue(np.allclose(
+            prior[2], PriorParams(alpha=1., beta=3., **prior2mv)))
+        self.assertTrue(np.allclose(
+            prior[3], PriorParams(alpha=1.6, beta=1.2, **prior3mv)))
 
     def test_precalculated_prior(self):
         # Force approx prior with a tiny n
@@ -285,6 +330,8 @@ class TestMakePrior(unittest.TestCase):
 
 
 class TestMixturePrior(unittest.TestCase):
+    alpha_beta = [PriorParams.field_index('alpha'), PriorParams.field_index('beta')]
+
     def get_mixture_prior_params(self, ts, prior_distr):
         span_data = SpansBySamples(ts)
         priors = ConditionalCoalescentTimes(None, prior_distr=prior_distr)
@@ -296,75 +343,75 @@ class TestMixturePrior(unittest.TestCase):
         ts = utility_functions.single_tree_ts_n2()
         mixture_prior = self.get_mixture_prior_params(ts, 'gamma')
         self.assertTrue(
-            np.allclose(mixture_prior[2, [ALPHA, BETA]], [1., 1.]))
+            np.allclose(mixture_prior[2, self.alpha_beta], [1., 1.]))
         mixture_prior = self.get_mixture_prior_params(ts, 'lognorm')
         self.assertTrue(
-            np.allclose(mixture_prior[2, [ALPHA, BETA]], [-0.34657359, 0.69314718]))
+            np.allclose(mixture_prior[2,  self.alpha_beta], [-0.34657359, 0.69314718]))
 
     def test_one_tree_n3(self):
         ts = utility_functions.single_tree_ts_n3()
         mixture_prior = self.get_mixture_prior_params(ts, 'gamma')
         self.assertTrue(
-            np.allclose(mixture_prior[3, [ALPHA, BETA]], [1., 3.]))
+            np.allclose(mixture_prior[3, self.alpha_beta], [1., 3.]))
         self.assertTrue(
-            np.allclose(mixture_prior[4, [ALPHA, BETA]], [1.6, 1.2]))
+            np.allclose(mixture_prior[4, self.alpha_beta], [1.6, 1.2]))
         mixture_prior = self.get_mixture_prior_params(ts, 'lognorm')
         self.assertTrue(
-            np.allclose(mixture_prior[3, [ALPHA, BETA]], [-1.44518588, 0.69314718]))
+            np.allclose(mixture_prior[3, self.alpha_beta], [-1.44518588, 0.69314718]))
         self.assertTrue(
-            np.allclose(mixture_prior[4, [ALPHA, BETA]], [0.04492816, 0.48550782]))
+            np.allclose(mixture_prior[4, self.alpha_beta], [0.04492816, 0.48550782]))
 
     def test_one_tree_n4(self):
         ts = utility_functions.single_tree_ts_n4()
         mixture_prior = self.get_mixture_prior_params(ts, 'gamma')
         self.assertTrue(
-            np.allclose(mixture_prior[4, [ALPHA, BETA]], [0.81818182, 3.27272727]))
+            np.allclose(mixture_prior[4, self.alpha_beta], [0.81818182, 3.27272727]))
         self.assertTrue(
-            np.allclose(mixture_prior[5, [ALPHA, BETA]], [1.8, 3.6]))
+            np.allclose(mixture_prior[5, self.alpha_beta], [1.8, 3.6]))
         self.assertTrue(
-            np.allclose(mixture_prior[6, [ALPHA, BETA]], [1.97560976, 1.31707317]))
+            np.allclose(mixture_prior[6, self.alpha_beta], [1.97560976, 1.31707317]))
 
     def test_polytomy_tree(self):
         ts = utility_functions.polytomy_tree_ts()
         mixture_prior = self.get_mixture_prior_params(ts, 'gamma')
         self.assertTrue(
-            np.allclose(mixture_prior[3, [ALPHA, BETA]], [1.6, 1.2]))
+            np.allclose(mixture_prior[3, self.alpha_beta], [1.6, 1.2]))
 
     def test_two_trees(self):
         ts = utility_functions.two_tree_ts()
         mixture_prior = self.get_mixture_prior_params(ts, 'gamma')
         self.assertTrue(
-            np.allclose(mixture_prior[3, [ALPHA, BETA]], [1., 3.]))
+            np.allclose(mixture_prior[3, self.alpha_beta], [1., 3.]))
         # Node 4 should be a mixture between 2 and 3 tips
         self.assertTrue(
-            np.allclose(mixture_prior[4, [ALPHA, BETA]], [0.60377, 1.13207]))
+            np.allclose(mixture_prior[4, self.alpha_beta], [0.60377, 1.13207]))
         self.assertTrue(
-            np.allclose(mixture_prior[5, [ALPHA, BETA]], [1.6, 1.2]))
+            np.allclose(mixture_prior[5, self.alpha_beta], [1.6, 1.2]))
 
     def test_single_tree_ts_with_unary(self):
         ts = utility_functions.single_tree_ts_with_unary()
         mixture_prior = self.get_mixture_prior_params(ts, 'gamma')
         self.assertTrue(
-            np.allclose(mixture_prior[3, [ALPHA, BETA]], [1., 3.]))
+            np.allclose(mixture_prior[3, self.alpha_beta], [1., 3.]))
         # Node 4 should be a mixture between 2 and 3 tips
         self.assertTrue(
-            np.allclose(mixture_prior[4, [ALPHA, BETA]], [0.80645, 0.96774]))
+            np.allclose(mixture_prior[4, self.alpha_beta], [0.80645, 0.96774]))
         # Node 5 should be a mixture between 1 and 3 tips
         self.assertTrue(
-            np.allclose(mixture_prior[5, [ALPHA, BETA]], [0.44444, 0.66666]))
+            np.allclose(mixture_prior[5, self.alpha_beta], [0.44444, 0.66666]))
         self.assertTrue(
-            np.allclose(mixture_prior[6, [ALPHA, BETA]], [1.6, 1.2]))
+            np.allclose(mixture_prior[6, self.alpha_beta], [1.6, 1.2]))
 
     def test_two_tree_mutation_ts(self):
         ts = utility_functions.two_tree_mutation_ts()
         mixture_prior = self.get_mixture_prior_params(ts, 'gamma')
         self.assertTrue(
-            np.allclose(mixture_prior[3, [ALPHA, BETA]], [1., 3.]))
+            np.allclose(mixture_prior[3, self.alpha_beta], [1., 3.]))
         # Node 4 should be a mixture between 2 and 3 tips
         self.assertTrue(
-            np.allclose(mixture_prior[4, [ALPHA, BETA]], [0.60377, 1.13207]))
+            np.allclose(mixture_prior[4, self.alpha_beta], [0.60377, 1.13207]))
         self.assertTrue(
-            np.allclose(mixture_prior[5, [ALPHA, BETA]], [1.6, 1.2]))
+            np.allclose(mixture_prior[5, self.alpha_beta], [1.6, 1.2]))
 
 
 class TestPriorVals(unittest.TestCase):

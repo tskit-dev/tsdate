@@ -41,9 +41,17 @@ from tqdm import tqdm
 FORMAT_NAME = "tsdate"
 FORMAT_VERSION = [1, 0]
 FLOAT_DTYPE = np.float64
-ALPHA, BETA, MEAN, VAR = 0, 1, 2, 3  # Column names for storing the prior tables
 LIN = "linear"
 LOG = "logarithmic"
+
+
+PriorParams_base = namedtuple("PriorParams", 'alpha, beta, mean, var')
+
+
+class PriorParams(PriorParams_base):
+    @classmethod
+    def field_index(cls, fieldname):
+        return np.where([f == fieldname for f in cls._fields])[0][0]
 
 
 # Local functions to allow tsdate to work with non-dev versions of tskit
@@ -156,7 +164,7 @@ class ConditionalCoalescentTimes():
         # they are stored separately to obviate need to move between them
         # We should only use prior[2] upwards
         prior = np.full(
-            (total_tips + 1, len((ALPHA, BETA, MEAN, VAR))), np.nan, dtype=FLOAT_DTYPE)
+            (total_tips + 1, len(PriorParams._fields)), np.nan, dtype=FLOAT_DTYPE)
 
         if self.approximate:
             get_tau_var = self.tau_var_lookup
@@ -168,13 +176,17 @@ class ConditionalCoalescentTimes():
         # prior.loc[1] is distribution of times of a "coalescence node" ending
         # in a single sample - equivalent to the time of the sample itself, so
         # it should have var = 0 and mean = sample.time
-        # Setting alpha = 0 and beta = 1 sets mean (a/b) == var (a / b^2) == 0
-        prior[1] = [0, 1, 0, 0]
+        if self.prior_distr == 'lognorm':
+            # For a lognormal, alpha = -inf and beta = 1 sets mean == var == 0
+            prior[1] = PriorParams(alpha=-np.inf, beta=0, mean=0, var=0)
+        elif self.prior_distr == 'gamma':
+            # For a gamma, alpha = 0 and beta = 1 sets mean (a/b) == var (a / b^2) == 0
+            prior[1] = PriorParams(alpha=0, beta=1, mean=0, var=0)
         for var, tips in zip(variances, all_tips):
             # NB: it should be possible to vectorize this in numpy
             expectation = self.tau_expect(tips, total_tips)
             alpha, beta = self.func_approx(expectation, var)
-            prior[tips] = alpha, beta, expectation, var
+            prior[tips] = PriorParams(alpha=alpha, beta=beta, mean=expectation, var=var)
         self.prior_store[total_tips] = prior
 
     def precalculate_prior_for_approximation(self, precalc_approximation_n):
@@ -291,13 +303,19 @@ class ConditionalCoalescentTimes():
         :rtype:  pandas.DataFrame
         """
 
+        mean_column = PriorParams.field_index('mean')
+        print(mean_column)
+        var_column = PriorParams.field_index('var')
+        param_cols = np.array(
+            [i for i, f in enumerate(PriorParams._fields) if f not in ('mean', 'var')])
+
         def mixture_expect_and_var(mixture):
             expectation = 0
             first = secnd = 0
             for N, tip_dict in mixture.items():
                 # assert 1 not in tip_dict.descendant_tips
-                mean = self[N][tip_dict.descendant_tips, MEAN]
-                var = self[N][tip_dict.descendant_tips, VAR]
+                mean = self[N][tip_dict.descendant_tips, mean_column]
+                var = self[N][tip_dict.descendant_tips, var_column]
                 # Mixture expectation
                 expectation += np.sum(mean * tip_dict.weight)
                 # Mixture variance
@@ -309,7 +327,7 @@ class ConditionalCoalescentTimes():
 
         seen_mixtures = {}
         # allocate space for params for all nodes, even though we only use nodes_to_date
-        num_nodes, num_params = spans_by_samples.ts.num_nodes, len((ALPHA, BETA))
+        num_nodes, num_params = spans_by_samples.ts.num_nodes, len(param_cols)
         prior = np.full((num_nodes + 1, num_params), np.nan, dtype=FLOAT_DTYPE)
         for node in spans_by_samples.nodes_to_date:
             mixture = spans_by_samples.get_weights(node)
@@ -319,7 +337,7 @@ class ConditionalCoalescentTimes():
                 if len(weight_tuple.weight) == 1:
                     d_tips = weight_tuple.descendant_tips[0]
                     # This node is not a mixture - can use the standard coalescent prior
-                    prior[node] = self[total_tips][d_tips, [ALPHA, BETA]]
+                    prior[node] = self[total_tips][d_tips, param_cols]
                 elif len(weight_tuple.weight) <= 5:
                     # Making mixture priors is a little expensive. We can help by caching
                     # in those cases where we have only a few mixtures
@@ -801,6 +819,7 @@ def create_timepoints(age_prior, prior_distr, n_points=21):
     # We can't include the top end point, as this leads to NaNs
     percentiles = np.linspace(0, 1, n_points + 1)[1:-1]
     # percentiles = np.append(percentiles, 0.999999)
+    param_cols = np.where([f not in ('mean', 'var') for f in PriorParams._fields])[0]
     """
     get the set of times from gamma percent point function at the given
     percentiles specifies the value of the RV such that the prob of the var
@@ -827,14 +846,14 @@ def create_timepoints(age_prior, prior_distr, n_points=21):
     else:
         raise ValueError("prior distribution must be lognorm or gamma")
 
-    t_set = ppf(percentiles, age_prior[2, ALPHA], age_prior[2, BETA])
+    t_set = ppf(percentiles, *age_prior[2, param_cols])
 
     # progressively add timepoints
     max_sep = 1.0 / (n_points - 1)
     if age_prior.shape[0] > 2:
         for i in np.arange(3, age_prior.shape[0]):
             # gamma percentiles of existing timepoints
-            proj = cdf(t_set, age_prior[i, ALPHA], age_prior[i, BETA])
+            proj = cdf(t_set, *age_prior[i, param_cols])
             """
             thin the timepoints, only add additional quantiles if they're more than
             a certain max_sep fraction (e.g. 0.05) from another quantile
@@ -845,7 +864,7 @@ def create_timepoints(age_prior, prior_distr, n_points=21):
             if len(wd[0]) > 0:
                 t_set = np.concatenate([
                     t_set,
-                    ppf(percentiles[wd], age_prior[i, ALPHA], age_prior[i, BETA])])
+                    ppf(percentiles[wd], *age_prior[i, param_cols])])
 
     t_set = sorted(t_set)
     return np.insert(t_set, 0, 0)
@@ -1018,12 +1037,12 @@ def fill_prior(distr_parameters, timepoints, ts, nodes_to_date, prior_distr,
         timepoints)
     if prior_distr == 'lognorm':
         cdf_func = scipy.stats.lognorm.cdf
-        main_param = np.sqrt(distr_parameters[:, BETA])
-        scale_param = np.exp(distr_parameters[:, ALPHA])
+        main_param = np.sqrt(distr_parameters[:, PriorParams.field_index('beta')])
+        scale_param = np.exp(distr_parameters[:, PriorParams.field_index('alpha')])
     elif prior_distr == 'gamma':
         cdf_func = scipy.stats.gamma.cdf
-        main_param = distr_parameters[:, ALPHA]
-        scale_param = 1 / distr_parameters[:, BETA]
+        main_param = distr_parameters[:, PriorParams.field_index('alpha')]
+        scale_param = 1 / distr_parameters[:, PriorParams.field_index('beta')]
     else:
         raise ValueError("prior distribution must be lognorm or gamma")
 
