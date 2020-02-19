@@ -1801,7 +1801,9 @@ def build_prior_grid(tree_sequence, timepoints=50, approximate_prior=None,
     return prior
 
 
-def date(tree_sequence, Ne, *args, progress=False, **kwargs):
+def date(
+        tree_sequence, Ne, mutation_rate=None, recombination_rate=None, prior=None, *,
+        progress=False, **kwargs):
     """
     Take a tree sequence with arbitrary node times and recalculate node times using
     the `tsdate` algorithm. If both a mutation_rate and recombination_rate are given, a
@@ -1836,7 +1838,9 @@ def date(tree_sequence, Ne, *args, progress=False, **kwargs):
     :return: A tree sequence with inferred node times.
     :rtype: tskit.TreeSequence
     """
-    dates, _, timepoints, eps, nds = get_dates(tree_sequence, Ne, *args, **kwargs)
+    dates, _, timepoints, eps, nds = get_dates(
+        tree_sequence, Ne, mutation_rate, recombination_rate, progress=progress,
+        **kwargs)
     constrained = constrain_ages_topo(tree_sequence, dates, timepoints, eps, nds,
                                       progress)
     tables = tree_sequence.dump_tables()
@@ -1846,10 +1850,9 @@ def date(tree_sequence, Ne, *args, progress=False, **kwargs):
 
 
 def get_dates(
-        tree_sequence, Ne, mutation_rate=None, recombination_rate=None,
-        prior=None, eps=1e-6, num_threads=None,
-        method='inside_outside', outside_normalize=True, progress=False,
-        probability_space=LOG):
+        tree_sequence, Ne, mutation_rate=None, recombination_rate=None, prior=None, *,
+        eps=1e-6, num_threads=None, method='inside_outside', outside_normalize=True,
+        progress=False, probability_space=LOG):
     """
     Infer dates for the nodes in a tree sequence, returning an array of inferred dates
     for nodes, plus other variables such as the distribution of posterior probabilities
