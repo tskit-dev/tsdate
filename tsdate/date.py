@@ -1829,12 +1829,9 @@ def date(tree_sequence, Ne, *args, progress=False, **kwargs):
         "inside_outside" (empirically better, theoretically problematic) or
         "maximization" (worse empirically, especially with a gamma approximated prior,
         but theoretically robust). Default: "inside-outside".
-    :param bool check_valid_topology: Should we take time to check that the input tree
-        sequence has only a single tree topology at each position, which is a requirement
-        for tsdate (note that single "isolated" nodes are allowed). Default: True
     :param bool probability_space: Should the internal algorithm save probabilities in
         "logarithmic" (slower, less liable to to overflow) or "linear" space (fast, may
-        overflow). Default: "linear"
+        overflow). Default: "logarithmic"
     :param bool progress: Whether to display a progress bar.
     :return: A tree sequence with inferred node times.
     :rtype: tskit.TreeSequence
