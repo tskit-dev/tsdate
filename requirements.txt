@@ -4,7 +4,6 @@ numpy
 tqdm
 daiquiri
 msprime
-tsinfer
 tskit
 scipy
 codecov
