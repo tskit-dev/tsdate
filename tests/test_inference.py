@@ -153,7 +153,11 @@ class TestSimulated(unittest.TestCase):
                 if not internal_edge_removed:
                     continue
             tables.edges.add_row(*row)
-        self.assertRaises(ValueError, tsdate.date, tables.tree_sequence(), 1, 2)
+        multi_root_ts = tables.tree_sequence()
+        good_prior = tsdate.build_prior_grid(ts)
+        self.assertRaises(ValueError, tsdate.build_prior_grid, multi_root_ts)
+        self.assertRaises(ValueError, tsdate.date, multi_root_ts, 1, 2)
+        tsdate.date(multi_root_ts, 1, 2, None, good_prior)
 
     def test_non_contemporaneous(self):
         samples = [
