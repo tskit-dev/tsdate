@@ -1839,7 +1839,7 @@ def date(
     :rtype: tskit.TreeSequence
     """
     dates, _, timepoints, eps, nds = get_dates(
-        tree_sequence, Ne, mutation_rate, recombination_rate, progress=progress,
+        tree_sequence, Ne, mutation_rate, recombination_rate, prior, progress=progress,
         **kwargs)
     constrained = constrain_ages_topo(tree_sequence, dates, timepoints, eps, nds,
                                       progress)
@@ -1876,6 +1876,7 @@ def get_dates(
     if prior is None:
         prior = build_prior_grid(tree_sequence)
     else:
+        logging.info("Using user-specified prior")
         prior = prior
 
     theta = rho = None
