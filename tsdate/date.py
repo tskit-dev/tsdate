@@ -367,10 +367,10 @@ Weights = namedtuple('Weights', 'descendant_tips weight')
 
 class SpansBySamples:
     """
-    A class to calculate and return the genomic spans covered by each
+    A class to calculate the genomic spans covered by each
     non-sample node, broken down by the number of samples that descend
     directly from that node. This is used to calculate the conditional
-    coalescent prior. The main method is :meth:`normalized_spans`, which
+    coalescent prior. The main method is :meth:`get_weights`, which
     returns the spans for a node, normalized by the total span that that
     node covers in the tree sequence.
 
