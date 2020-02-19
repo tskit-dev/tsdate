@@ -479,7 +479,10 @@ class SpansBySamples:
             if node in self.fixed_nodes:
                 return True
             n_fixed_at_0 = prev_tree.num_tracked_samples(node)
-            assert n_fixed_at_0 > 0
+            if n_fixed_at_0 == 0:
+                raise ValueError(
+                    "Invalid tree sequence: node {} has no descendant samples".format(
+                        node))
             if tree_num_children(prev_tree, node) > 1:
                 # This is a coalescent node
                 self._spans[node][num_fixed_at_0_treenodes][n_fixed_at_0] += coverage
@@ -1470,14 +1473,17 @@ class InOutAlgorithms:
 
         self.root_spans = defaultdict(float)
         for tree in self.ts.trees():
+            # TODO - use new 'root_threshold=2' to avoid having to check isolated nodes
             n_roots_in_tree = 0
             for root in tree.roots:
                 if tree_num_children(tree, root) == 0:
                     # Isolated node
                     continue
                 n_roots_in_tree += 1
+                if n_roots_in_tree > 1:
+                    raise ValueError("Invalid tree sequence: tree {} has >1 root".format(
+                        tree.index))
                 self.root_spans[root] += tree.span
-                assert n_roots_in_tree == 1  # Can't date trees with >1 topological roots
         # Add on the spans when this is a root
         for root, span_when_root in self.root_spans.items():
             self.spans[root] += span_when_root
