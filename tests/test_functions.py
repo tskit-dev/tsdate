@@ -592,19 +592,21 @@ class TestLikelihoodClass(unittest.TestCase):
                 lower_tri_log = loglik.get_mut_lik_lower_tri(e)
                 self.assertTrue(
                     np.allclose(lik.rowsum_lower_tri(lower_tri), cumul_pois))
-                self.assertTrue(
-                    np.allclose(loglik.rowsum_lower_tri(lower_tri_log),
-                                np.log(cumul_pois)))
+                with np.errstate(divide='ignore'):
+                    self.assertTrue(
+                        np.allclose(loglik.rowsum_lower_tri(lower_tri_log),
+                                    np.log(cumul_pois)))
                 upper_tri = lik.get_mut_lik_upper_tri(e)
                 upper_tri_log = loglik.get_mut_lik_upper_tri(e)
                 self.assertTrue(
                     np.allclose(
                         lik.rowsum_upper_tri(upper_tri)[::-1],
                         cumul_pois))
-                self.assertTrue(
-                    np.allclose(
-                        loglik.rowsum_upper_tri(upper_tri_log)[::-1],
-                        np.log(cumul_pois)))
+                with np.errstate(divide='ignore'):
+                    self.assertTrue(
+                        np.allclose(
+                            loglik.rowsum_upper_tri(upper_tri_log)[::-1],
+                            np.log(cumul_pois)))
 
     def test_logsumexp_streaming(self):
         lls = np.array([0.1, 0.2, 0.5])
