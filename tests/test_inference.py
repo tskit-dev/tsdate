@@ -157,7 +157,7 @@ class TestSimulated(unittest.TestCase):
         good_prior = tsdate.build_prior_grid(ts)
         self.assertRaises(ValueError, tsdate.build_prior_grid, multi_root_ts)
         self.assertRaises(ValueError, tsdate.date, multi_root_ts, 1, 2)
-        tsdate.date(multi_root_ts, 1, 2, None, good_prior)
+        self.assertRaises(ValueError, tsdate.date, multi_root_ts, 1, 2, None, good_prior)
 
     def test_non_contemporaneous(self):
         samples = [
