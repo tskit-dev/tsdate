@@ -432,6 +432,31 @@ def loopy_tree():
     return tskit.load_text(nodes=nodes, edges=edges, strict=False)
 
 
+def single_tree_ts_n3_sample_as_parent():
+    r"""
+    Simple case where we have n = 3 and one tree. Node 3 is a sample.
+            4
+           / \
+          3   \
+         / \   \
+        0   1   2
+    """
+    nodes = io.StringIO("""\
+    id      is_sample   time
+    0       1           0
+    1       1           0
+    2       1           0
+    3       1           1
+    4       0           2
+    """)
+    edges = io.StringIO("""\
+    left    right   parent  child
+    0       1       3       0,1
+    0       1       4       2,3
+    """)
+    return tskit.load_text(nodes=nodes, edges=edges, strict=False)
+
+
 def truncate_ts_samples(ts, average_span, random_seed, min_span=5):
     """
     Create a tree sequence that has sample nodes which have been truncated
