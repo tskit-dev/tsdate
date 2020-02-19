@@ -529,7 +529,7 @@ class SpansBySamples:
         # Iterate over trees and remaining edge diffs
         focal_tips = list(self.fixed_at_0_nodes)
         for prev_tree in tqdm(
-                self.ts.trees(sample_counts=True, tracked_samples=focal_tips),
+                self.ts.trees(tracked_samples=focal_tips),
                 desc="1st pass", disable=not self.progress):
 
             try:
