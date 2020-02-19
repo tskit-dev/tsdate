@@ -1,6 +1,6 @@
 # MIT License
 #
-# Copyright (c) 2019 Anthony Wilder Wohns
+# Copyright (c) 2020 University of Oxford
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -67,14 +67,17 @@ def tsdate_cli_parser():
                         help="mutation rate")
     parser.add_argument('-r', '--recombination-rate', type=float,
                         default=None, help="recombination rate")
-    parser.add_argument('-g', '--time-grid', type=str, default='adaptive',
-                        help="specify a uniform time grid")
-    parser.add_argument('-s', '--slices', type=int, default=50,
-                        help="intervals in time grid")
     parser.add_argument('-e', '--epsilon', type=float, default=1e-6,
                         help="value to add to dt")
-    parser.add_argument('-t', '--num-threads', type=int, default=0,
+    parser.add_argument('-t', '--num-threads', type=int, default=1,
                         help="number of threads to use")
+    parser.add_argument('--probability-space', type=str, default='logarithmic',
+                        help="Should the internal algorithm save probabilities in \
+                        'logarithmic' (slower, less liable to to overflow) or 'linear' \
+                        space (faster, may overflow).")
+    parser.add_argument('--method', type=str, default='inside_outside',
+                        help="Specify which estimation method to use: can be \
+                        'inside_outside' or 'maximization'.")
     parser.add_argument('-p', '--progress', action='store_true',
                         help="show progress bar")
     return parser
@@ -87,9 +90,11 @@ def run_date(args):
     except tskit.FileFormatError as ffe:
         exit("Error loading '{}: {}".format(args.ts, ffe))
     dated_ts = tsdate.date(
-        ts, args.Ne, args.mutation_rate, args.recombination_rate,
-        args.time_grid, args.slices, args.epsilon, args.num_threads,
-        args.progress)
+        ts, args.Ne, mutation_rate=args.mutation_rate,
+        recombination_rate=args.recombination_rate,
+        probability_space=args.probability.space, method=args.method,
+        eps=args.epsilon, num_threads=args.num_threads,
+        progress=args.progress)
     dated_ts.dump(args.output)
 
 
@@ -101,4 +106,4 @@ def main(args):
 def tsdate_main(arg_list=None):
     parser = tsdate_cli_parser()
     args = parser.parse_args(arg_list)
-    main(args)
+    args.runner(args)

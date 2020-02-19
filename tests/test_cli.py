@@ -27,7 +27,6 @@ import sys
 import tempfile  # NOQA - not currently used
 import pathlib  # NOQA - not currently used
 import unittest
-from unittest import mock  # NOQA - not currently used
 
 import tskit  # NOQA - not currently used
 import msprime  # NOQA - not currently used
@@ -81,12 +80,12 @@ class TestTsdateArgParser(unittest.TestCase):
         self.assertEqual(args.ts, self.infile)
         self.assertEqual(args.output, self.output)
         self.assertEqual(args.Ne, 10000)
-        self.assertEqual(args.time_grid, "adaptive")
         self.assertEqual(args.mutation_rate, None)
         self.assertEqual(args.recombination_rate, None)
-        self.assertEqual(args.slices, 50)
         self.assertEqual(args.epsilon, 1e-6)
-        self.assertEqual(args.num_threads, 0)
+        self.assertEqual(args.num_threads, 1)
+        self.assertEqual(args.probability_space, 'logarithmic')
+        self.assertEqual(args.method, 'inside_outside')
         self.assertFalse(args.progress)
 
     def test_Ne(self):
@@ -95,14 +94,6 @@ class TestTsdateArgParser(unittest.TestCase):
         self.assertEqual(args.Ne, 10000)
         args = parser.parse_args([self.infile, self.output, "--Ne", "10000"])
         self.assertEqual(args.Ne, 10000)
-
-    def test_time_grid(self):
-        parser = cli.tsdate_cli_parser()
-        args = parser.parse_args(
-            [self.infile, self.output, "-g", "adaptive"])
-        self.assertEqual(args.time_grid, "adaptive")
-        args = parser.parse_args([self.infile, self.output, "--time-grid", "uniform"])
-        self.assertEqual(args.time_grid, "uniform")
 
     def test_mutation_rate(self):
         parser = cli.tsdate_cli_parser()
@@ -119,19 +110,42 @@ class TestTsdateArgParser(unittest.TestCase):
             [self.infile, self.output, "--recombination-rate", "1e-100"])
         self.assertEqual(args.recombination_rate, 1e-100)
 
-    def test_slices(self):
-        parser = cli.tsdate_cli_parser()
-        args = parser.parse_args([self.infile, self.output, "-s", "100"])
-        self.assertEqual(args.slices, 100)
-        args = parser.parse_args([self.infile, self.output, "--slices", "100"])
-        self.assertEqual(args.slices, 100)
-
     def test_epsilon(self):
         parser = cli.tsdate_cli_parser()
         args = parser.parse_args([self.infile, self.output, "-e", "123"])
         self.assertEqual(args.epsilon, 123)
         args = parser.parse_args([self.infile, self.output, "--epsilon", "321"])
         self.assertEqual(args.epsilon, 321)
+
+    def test_num_threads(self):
+        parser = cli.tsdate_cli_parser()
+        args = parser.parse_args([self.infile, self.output, "--num-threads", "1"])
+        self.assertEqual(args.num_threads, 1)
+        args = parser.parse_args([self.infile, self.output, "--num-threads", "2"])
+        self.assertEqual(args.num_threads, 2)
+
+    def test_probability_space(self):
+        parser = cli.tsdate_cli_parser()
+        args = parser.parse_args([self.infile, self.output, "--probability-space",
+                                  "linear"])
+        self.assertEqual(args.probability_space, "linear")
+        args = parser.parse_args([self.infile, self.output, "--probability-space",
+                                  "logarithmic"])
+        self.assertEqual(args.probability_space, "logarithmic")
+
+    def test_method(self):
+        parser = cli.tsdate_cli_parser()
+        args = parser.parse_args([self.infile, self.output, "--method",
+                                  "inside_outside"])
+        self.assertEqual(args.method, "inside_outside")
+        args = parser.parse_args([self.infile, self.output, "--method",
+                                  "maximization"])
+        self.assertEqual(args.method, "maximization")
+
+    def test_progress(self):
+        parser = cli.tsdate_cli_parser()
+        args = parser.parse_args([self.infile, self.output, "--progress"])
+        self.assertTrue(args.progress)
 
 
 class TestCli(unittest.TestCase):
