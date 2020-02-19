@@ -513,7 +513,7 @@ class TestLikelihoodClass(unittest.TestCase):
                 if not ts.node(edge.child).is_sample():
                     n_internal_edges += 1  # only two internal edges in this tree
                     self.assertLessEqual(n_internal_edges, 2)
-                    span = edge.span
+                    span = edge.right - edge.left
                     expected_lik_dt = self.poisson(dt * (theta / 2 * span), num_muts)
                     upper_tri = lik.get_mut_lik_upper_tri(edge)
 

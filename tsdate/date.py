@@ -56,7 +56,7 @@ def tree_num_children(tree, node):
 
 
 def tree_is_isolated(tree, node):
-    return tree.num_children(node) == 0 and tree.parent(node) == tskit.NULL
+    return tree_num_children(tree, node) == 0 and tree.parent(node) == tskit.NULL
 
 
 def tree_iterator_len(it):
@@ -529,7 +529,7 @@ class SpansBySamples:
         # Iterate over trees and remaining edge diffs
         focal_tips = list(self.fixed_at_0_nodes)
         for prev_tree in tqdm(
-                self.ts.trees(sample_counts=True, tracked_samples=focal_tips),
+                self.ts.trees(tracked_samples=focal_tips),
                 desc="1st pass", disable=not self.progress):
 
             try:
@@ -1149,7 +1149,7 @@ class Likelihoods:
             raise RuntimeError("Cannot calculate mutation likelihoods with no theta set")
         if unique_method == 0:
             self.unfixed_likelihood_cache = {
-                (muts, e.span): None for muts, e in
+                (muts, edge_span(e)): None for muts, e in
                 zip(self.mut_edges, self.ts.edges())
                 if e.child not in self.fixednodes}
         else:
@@ -1472,7 +1472,7 @@ class InOutAlgorithms:
         for tree in self.ts.trees():
             n_roots_in_tree = 0
             for root in tree.roots:
-                if tree.num_children(root) == 0:
+                if tree_num_children(tree, root) == 0:
                     # Isolated node
                     continue
                 n_roots_in_tree += 1
