@@ -36,7 +36,7 @@ import tsdate
 from tsdate.date import (ALPHA, BETA, MEAN, VAR, SpansBySamples,
                          ConditionalCoalescentTimes, fill_prior, Likelihoods,
                          LogLikelihoods, LogLikelihoodsStreaming, InOutAlgorithms,
-                         NodeGridValues, gamma_approx)  # NOQA
+                         NodeGridValues, gamma_approx, constrain_ages_topo)  # NOQA
 
 import utility_functions
 
@@ -1021,6 +1021,29 @@ class TestMaximization(unittest.TestCase):
                             maximized_ages,
                             np.array([0, 0, 0, node_3, node_4])))
 
+    def test_two_tree_ts(self):
+        ts = utility_functions.two_tree_ts()
+        for prior_distr in ('lognorm', 'gamma'):
+            lls, algo, maximized_ages = self.run_outside_maximization(ts, prior_distr)
+            node_5 = lls.timepoints[np.argmax(algo.inside[5])]
+            ll_mut = scipy.stats.poisson.pmf(
+                0, (node_5 - lls.timepoints[:np.argmax(algo.inside[5]) + 1] + 1e-6) *
+                1 / 2 * 0.8)
+            result = ll_mut / np.max(ll_mut)
+            inside_val = algo.inside[4][:(np.argmax(algo.inside[5]) + 1)]
+            node_4 = lls.timepoints[np.argmax(
+                result[:np.argmax(algo.inside[5]) + 1] * inside_val)]
+            ll_mut = scipy.stats.poisson.pmf(
+                0, (node_4 - lls.timepoints[:np.argmax(algo.inside[4]) + 1] + 1e-6) *
+                1 / 2 * 0.2)
+            result = ll_mut / np.max(ll_mut)
+            inside_val = algo.inside[3][:(np.argmax(algo.inside[4]) + 1)]
+            node_3 = lls.timepoints[np.argmax(
+                result[:np.argmax(algo.inside[4]) + 1] * inside_val)]
+            self.assertTrue(np.array_equal(
+                            maximized_ages,
+                            np.array([0, 0, 0, node_3, node_4, node_5])))
+
 
 class TestDate(unittest.TestCase):
     """
@@ -1056,4 +1079,35 @@ class TestBuildPriorGrid(unittest.TestCase):
         self.assertRaises(ValueError, tsdate.build_prior_grid, ts,
                           timepoints=np.array([1, 1, 1]))
         self.assertRaises(ValueError, tsdate.build_prior_grid, ts,
+                          timepoints="foobar")
+        self.assertRaises(ValueError, tsdate.build_prior_grid, ts,
                           prior_distribution="foobar")
+
+class TestConstrainAgesTopo(unittest.TestCase):
+    """
+    Test constrain_ages_topo works as expected
+    """
+    def test_constrain_ages_topo(self):
+        """
+        Set node 3 to be older than node 4 in two_tree_ts
+        """
+        ts = utility_functions.two_tree_ts()
+        post_mn = np.array([0., 0., 0., 2., 1., 3.])
+        timepoints = np.array([0, 1, 2])
+        eps = 1e-6
+        nodes_to_date = np.array([3, 4, 5])
+        constrained_ages = constrain_ages_topo(ts, post_mn, timepoints, eps,
+                                               nodes_to_date)
+        self.assertTrue(np.array_equal(np.array([0., 0., 0., 2., 2.000001, 3.]),
+                                       constrained_ages))
+
+    def test_constrain_ages_topo_no_nodes_to_date(self):
+        ts = utility_functions.two_tree_ts()
+        post_mn = np.array([0., 0., 0., 2., 1., 3.])
+        timepoints = np.array([0, 1, 2])
+        eps = 1e-6
+        nodes_to_date = None
+        constrained_ages = constrain_ages_topo(ts, post_mn, timepoints, eps,
+                                               nodes_to_date)
+        self.assertTrue(np.array_equal(np.array([0., 0., 0., 2., 2.000001, 3.]),
+                                       constrained_ages))
