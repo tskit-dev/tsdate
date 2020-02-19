@@ -1782,7 +1782,16 @@ def build_prior_grid(tree_sequence, timepoints=50, approximate_prior=None,
         timepoints = create_timepoints(
             base_priors[tree_sequence.num_samples], prior_distribution, timepoints + 1)
     elif isinstance(timepoints, np.ndarray):
-        timepoints = np.sort(timepoints.astype(FLOAT_DTYPE, casting='safe'))
+        try:
+            timepoints = np.sort(timepoints.astype(FLOAT_DTYPE, casting='safe'))
+        except TypeError:
+            logging.debug("Timepoints array cannot be converted to float dtype")
+        if len(timepoints) < 2:
+            raise ValueError("You must have at least 2 time points")
+        elif np.any(timepoints < 0):
+            raise ValueError("Timepoints cannot be negative")
+        elif np.any(np.unique(timepoints, return_counts=True)[1] > 1):
+            raise ValueError("Timepoints cannot have duplicate values")
     else:
         raise ValueError("time_slices must be an integer or a numpy array of floats")
 

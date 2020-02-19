@@ -945,3 +945,31 @@ class TestMaximization(unittest.TestCase):
             self.assertTrue(np.array_equal(
                             maximized_ages,
                             np.array([0, 0, 0, node_3, node_4])))
+
+
+class TestDate(unittest.TestCase):
+    """
+    Test inputs to tsdate.date()
+    """
+    def test_date_input(self):
+        ts = msprime.simulate(2)
+        self.assertRaises(ValueError, tsdate.date, ts, 1, method="foobar")
+
+
+class TestBuildPriorGrid(unittest.TestCase):
+    """
+    Test tsdate.build_prior_grid() works as expected
+    """
+    def test_build_prior_grid_input(self):
+        ts = msprime.simulate(2)
+        self.assertRaises(ValueError, tsdate.build_prior_grid, ts, timepoints=-1)
+        self.assertRaises(ValueError, tsdate.build_prior_grid, ts,
+                          timepoints=np.array([1]))
+        self.assertRaises(ValueError, tsdate.build_prior_grid, ts,
+                          timepoints=np.array([-1, 2, 3]))
+        self.assertRaises(TypeError, tsdate.build_prior_grid, ts,
+                          timepoints=np.array(["hello", "there"]))
+        self.assertRaises(ValueError, tsdate.build_prior_grid, ts,
+                          timepoints=np.array([1, 1, 1]))
+        self.assertRaises(ValueError, tsdate.build_prior_grid, ts,
+                          prior_distribution="foobar")

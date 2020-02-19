@@ -4,9 +4,8 @@ numpy
 tqdm
 daiquiri
 msprime
-pandas
-tskit
 tsinfer
+tskit
 scipy
 codecov
 numba
