@@ -127,15 +127,16 @@ class ConditionalCoalescentTimes():
 
     def __getitem__(self, total_tips):
         """
-        Return a pandas dataframe for the conditional number of total tips in the tree.
-        Return a pandas dataframe of conditional prior on age of node
+        Return a numpy array of conditional coalescent prior parameters plus mean and
+        var (row N indicates the parameters for a N descendant tips) for a given
+        number of total tips in the tree
         """
         return self.prior_store[total_tips]
 
     def add(self, total_tips, approximate=None):
         """
-        Create a pandas dataframe to lookup prior mean and variance of
-        ages for nodes with descendant sample tips range from 2..``total_tips``
+        Create and store a numpy array used to lookup prior paramsn and mean + variance
+        of ages for nodes with descendant sample tips range from 2..``total_tips``
         given that the total number of tips in the coalescent tree is
         ``total_tips``. The array is indexed by (num_tips / total_tips).
 
@@ -296,11 +297,11 @@ class ConditionalCoalescentTimes():
         :param .SpansBySamples spans_by_samples: An instance of the
             :class:`SpansBySamples` class that can be used to obtain
             weights for each.
-        :return: A data frame giving the alpha and beta parameters for each
-            node id in ``spans_by_samples.nodes_to_date``, which can be used
-            to approximate the probabilities of times for that node used a
-            gamma distribution.
-        :rtype:  pandas.DataFrame
+        :return: A numpy array whose rows correspons to the node id in
+            ``spans_by_samples.nodes_to_date`` and whose columns are PriorParams.
+            This can be used to approximate the probabilities of times for that
+            node by matching agaist an appropriate distribution (e.g. gamma or lognorm)
+        :rtype:  numpy.ndarray
         """
 
         mean_column = PriorParams.field_index('mean')
@@ -759,8 +760,7 @@ class SpansBySamples:
             self._spans[node] = {}  # Overwrite, so we don't leave the old data around
             for num_samples, weights in sorted(weights_by_total_tips.items()):
                 self._spans[node][num_samples] = Weights(
-                    # we use np.int64 as it's faster to look up in pandas dataframes
-                    descendant_tips=np.array(list(weights.keys()), dtype=np.int64),
+                    descendant_tips=np.array(list(weights.keys()), dtype=np.uint64),
                     weight=np.array(list(weights.values()))/self.node_spans[node])
         # Assign into the instance, for further reference
         self.normalized_node_span_data = self._spans
