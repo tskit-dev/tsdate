@@ -973,4 +973,3 @@ class TestBuildPriorGrid(unittest.TestCase):
                           timepoints=np.array([1, 1, 1]))
         self.assertRaises(ValueError, tsdate.build_prior_grid, ts,
                           prior_distribution="foobar")
-
