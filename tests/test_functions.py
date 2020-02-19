@@ -35,8 +35,8 @@ import msprime
 import tsdate
 from tsdate.date import (ALPHA, BETA, MEAN, VAR, SpansBySamples,
                          ConditionalCoalescentTimes, fill_prior, Likelihoods,
-                         InOutAlgorithms, NodeGridValues, gamma_approx
-                         )  # NOQA
+                         LogLikelihoods, LogLikelihoodsStreaming, InOutAlgorithms,
+                         NodeGridValues, gamma_approx)  # NOQA
 
 import utility_functions
 
@@ -437,6 +437,10 @@ class TestLikelihoodClass(unittest.TestCase):
         ll = np.exp(-l) * l ** x / scipy.special.factorial(x)
         return ll / np.max(ll)
 
+    def log_poisson(self, l, x):
+        ll = np.log(np.exp(-l) * l ** x / scipy.special.factorial(x))
+        return ll - np.max(ll)
+
     def test_get_mut_edges(self):
         ts = utility_functions.two_tree_mutation_ts()
         mutations_per_edge = Likelihoods.get_mut_edges(ts)
@@ -452,9 +456,13 @@ class TestLikelihoodClass(unittest.TestCase):
         ts = utility_functions.two_tree_mutation_ts()
         grid = np.array([0, 1, 2])
         lik = Likelihoods(ts, grid)
+        loglik = LogLikelihoods(ts, grid)
         self.assertRaises(AssertionError, lik.get_mut_lik_fixed_node, ts.edge(0))
         self.assertRaises(AssertionError, lik.get_mut_lik_lower_tri, ts.edge(0))
         self.assertRaises(AssertionError, lik.get_mut_lik_upper_tri, ts.edge(0))
+        self.assertRaises(AssertionError, loglik.get_mut_lik_fixed_node, ts.edge(0))
+        self.assertRaises(AssertionError, loglik.get_mut_lik_lower_tri, ts.edge(0))
+        self.assertRaises(AssertionError, loglik.get_mut_lik_upper_tri, ts.edge(0))
 
     def test_no_theta_class(self):
         ts = utility_functions.two_tree_mutation_ts()
@@ -549,6 +557,64 @@ class TestLikelihoodClass(unittest.TestCase):
                     np.allclose(
                         lik.rowsum_upper_tri(upper_tri)[::-1],
                         cumul_pois))
+
+    def test_create_class(self):
+        ts = utility_functions.two_tree_mutation_ts()
+        grid = np.array([0, 1, 2])
+
+    def test_no_theta_class_loglikelihood(self):
+        ts = utility_functions.two_tree_mutation_ts()
+        grid = np.array([0, 1, 2])
+        lik = LogLikelihoods(ts, grid, theta=None)
+        self.assertRaises(RuntimeError, lik.precalculate_mutation_likelihoods)
+
+    def test_logsumexp(self):
+        lls = np.array([0.1, 0.2, 0.5])
+        ll_sum = np.sum(lls)
+        log_lls = np.log(lls)
+        self.assertEqual(LogLikelihoods.logsumexp(log_lls), np.log(ll_sum))
+
+    def test_log_tri_functions(self):
+        ts = utility_functions.two_tree_mutation_ts()
+        grid = np.array([0, 1, 2])
+        eps = 0
+        theta = 1
+        lik = Likelihoods(ts, grid, theta, eps)
+        loglik = LogLikelihoods(ts, grid, theta=theta, eps=eps)
+        lik.precalculate_mutation_likelihoods()
+        loglik.precalculate_mutation_likelihoods()
+        for e in ts.edges():
+            if e.child == 3 and e.parent == 4:
+                exp_branch_muts = 2
+                exp_span = 0.2
+                self.assertEqual(e.right - e.left, exp_span)
+                self.assertEqual(lik.mut_edges[e.id], exp_branch_muts)
+                self.assertEqual(loglik.mut_edges[e.id], exp_branch_muts)
+                pois_lambda = grid * theta / 2 * exp_span
+                cumul_pois = np.cumsum(self.poisson(pois_lambda, exp_branch_muts))
+                lower_tri = lik.get_mut_lik_lower_tri(e)
+                lower_tri_log = loglik.get_mut_lik_lower_tri(e)
+                self.assertTrue(
+                    np.allclose(lik.rowsum_lower_tri(lower_tri), cumul_pois))
+                self.assertTrue(
+                    np.allclose(loglik.rowsum_lower_tri(lower_tri_log), np.log(cumul_pois)))
+                upper_tri = lik.get_mut_lik_upper_tri(e)
+                upper_tri_log = loglik.get_mut_lik_upper_tri(e)
+                self.assertTrue(
+                    np.allclose(
+                        lik.rowsum_upper_tri(upper_tri)[::-1],
+                        cumul_pois))
+                self.assertTrue(
+                    np.allclose(
+                        loglik.rowsum_upper_tri(upper_tri_log)[::-1],
+                        np.log(cumul_pois)))
+
+    def test_logsumexp_streaming(self):
+            lls = np.array([0.1, 0.2, 0.5])
+            ll_sum = np.sum(lls)
+            log_lls = np.log(lls)
+            self.assertTrue(np.allclose(LogLikelihoodsStreaming.logsumexp(log_lls),
+                                         np.log(ll_sum)))
 
 
 class TestNodeGridValuesClass(unittest.TestCase):
@@ -755,7 +821,7 @@ class TestInsideAlgorithm(unittest.TestCase):
         self.assertTrue(np.allclose(algo.inside[5], np.array([0, 7.06320034e-11, 1])))
 
 
-class TestDownwardAlgorithm(unittest.TestCase):
+class TestOutsideAlgorithm(unittest.TestCase):
     def run_outside_algorithm(self, ts, prior_distr="lognorm"):
         span_data = SpansBySamples(ts)
         priors = ConditionalCoalescentTimes(None, prior_distr)
@@ -806,6 +872,16 @@ class TestDownwardAlgorithm(unittest.TestCase):
             # Root, should this be 0,1,1 or 1,1,1
             self.assertTrue(np.allclose(
                             algo.outside[6], np.array([1, 1, 1])))
+
+    def test_outside_before_inside_fails(self):
+        ts = utility_functions.single_tree_ts_n2()
+        prior = tsdate.build_prior_grid(ts)
+        theta = 1
+        rho = None
+        lls = Likelihoods(ts, prior.timepoints, theta)
+        lls.precalculate_mutation_likelihoods()
+        algo = InOutAlgorithms(ts, prior, lls)
+        self.assertRaises(RuntimeError, algo.outside_pass, theta, rho)
 
 
 class TestTotalFunctionalValueTree(unittest.TestCase):
@@ -952,8 +1028,17 @@ class TestDate(unittest.TestCase):
     Test inputs to tsdate.date()
     """
     def test_date_input(self):
-        ts = msprime.simulate(2)
+        ts = utility_functions.single_tree_ts_n2()
         self.assertRaises(ValueError, tsdate.date, ts, 1, method="foobar")
+
+    def test_sample_as_parent_fails(self):
+        ts = utility_functions.single_tree_ts_n3_sample_as_parent()
+        self.assertRaises(NotImplementedError, tsdate.date, ts, 1)
+
+    def test_recombination_not_implemented(self):
+        ts = utility_functions.single_tree_ts_n2()
+        self.assertRaises(NotImplementedError, tsdate.date, ts, 1,
+                          recombination_rate=1e-8)
 
 
 class TestBuildPriorGrid(unittest.TestCase):
