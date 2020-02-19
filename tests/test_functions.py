@@ -1083,6 +1083,7 @@ class TestBuildPriorGrid(unittest.TestCase):
         self.assertRaises(ValueError, tsdate.build_prior_grid, ts,
                           prior_distribution="foobar")
 
+
 class TestConstrainAgesTopo(unittest.TestCase):
     """
     Test constrain_ages_topo works as expected
