@@ -725,7 +725,7 @@ class TestInsideAlgorithm(unittest.TestCase):
         eps = 1e-6
         lls = Likelihoods(ts, prior.timepoints, theta, eps)
         lls.precalculate_mutation_likelihoods()
-        algo = InOutAlgorithms(ts, prior, lls, extended_checks=True)
+        algo = InOutAlgorithms(ts, prior, lls)
         algo.inside_pass(theta, rho, normalize=normalize)
         return algo, prior
 
@@ -835,7 +835,7 @@ class TestOutsideAlgorithm(unittest.TestCase):
         eps = 1e-6
         lls = Likelihoods(ts, grid, theta, eps)
         lls.precalculate_mutation_likelihoods()
-        algo = InOutAlgorithms(ts, prior_vals, lls, extended_checks=True)
+        algo = InOutAlgorithms(ts, prior_vals, lls)
         algo.inside_pass(theta, rho)
         algo.outside_pass(theta, rho, normalize=False)
         return algo
@@ -954,32 +954,33 @@ class TestGilTree(unittest.TestCase):
     """
 
     def test_gil_tree(self):
-        ts = utility_functions.gils_example_tree()
-        span_data = SpansBySamples(ts)
-        prior_distr = 'lognorm'
-        priors = ConditionalCoalescentTimes(None, prior_distr=prior_distr)
-        priors.add(ts.num_samples, approximate=False)
-        grid = np.array([0, 0.1, 0.2, 0.5, 1, 2, 5])
-        mixture_prior = priors.get_mixture_prior_params(span_data)
-        nodes_to_date = span_data.nodes_to_date
-        prior_vals = fill_prior(
-            mixture_prior, grid, ts, nodes_to_date, prior_distr)
-        prior_vals.grid_data[0] = [0, 0.5, 0.3, 0.1, 0.05, 0.02, 0.03]
-        prior_vals.grid_data[1] = [0, 0.05, 0.1, 0.2, 0.45, 0.1, 0.1]
-        theta = 2
-        rho = None
-        eps = 0.01
-        lls = Likelihoods(ts, grid, theta, eps, normalize=False)
-        lls.precalculate_mutation_likelihoods()
-        algo = InOutAlgorithms(ts, prior_vals, lls)
-        algo.inside_pass(theta, rho, normalize=False)
-        algo.outside_pass(theta, rho, normalize=False)
-        self.assertTrue(
-            np.allclose(np.sum(algo.inside.grid_data * algo.outside.grid_data, axis=1),
-                        [7.44449E-05, 7.44449E-05]))
-        self.assertTrue(
-            np.allclose(np.sum(algo.inside.grid_data * algo.outside.grid_data, axis=1),
-                        np.sum(algo.inside.grid_data[-1])))
+        for cache_inside in [False, True]:
+            ts = utility_functions.gils_example_tree()
+            span_data = SpansBySamples(ts)
+            prior_distr = 'lognorm'
+            priors = ConditionalCoalescentTimes(None, prior_distr=prior_distr)
+            priors.add(ts.num_samples, approximate=False)
+            grid = np.array([0, 0.1, 0.2, 0.5, 1, 2, 5])
+            mixture_prior = priors.get_mixture_prior_params(span_data)
+            nodes_to_date = span_data.nodes_to_date
+            prior_vals = fill_prior(
+                mixture_prior, grid, ts, nodes_to_date, prior_distr)
+            prior_vals.grid_data[0] = [0, 0.5, 0.3, 0.1, 0.05, 0.02, 0.03]
+            prior_vals.grid_data[1] = [0, 0.05, 0.1, 0.2, 0.45, 0.1, 0.1]
+            theta = 2
+            rho = None
+            eps = 0.01
+            lls = Likelihoods(ts, grid, theta, eps, normalize=False)
+            lls.precalculate_mutation_likelihoods()
+            algo = InOutAlgorithms(ts, prior_vals, lls)
+            algo.inside_pass(theta, rho, normalize=False, cache_inside=cache_inside)
+            algo.outside_pass(theta, rho, normalize=False)
+            self.assertTrue(
+                np.allclose(np.sum(algo.inside.grid_data * algo.outside.grid_data,
+                                   axis=1), [7.44449E-05, 7.44449E-05]))
+            self.assertTrue(
+                np.allclose(np.sum(algo.inside.grid_data * algo.outside.grid_data,
+                                   axis=1), np.sum(algo.inside.grid_data[-1])))
 
 
 class TestMaximization(unittest.TestCase):

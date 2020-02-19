@@ -1455,14 +1455,13 @@ class InOutAlgorithms:
     """
     Contains the inside and outside algorithms
     """
-    def __init__(self, ts, prior, lik, progress=False, extended_checks=False):
+    def __init__(self, ts, prior, lik, progress=False):
         self.ts = ts
         self.prior = prior
         self.nonfixed_nodes = prior.nonfixed_nodes
         self.lik = lik
         self.fixednodes = lik.fixednodes
         self.progress = progress
-        self.extended_checks = extended_checks
         # If necessary, convert prior to log space
         self.prior.force_probability_space(lik.probability_space)
 
@@ -1525,7 +1524,8 @@ class InOutAlgorithms:
 
     # === MAIN ALGORITHMS ===
 
-    def inside_pass(self, theta, rho, *, normalize=True, progress=None):
+    def inside_pass(self, theta, rho, *, normalize=True, cache_inside=False,
+                    progress=None):
         """
         Use dynamic programming to find approximate posterior to sample from
         """
@@ -1533,11 +1533,10 @@ class InOutAlgorithms:
             progress = self.progress
         inside = self.prior.clone_with_new_data(  # store inside matrix values
             grid_data=np.nan, fixed_data=self.lik.identity_constant)
-        g_i = np.full(
-            (self.ts.num_edges, self.lik.grid_size), self.lik.identity_constant)
+        if cache_inside:
+            g_i = np.full(
+                (self.ts.num_edges, self.lik.grid_size), self.lik.identity_constant)
         norm = np.full(self.ts.num_nodes, np.nan)
-        if self.extended_checks:
-            spantot = np.zeros(self.ts.num_nodes)
         # Iterate through the nodes via groupby on parent node
         for parent, edges in tqdm(
                 self.edges_by_parent_asc(), desc="Inside ",
@@ -1551,8 +1550,6 @@ class InOutAlgorithms:
             val = self.prior[parent].copy()
             for edge in edges:
                 spanfrac = edge_span(edge) / self.spans[edge.child]
-                if self.extended_checks:
-                    spantot[edge.child] += edge_span(edge)
                 # Calculate vals for each edge
                 if edge.child in self.fixednodes:
                     # NB: geometric scaling works exactly when all nodes fixed in graph
@@ -1564,14 +1561,14 @@ class InOutAlgorithms:
                         spanfrac, self.lik.make_lower_tri(inside[edge.child]))
                     edge_lik = self.lik.get_inside(daughter_val, edge, theta, rho)
                 val = self.lik.combine(val, edge_lik)
-                g_i[edge.id] = edge_lik
+                if cache_inside:
+                    g_i[edge.id] = edge_lik
             norm[parent] = np.max(val) if normalize else 1
             inside[parent] = self.lik.reduce(val, norm[parent])
-        g_i = self.lik.reduce(g_i, norm[self.ts.tables.edges.child, None])
-
+        if cache_inside:
+            self.g_i = self.lik.reduce(g_i, norm[self.ts.tables.edges.child, None])
         # Keep the results in this object
         self.inside = inside
-        self.g_i = g_i
         self.norm = norm
 
     def outside_pass(
@@ -1611,18 +1608,16 @@ class InOutAlgorithms:
                 # Geometric scaling works exactly for all nodes fixed in graph
                 # but is an approximation when times are unknown.
                 spanfrac = edge_span(edge) / self.spans[child]
-                if self.extended_checks:
-                    cur_g_i = self.lik.reduce(
-                        self.lik.rowsum_lower_tri(
-                            self.lik.combine(
-                                self.lik.scale_geometric(
-                                    spanfrac,
-                                    self.lik.make_lower_tri(self.inside[edge.child])),
-                                self.lik.get_mut_lik_lower_tri(edge))),
-                        self.norm[child])
-                    assert np.all(cur_g_i == self.g_i[edge.id])
-                inside_div_gi = self.lik.reduce(
-                    self.inside[edge.parent], self.g_i[edge.id], div_0_null=True)
+                try:
+                    inside_div_gi = self.lik.reduce(
+                        self.inside[edge.parent], self.g_i[edge.id], div_0_null=True)
+                except AttributeError:  # we haven't cached g_i so we recalculate
+                    daughter_val = self.lik.scale_geometric(
+                        spanfrac, self.lik.make_lower_tri(self.inside[edge.child]))
+                    edge_lik = self.lik.get_inside(daughter_val, edge, theta, rho)
+                    cur_g_i = self.lik.reduce(edge_lik, self.norm[child])
+                    inside_div_gi = self.lik.reduce(
+                        self.inside[edge.parent], cur_g_i, div_0_null=True)
                 parent_val = self.lik.scale_geometric(
                     spanfrac,
                     self.lik.make_upper_tri(
@@ -1852,7 +1847,8 @@ def date(
 def get_dates(
         tree_sequence, Ne, mutation_rate=None, recombination_rate=None, prior=None, *,
         eps=1e-6, num_threads=None, method='inside_outside', outside_normalize=True,
-        progress=False, probability_space=LOG):
+        progress=False, cache_inside=False,
+        probability_space=LOG):
     """
     Infer dates for the nodes in a tree sequence, returning an array of inferred dates
     for nodes, plus other variables such as the distribution of posterior probabilities
@@ -1896,11 +1892,8 @@ def get_dates(
     if theta is not None:
         liklhd.precalculate_mutation_likelihoods(num_threads=num_threads)
 
-    dynamic_prog = InOutAlgorithms(
-        tree_sequence, prior, liklhd,
-        progress=progress, extended_checks=True)
-
-    dynamic_prog.inside_pass(theta, rho)
+    dynamic_prog = InOutAlgorithms(tree_sequence, prior, liklhd, progress=progress)
+    dynamic_prog.inside_pass(theta, rho, cache_inside=False)
 
     posterior = None
     if method == 'inside_outside':
