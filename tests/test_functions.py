@@ -558,10 +558,6 @@ class TestLikelihoodClass(unittest.TestCase):
                         lik.rowsum_upper_tri(upper_tri)[::-1],
                         cumul_pois))
 
-    def test_create_class(self):
-        ts = utility_functions.two_tree_mutation_ts()
-        grid = np.array([0, 1, 2])
-
     def test_no_theta_class_loglikelihood(self):
         ts = utility_functions.two_tree_mutation_ts()
         grid = np.array([0, 1, 2])
@@ -597,7 +593,8 @@ class TestLikelihoodClass(unittest.TestCase):
                 self.assertTrue(
                     np.allclose(lik.rowsum_lower_tri(lower_tri), cumul_pois))
                 self.assertTrue(
-                    np.allclose(loglik.rowsum_lower_tri(lower_tri_log), np.log(cumul_pois)))
+                    np.allclose(loglik.rowsum_lower_tri(lower_tri_log),
+                                np.log(cumul_pois)))
                 upper_tri = lik.get_mut_lik_upper_tri(e)
                 upper_tri_log = loglik.get_mut_lik_upper_tri(e)
                 self.assertTrue(
@@ -610,11 +607,11 @@ class TestLikelihoodClass(unittest.TestCase):
                         np.log(cumul_pois)))
 
     def test_logsumexp_streaming(self):
-            lls = np.array([0.1, 0.2, 0.5])
-            ll_sum = np.sum(lls)
-            log_lls = np.log(lls)
-            self.assertTrue(np.allclose(LogLikelihoodsStreaming.logsumexp(log_lls),
-                                         np.log(ll_sum)))
+        lls = np.array([0.1, 0.2, 0.5])
+        ll_sum = np.sum(lls)
+        log_lls = np.log(lls)
+        self.assertTrue(np.allclose(LogLikelihoodsStreaming.logsumexp(log_lls),
+                                    np.log(ll_sum)))
 
 
 class TestNodeGridValuesClass(unittest.TestCase):
