@@ -132,8 +132,24 @@ class TestSimulated(unittest.TestCase):
         ts = msprime.simulate(
             sample_size=10, length=2e6, Ne=10000, mutation_rate=1e-8,
             recombination_rate=1e-8, random_seed=11)
-        dated_ts = tsdate.date(ts, Ne=10000, mutation_rate=1e-8)
+        dated_ts = tsdate.date(ts, Ne=10000, mutation_rate=1e-8, method='inside_outside')
+        maximized_ts = tsdate.date(ts, Ne=10000, mutation_rate=1e-8,
+                                   method='maximization')
         self.ts_equal_except_times(ts, dated_ts)
+        self.ts_equal_except_times(ts, maximized_ts)
+
+    def test_linear_space(self):
+        # This makes ~1700 trees, and previously caused a failure
+        ts = msprime.simulate(
+            sample_size=10, length=2e6, Ne=10000, mutation_rate=1e-8,
+            recombination_rate=1e-8, random_seed=11)
+        prior = tsdate.build_prior_grid(ts, timepoints=10, approximate_prior=None)
+        dated_ts = tsdate.date(ts, Ne=10000, mutation_rate=1e-8, prior=prior,
+                               method='inside_outside', probability_space="linear")
+        maximized_ts = tsdate.date(ts, Ne=10000, mutation_rate=1e-8, prior=prior,
+                                   method='maximization', probability_space="linear")
+        self.ts_equal_except_times(ts, dated_ts)
+        self.ts_equal_except_times(ts, maximized_ts)
 
     def test_with_unary(self):
         ts = msprime.simulate(
