@@ -56,7 +56,7 @@ def tree_num_children(tree, node):
 
 
 def tree_is_isolated(tree, node):
-    return tree.num_children(node) == 0 and tree.parent(node) == tskit.NULL
+    return tree_num_children(tree, node) == 0 and tree.parent(node) == tskit.NULL
 
 
 def tree_iterator_len(it):
@@ -1149,7 +1149,7 @@ class Likelihoods:
             raise RuntimeError("Cannot calculate mutation likelihoods with no theta set")
         if unique_method == 0:
             self.unfixed_likelihood_cache = {
-                (muts, e.span): None for muts, e in
+                (muts, edge_span(e)): None for muts, e in
                 zip(self.mut_edges, self.ts.edges())
                 if e.child not in self.fixednodes}
         else:
@@ -1472,7 +1472,7 @@ class InOutAlgorithms:
         for tree in self.ts.trees():
             n_roots_in_tree = 0
             for root in tree.roots:
-                if tree.num_children(root) == 0:
+                if tree_num_children(tree, root) == 0:
                     # Isolated node
                     continue
                 n_roots_in_tree += 1
@@ -1776,7 +1776,16 @@ def build_prior_grid(tree_sequence, timepoints=50, approximate_prior=None,
         timepoints = create_timepoints(
             base_priors[tree_sequence.num_samples], prior_distribution, timepoints + 1)
     elif isinstance(timepoints, np.ndarray):
-        timepoints = np.sort(timepoints.astype(FLOAT_DTYPE, casting='safe'))
+        try:
+            timepoints = np.sort(timepoints.astype(FLOAT_DTYPE, casting='safe'))
+        except TypeError:
+            logging.debug("Timepoints array cannot be converted to float dtype")
+        if len(timepoints) < 2:
+            raise ValueError("You must have at least 2 time points")
+        elif np.any(timepoints < 0):
+            raise ValueError("Timepoints cannot be negative")
+        elif np.any(np.unique(timepoints, return_counts=True)[1] > 1):
+            raise ValueError("Timepoints cannot have duplicate values")
     else:
         raise ValueError("time_slices must be an integer or a numpy array of floats")
 
