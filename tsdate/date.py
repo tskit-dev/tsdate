@@ -442,6 +442,16 @@ class SpansBySamples:
         self.finalise()
         progressbar.close()
 
+    def __repr__(self):
+        repr = []
+        for n in range(self.ts.num_nodes):
+            items = []
+            for tot_tips, weights in self.get_weights(n).items():
+                items.append("[{}] / {} ".format(
+                    ", ".join(["{}: {}".format(a, b) for a, b in weights]), tot_tips))
+            repr.append("Node {: >3}: ".format(n) + '{' + ", ".join(items) + '}')
+        return "\n".join(repr)
+
     def nodes_remaining_to_date(self):
         """
         Return a set of the node IDs that we want to date, but which haven't had a
