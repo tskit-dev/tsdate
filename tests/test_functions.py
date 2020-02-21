@@ -79,8 +79,6 @@ class TestBasicFunctions(unittest.TestCase):
 class TestNodeTipWeights(unittest.TestCase):
     def verify_weights(self, ts):
         span_data = SpansBySamples(ts)
-
-        # total_samples, weights_by_node, _ = tsdate.find_node_tip_weights(ts)
         # Check all non-sample nodes in a tree are represented
         nonsample_nodes = collections.defaultdict(float)
         for tree in ts.trees():
@@ -91,10 +89,12 @@ class TestNodeTipWeights(unittest.TestCase):
         for id, span in nonsample_nodes.items():
             self.assertAlmostEqual(span, span_data.node_spans[id])
         for focal_node in span_data.nodes_to_date:
+            wt = 0
             for num_samples, weights in span_data.get_weights(focal_node).items():
                 self.assertTrue(0 <= focal_node < ts.num_nodes)
-                self.assertAlmostEqual(np.sum(weights['weight']), 1.0)
+                wt += np.sum(weights['weight'])
                 self.assertLessEqual(max(weights['descendant_tips']), ts.num_samples)
+            self.assertAlmostEqual(wt, 1.0)
         return span_data
 
     def test_one_tree_n2(self):
@@ -178,14 +178,15 @@ class TestNodeTipWeights(unittest.TestCase):
         self.assertGreater(ts.num_trees, 1)
         self.verify_weights(ts)
 
+    @unittest.skip("YAN to fix")
     def test_truncated_nodes(self):
         Ne = 1e2
         ts = msprime.simulate(
             10, Ne=Ne, length=400, recombination_rate=1e-4, random_seed=12)
         truncated_ts = utility_functions.truncate_ts_samples(
             ts, average_span=200, random_seed=123)
-        span_data = self.verify_weights(ts)
-        #raise NotImplementedError()
+        span_data = self.verify_weights(truncated_ts)
+        raise NotImplementedError(str(span_data))
 
 
 class TestMakePrior(unittest.TestCase):
