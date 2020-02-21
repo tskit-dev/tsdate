@@ -11,6 +11,11 @@ setup(
     long_description=long_description,
     long_description_content_type="text/markdown",
     url="",
+    entry_points={
+        'console_scripts': [
+            'tsdate=tsdate.cli:tsdate_main',
+        ]
+    },
     setup_requires=['setuptools_scm'],
     install_requires=[
         "numpy>=1.17.0",

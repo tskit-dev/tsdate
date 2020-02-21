@@ -305,7 +305,6 @@ class ConditionalCoalescentTimes():
         """
 
         mean_column = PriorParams.field_index('mean')
-        print(mean_column)
         var_column = PriorParams.field_index('var')
         param_cols = np.array(
             [i for i, f in enumerate(PriorParams._fields) if f not in ('mean', 'var')])
@@ -1698,6 +1697,10 @@ class InOutAlgorithms:
                         ll_mut[:youngest_par_index + 1] /
                         np.max(ll_mut[:youngest_par_index + 1]))
             inside_val = self.inside[child][:(youngest_par_index + 1)]
+
+            if self.lik.probability_space == LOG:
+                inside_val = np.exp(inside_val)
+
             maximized_node_times[child] = np.argmax(
                 result[:youngest_par_index + 1] * inside_val)
             # If we maximize the child node time to 0, we've probably missed some of the
@@ -1746,7 +1749,8 @@ def constrain_ages_topo(ts, post_mn, timepoints, eps, nodes_to_date=None,
     tables = ts.tables
     parents = tables.edges.parent
     nd_children = tables.edges.child
-    for nd in tqdm(sorted(nodes_to_date), disable=not progress):
+    for nd in tqdm(sorted(nodes_to_date), desc="Constrain Ages",
+                   disable=not progress):
         children = nd_children[parents == nd]
         time = new_mn_post[children]
         if np.any(new_mn_post[nd] <= time):
@@ -1756,7 +1760,7 @@ def constrain_ages_topo(ts, post_mn, timepoints, eps, nodes_to_date=None,
     return new_mn_post
 
 
-def build_prior_grid(tree_sequence, timepoints=50, approximate_prior=None,
+def build_prior_grid(tree_sequence, timepoints=20, approximate_prior=None,
                      prior_distribution="lognorm", eps=1e-6, progress=False):
     """
     Create prior distribution for the age of each node and the discretised time slices at

@@ -25,7 +25,7 @@ Command line interface for tsdate.
 import argparse
 import logging
 import sys
-
+# sys.path.insert(1, '../tsdate')
 import tskit
 
 import tsdate
@@ -80,6 +80,8 @@ def tsdate_cli_parser():
                         'inside_outside' or 'maximization'.")
     parser.add_argument('-p', '--progress', action='store_true',
                         help="show progress bar")
+    parser.add_argument('-v', '--verbosity', type=int, default=0,
+                        help="how much verbosity to output")
     return parser
 
 
@@ -92,7 +94,7 @@ def run_date(args):
     dated_ts = tsdate.date(
         ts, args.Ne, mutation_rate=args.mutation_rate,
         recombination_rate=args.recombination_rate,
-        probability_space=args.probability.space, method=args.method,
+        probability_space=args.probability_space, method=args.method,
         eps=args.epsilon, num_threads=args.num_threads,
         progress=args.progress)
     dated_ts.dump(args.output)
@@ -106,4 +108,4 @@ def main(args):
 def tsdate_main(arg_list=None):
     parser = tsdate_cli_parser()
     args = parser.parse_args(arg_list)
-    args.runner(args)
+    main(args)
