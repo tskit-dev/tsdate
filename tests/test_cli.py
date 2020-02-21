@@ -33,7 +33,6 @@ import tskit
 import msprime
 import numpy as np
 
-import tsdate
 import tsdate.cli as cli
 
 
@@ -93,7 +92,8 @@ class TestTsdateArgParser(unittest.TestCase):
         parser = cli.tsdate_cli_parser()
         args = parser.parse_args([self.infile, self.output, "10000", "-m", "1e10"])
         self.assertEqual(args.mutation_rate, 1e10)
-        args = parser.parse_args([self.infile, self.output, "10000", "--mutation-rate", "1e10"])
+        args = parser.parse_args([self.infile, self.output, "10000",
+                                  "--mutation-rate", "1e10"])
         self.assertEqual(args.mutation_rate, 1e10)
 
     def test_recombination_rate(self):
@@ -113,18 +113,20 @@ class TestTsdateArgParser(unittest.TestCase):
 
     def test_num_threads(self):
         parser = cli.tsdate_cli_parser()
-        args = parser.parse_args([self.infile, self.output, "10000", "--num-threads", "1"])
+        args = parser.parse_args([self.infile, self.output, "10000", "--num-threads",
+                                  "1"])
         self.assertEqual(args.num_threads, 1)
-        args = parser.parse_args([self.infile, self.output, "10000", "--num-threads", "2"])
+        args = parser.parse_args([self.infile, self.output, "10000", "--num-threads",
+                                  "2"])
         self.assertEqual(args.num_threads, 2)
 
     def test_probability_space(self):
         parser = cli.tsdate_cli_parser()
-        args = parser.parse_args([self.infile, self.output, "10000", "--probability-space",
-                                  "linear"])
+        args = parser.parse_args([self.infile, self.output, "10000",
+                                  "--probability-space", "linear"])
         self.assertEqual(args.probability_space, "linear")
-        args = parser.parse_args([self.infile, self.output, "10000", "--probability-space",
-                                  "logarithmic"])
+        args = parser.parse_args([self.infile, self.output, "10000",
+                                  "--probability-space", "logarithmic"])
         self.assertEqual(args.probability_space, "logarithmic")
 
     def test_method(self):
@@ -180,7 +182,7 @@ class TestEndToEnd(unittest.TestCase):
             self.assertEqual(len(stdout), 0)
             output_ts = tskit.load(output_filename)
             self.assertEqual(input_ts.num_samples, output_ts.num_samples)
-            self.ts_equal_except_times(input_ts, output_ts)        
+            self.ts_equal_except_times(input_ts, output_ts)
         # provenance = json.loads(ts.provenance(0).record)
 
     def test_ts(self):
@@ -206,13 +208,6 @@ class TestEndToEnd(unittest.TestCase):
     def test_num_threads(self):
         input_ts = msprime.simulate(10, random_seed=1)
         cmd = "1 --num-threads 2"
-        self.verify(input_ts, cmd)
-
-    def test_probability_space(self):
-        input_ts = msprime.simulate(10, random_seed=1)
-        cmd = "1 --probability-space linear"
-        self.verify(input_ts, cmd)
-        cmd = "1 --probability-space logarithmic"
         self.verify(input_ts, cmd)
 
     def test_probability_space(self):
