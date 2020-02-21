@@ -359,6 +359,7 @@ class ConditionalCoalescentTimes():
                 prior[node] = self.func_approx(*mixture_expect_and_var(mixture))
         return prior
 
+
 class SpansBySamples:
     """
     A class to calculate the genomic spans covered by each
@@ -439,7 +440,7 @@ class SpansBySamples:
             if self.nodes_remain_to_date():
                 self.third_pass(trees_with_undated, total_fixed_at_0_per_tree)
             progressbar.update()
-        self.finalise()
+        self.finalize()
         progressbar.close()
 
     def __repr__(self):
@@ -746,14 +747,14 @@ class SpansBySamples:
                     desc_tips = tree.num_samples(node)
                     self._spans[node][total_tips][desc_tips] += tree.span / 2
 
-    def finalise(self):
+    def finalize(self):
         """
         normalize the spans in self._spans by the values in self.node_spans,
         and overwrite the results (as we don't need them any more), providing a
         shortcut to by setting normalized_node_span_data. Also provide the
         nodes_to_date value.
         """
-        assert not hasattr(self, 'normalized_node_span_data'), "Already finalised"
+        assert not hasattr(self, 'normalized_node_span_data'), "Already finalized"
         weight_dtype = np.dtype({
             'names': ('descendant_tips', 'weight'),
             'formats': (np.uint64, FLOAT_DTYPE)})
