@@ -1,6 +1,6 @@
 # MIT License
 #
-# Copyright (c) University of Oxford
+# Copyright (c) 2020 University of Oxford
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -1535,7 +1535,7 @@ class InOutAlgorithms:
     def edges_by_child_desc(self):
         """
         Return an itertools.groupby object of edges grouped by child in descending order
-        of the time of the parent.
+        of the time of the child.
         """
         child_edges = (self.ts.edge(i) for i in reversed(
             np.argsort(self.ts.tables.nodes.time[self.ts.tables.edges.child[:]])))
@@ -1544,13 +1544,13 @@ class InOutAlgorithms:
     def edges_by_child_then_parent_desc(self):
         """
         Return an itertools.groupby object of edges grouped by child in descending order
-        of the time of the parent, then by descending order of age of child
+        of the time of the child, then by descending order of age of child
         """
         wtype = np.dtype([('Childage', 'f4'), ('Parentage', 'f4')])
         w = np.empty(
             len(self.ts.tables.nodes.time[self.ts.tables.edges.child[:]]), dtype=wtype)
         w['Childage'] = self.ts.tables.nodes.time[self.ts.tables.edges.child[:]]
-        w['Parentage'] = -self.ts.tables.nodes.time[self.ts.tables.edges.parent[:]]
+        w['Parentage'] = self.ts.tables.nodes.time[self.ts.tables.edges.parent[:]]
         sorted_child_parent = (self.ts.edge(i) for i in reversed(
             np.argsort(w, order=('Childage', 'Parentage'))))
         return itertools.groupby(sorted_child_parent, operator.attrgetter('child'))
@@ -1630,7 +1630,7 @@ class InOutAlgorithms:
 
         for child, edges in tqdm(
                 self.edges_by_child_desc(), desc="Outside",
-                total=outside.num_nonfixed, disable=not progress):
+                total=self.ts.num_edges, disable=not progress):
             if child in self.fixednodes:
                 continue
             val = np.full(self.lik.grid_size, self.lik.identity_constant)
@@ -1678,6 +1678,11 @@ class InOutAlgorithms:
             raise RuntimeError("You have not yet run the inside algorithm")
         maximized_node_times = np.zeros(self.ts.num_nodes, dtype='int')
 
+        if self.lik.probability_space == LOG:
+            poisson = scipy.stats.poisson.logpmf
+        elif self.lik.probability_space == LIN:
+            poisson = scipy.stats.poisson.pmf
+
         mut_edges = self.lik.mut_edges
         mrcas = np.where(np.isin(
             np.arange(self.ts.num_nodes), self.ts.tables.edges.child, invert=True))[0]
@@ -1687,44 +1692,35 @@ class InOutAlgorithms:
 
         for child, edges in tqdm(
                 self.edges_by_child_then_parent_desc(), desc="MaxOut  ",
-                total=self.inside.num_nonfixed, disable=not progress):
+                total=self.ts.num_edges, disable=not progress):
             if child in self.fixednodes:
                 continue
             for edge_index, edge in enumerate(edges):
                 if edge_index == 0:
                     youngest_par_index = maximized_node_times[edge.parent]
                     parent_time = self.lik.timepoints[maximized_node_times[edge.parent]]
-                    ll_mut = scipy.stats.poisson.pmf(
+                    ll_mut = poisson(
                         mut_edges[edge.id],
                         (parent_time - self.lik.timepoints[:youngest_par_index + 1] +
                             eps) * theta / 2 * edge_span(edge))
-                    result = ll_mut / np.max(ll_mut)
+                    result = self.lik.reduce(ll_mut, np.max(ll_mut))
                 else:
                     cur_parent_index = maximized_node_times[edge.parent]
                     if cur_parent_index < youngest_par_index:
                         youngest_par_index = cur_parent_index
                     parent_time = self.lik.timepoints[maximized_node_times[edge.parent]]
-                    ll_mut = scipy.stats.poisson.pmf(
+                    ll_mut = poisson(
                         mut_edges[edge.id],
                         (parent_time - self.lik.timepoints[:youngest_par_index + 1] +
                             eps) * theta / 2 * edge_span(edge))
-                    result[:youngest_par_index + 1] *= (
-                        ll_mut[:youngest_par_index + 1] /
-                        np.max(ll_mut[:youngest_par_index + 1]))
+                    result[:youngest_par_index + 1] = self.lik.combine(
+                        self.lik.reduce(ll_mut[:youngest_par_index + 1],
+                                        np.max(ll_mut[:youngest_par_index + 1])),
+                        result[:youngest_par_index + 1])
             inside_val = self.inside[child][:(youngest_par_index + 1)]
 
-            if self.lik.probability_space == LOG:
-                inside_val = np.exp(inside_val)
-
-            maximized_node_times[child] = np.argmax(
-                result[:youngest_par_index + 1] * inside_val)
-            # If we maximize the child node time to 0, we've probably missed some of the
-            # upper end of the distribution. We take the mean instead
-            if maximized_node_times[child] == 0:
-                row = result[:youngest_par_index + 1] * inside_val
-                row = row / np.sum(row)
-                maximized_node_times[child] = np.sum(
-                    row * self.lik.timepoints[:youngest_par_index + 1]) / np.sum(row)
+            maximized_node_times[child] = np.argmax(self.lik.combine(
+                result[:youngest_par_index + 1], inside_val))
 
         return self.lik.timepoints[np.array(maximized_node_times).astype('int')]
 
@@ -1939,7 +1935,10 @@ def get_dates(
         mn_post, _ = posterior_mean_var(tree_sequence, prior.timepoints, posterior,
                                         fixed_node_set)
     elif method == 'maximization':
-        mn_post = dynamic_prog.outside_maximization(theta, eps)
+        if theta is not None:
+            mn_post = dynamic_prog.outside_maximization(theta, eps)
+        else:
+            raise ValueError("Outside maximization method requires mutation rate")
     else:
         raise ValueError(
             "estimation method must be either 'inside_outside' or 'maximization'")

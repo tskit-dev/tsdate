@@ -1,6 +1,6 @@
 # MIT License
 #
-# Copyright (c) 2019 Anthony Wilder Wohns
+# Copyright (c) 2020 University of Oxford
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -24,15 +24,15 @@ Test cases for the command line interface for tsdate.
 """
 import io
 import sys
-import tempfile  # NOQA - not currently used
-import pathlib  # NOQA - not currently used
+import tempfile
+import pathlib
 import unittest
+from unittest import mock
 
-import tskit  # NOQA - not currently used
-import msprime  # NOQA - not currently used
-import numpy as np  # NOQA - not currently used
+import tskit
+import msprime
+import numpy as np
 
-import tsdate  # NOQA - not currently used
 import tsdate.cli as cli
 
 
@@ -76,10 +76,10 @@ class TestTsdateArgParser(unittest.TestCase):
 
     def test_default_values(self):
         parser = cli.tsdate_cli_parser()
-        args = parser.parse_args([self.infile, self.output])
+        args = parser.parse_args([self.infile, self.output, "1"])
         self.assertEqual(args.ts, self.infile)
         self.assertEqual(args.output, self.output)
-        self.assertEqual(args.Ne, 10000)
+        self.assertEqual(args.Ne, 1)
         self.assertEqual(args.mutation_rate, None)
         self.assertEqual(args.recombination_rate, None)
         self.assertEqual(args.epsilon, 1e-6)
@@ -88,64 +88,141 @@ class TestTsdateArgParser(unittest.TestCase):
         self.assertEqual(args.method, 'inside_outside')
         self.assertFalse(args.progress)
 
-    def test_Ne(self):
-        parser = cli.tsdate_cli_parser()
-        args = parser.parse_args([self.infile, self.output, "-n", "10000"])
-        self.assertEqual(args.Ne, 10000)
-        args = parser.parse_args([self.infile, self.output, "--Ne", "10000"])
-        self.assertEqual(args.Ne, 10000)
-
     def test_mutation_rate(self):
         parser = cli.tsdate_cli_parser()
-        args = parser.parse_args([self.infile, self.output, "-m", "1e10"])
+        args = parser.parse_args([self.infile, self.output, "10000", "-m", "1e10"])
         self.assertEqual(args.mutation_rate, 1e10)
-        args = parser.parse_args([self.infile, self.output, "--mutation-rate", "1e10"])
+        args = parser.parse_args([self.infile, self.output, "10000",
+                                  "--mutation-rate", "1e10"])
         self.assertEqual(args.mutation_rate, 1e10)
 
     def test_recombination_rate(self):
         parser = cli.tsdate_cli_parser()
-        args = parser.parse_args([self.infile, self.output, "-r", "1e-100"])
+        args = parser.parse_args([self.infile, self.output, "10000", "-r", "1e-100"])
         self.assertEqual(args.recombination_rate, 1e-100)
         args = parser.parse_args(
-            [self.infile, self.output, "--recombination-rate", "1e-100"])
+            [self.infile, self.output, "10000", "--recombination-rate", "1e-100"])
         self.assertEqual(args.recombination_rate, 1e-100)
 
     def test_epsilon(self):
         parser = cli.tsdate_cli_parser()
-        args = parser.parse_args([self.infile, self.output, "-e", "123"])
+        args = parser.parse_args([self.infile, self.output, "10000", "-e", "123"])
         self.assertEqual(args.epsilon, 123)
-        args = parser.parse_args([self.infile, self.output, "--epsilon", "321"])
+        args = parser.parse_args([self.infile, self.output, "10000", "--epsilon", "321"])
         self.assertEqual(args.epsilon, 321)
 
     def test_num_threads(self):
         parser = cli.tsdate_cli_parser()
-        args = parser.parse_args([self.infile, self.output, "--num-threads", "1"])
+        args = parser.parse_args([self.infile, self.output, "10000", "--num-threads",
+                                  "1"])
         self.assertEqual(args.num_threads, 1)
-        args = parser.parse_args([self.infile, self.output, "--num-threads", "2"])
+        args = parser.parse_args([self.infile, self.output, "10000", "--num-threads",
+                                  "2"])
         self.assertEqual(args.num_threads, 2)
 
     def test_probability_space(self):
         parser = cli.tsdate_cli_parser()
-        args = parser.parse_args([self.infile, self.output, "--probability-space",
-                                  "linear"])
+        args = parser.parse_args([self.infile, self.output, "10000",
+                                  "--probability-space", "linear"])
         self.assertEqual(args.probability_space, "linear")
-        args = parser.parse_args([self.infile, self.output, "--probability-space",
-                                  "logarithmic"])
+        args = parser.parse_args([self.infile, self.output, "10000",
+                                  "--probability-space", "logarithmic"])
         self.assertEqual(args.probability_space, "logarithmic")
 
     def test_method(self):
         parser = cli.tsdate_cli_parser()
-        args = parser.parse_args([self.infile, self.output, "--method",
+        args = parser.parse_args([self.infile, self.output, "10000", "--method",
                                   "inside_outside"])
         self.assertEqual(args.method, "inside_outside")
-        args = parser.parse_args([self.infile, self.output, "--method",
+        args = parser.parse_args([self.infile, self.output, "10000", "--method",
                                   "maximization"])
         self.assertEqual(args.method, "maximization")
 
     def test_progress(self):
         parser = cli.tsdate_cli_parser()
-        args = parser.parse_args([self.infile, self.output, "--progress"])
+        args = parser.parse_args([self.infile, self.output, "10000", "--progress"])
         self.assertTrue(args.progress)
+
+
+class TestEndToEnd(unittest.TestCase):
+    """
+    Class to test input to CLI outputs dated tree sequences.
+    """
+    def ts_equal_except_times(self, ts1, ts2):
+        for (t1_name, t1), (t2_name, t2) in zip(ts1.tables, ts2.tables):
+            if isinstance(t1, tskit.ProvenanceTable):
+                # TO DO - should check that the provenance has had the "tsdate" method
+                # added
+                pass
+            elif isinstance(t1, tskit.NodeTable):
+                for column_name in t1.column_names:
+                    if column_name != 'time':
+                        col_t1 = getattr(t1, column_name)
+                        col_t2 = getattr(t2, column_name)
+                        self.assertTrue(np.array_equal(col_t1, col_t2))
+            elif isinstance(t1, tskit.EdgeTable):
+                # Edges may have been re-ordered, since sortedness requirements specify
+                # they are sorted by parent time, and the relative order of
+                # (unconnected) parent nodes might have changed due to time inference
+                self.assertEquals(set(t1), set(t2))
+            else:
+                self.assertEquals(t1, t2)
+        # The dated and undated tree sequences should not have the same node times
+        self.assertTrue(not np.array_equal(ts1.tables.nodes.time, ts2.tables.nodes.time))
+
+    def verify(self, input_ts, cmd):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            input_filename = pathlib.Path(tmpdir) / "input.trees"
+            input_ts.dump(input_filename)
+            output_filename = pathlib.Path(tmpdir) / "output.trees"
+            full_cmd = str(input_filename) + f" {output_filename} " + cmd
+            with mock.patch("tsdate.cli.setup_logging"):
+                stdout, stderr = capture_output(cli.tsdate_main, full_cmd.split())
+            self.assertEqual(len(stderr), 0)
+            self.assertEqual(len(stdout), 0)
+            output_ts = tskit.load(output_filename)
+            self.assertEqual(input_ts.num_samples, output_ts.num_samples)
+            self.ts_equal_except_times(input_ts, output_ts)
+        # provenance = json.loads(ts.provenance(0).record)
+
+    def test_ts(self):
+        input_ts = msprime.simulate(10, random_seed=1)
+        cmd = "1"
+        self.verify(input_ts, cmd)
+
+    def test_mutation_rate(self):
+        input_ts = msprime.simulate(10, random_seed=1)
+        cmd = "1 --mutation-rate 1e-8"
+        self.verify(input_ts, cmd)
+
+    def test_recombination_rate(self):
+        input_ts = msprime.simulate(10, random_seed=1)
+        cmd = "1 --recombination-rate 1e-8"
+        self.assertRaises(NotImplementedError, self.verify, input_ts, cmd)
+
+    def test_epsilon(self):
+        input_ts = msprime.simulate(10, random_seed=1)
+        cmd = "1 --epsilon 1e-3"
+        self.verify(input_ts, cmd)
+
+    def test_num_threads(self):
+        input_ts = msprime.simulate(10, random_seed=1)
+        cmd = "1 --num-threads 2"
+        self.verify(input_ts, cmd)
+
+    def test_probability_space(self):
+        input_ts = msprime.simulate(10, random_seed=1)
+        cmd = "1 --probability-space linear"
+        self.verify(input_ts, cmd)
+        cmd = "1 --probability-space logarithmic"
+        self.verify(input_ts, cmd)
+
+    def test_method(self):
+        input_ts = msprime.simulate(10, random_seed=1)
+        cmd = "1 --method inside_outside"
+        self.verify(input_ts, cmd)
+        cmd = "1 --method maximization"
+        self.assertRaises(ValueError, self.verify, input_ts, cmd)
 
 
 class TestCli(unittest.TestCase):

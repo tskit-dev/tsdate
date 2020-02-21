@@ -337,16 +337,16 @@ def plot_tsdate_accuracy(all_results, parameter, parameter_arr, prior_distr, inf
 
     if parameter == 'Mut Rate':
         plt.suptitle("Evaluating " + parameter + ": " + inferred + " " + node_mut +
-                     " vs. True " + node_mut + ". \n  Inside-Outside Algorithm and Maximization. \n" + prior_distr + " Prior, n=250, Length=1Mb, Rec Rate=1e-8", y=0.99, size=21)
+                     " vs. True " + node_mut + ". \n  Inside-Outside Algorithm and Maximization. \n" + prior_distr + " Prior, n=100, Length=1Mb, Rec Rate=1e-8", y=0.99, size=21)
     elif parameter == 'Sample Size':
         plt.suptitle("Evaluating " + parameter + ": " + inferred + " " + node_mut +
                      " vs. True " + node_mut + ". \n Inside-Outside Algorithm and Maximization. \n" + prior_distr + " Prior, Length=1Mb, Mut Rate=1e-8, Rec Rate=1e-8", y=0.99, size=21)
     elif parameter == 'Length':
         plt.suptitle("Evaluating " + parameter + ": " + inferred + " " + node_mut +
-                     " vs. True " + node_mut + ". \n Inside-Outside Algorithm and Maximization. \n" + prior_distr + " Prior, n=250, Mut Rate=1e-8, Rec Rate=1e-8", y=0.99, size=21)
+                     " vs. True " + node_mut + ". \n Inside-Outside Algorithm and Maximization. \n" + prior_distr + " Prior, n=100, Mut Rate=1e-8, Rec Rate=1e-8", y=0.99, size=21)
     elif parameter == 'Timepoints':
         plt.suptitle("Evaluating " + parameter + ": " + inferred + " " + node_mut +
-                     " vs. True " + node_mut + ". \n Inside-Outside Algorithm and Maximization. \n" + prior_distr + " Prior, n=250, length=1Mb, Mut Rate=1e-8, Rec Rate=1e-8", y=0.99, size=21)
+                     " vs. True " + node_mut + ". \n Inside-Outside Algorithm and Maximization. \n" + prior_distr + " Prior, n=100, length=1Mb, Mut Rate=1e-8, Rec Rate=1e-8", y=0.99, size=21)
     # plt.tight_layout()
     plt.savefig("evaluation/" + parameter + "_" + inferred + "_" + node_mut + "_" + prior_distr +
                 "_accuracy", dpi=300, bbox_inches='tight')

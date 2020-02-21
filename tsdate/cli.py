@@ -25,9 +25,8 @@ Command line interface for tsdate.
 import argparse
 import logging
 import sys
-# sys.path.insert(1, '../tsdate')
-import tskit
 
+import tskit
 import tsdate
 
 logger = logging.getLogger(__name__)
@@ -61,7 +60,7 @@ def tsdate_cli_parser():
                         help="Tree sequence from which we estimate age")
     parser.add_argument('output',
                         help="path and name of output file")
-    parser.add_argument('-n', '--Ne', type=float, default=10000,
+    parser.add_argument('Ne', type=float,
                         help="effective population size")
     parser.add_argument('-m', '--mutation-rate', type=float, default=None,
                         help="mutation rate")
@@ -101,11 +100,11 @@ def run_date(args):
 
 
 def main(args):
-    # Load tree sequence
     run_date(args)
 
 
 def tsdate_main(arg_list=None):
     parser = tsdate_cli_parser()
     args = parser.parse_args(arg_list)
+    setup_logging(args)
     main(args)
