@@ -21,7 +21,7 @@ setup(
         "numpy>=1.17.0",
         "tskit>=0.2.3",
         "scipy>1.2.3",
-        "numba>=0.46",
+        "numba",
         "tqdm"
     ],
     project_urls={
