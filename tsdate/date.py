@@ -719,7 +719,6 @@ class SpansBySamples:
                     total_tips = n_tips_per_tree[tree_id]
                     desc_tips = tree.num_samples(node)
                     self._spans[node][total_tips][desc_tips] += tree.span / 2
-                    self.node_spans[node] += tree.span
 
     def third_pass(self, trees_with_undated, n_tips_per_tree):
         """
