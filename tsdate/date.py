@@ -513,9 +513,11 @@ class SpansBySamples:
                 self._spans[node][num_fixed_at_0_treenodes][n_fixed_at_0] += coverage
             else:
                 # Treat unary nodes differently: mixture of coalescent nodes above+below
+                unary_nodes_above = 0
                 top_node = prev_tree.parent(node)
                 try:  # Find coalescent node above
                     while tree_num_children(prev_tree, top_node) == 1:
+                        unary_nodes_above += 1
                         top_node = prev_tree.parent(top_node)
                 except ValueError:  # Happens if we have hit the root
                     assert top_node == tskit.NULL
@@ -523,13 +525,16 @@ class SpansBySamples:
                         "Unary node `{}` exists above highest coalescence in tree {}."
                         " Skipping for now".format(node, prev_tree.index))
                     return None
-                # Half from the node above
+                # Weights are exponential fractions: if no unary nodes above, we have
+                # weight = 1/2 from parent. If one unary node above, 1/4 from parent, etc
+                wt = 2**(unary_nodes_above+1)  # 1/wt from abpve
+                iwt = wt/(wt - 1.0)            # 1/iwt from below
                 top_node_tips = prev_tree.num_tracked_samples(top_node)
-                self._spans[node][num_fixed_at_0_treenodes][top_node_tips] += coverage/2
-                # Half from the node below
+                self._spans[node][num_fixed_at_0_treenodes][top_node_tips] += coverage/wt
+                # The rest from the node below
                 #  NB: coalescent node below should have same num_tracked_samples as this
                 # TODO - assumes no internal unary sample nodes at 0 (impossible)
-                self._spans[node][num_fixed_at_0_treenodes][n_fixed_at_0] += coverage/2
+                self._spans[node][num_fixed_at_0_treenodes][n_fixed_at_0] += coverage/iwt
             return True
 
         # We iterate over edge_diffs to calculate, as nodes change their descendant tips,
