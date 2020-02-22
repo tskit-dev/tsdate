@@ -314,13 +314,13 @@ class ConditionalCoalescentTimes():
             first = secnd = 0
             for N, tip_dict in mixture.items():
                 # assert 1 not in tip_dict.descendant_tips
-                mean = self[N][tip_dict.descendant_tips, mean_column]
-                var = self[N][tip_dict.descendant_tips, var_column]
+                mean = self[N][tip_dict['descendant_tips'], mean_column]
+                var = self[N][tip_dict['descendant_tips'], var_column]
                 # Mixture expectation
-                expectation += np.sum(mean * tip_dict.weight)
+                expectation += np.sum(mean * tip_dict['weight'])
                 # Mixture variance
-                first += np.sum(var * tip_dict.weight)
-                secnd += np.sum(mean ** 2 * tip_dict.weight)
+                first += np.sum(var * tip_dict['weight'])
+                secnd += np.sum(mean ** 2 * tip_dict['weight'])
             mean = expectation
             var = first + secnd - (expectation ** 2)
             return mean, var
@@ -333,19 +333,18 @@ class ConditionalCoalescentTimes():
             mixture = spans_by_samples.get_weights(node)
             if len(mixture) == 1:
                 # The norm: this node spans trees that all have the same set of samples
-                total_tips, weight_tuple = next(iter(mixture.items()))
-                if len(weight_tuple.weight) == 1:
-                    d_tips = weight_tuple.descendant_tips[0]
+                total_tips, weight_arr = next(iter(mixture.items()))
+                if weight_arr.shape[0] == 1:
+                    d_tips = weight_arr['descendant_tips'][0]
                     # This node is not a mixture - can use the standard coalescent prior
                     prior[node] = self[total_tips][d_tips, param_cols]
-                elif len(weight_tuple.weight) <= 5:
+                elif weight_arr.shape[0] <= 5:
                     # Making mixture priors is a little expensive. We can help by caching
                     # in those cases where we have only a few mixtures
                     # (arbitrarily set here as <= 5 mixtures)
                     mixture_hash = (
                         total_tips,
-                        weight_tuple.descendant_tips.tostring(),
-                        weight_tuple.weight.tostring())
+                        weight_arr.tostring())
                     if mixture_hash not in seen_mixtures:
                         prior[node] = seen_mixtures[mixture_hash] = \
                             self.func_approx(*mixture_expect_and_var(mixture))
@@ -359,9 +358,6 @@ class ConditionalCoalescentTimes():
                 # don't use the cache
                 prior[node] = self.func_approx(*mixture_expect_and_var(mixture))
         return prior
-
-
-Weights = namedtuple('Weights', 'descendant_tips weight')
 
 
 class SpansBySamples:
@@ -402,6 +398,7 @@ class SpansBySamples:
         :meth:`weights` method.
     :vartype nodes_to_date: numpy.ndarray (dtype=np.uint32)
     """
+
     def __init__(self, tree_sequence, fixed_nodes=None, progress=False):
         """
         :param TreeSequence ts: The input :class:`tskit.TreeSequence`.
@@ -443,8 +440,18 @@ class SpansBySamples:
             if self.nodes_remain_to_date():
                 self.third_pass(trees_with_undated, total_fixed_at_0_per_tree)
             progressbar.update()
-        self.finalise()
+        self.finalize()
         progressbar.close()
+
+    def __repr__(self):
+        repr = []
+        for n in range(self.ts.num_nodes):
+            items = []
+            for tot_tips, weights in self.get_weights(n).items():
+                items.append("[{}] / {} ".format(
+                    ", ".join(["{}: {}".format(a, b) for a, b in weights]), tot_tips))
+            repr.append("Node {: >3}: ".format(n) + '{' + ", ".join(items) + '}')
+        return "\n".join(repr)
 
     def nodes_remaining_to_date(self):
         """
@@ -506,9 +513,11 @@ class SpansBySamples:
                 self._spans[node][num_fixed_at_0_treenodes][n_fixed_at_0] += coverage
             else:
                 # Treat unary nodes differently: mixture of coalescent nodes above+below
+                unary_nodes_above = 0
                 top_node = prev_tree.parent(node)
                 try:  # Find coalescent node above
                     while tree_num_children(prev_tree, top_node) == 1:
+                        unary_nodes_above += 1
                         top_node = prev_tree.parent(top_node)
                 except ValueError:  # Happens if we have hit the root
                     assert top_node == tskit.NULL
@@ -516,13 +525,16 @@ class SpansBySamples:
                         "Unary node `{}` exists above highest coalescence in tree {}."
                         " Skipping for now".format(node, prev_tree.index))
                     return None
-                # Half from the node above
+                # Weights are exponential fractions: if no unary nodes above, we have
+                # weight = 1/2 from parent. If one unary node above, 1/4 from parent, etc
+                wt = 2**(unary_nodes_above+1)  # 1/wt from abpve
+                iwt = wt/(wt - 1.0)            # 1/iwt from below
                 top_node_tips = prev_tree.num_tracked_samples(top_node)
-                self._spans[node][num_fixed_at_0_treenodes][top_node_tips] += coverage/2
-                # Half from the node below
+                self._spans[node][num_fixed_at_0_treenodes][top_node_tips] += coverage/wt
+                # The rest from the node below
                 #  NB: coalescent node below should have same num_tracked_samples as this
                 # TODO - assumes no internal unary sample nodes at 0 (impossible)
-                self._spans[node][num_fixed_at_0_treenodes][n_fixed_at_0] += coverage/2
+                self._spans[node][num_fixed_at_0_treenodes][n_fixed_at_0] += coverage/iwt
             return True
 
         # We iterate over edge_diffs to calculate, as nodes change their descendant tips,
@@ -713,7 +725,6 @@ class SpansBySamples:
                     total_tips = n_tips_per_tree[tree_id]
                     desc_tips = tree.num_samples(node)
                     self._spans[node][total_tips][desc_tips] += tree.span / 2
-                    self.node_spans[node] += tree.span
 
     def third_pass(self, trees_with_undated, n_tips_per_tree):
         """
@@ -741,14 +752,18 @@ class SpansBySamples:
                     desc_tips = tree.num_samples(node)
                     self._spans[node][total_tips][desc_tips] += tree.span / 2
 
-    def finalise(self):
+    def finalize(self):
         """
         normalize the spans in self._spans by the values in self.node_spans,
         and overwrite the results (as we don't need them any more), providing a
         shortcut to by setting normalized_node_span_data. Also provide the
         nodes_to_date value.
         """
-        assert not hasattr(self, 'normalized_node_span_data'), "Already finalised"
+        assert not hasattr(self, 'normalized_node_span_data'), "Already finalized"
+        weight_dtype = np.dtype({
+            'names': ('descendant_tips', 'weight'),
+            'formats': (np.uint64, FLOAT_DTYPE)})
+
         if self.nodes_remain_to_date():
             raise ValueError(
                 "When finalising node spans, found the following nodes not in any tree;"
@@ -758,9 +773,9 @@ class SpansBySamples:
         for node, weights_by_total_tips in self._spans.items():
             self._spans[node] = {}  # Overwrite, so we don't leave the old data around
             for num_samples, weights in sorted(weights_by_total_tips.items()):
-                self._spans[node][num_samples] = Weights(
-                    descendant_tips=np.array(list(weights.keys()), dtype=np.uint64),
-                    weight=np.array(list(weights.values()))/self.node_spans[node])
+                wt = np.array([(k, v) for k, v in weights.items()], dtype=weight_dtype)
+                wt['weight'] /= self.node_spans[node]
+                self._spans[node][num_samples] = wt
         # Assign into the instance, for further reference
         self.normalized_node_span_data = self._spans
         self.nodes_to_date = np.array(list(self._spans.keys()), dtype=np.uint64)
@@ -794,14 +809,14 @@ class SpansBySamples:
             span, normalized by the total span over which the node exists) for
             :math:`k` descendant samples, as a floating point number. For any node,
             the normalisation means that all the weights should sum to one.
-        :rtype: dict(int, dict(int, FLOAT_DTYPE))'
+        :rtype: dict(int, numpy.ndarray)'
         """
         return self.normalized_node_span_data[node]
 
     def lookup_weight(self, node, total_tips, descendant_tips):
         # Only used for testing
-        which = self.get_weights(node)[total_tips].descendant_tips == descendant_tips
-        return self.get_weights(node)[total_tips].weight[which]
+        which = self.get_weights(node)[total_tips]['descendant_tips'] == descendant_tips
+        return self.get_weights(node)[total_tips]['weight'][which]
 
 
 def create_timepoints(age_prior, prior_distr, n_points=21):

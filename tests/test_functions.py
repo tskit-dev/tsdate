@@ -79,8 +79,6 @@ class TestBasicFunctions(unittest.TestCase):
 class TestNodeTipWeights(unittest.TestCase):
     def verify_weights(self, ts):
         span_data = SpansBySamples(ts)
-
-        # total_samples, weights_by_node, _ = tsdate.find_node_tip_weights(ts)
         # Check all non-sample nodes in a tree are represented
         nonsample_nodes = collections.defaultdict(float)
         for tree in ts.trees():
@@ -91,10 +89,12 @@ class TestNodeTipWeights(unittest.TestCase):
         for id, span in nonsample_nodes.items():
             self.assertAlmostEqual(span, span_data.node_spans[id])
         for focal_node in span_data.nodes_to_date:
+            wt = 0
             for num_samples, weights in span_data.get_weights(focal_node).items():
                 self.assertTrue(0 <= focal_node < ts.num_nodes)
-                self.assertAlmostEqual(sum(weights.weight), 1.0)
-                self.assertLessEqual(max(weights.descendant_tips), ts.num_samples)
+                wt += np.sum(weights['weight'])
+                self.assertLessEqual(max(weights['descendant_tips']), ts.num_samples)
+            self.assertAlmostEqual(wt, 1.0)
         return span_data
 
     def test_one_tree_n2(self):
@@ -103,7 +103,7 @@ class TestNodeTipWeights(unittest.TestCase):
         # with a single tree there should only be one weight
         for node in span_data.nodes_to_date:
             self.assertTrue(len(span_data.get_weights(node)), 1)
-        self.assertTrue(2 in span_data.get_weights(2)[ts.num_samples])  # Root
+        self.assertTrue(2 in span_data.get_weights(2)[ts.num_samples]['descendant_tips'])
 
     def test_one_tree_n3(self):
         ts = utility_functions.single_tree_ts_n3()
@@ -116,7 +116,7 @@ class TestNodeTipWeights(unittest.TestCase):
                 (4, 3),   # Node 4 (root) expected to have 3 descendant tips
                 (3, 2)]:  # Node 3 (1st internal node) expected to have 2 descendant tips
             self.assertTrue(
-                np.isin(span_data.get_weights(nd)[n].descendant_tips, expd_tips))
+                np.isin(span_data.get_weights(nd)[n]['descendant_tips'], expd_tips))
 
     def test_one_tree_n4(self):
         ts = utility_functions.single_tree_ts_n4()
@@ -130,7 +130,7 @@ class TestNodeTipWeights(unittest.TestCase):
                 (5, 3),   # Node 5 (1st internal node) expected to have 3 descendant tips
                 (4, 2)]:  # Node 4 (2nd internal node) expected to have 3 descendant tips
             self.assertTrue(
-                np.isin(span_data.get_weights(nd)[n].descendant_tips, expd_tips))
+                np.isin(span_data.get_weights(nd)[n]['descendant_tips'], expd_tips))
 
     def test_two_trees(self):
         ts = utility_functions.two_tree_ts()
@@ -154,7 +154,7 @@ class TestNodeTipWeights(unittest.TestCase):
         self.assertTrue(5 not in span_data.nodes_to_date)
         self.assertEqual(span_data.lookup_weight(4, n, 3), 1.0)  # Root on L tree ...
         # ... but internal on (deleted) R tree
-        self.assertFalse(np.isin(span_data.get_weights(4)[n].descendant_tips, 2))
+        self.assertFalse(np.isin(span_data.get_weights(4)[n]['descendant_tips'], 2))
         self.assertEqual(span_data.lookup_weight(3, n, 2), 1.0)  # Internal nd on L tree
 
     def test_tree_with_unary_nodes(self):
@@ -177,6 +177,16 @@ class TestNodeTipWeights(unittest.TestCase):
                               mutation_rate=5, random_seed=123)
         self.assertGreater(ts.num_trees, 1)
         self.verify_weights(ts)
+
+    @unittest.skip("YAN to fix")
+    def test_truncated_nodes(self):
+        Ne = 1e2
+        ts = msprime.simulate(
+            10, Ne=Ne, length=400, recombination_rate=1e-4, random_seed=12)
+        truncated_ts = utility_functions.truncate_ts_samples(
+            ts, average_span=200, random_seed=123)
+        span_data = self.verify_weights(truncated_ts)
+        raise NotImplementedError(str(span_data))
 
 
 class TestMakePrior(unittest.TestCase):
