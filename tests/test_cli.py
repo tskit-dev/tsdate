@@ -169,8 +169,7 @@ class TestEndToEnd(unittest.TestCase):
             else:
                 self.assertEquals(t1, t2)
         # The dated and undated tree sequences should not have the same node times
-        self.assertTrue(not np.array_equal(ts1.tables.nodes.time,
-ts2.tables.nodes.time))
+        self.assertTrue(not np.array_equal(ts1.tables.nodes.time, ts2.tables.nodes.time))
 
     def verify(self, input_ts, cmd):
         with tempfile.TemporaryDirectory() as tmpdir:
