@@ -22,8 +22,6 @@
 """
 Test cases for the command line interface for tsdate.
 """
-import io
-import sys
 import tempfile
 import pathlib
 import unittest
@@ -34,37 +32,6 @@ import msprime
 import numpy as np
 
 import tsdate.cli as cli
-
-
-class TestException(Exception):
-    """
-    Custom exception we can throw for testing.
-    """
-
-
-def capture_output(func, *args, **kwargs):
-    """
-    Runs the specified function and arguments, and returns the
-    tuple (stdout, stderr) as strings.
-    """
-    buffer_class = io.BytesIO
-    if sys.version_info[0] == 3:
-        buffer_class = io.StringIO
-    stdout = sys.stdout
-    sys.stdout = buffer_class()
-    stderr = sys.stderr
-    sys.stderr = buffer_class()
-
-    try:
-        func(*args, **kwargs)
-        stdout = sys.stdout.getvalue()
-        stderr = sys.stderr.getvalue()
-    finally:
-        sys.stdout.close()
-        sys.stdout = stdout
-        sys.stderr.close()
-        sys.stderr = stderr
-    return stdout, stderr
 
 
 class TestTsdateArgParser(unittest.TestCase):
@@ -149,6 +116,7 @@ class TestEndToEnd(unittest.TestCase):
     """
     Class to test input to CLI outputs dated tree sequences.
     """
+
     def ts_equal_except_times(self, ts1, ts2):
         for (t1_name, t1), (t2_name, t2) in zip(ts1.tables, ts2.tables):
             if isinstance(t1, tskit.ProvenanceTable):
@@ -177,13 +145,10 @@ class TestEndToEnd(unittest.TestCase):
             input_ts.dump(input_filename)
             output_filename = pathlib.Path(tmpdir) / "output.trees"
             full_cmd = str(input_filename) + f" {output_filename} " + cmd
-            stdout, stderr = capture_output(cli.tsdate_main, full_cmd.split())
-            self.assertEqual(len(stderr), 0)
-            self.assertEqual(len(stdout), 0)
+            cli.tsdate_main(full_cmd.split())
             output_ts = tskit.load(output_filename)
-            self.assertEqual(input_ts.num_samples, output_ts.num_samples)
-            self.ts_equal_except_times(input_ts, output_ts)
-        # provenance = json.loads(ts.provenance(0).record)
+        self.assertEqual(input_ts.num_samples, output_ts.num_samples)
+        self.ts_equal_except_times(input_ts, output_ts)
 
     def test_ts(self):
         input_ts = msprime.simulate(10, random_seed=1)
@@ -223,13 +188,3 @@ class TestEndToEnd(unittest.TestCase):
         self.verify(input_ts, cmd)
         cmd = "1 --method maximization"
         self.assertRaises(ValueError, self.verify, input_ts, cmd)
-
-
-class TestCli(unittest.TestCase):
-    """
-    Superclass of tests that run the CLI.
-    """
-    def run_tsdate(self, command):
-        stdout, stderr = capture_output(cli.tsdate_main, command)
-        self.assertEqual(stderr, "")
-        self.assertEqual(stdout, "")

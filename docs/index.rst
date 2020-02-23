@@ -13,6 +13,8 @@ Contents:
    introduction
    installation
    tutorial
+   python-api
+   cli
 
 
 

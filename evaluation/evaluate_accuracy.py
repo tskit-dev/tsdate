@@ -184,10 +184,9 @@ def evaluate_tsdate_accuracy(parameter, parameters_arr, node_mut=False, inferred
     recombination_rate = 1e-8
     all_results = {i: {i: [] for i in ['io', 'max', 'true_times']} for i in list(
         map(str, parameters_arr))}
-    if parameter not in ['mutation_rate', 'timepoints']:
-        random_seeds = range(1, 6)
-    else:
-        random_seeds = [1 for i in range(1, 6)]
+
+    random_seeds = range(1, 6)
+
     if inferred:
         inferred_progress = 'using tsinfer'
     else:
@@ -273,24 +272,22 @@ def plot_tsdate_accuracy(all_results, parameter, parameter_arr, prior_distr, inf
     f, axes = plt.subplots(3, 2, figsize=(16, 12), sharex=True, sharey=True)
     axes[0, 0].set_xscale('log')
     axes[0, 0].set_yscale('log')
-    axes[0, 0].set_xlim(2e-2, 2e5)
-    axes[0, 0].set_ylim(2e-2, 2e5)
+    axes[0, 0].set_xlim(2e-1, 2e5)
+    axes[0, 0].set_ylim(2e-1, 2e5)
 
-    for index_sim, sim in enumerate(range(1)):
-        for index, mut_rate in enumerate(parameter_arr):
-            true_ages = all_results[mut_rate]['true_times'][index_sim]
-            inside_outside = all_results[mut_rate]['io'][index_sim]
-            maximized = all_results[mut_rate]['max'][index_sim]
-            axes[index, 0].scatter(true_ages, inside_outside, alpha=0.2, s=10,
-                                   label="Inside-Outside")
-            axes[index, 1].scatter(true_ages, maximized, alpha=0.2, s=10,
-                                   label="Maximized")
-            axes[index, 0].plot(plt.xlim(), plt.ylim(), ls="--", c=".3")
-            axes[index, 1].plot(plt.xlim(), plt.ylim(), ls="--", c=".3")
-    for index, mut_rate in enumerate(parameter_arr):
-        true_ages = np.concatenate(all_results[mut_rate]['true_times'])
-        maximized = np.concatenate(all_results[mut_rate]['max'])
-        inside_outside = np.concatenate(all_results[mut_rate]['io'])
+            
+    for index, param in enumerate(parameter_arr):
+        true_ages = np.concatenate(all_results[param]['true_times'])
+        maximized = np.concatenate(all_results[param]['max'])
+        inside_outside = np.concatenate(all_results[param]['io'])
+
+        axes[index, 0].scatter(true_ages, inside_outside, alpha=0.2, s=10,
+                               label="Inside-Outside")
+        axes[index, 1].scatter(true_ages, maximized, alpha=0.2, s=10,
+                               label="Maximized")
+        axes[index, 0].plot(plt.xlim(), plt.ylim(), ls="--", c=".3")
+        axes[index, 1].plot(plt.xlim(), plt.ylim(), ls="--", c=".3")
+
         axes[index, 0].text(0.05, 0.9, "RMSLE: " + "{0:.2f}".format(
             mean_squared_log_error(true_ages, inside_outside)),
             transform=axes[index, 0].transAxes, size=15)
@@ -315,7 +312,7 @@ def plot_tsdate_accuracy(all_results, parameter, parameter_arr, prior_distr, inf
         axes[index, 1].text(0.05, 0.6, "Bias:" + "{0:.2f}".format(
             np.mean(true_ages) - np.mean(maximized)),
             transform=axes[index, 1].transAxes, size=15)
-        axes[index, 1].text(1.04, 0.8, parameter + ": " + str(mut_rate), rotation=90,
+        axes[index, 1].text(1.04, 0.8, parameter + ": " + str(param), rotation=90,
                             color='Red', transform=axes[index, 1].transAxes, size=20)
 
     axes[0, 0].set_title("Inside-Outside", size=20)
