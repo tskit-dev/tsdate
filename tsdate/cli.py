@@ -85,7 +85,6 @@ def tsdate_cli_parser():
 
 
 def run_date(args):
-    setup_logging(args)
     try:
         ts = tskit.load(args.ts)
     except tskit.FileFormatError as ffe:
@@ -99,12 +98,8 @@ def run_date(args):
     dated_ts.dump(args.output)
 
 
-def main(args):
-    run_date(args)
-
-
 def tsdate_main(arg_list=None):
     parser = tsdate_cli_parser()
     args = parser.parse_args(arg_list)
     setup_logging(args)
-    main(args)
+    run_date(args)
