@@ -10,7 +10,7 @@ setup(
     description="Infer node ages from a tree sequence topology",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    url="",
+    url="http://pypi.python.org/pypi/tsdate",
     entry_points={
         'console_scripts': [
             'tsdate=tsdate.cli:tsdate_main',
@@ -21,6 +21,7 @@ setup(
         "numpy>=1.17.0",
         "tskit>=0.2.3",
         "scipy>1.2.3",
+        "numba>=0.46.0",
         "tqdm"
     ],
     project_urls={
