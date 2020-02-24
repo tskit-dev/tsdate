@@ -275,7 +275,6 @@ def plot_tsdate_accuracy(all_results, parameter, parameter_arr, prior_distr, inf
     axes[0, 0].set_xlim(2e-1, 2e5)
     axes[0, 0].set_ylim(2e-1, 2e5)
 
-            
     for index, param in enumerate(parameter_arr):
         true_ages = np.concatenate(all_results[param]['true_times'])
         maximized = np.concatenate(all_results[param]['max'])

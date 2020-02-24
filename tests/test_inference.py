@@ -118,14 +118,18 @@ class TestSimulated(unittest.TestCase):
 
     def test_simple_sim_1_tree(self):
         ts = msprime.simulate(8, mutation_rate=5, random_seed=2)
-        dated_ts = tsdate.date(ts, Ne=1, mutation_rate=5)
-        self.ts_equal_except_times(ts, dated_ts)
+        max_dated_ts = tsdate.date(ts, Ne=1, mutation_rate=5)
+        self.ts_equal_except_times(ts, max_dated_ts)
+        io_dated_ts = tsdate.date(ts, Ne=1, mutation_rate=5, method="inside_outside")
+        self.ts_equal_except_times(ts, io_dated_ts)
 
     def test_simple_sim_multi_tree(self):
         ts = msprime.simulate(8, mutation_rate=5, recombination_rate=5, random_seed=2)
         self.assertGreater(ts.num_trees, 1)
-        dated_ts = tsdate.date(ts, Ne=1, mutation_rate=5)
-        self.ts_equal_except_times(ts, dated_ts)
+        max_dated_ts = tsdate.date(ts, Ne=1, mutation_rate=5)
+        self.ts_equal_except_times(ts, max_dated_ts)
+        io_dated_ts = tsdate.date(ts, Ne=1, mutation_rate=5, method="inside_outside")
+        self.ts_equal_except_times(ts, io_dated_ts)
 
     def test_simple_sim_larger_example(self):
         # This makes ~1700 trees, and previously caused a failure
@@ -155,8 +159,10 @@ class TestSimulated(unittest.TestCase):
         ts = msprime.simulate(
             8, mutation_rate=10, recombination_rate=10,
             record_full_arg=True, random_seed=12)
-        dated_ts = tsdate.date(ts, Ne=1, mutation_rate=10)
-        self.ts_equal_except_times(ts, dated_ts)
+        max_dated_ts = tsdate.date(ts, Ne=1, mutation_rate=10)
+        self.ts_equal_except_times(ts, max_dated_ts)
+        io_dated_ts = tsdate.date(ts, Ne=1, mutation_rate=10, method="inside_outside")
+        self.ts_equal_except_times(ts, io_dated_ts)
 
     def test_fails_multi_root(self):
         ts = msprime.simulate(8, mutation_rate=2, random_seed=2)
@@ -205,14 +211,20 @@ class TestInferred(unittest.TestCase):
     """
     Tests for tsdate on simulated then inferred tree sequences.
     """
+
     def test_simple_sim_1_tree(self):
         ts = msprime.simulate(8, mutation_rate=5, random_seed=2)
         for use_times in [True, False]:
             sample_data = tsinfer.SampleData.from_tree_sequence(ts, use_times=use_times)
             inferred_ts = tsinfer.infer(sample_data)
-            dated_ts = tsdate.date(inferred_ts, Ne=1, mutation_rate=5)
+            max_dated_ts = tsdate.date(inferred_ts, Ne=1, mutation_rate=5)
             self.assertTrue(
-                all([a == b for a, b in zip(ts.haplotypes(), dated_ts.haplotypes())]))
+                all([a == b for a, b in zip(ts.haplotypes(),
+                                            max_dated_ts.haplotypes())]))
+            io_dated_ts = tsdate.date(inferred_ts, Ne=1, mutation_rate=5,
+                                      method="inside_outside")
+            self.assertTrue(
+                all([a == b for a, b in zip(ts.haplotypes(), io_dated_ts.haplotypes())]))
 
     def test_simple_sim_multi_tree(self):
         ts = msprime.simulate(8, mutation_rate=5, recombination_rate=5, random_seed=2)
@@ -220,6 +232,11 @@ class TestInferred(unittest.TestCase):
         for use_times in [True, False]:
             sample_data = tsinfer.SampleData.from_tree_sequence(ts, use_times=use_times)
             inferred_ts = tsinfer.infer(sample_data)
-            dated_ts = tsdate.date(inferred_ts, Ne=1, mutation_rate=5)
+            max_dated_ts = tsdate.date(inferred_ts, Ne=1, mutation_rate=5)
             self.assertTrue(
-                all([a == b for a, b in zip(ts.haplotypes(), dated_ts.haplotypes())]))
+                all([a == b for a, b in zip(ts.haplotypes(),
+                                            max_dated_ts.haplotypes())]))
+            io_dated_ts = tsdate.date(inferred_ts, Ne=1, mutation_rate=5,
+                                      method="inside_outside")
+            self.assertTrue(
+                all([a == b for a, b in zip(ts.haplotypes(), io_dated_ts.haplotypes())]))

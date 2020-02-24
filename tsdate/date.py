@@ -413,6 +413,7 @@ class SpansBySamples:
             Currently, only the nodes in this set that are at time 0 will be used
             to calculate the prior.
         """
+
         self.ts = tree_sequence
         self.fixed_nodes = set(self.ts.samples()) if fixed_nodes is None else \
             set(fixed_nodes)
@@ -563,7 +564,8 @@ class SpansBySamples:
         focal_tips = list(self.fixed_at_0_nodes)
         for prev_tree in tqdm(
                 self.ts.trees(tracked_samples=focal_tips),
-                desc="1st pass", disable=not self.progress):
+                desc="Find Node Spans", total=self.ts.num_trees,
+                disable=not self.progress):
 
             try:
                 # Get the edge diffs from the prev tree to the new tree
@@ -1060,7 +1062,8 @@ def fill_prior(distr_parameters, timepoints, ts, nodes_to_date, prior_distr,
     else:
         raise ValueError("prior distribution must be lognorm or gamma")
 
-    for node in tqdm(nodes_to_date, desc="GetPrior", disable=not progress):
+    for node in tqdm(nodes_to_date, desc="Assign prior to each node",
+                     disable=not progress):
         prior_node = cdf_func(timepoints, main_param[node], scale=scale_param[node])
         # force age to be less than max value
         prior_node = np.divide(prior_node, np.max(prior_node))
@@ -1082,7 +1085,7 @@ class Likelihoods:
     null_constant = 0.0
 
     def __init__(self, ts, timepoints, theta=None, eps=0, fixed_node_set=None,
-                 normalize=True):
+                 normalize=True, progress=False):
         self.ts = ts
         self.timepoints = timepoints
         self.fixednodes = set(ts.samples()) if fixed_node_set is None else fixed_node_set
@@ -1092,6 +1095,7 @@ class Likelihoods:
         self.tri_size = self.grid_size * (self.grid_size + 1) / 2
         self.ll_mut = {}
         self.mut_edges = self.get_mut_edges(ts)
+        self.progress = progress
         # Need to set eps properly in the 2 lines below, to account for values in the
         # same timeslice
         self.timediff_lower_tri = np.concatenate(
@@ -1181,6 +1185,7 @@ class Likelihoods:
         long, and hence their span will be unique. This also allows us to deal easily
         with fixed nodes at explicit times (rather than in time slices)
         """
+
         if self.theta is None:
             raise RuntimeError("Cannot calculate mutation likelihoods with no theta set")
         if unique_method == 0:
@@ -1193,7 +1198,7 @@ class Likelihoods:
             fixed_nodes = np.array(list(self.fixednodes))
             keys = np.unique(
                 np.core.records.fromarrays(
-                    (self.mut_edges, edges.right-edges.left), names='muts,span')[
+                    (self.mut_edges, edges.right - edges.left), names='muts,span')[
                         np.logical_not(np.isin(edges.child, fixed_nodes))])
             if unique_method == 1:
                 self.unfixed_likelihood_cache = dict.fromkeys({tuple(t) for t in keys})
@@ -1205,16 +1210,24 @@ class Likelihoods:
                 self._lik_wrapper, dt=self.timediff_lower_tri, theta=self.theta)
             if num_threads == 1:
                 # Useful for testing
-                for key in self.unfixed_likelihood_cache.keys():
+                for key in tqdm(self.unfixed_likelihood_cache.keys(),
+                                disable=not self.progress,
+                                desc="Precalculating Likelihoods"):
                     returned_key, likelihoods = f(key)
                     self.unfixed_likelihood_cache[returned_key] = likelihoods
             else:
-                with multiprocessing.Pool(processes=num_threads) as pool:
-                    for key, pmf in pool.imap_unordered(
-                            f, self.unfixed_likelihood_cache.keys()):
-                        self.unfixed_likelihood_cache[key] = pmf
+                with tqdm(total=len(self.unfixed_likelihood_cache.keys()),
+                          disable=not self.progress,
+                          desc="Precalculating Likelihoods") as prog_bar:
+                    with multiprocessing.Pool(processes=num_threads) as pool:
+                        for key, pmf in pool.imap_unordered(
+                                f, self.unfixed_likelihood_cache.keys()):
+                            self.unfixed_likelihood_cache[key] = pmf
+                            prog_bar.update()
         else:
-            for muts, span in self.unfixed_likelihood_cache.keys():
+            for muts, span in tqdm(self.unfixed_likelihood_cache.keys(),
+                                   disable=not self.progress,
+                                   desc="Precalculating Likelihoods"):
                 self.unfixed_likelihood_cache[muts, span] = self._lik(
                     muts, span, dt=self.timediff_lower_tri, theta=self.theta,
                     normalize=self.normalize)
@@ -1572,7 +1585,7 @@ class InOutAlgorithms:
         norm = np.full(self.ts.num_nodes, np.nan)
         # Iterate through the nodes via groupby on parent node
         for parent, edges in tqdm(
-                self.edges_by_parent_asc(), desc="Inside ",
+                self.edges_by_parent_asc(), desc="Inside",
                 total=inside.num_nonfixed, disable=not progress):
             """
             for each node, find the conditional prob of age at every time
@@ -1691,7 +1704,7 @@ class InOutAlgorithms:
                 maximized_node_times[i] = np.argmax(self.inside[i])
 
         for child, edges in tqdm(
-                self.edges_by_child_then_parent_desc(), desc="MaxOut  ",
+                self.edges_by_child_then_parent_desc(), desc="Maximization",
                 total=self.ts.num_edges, disable=not progress):
             if child in self.fixednodes:
                 continue
@@ -1790,6 +1803,7 @@ def build_prior_grid(tree_sequence, timepoints=20, approximate_prior=None,
     :param float eps: Specify minimum distance separating points in the time grid. Also
         specifies the error factor in time difference calculations.
     """
+
     fixed_node_set = set(tree_sequence.samples())
     span_data = SpansBySamples(tree_sequence, fixed_node_set, progress=progress)
     nodes_to_date = span_data.nodes_to_date
@@ -1843,13 +1857,14 @@ def date(
 
     :param TreeSequence tree_sequence: The input :class:`tskit.TreeSequence`, treated as
         undated.
-    :param float Ne: The inputted effective population size
-    :param float mutation_rate: The estimated mutation rate per unit of genome. If
-        provided, the dating algorithm will use a mutation rate clock to help estimate
-        node dates
-    :param float recombination_rate: The estimated recombination rate per unit of genome.
-        If provided, the dating algorithm will use a recombination rate clock to help
-        estimate node dates
+    :param float Ne: The estimated (diploid) effective population size: must be
+        specified.
+    :param float mutation_rate: The estimated mutation rate per unit of genome per
+        generation. If provided, the dating algorithm will use a mutation rate clock to
+        help estimate node dates.
+    :param float recombination_rate: The estimated recombination rate per unit of genome
+        per generation. If provided, the dating algorithm will use a recombination rate
+        clock to help estimate node dates.
     :param NodeGridValues prior: NodeGridValue object containing the prior and
         time points
     :param float eps: Specify minimum distance separating time points. Also specifies
@@ -1859,12 +1874,12 @@ def date(
     :param string method: What estimation method to use: can be
         "inside_outside" (empirically better, theoretically problematic) or
         "maximization" (worse empirically, especially with a gamma approximated prior,
-        but theoretically robust). Default: "inside-outside".
+        but theoretically robust). Default: "maximization".
     :param bool probability_space: Should the internal algorithm save probabilities in
         "logarithmic" (slower, less liable to to overflow) or "linear" space (fast, may
         overflow). Default: "logarithmic"
     :param bool progress: Whether to display a progress bar.
-    :return: A tree sequence with inferred node times.
+    :return: A tree sequence with inferred node times in units of generations.
     :rtype: tskit.TreeSequence
     """
     dates, _, timepoints, eps, nds = get_dates(
@@ -1880,7 +1895,7 @@ def date(
 
 def get_dates(
         tree_sequence, Ne, mutation_rate=None, recombination_rate=None, prior=None, *,
-        eps=1e-6, num_threads=None, method='inside_outside', outside_normalize=True,
+        eps=1e-6, num_threads=None, method='maximization', outside_normalize=True,
         progress=False, cache_inside=False,
         probability_space=LOG):
     """
@@ -1904,7 +1919,7 @@ def get_dates(
     fixed_node_set = set(tree_sequence.samples())
 
     if prior is None:
-        prior = build_prior_grid(tree_sequence)
+        prior = build_prior_grid(tree_sequence, eps=eps, progress=progress)
     else:
         logging.info("Using user-specified prior")
         prior = prior
@@ -1918,10 +1933,10 @@ def get_dates(
 
     if probability_space != LOG:
         liklhd = Likelihoods(tree_sequence, prior.timepoints, theta, eps,
-                             fixed_node_set)
+                             fixed_node_set, progress=progress)
     else:
         liklhd = LogLikelihoods(tree_sequence, prior.timepoints, theta, eps,
-                                fixed_node_set)
+                                fixed_node_set, progress=progress)
 
     if theta is not None:
         liklhd.precalculate_mutation_likelihoods(num_threads=num_threads)

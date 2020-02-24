@@ -36,13 +36,13 @@ documented `here <https://tsinfer.readthedocs.io/en/latest/api.html#tsinfer.Samp
 the data
 
 	sample_data = tsinfer.SampleData.from_tree_sequence(ts)
-	inferred_ts = tsinfer.infer(sample_data)
+	inferred_tree_sequence = tsinfer.infer(sample_data)
 
 Next, we run `tsdate` to estimate the ages of nodes and mutations in the inferred tree
 sequence:
 
 	import tsdate
-	dated_ts = tsdate.date(inferred_ts, Ne=10000, mutation_rate=1e-8)
+	dated_ts = tsdate.date(inferred_tree_sequence, Ne=10000, mutation_rate=1e-8)
 
 All we need to run ``tsdate`` with its default parameters is the inferred tree sequence
 object, the *estimated effective population size, and *estimated mutation rate.
@@ -53,7 +53,9 @@ object, the *estimated effective population size, and *estimated mutation rate.
  Specifying a Prior
 +++++++++++++++++++
 
-The above example shows the basic use of ``tsdate``, using default parameters. The software has parameters the user can access through the tsdate.build_prior_grid() function which may affect the runtime, accuracy, and numerical stability of the algorithm.
+The above example shows the basic use of ``tsdate``, using default parameters. The software has parameters the user can access through the :meth:`tsdate.build_prior_grid()`
+function which may affect the runtime and accuracy of the algorithm.
+
 
 .. _sec_tutorial_inside_outside_v_maximization:
 
@@ -61,9 +63,35 @@ The above example shows the basic use of ``tsdate``, using default parameters. T
 Inside Outside vs Maximization
 ++++++++++++++++++++++++++++++
 
+One of the most important parameters to consider is whether ``tsdate`` should use the 
+inside-outside or the maximization algorithms to perform inference. A detailed
+description of the algorithms will be presented in our preprint, but from the users
+perspective, the inside-outside approach performs better empirically but has issues with
+numeric stability, while the maximization approach is slightly less accurate
+empirically, but is numerically stable.
+
 .. _command_line_interface:
 
 ++++++++++++++++++++++++++++++
 Command Line Interface Example
 ++++++++++++++++++++++++++++++
 
+``tsdate`` also offers a convenient :ref:`command line interface (CLI) <sec_cli>` for 
+accessing the core functionality of the algorithm. 
+
+For a simple example of CLI, we'll first ouput the inferred tree sequence we created in
+:ref:`the Dating Tree Sequences section above`<_sec_tutorial_tsdate>` as a file.
+
+.. code-block:: python
+    import tskit
+
+    inferred_tree_sequence.dump("inferred_ts.trees")
+
+Now we use the CLI to again date the inferred tree sequence and output the resulting
+dated tree sequence to ``dated_ts.trees`` file:
+
+    $ tsdate date inferred_ts.trees dated_ts.trees 10000 1e-8 --progress
+
+The first two arguments are the input and output tree sequences, the third is the
+estimated effective population size, and the fourth is the estimated mutation rate. We
+also add the ``--progress`` to keep track of ``tsdate``'s progress.
