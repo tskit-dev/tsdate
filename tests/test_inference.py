@@ -1,6 +1,6 @@
 # MIT License
 #
-# Copyright (c) 2019 Anthony Wilder Wohns
+# Copyright (c) 2020 University of Oxford
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -118,29 +118,51 @@ class TestSimulated(unittest.TestCase):
 
     def test_simple_sim_1_tree(self):
         ts = msprime.simulate(8, mutation_rate=5, random_seed=2)
-        dated_ts = tsdate.date(ts, Ne=1, mutation_rate=5)
-        self.ts_equal_except_times(ts, dated_ts)
+        max_dated_ts = tsdate.date(ts, Ne=1, mutation_rate=5, method="maximization")
+        self.ts_equal_except_times(ts, max_dated_ts)
+        io_dated_ts = tsdate.date(ts, Ne=1, mutation_rate=5)
+        self.ts_equal_except_times(ts, io_dated_ts)
 
     def test_simple_sim_multi_tree(self):
         ts = msprime.simulate(8, mutation_rate=5, recombination_rate=5, random_seed=2)
         self.assertGreater(ts.num_trees, 1)
-        dated_ts = tsdate.date(ts, Ne=1, mutation_rate=5)
-        self.ts_equal_except_times(ts, dated_ts)
+        max_dated_ts = tsdate.date(ts, Ne=1, mutation_rate=5, method="maximization")
+        self.ts_equal_except_times(ts, max_dated_ts)
+        io_dated_ts = tsdate.date(ts, Ne=1, mutation_rate=5)
+        self.ts_equal_except_times(ts, io_dated_ts)
 
     def test_simple_sim_larger_example(self):
         # This makes ~1700 trees, and previously caused a failure
         ts = msprime.simulate(
             sample_size=10, length=2e6, Ne=10000, mutation_rate=1e-8,
             recombination_rate=1e-8, random_seed=11)
-        dated_ts = tsdate.date(ts, Ne=10000, mutation_rate=1e-8)
+        io_ts = tsdate.date(ts, Ne=10000, mutation_rate=1e-8)
+        maximized_ts = tsdate.date(ts, Ne=10000, mutation_rate=1e-8,
+                                   method='maximization')
+        self.ts_equal_except_times(ts, io_ts)
+        self.ts_equal_except_times(ts, maximized_ts)
+
+    def test_linear_space(self):
+        # This makes ~1700 trees, and previously caused a failure
+        ts = msprime.simulate(
+            sample_size=10, length=2e6, Ne=10000, mutation_rate=1e-8,
+            recombination_rate=1e-8, random_seed=11)
+        prior = tsdate.build_prior_grid(ts, timepoints=10, approximate_prior=None)
+        dated_ts = tsdate.date(ts, Ne=10000, mutation_rate=1e-8, prior=prior,
+                               probability_space="linear")
+        maximized_ts = tsdate.date(ts, Ne=10000, mutation_rate=1e-8, prior=prior,
+                                   method='maximization', probability_space="linear")
         self.ts_equal_except_times(ts, dated_ts)
+        self.ts_equal_except_times(ts, maximized_ts)
 
     def test_with_unary(self):
         ts = msprime.simulate(
             8, mutation_rate=10, recombination_rate=10,
             record_full_arg=True, random_seed=12)
-        dated_ts = tsdate.date(ts, Ne=1, mutation_rate=10)
-        self.ts_equal_except_times(ts, dated_ts)
+        max_dated_ts = tsdate.date(ts, Ne=1, mutation_rate=10, method="maximization")
+        self.ts_equal_except_times(ts, max_dated_ts)
+        io_dated_ts = tsdate.date(ts, Ne=1, mutation_rate=10)
+        self.ts_equal_except_times(ts, io_dated_ts)
 
     def test_fails_multi_root(self):
         ts = msprime.simulate(8, mutation_rate=2, random_seed=2)
@@ -153,7 +175,11 @@ class TestSimulated(unittest.TestCase):
                 if not internal_edge_removed:
                     continue
             tables.edges.add_row(*row)
-        self.assertRaises(ValueError, tsdate.date, tables.tree_sequence(), 1, 2)
+        multi_root_ts = tables.tree_sequence()
+        good_prior = tsdate.build_prior_grid(ts)
+        self.assertRaises(ValueError, tsdate.build_prior_grid, multi_root_ts)
+        self.assertRaises(ValueError, tsdate.date, multi_root_ts, 1, 2)
+        self.assertRaises(ValueError, tsdate.date, multi_root_ts, 1, 2, None, good_prior)
 
     def test_non_contemporaneous(self):
         samples = [
@@ -185,14 +211,20 @@ class TestInferred(unittest.TestCase):
     """
     Tests for tsdate on simulated then inferred tree sequences.
     """
+
     def test_simple_sim_1_tree(self):
         ts = msprime.simulate(8, mutation_rate=5, random_seed=2)
         for use_times in [True, False]:
             sample_data = tsinfer.SampleData.from_tree_sequence(ts, use_times=use_times)
             inferred_ts = tsinfer.infer(sample_data)
-            dated_ts = tsdate.date(inferred_ts, Ne=1, mutation_rate=5)
+            max_dated_ts = tsdate.date(inferred_ts, Ne=1, mutation_rate=5,
+                                       method="maximization")
             self.assertTrue(
-                all([a == b for a, b in zip(ts.haplotypes(), dated_ts.haplotypes())]))
+                all([a == b for a, b in zip(ts.haplotypes(),
+                                            max_dated_ts.haplotypes())]))
+            io_dated_ts = tsdate.date(inferred_ts, Ne=1, mutation_rate=5)
+            self.assertTrue(
+                all([a == b for a, b in zip(ts.haplotypes(), io_dated_ts.haplotypes())]))
 
     def test_simple_sim_multi_tree(self):
         ts = msprime.simulate(8, mutation_rate=5, recombination_rate=5, random_seed=2)
@@ -200,6 +232,11 @@ class TestInferred(unittest.TestCase):
         for use_times in [True, False]:
             sample_data = tsinfer.SampleData.from_tree_sequence(ts, use_times=use_times)
             inferred_ts = tsinfer.infer(sample_data)
-            dated_ts = tsdate.date(inferred_ts, Ne=1, mutation_rate=5)
+            max_dated_ts = tsdate.date(inferred_ts, Ne=1, mutation_rate=5,
+                                       method="maximization")
             self.assertTrue(
-                all([a == b for a, b in zip(ts.haplotypes(), dated_ts.haplotypes())]))
+                all([a == b for a, b in zip(ts.haplotypes(),
+                                            max_dated_ts.haplotypes())]))
+            io_dated_ts = tsdate.date(inferred_ts, Ne=1, mutation_rate=5)
+            self.assertTrue(
+                all([a == b for a, b in zip(ts.haplotypes(), io_dated_ts.haplotypes())]))

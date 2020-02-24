@@ -1,1 +1,1 @@
-This directory contains some useful data files. WHen running tsdate using `approximate_prior=True` or `approximate_prior=None`, a cached prior file is created here. The file `prior_1000df.bak` is provided as the default example of this file.
+This directory contains some useful data files. When running tsdate using approximate_prior=True or approximate_prior=None, a cached prior file is created here. The file prior_1000df.bak is provided as the default example of this file.

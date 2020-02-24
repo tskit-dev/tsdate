@@ -30,11 +30,7 @@ jobs:
           command: |
               python setup.py build_ext --inplace      
       - run:
-          name: Install tskit dev version
-          command: |
-              python3 -m pip install git+https://github.com/tskit-dev/tskit.git#subdirectory=python --user
-      - run:
-          name: Install tsinfer dev version
+          name: Install tsinfer dev version - currently required for "use_times" param
           command: |
               python3 -m pip install git+https://github.com/tskit-dev/tsinfer.git --user
       - run:

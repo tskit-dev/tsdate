@@ -1,6 +1,6 @@
 # MIT License
 #
-# Copyright (c) 2019 Anthony Wilder Wohns
+# Copyright (c) 2020 University of Oxford
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -21,9 +21,7 @@
 # SOFTWARE.
 
 from .date import (  # NOQA
-    date, get_dates, constrain_ages_topo, create_time_grid, fill_prior,
-    ConditionalCoalescentTimes, SpansBySamples, Likelihoods, LogLikelihoods,
-    NodeGridValues, InOutAlgorithms, posterior_mean_var, gamma_approx
+    date, build_prior_grid
     )
 
 

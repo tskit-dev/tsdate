@@ -1,7 +1,6 @@
 # MIT License
 #
-# Copyright (c) 2018-2019 Tskit Developers
-# Copyright (C) 2017 University of Oxford
+# Copyright (C) 2020 University of Oxford
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -428,6 +427,31 @@ def loopy_tree():
     0.2     1       6       4
     0.2     1       7       2
     0.2     1       7       6
+    """)
+    return tskit.load_text(nodes=nodes, edges=edges, strict=False)
+
+
+def single_tree_ts_n3_sample_as_parent():
+    r"""
+    Simple case where we have n = 3 and one tree. Node 3 is a sample.
+            4
+           / \
+          3   \
+         / \   \
+        0   1   2
+    """
+    nodes = io.StringIO("""\
+    id      is_sample   time
+    0       1           0
+    1       1           0
+    2       1           0
+    3       1           1
+    4       0           2
+    """)
+    edges = io.StringIO("""\
+    left    right   parent  child
+    0       1       3       0,1
+    0       1       4       2,3
     """)
     return tskit.load_text(nodes=nodes, edges=edges, strict=False)
 

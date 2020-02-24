@@ -1,6 +1,6 @@
 # MIT License
 #
-# Copyright (c) 2019 Anthony Wilder Wohns
+# Copyright (c) 2020 University of Oxford
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -27,7 +27,6 @@ import logging
 import sys
 
 import tskit
-
 import tsdate
 
 logger = logging.getLogger(__name__)
@@ -58,47 +57,61 @@ def tsdate_cli_parser():
         "-V", "--version", action='version',
         version='%(prog)s {}'.format(tsdate.__version__))
     parser.add_argument('ts',
-                        help="Tree sequence from which we estimate age")
+                        help="The path and name of the input tree sequence from which \
+                        we estimate node ages.")
     parser.add_argument('output',
-                        help="path and name of output file")
-    parser.add_argument('-n', '--Ne', type=float, default=10000,
-                        help="effective population size")
+                        help="The path and name of output file where the dated tree \
+                        sequence will saved.")
+    parser.add_argument('Ne', type=float,
+                        help="estimated effective (diploid) population size.")
     parser.add_argument('-m', '--mutation-rate', type=float, default=None,
-                        help="mutation rate")
+                        help="The estimated mutation rate per unit of genome per \
+                        generation. If provided, the dating algorithm will use a \
+                        mutation rate clock to help estimate node dates.")
     parser.add_argument('-r', '--recombination-rate', type=float,
-                        default=None, help="recombination rate")
-    parser.add_argument('-g', '--time-grid', type=str, default='adaptive',
-                        help="specify a uniform time grid")
-    parser.add_argument('-s', '--slices', type=int, default=50,
-                        help="intervals in time grid")
+                        default=None, help="The estimated recombination rate per unit \
+                        of genome per generation. If provided, the dating algorithm \
+                        will  use a recombination rate clock to help estimate node \
+                        dates.")
     parser.add_argument('-e', '--epsilon', type=float, default=1e-6,
-                        help="value to add to dt")
-    parser.add_argument('-t', '--num-threads', type=int, default=0,
-                        help="number of threads to use")
+                        help="Specify minimum distance separating time points. Also \
+                        specifies the error factor in time difference calculations.")
+    parser.add_argument('-t', '--num-threads', type=int, default=None,
+                        help="The number of threads to use. A simpler unthreaded \
+                        algorithm is used unless this is >= 1 (default: None).")
+    parser.add_argument('--probability-space', type=str, default='logarithmic',
+                        help="Should the internal algorithm save probabilities in \
+                        'logarithmic' (slower, less liable to to overflow) or 'linear' \
+                        space (faster, may overflow).")
+    parser.add_argument('--method', type=str, default='inside_outside',
+                        help="Specify which estimation method to use: can be \
+                        'inside_outside' (empirically better, theoretically \
+                        problematic) or 'maximization' (worse empirically, especially \
+                        with a gamma approximated prior, but theoretically robust). \
+                        Default: 'inside_outside.'")
     parser.add_argument('-p', '--progress', action='store_true',
-                        help="show progress bar")
+                        help="Show progress bar.")
+    parser.add_argument('-v', '--verbosity', type=int, default=0,
+                        help="How much verbosity to output.")
     return parser
 
 
 def run_date(args):
-    setup_logging(args)
     try:
         ts = tskit.load(args.ts)
     except tskit.FileFormatError as ffe:
         exit("Error loading '{}: {}".format(args.ts, ffe))
     dated_ts = tsdate.date(
-        ts, args.Ne, args.mutation_rate, args.recombination_rate,
-        args.time_grid, args.slices, args.epsilon, args.num_threads,
-        args.progress)
+        ts, args.Ne, mutation_rate=args.mutation_rate,
+        recombination_rate=args.recombination_rate,
+        probability_space=args.probability_space, method=args.method,
+        eps=args.epsilon, num_threads=args.num_threads,
+        progress=args.progress)
     dated_ts.dump(args.output)
-
-
-def main(args):
-    # Load tree sequence
-    run_date(args)
 
 
 def tsdate_main(arg_list=None):
     parser = tsdate_cli_parser()
     args = parser.parse_args(arg_list)
-    main(args)
+    setup_logging(args)
+    run_date(args)

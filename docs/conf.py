@@ -10,16 +10,16 @@
 # add these directories to sys.path here. If the directory is relative to the
 # documentation root, use os.path.abspath to make it absolute, like shown here.
 #
-# import os
-# import sys
-# sys.path.insert(0, os.path.abspath('.'))
+import os
+import sys
+sys.path.insert(0, os.path.abspath('..'))
 
 
 # -- Project information -----------------------------------------------------
 
 project = 'tsdate'
-copyright = '2019, Anthony Wilder Wohns'
-author = 'Anthony Wilder Wohns'
+copyright = '2020, University of Oxford'
+author = 'Anthony Wilder Wohns and Yan Wong'
 
 # The full version, including alpha/beta/rc tags
 release = '1.0.0'
@@ -35,10 +35,11 @@ extensions = [
     'sphinx.ext.intersphinx',
     'sphinxarg.ext',
     'sphinx_issues',
+    'recommonmark'
 ]
 
 # Github repo
-issues_github_path = "aowhns/tsdate"
+issues_github_path = "awohns/tsdate"
 
 # Add any paths that contain templates here, relative to this directory.
 templates_path = ['_templates']
