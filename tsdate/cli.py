@@ -57,30 +57,42 @@ def tsdate_cli_parser():
         "-V", "--version", action='version',
         version='%(prog)s {}'.format(tsdate.__version__))
     parser.add_argument('ts',
-                        help="Tree sequence from which we estimate age")
+                        help="The path and name of the input tree sequence from which \
+                        we estimate node ages.")
     parser.add_argument('output',
-                        help="path and name of output file")
+                        help="The path and name of output file where the dated tree \
+                        sequence will saved.")
     parser.add_argument('Ne', type=float,
-                        help="effective population size")
+                        help="estimated effective (diploid) population size.")
     parser.add_argument('-m', '--mutation-rate', type=float, default=None,
-                        help="mutation rate")
+                        help="The estimated mutation rate per unit of genome per \
+                        generation. If provided, the dating algorithm will use a \
+                        mutation rate clock to help estimate node dates.")
     parser.add_argument('-r', '--recombination-rate', type=float,
-                        default=None, help="recombination rate")
+                        default=None, help="The estimated recombination rate per unit \
+                        of genome per generation. If provided, the dating algorithm \
+                        will  use a recombination rate clock to help estimate node \
+                        dates.")
     parser.add_argument('-e', '--epsilon', type=float, default=1e-6,
-                        help="value to add to dt")
+                        help="Specify minimum distance separating time points. Also \
+                        specifies the error factor in time difference calculations.")
     parser.add_argument('-t', '--num-threads', type=int, default=1,
-                        help="number of threads to use")
+                        help="The number of threads to use. A simpler unthreaded \
+                        algorithm is used unless this is >= 1 (default: None).")
     parser.add_argument('--probability-space', type=str, default='logarithmic',
                         help="Should the internal algorithm save probabilities in \
                         'logarithmic' (slower, less liable to to overflow) or 'linear' \
                         space (faster, may overflow).")
     parser.add_argument('--method', type=str, default='inside_outside',
                         help="Specify which estimation method to use: can be \
-                        'inside_outside' or 'maximization'.")
+                        'inside_outside' (empirically better, theoretically \
+                        problematic) or 'maximization' (worse empirically, especially \
+                        with a gamma approximated prior, but theoretically robust). \
+                        Default: 'inside_outside.'")
     parser.add_argument('-p', '--progress', action='store_true',
-                        help="show progress bar")
+                        help="Show progress bar.")
     parser.add_argument('-v', '--verbosity', type=int, default=0,
-                        help="how much verbosity to output")
+                        help="How much verbosity to output.")
     return parser
 
 

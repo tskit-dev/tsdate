@@ -1789,6 +1789,7 @@ def build_prior_grid(tree_sequence, timepoints=20, approximate_prior=None,
     """
     Create prior distribution for the age of each node and the discretised time slices at
     which to evaluate node age.
+
     :param TreeSequence tree_sequence: The input :class:`tskit.TreeSequence`, treated as
         undated
     :param int_or_array_like timepoints: The number of quantiles used to create the
@@ -1802,6 +1803,9 @@ def build_prior_grid(tree_sequence, timepoints=20, approximate_prior=None,
         "lognorm"
     :param float eps: Specify minimum distance separating points in the time grid. Also
         specifies the error factor in time difference calculations.
+    :return: A prior object to pass to tsdate.date() containing prior values for
+        inference and a discretised time grid
+    :rtype:  tsdate.NodeGridValues Object
     """
 
     fixed_node_set = set(tree_sequence.samples())
@@ -1849,11 +1853,7 @@ def date(
         progress=False, **kwargs):
     """
     Take a tree sequence with arbitrary node times and recalculate node times using
-    the `tsdate` algorithm. If both a mutation_rate and recombination_rate are given, a
-    joint mutation and recombination clock is used to date the tree sequence. If only
-    mutation_rate is given, only the mutation clock is used; similarly if only
-    recombination_rate is given, only the recombination clock is used. If neither are
-    given, a topology-only clock is used (**details***).
+    the `tsdate` algorithm. If a mutation_rate is given, the mutation clock is used. The recombination clock is unsupported at this time. If neither a mutation_rate nor a recombination_rate is given, a topology-only clock is used.
 
     :param TreeSequence tree_sequence: The input :class:`tskit.TreeSequence`, treated as
         undated.
@@ -1874,7 +1874,7 @@ def date(
     :param string method: What estimation method to use: can be
         "inside_outside" (empirically better, theoretically problematic) or
         "maximization" (worse empirically, especially with a gamma approximated prior,
-        but theoretically robust). Default: "maximization".
+        but theoretically robust). Default: "inside_outside".
     :param bool probability_space: Should the internal algorithm save probabilities in
         "logarithmic" (slower, less liable to to overflow) or "linear" space (fast, may
         overflow). Default: "logarithmic"
@@ -1895,7 +1895,7 @@ def date(
 
 def get_dates(
         tree_sequence, Ne, mutation_rate=None, recombination_rate=None, prior=None, *,
-        eps=1e-6, num_threads=None, method='maximization', outside_normalize=True,
+        eps=1e-6, num_threads=None, method='inside_outside', outside_normalize=True,
         progress=False, cache_inside=False,
         probability_space=LOG):
     """

@@ -31,6 +31,7 @@ import tskit
 import msprime
 import numpy as np
 
+import tsdate
 import tsdate.cli as cli
 
 
@@ -139,6 +140,7 @@ class TestEndToEnd(unittest.TestCase):
         # The dated and undated tree sequences should not have the same node times
         self.assertTrue(not np.array_equal(ts1.tables.nodes.time, ts2.tables.nodes.time))
 
+
     def verify(self, input_ts, cmd):
         with tempfile.TemporaryDirectory() as tmpdir:
             input_filename = pathlib.Path(tmpdir) / "input.trees"
@@ -149,6 +151,19 @@ class TestEndToEnd(unittest.TestCase):
             output_ts = tskit.load(output_filename)
         self.assertEqual(input_ts.num_samples, output_ts.num_samples)
         self.ts_equal_except_times(input_ts, output_ts)
+
+
+def compare_python_api(self, input_ts, Ne, mutation_rate, method):
+    with tempfile.TemporaryDirectory() as tmpdir:
+            input_filename = pathlib.Path(tmpdir) / "input.trees"
+            input_ts.dump(input_filename)
+            output_filename = pathlib.Path(tmpdir) / "output.trees"
+            full_cmd = str(input_filename) + f" {output_filename} " + cmd
+            cli.tsdate_main(full_cmd.split())
+            output_ts = tskit.load(output_filename)
+    dated_ts = tsdate.date(input_ts, Ne=Ne, mutation_rate=mutation_rate, method=method)
+    self.assertTrue(dated_ts == output_ts)
+
 
     def test_ts(self):
         input_ts = msprime.simulate(10, random_seed=1)
@@ -188,3 +203,14 @@ class TestEndToEnd(unittest.TestCase):
         self.verify(input_ts, cmd)
         cmd = "1 --method maximization"
         self.assertRaises(ValueError, self.verify, input_ts, cmd)
+
+    # def test_compare_python_api(self):
+    #     input_ts = msprime.simulate(100, Ne=10000, mutation_rate=1e-8,
+    #                                 recombination_rate=1e-8, length=2e4, random_seed=10)
+    #     cmd = "10000 -m 1e-8 --method inside_outside"
+    #     self.verify(input_ts, cmd)
+    #     self.verify(input_ts, 10000, 1e-8, "inside_outside")
+    #     compare_python_api
+    #     cmd = "10000 -m 1e-8 --method inside_outside"
+    #     self.assertRaises(ValueError, self.verify, input_ts, cmd)
+    #     self.verify(input_ts, 10000, 1e-8, "maximization")

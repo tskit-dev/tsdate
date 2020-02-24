@@ -7,7 +7,6 @@ Python API
 
 This page provides documentation for the ``tsdate`` Python API.
 
-.. _sec_python_api:
 
 **************
 Running tsdate
