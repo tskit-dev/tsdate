@@ -76,7 +76,7 @@ def tsdate_cli_parser():
     parser.add_argument('-e', '--epsilon', type=float, default=1e-6,
                         help="Specify minimum distance separating time points. Also \
                         specifies the error factor in time difference calculations.")
-    parser.add_argument('-t', '--num-threads', type=int, default=1,
+    parser.add_argument('-t', '--num-threads', type=int, default=None,
                         help="The number of threads to use. A simpler unthreaded \
                         algorithm is used unless this is >= 1 (default: None).")
     parser.add_argument('--probability-space', type=str, default='logarithmic',

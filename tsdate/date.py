@@ -1853,7 +1853,9 @@ def date(
         progress=False, **kwargs):
     """
     Take a tree sequence with arbitrary node times and recalculate node times using
-    the `tsdate` algorithm. If a mutation_rate is given, the mutation clock is used. The recombination clock is unsupported at this time. If neither a mutation_rate nor a recombination_rate is given, a topology-only clock is used.
+    the `tsdate` algorithm. If a mutation_rate is given, the mutation clock is used. The
+    recombination clock is unsupported at this time. If neither a mutation_rate nor a
+    recombination_rate is given, a topology-only clock is used.
 
     :param TreeSequence tree_sequence: The input :class:`tskit.TreeSequence`, treated as
         undated.

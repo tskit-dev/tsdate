@@ -52,7 +52,7 @@ class TestTsdateArgParser(unittest.TestCase):
         self.assertEqual(args.mutation_rate, None)
         self.assertEqual(args.recombination_rate, None)
         self.assertEqual(args.epsilon, 1e-6)
-        self.assertEqual(args.num_threads, 1)
+        self.assertEqual(args.num_threads, None)
         self.assertEqual(args.probability_space, 'logarithmic')
         self.assertEqual(args.method, 'inside_outside')
         self.assertFalse(args.progress)
@@ -153,17 +153,17 @@ class TestEndToEnd(unittest.TestCase):
         self.ts_equal_except_times(input_ts, output_ts)
 
 
-def compare_python_api(self, input_ts, Ne, mutation_rate, method):
-    with tempfile.TemporaryDirectory() as tmpdir:
+    def compare_python_api(self, input_ts, cmd, Ne, mutation_rate, method):
+        with tempfile.TemporaryDirectory() as tmpdir:
             input_filename = pathlib.Path(tmpdir) / "input.trees"
             input_ts.dump(input_filename)
             output_filename = pathlib.Path(tmpdir) / "output.trees"
             full_cmd = str(input_filename) + f" {output_filename} " + cmd
             cli.tsdate_main(full_cmd.split())
             output_ts = tskit.load(output_filename)
-    dated_ts = tsdate.date(input_ts, Ne=Ne, mutation_rate=mutation_rate, method=method)
-    self.assertTrue(dated_ts == output_ts)
-
+        dated_ts = tsdate.date(input_ts, Ne=Ne, mutation_rate=mutation_rate, method=method)
+        print(dated_ts.tables.nodes.time,output_ts.tables.nodes.time)
+        self.assertTrue(np.array_equal(dated_ts.tables.nodes.time, output_ts.tables.nodes.time))
 
     def test_ts(self):
         input_ts = msprime.simulate(10, random_seed=1)
@@ -204,13 +204,13 @@ def compare_python_api(self, input_ts, Ne, mutation_rate, method):
         cmd = "1 --method maximization"
         self.assertRaises(ValueError, self.verify, input_ts, cmd)
 
-    # def test_compare_python_api(self):
-    #     input_ts = msprime.simulate(100, Ne=10000, mutation_rate=1e-8,
-    #                                 recombination_rate=1e-8, length=2e4, random_seed=10)
-    #     cmd = "10000 -m 1e-8 --method inside_outside"
-    #     self.verify(input_ts, cmd)
-    #     self.verify(input_ts, 10000, 1e-8, "inside_outside")
-    #     compare_python_api
-    #     cmd = "10000 -m 1e-8 --method inside_outside"
-    #     self.assertRaises(ValueError, self.verify, input_ts, cmd)
-    #     self.verify(input_ts, 10000, 1e-8, "maximization")
+    def test_compare_python_api(self):
+        input_ts = msprime.simulate(100, Ne=10000, mutation_rate=1e-8,
+                                    recombination_rate=1e-8, length=2e4, random_seed=10)
+        cmd = "10000 -m 1e-8 --method inside_outside"
+        self.verify(input_ts, cmd)
+        self.compare_python_api(input_ts, cmd, 10000, 1e-8, "inside_outside")
+        cmd = "10000 -m 1e-8 --method maximization"
+        self.verify(input_ts, cmd)
+        self.compare_python_api(input_ts, cmd, 10000, 1e-8, "maximization")
+
