@@ -140,7 +140,6 @@ class TestEndToEnd(unittest.TestCase):
         # The dated and undated tree sequences should not have the same node times
         self.assertTrue(not np.array_equal(ts1.tables.nodes.time, ts2.tables.nodes.time))
 
-
     def verify(self, input_ts, cmd):
         with tempfile.TemporaryDirectory() as tmpdir:
             input_filename = pathlib.Path(tmpdir) / "input.trees"
@@ -152,7 +151,6 @@ class TestEndToEnd(unittest.TestCase):
         self.assertEqual(input_ts.num_samples, output_ts.num_samples)
         self.ts_equal_except_times(input_ts, output_ts)
 
-
     def compare_python_api(self, input_ts, cmd, Ne, mutation_rate, method):
         with tempfile.TemporaryDirectory() as tmpdir:
             input_filename = pathlib.Path(tmpdir) / "input.trees"
@@ -161,9 +159,11 @@ class TestEndToEnd(unittest.TestCase):
             full_cmd = str(input_filename) + f" {output_filename} " + cmd
             cli.tsdate_main(full_cmd.split())
             output_ts = tskit.load(output_filename)
-        dated_ts = tsdate.date(input_ts, Ne=Ne, mutation_rate=mutation_rate, method=method)
-        print(dated_ts.tables.nodes.time,output_ts.tables.nodes.time)
-        self.assertTrue(np.array_equal(dated_ts.tables.nodes.time, output_ts.tables.nodes.time))
+        dated_ts = tsdate.date(input_ts, Ne=Ne, mutation_rate=mutation_rate,
+                               method=method)
+        print(dated_ts.tables.nodes.time, output_ts.tables.nodes.time)
+        self.assertTrue(np.array_equal(dated_ts.tables.nodes.time,
+                                       output_ts.tables.nodes.time))
 
     def test_ts(self):
         input_ts = msprime.simulate(10, random_seed=1)
@@ -213,4 +213,3 @@ class TestEndToEnd(unittest.TestCase):
         cmd = "10000 -m 1e-8 --method maximization"
         self.verify(input_ts, cmd)
         self.compare_python_api(input_ts, cmd, 10000, 1e-8, "maximization")
-
