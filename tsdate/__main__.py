@@ -1,4 +1,4 @@
-import tsdate.cli as cli
+from . import cli
 
 
 def main():

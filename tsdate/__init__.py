@@ -20,9 +20,7 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-from .date import (  # NOQA
-    date, build_prior_grid
-    )
 
+from .date import date, build_prior_grid # NOQA
 
-from .provenance import __version__  # NOQA
+from .provenance import __version__ # NOQA

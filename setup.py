@@ -9,11 +9,12 @@ setup(
     author_email="awohns@gmail.com",
     description="Infer node ages from a tree sequence topology",
     long_description=long_description,
+    packages=["tsdate"],
     long_description_content_type="text/markdown",
     url="http://pypi.python.org/pypi/tsdate",
     entry_points={
         'console_scripts': [
-            'tsdate=tsdate.cli:tsdate_main',
+            'tsdate=tsdate.__main__:main',
         ]
     },
     setup_requires=['setuptools_scm'],
