@@ -18,7 +18,7 @@ setup(
     },
     setup_requires=['setuptools_scm'],
     install_requires=[
-        "numpy>=1.17.0",
+        "numpy",
         "tskit>=0.2.3",
         "scipy>1.2.3",
         "numba>=0.46.0",
@@ -31,7 +31,8 @@ setup(
     classifiers=[
         "Programming Language :: Python :: 3.5",
         "License :: OSI Approved :: MIT License",
-        "Operating System :: OSX",
+        "Operating System :: MacOS :: MacOS X",
+        "Operating System :: POSIX",
     ],
     use_scm_version={"write_to": "tsdate/_version.py"},
 )
