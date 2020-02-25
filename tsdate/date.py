@@ -215,9 +215,10 @@ class ConditionalCoalescentTimes():
     @staticmethod
     def precalc_approx_fn(precalc_approximation_n):
         script_dir = os.path.dirname(os.path.abspath(__file__))
-        parent_dir = os.path.dirname(script_dir)
+        if not os.path.isdir(os.path.join(script_dir, "data")):
+            os.mkdir(os.path.join(script_dir, "data"))
         return os.path.join(
-            parent_dir, "data", "prior_{}df.txt".format(precalc_approximation_n))
+            script_dir, "data", "prior_{}df.txt".format(precalc_approximation_n))
 
     @staticmethod
     def m_prob(m, i, n):
@@ -1920,8 +1921,14 @@ def get_dates(
                 "Samples must all be at time 0")
     fixed_node_set = set(tree_sequence.samples())
 
+    # Default to not creating approximate prior unless ts has > 1000 samples
+    approx_prior = False
+    if tree_sequence.num_samples > 1000:
+        approx_prior = True
+
     if prior is None:
-        prior = build_prior_grid(tree_sequence, eps=eps, progress=progress)
+        prior = build_prior_grid(tree_sequence, eps=eps, progress=progress,
+                                 approximate_prior=approx_prior)
     else:
         logging.info("Using user-specified prior")
         prior = prior
