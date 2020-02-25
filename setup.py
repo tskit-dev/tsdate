@@ -5,6 +5,7 @@ with open("README.md", "r") as fh:
 
 setup(
     name="tsdate",
+    version="0.1.0",
     author="Anthony Wilder Wohns and Yan Wong",
     author_email="awohns@gmail.com",
     description="Infer node ages from a tree sequence topology",
@@ -35,5 +36,4 @@ setup(
         "Operating System :: MacOS :: MacOS X",
         "Operating System :: POSIX",
     ],
-    use_scm_version={"write_to": "tsdate/_version.py"},
 )

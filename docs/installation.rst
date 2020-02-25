@@ -15,7 +15,7 @@ on MacOSX and Linux.
 Once installed, ``tsdate``'s :ref:`Command Line Interface (CLI) <sec_cli>` can be accessed via:
 ::
 
-    $ python3 -m tsdate --help
+    $ python3 -m tsdate
 
 or ::
 

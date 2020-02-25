@@ -24,7 +24,7 @@ copyright = '2020, University of Oxford'
 author = 'Anthony Wilder Wohns and Yan Wong'
 
 # The full version, including alpha/beta/rc tags
-release = '1.0.0'
+release = 'v1.0.0'
 
 
 # -- General configuration ---------------------------------------------------

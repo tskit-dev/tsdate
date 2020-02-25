@@ -102,7 +102,7 @@ For a simple example of CLI, we'll first save the inferred tree sequence we crea
 
     import tskit
 
-    inferred_tree_sequence.dump("inferred_ts.trees")
+    inferred_ts.dump("inferred_ts.trees")
 
 Now we use the CLI to again date the inferred tree sequence and output the resulting
 dated tree sequence to ``dated_ts.trees`` file:
