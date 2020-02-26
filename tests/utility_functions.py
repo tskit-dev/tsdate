@@ -316,12 +316,15 @@ def two_tree_ts():
 def single_tree_ts_with_unary():
     r"""
     Simple case where we have n = 3 and some unary nodes.
-            6
-           / 5
-          4   \
-          3    \
-         / \    \
-        0   1    2
+            7
+           / \
+          5   \
+          |    \
+          4     6
+          |     |
+          3     |
+         / \    |
+        0   1   2
     """
     nodes = io.StringIO("""\
     id      is_sample   time
@@ -331,14 +334,16 @@ def single_tree_ts_with_unary():
     3       0           1
     4       0           2
     5       0           3
-    6       0           4
+    6       0           2
+    7       0           4
     """)
     edges = io.StringIO("""\
     left    right   parent  child
     0       1       3       0,1
-    0       1       5       2
+    0       1       6       2
     0       1       4       3
-    0       1       6       4,5
+    0       1       5       4
+    0       1       7       5,6
     """)
     return tskit.load_text(nodes=nodes, edges=edges, strict=False)
 

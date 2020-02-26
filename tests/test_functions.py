@@ -84,7 +84,9 @@ class TestNodeTipWeights(unittest.TestCase):
         for tree in ts.trees():
             for n in tree.nodes():
                 if not tree.is_sample(n):
-                    nonsample_nodes[n] += tree.span
+                    # do not count a span of a node where there are no sample descendants
+                    if tree.num_samples(n) > 0:
+                        nonsample_nodes[n] += tree.span
         self.assertEqual(set(span_data.nodes_to_date), set(nonsample_nodes.keys()))
         for id, span in nonsample_nodes.items():
             self.assertAlmostEqual(span, span_data.node_spans[id])
@@ -161,11 +163,14 @@ class TestNodeTipWeights(unittest.TestCase):
         ts = utility_functions.single_tree_ts_with_unary()
         n = ts.num_samples
         span_data = self.verify_weights(ts)
-        self.assertEqual(span_data.lookup_weight(3, n, 2), 1.0)
-        self.assertEqual(span_data.lookup_weight(4, n, 2), 0.5)
-        self.assertEqual(span_data.lookup_weight(4, n, 3), 0.5)
-        self.assertEqual(span_data.lookup_weight(5, n, 1), 0.5)
+        self.assertEqual(span_data.lookup_weight(7, n, 3), 1.0)
+        self.assertEqual(span_data.lookup_weight(6, n, 1), 0.5)
+        self.assertEqual(span_data.lookup_weight(6, n, 3), 0.5)
+        self.assertEqual(span_data.lookup_weight(5, n, 2), 0.5)
         self.assertEqual(span_data.lookup_weight(5, n, 3), 0.5)
+        self.assertEqual(span_data.lookup_weight(4, n, 2), 0.75)
+        self.assertEqual(span_data.lookup_weight(4, n, 3), 0.25)
+        self.assertEqual(span_data.lookup_weight(3, n, 2), 1.0)
 
     def test_polytomy_tree(self):
         ts = utility_functions.polytomy_tree_ts()
@@ -401,16 +406,21 @@ class TestMixturePrior(unittest.TestCase):
     def test_single_tree_ts_with_unary(self):
         ts = utility_functions.single_tree_ts_with_unary()
         mixture_prior = self.get_mixture_prior_params(ts, 'gamma')
+        # Root is a 3 tip prior
+        self.assertTrue(
+            np.allclose(mixture_prior[7, self.alpha_beta], [1.6, 1.2]))
+        # Node 6 should be a 50:50 mixture between 1 and 3 tips
+        self.assertTrue(
+            np.allclose(mixture_prior[6, self.alpha_beta], [0.44444, 0.66666]))
+        # Node 5 should be a 50:50 mixture of 2 and 3 tips
+        self.assertTrue(
+            np.allclose(mixture_prior[5, self.alpha_beta], [0.80645, 0.96774]))
+        # Node 4 should be a 75:25 mixture of 2 and 3 tips
+        self.assertTrue(
+            np.allclose(mixture_prior[4, self.alpha_beta], [0.62025, 1.06329]))
+        # Node 3 is a 2 tip prior
         self.assertTrue(
             np.allclose(mixture_prior[3, self.alpha_beta], [1., 3.]))
-        # Node 4 should be a mixture between 2 and 3 tips
-        self.assertTrue(
-            np.allclose(mixture_prior[4, self.alpha_beta], [0.80645, 0.96774]))
-        # Node 5 should be a mixture between 1 and 3 tips
-        self.assertTrue(
-            np.allclose(mixture_prior[5, self.alpha_beta], [0.44444, 0.66666]))
-        self.assertTrue(
-            np.allclose(mixture_prior[6, self.alpha_beta], [1.6, 1.2]))
 
     def test_two_tree_mutation_ts(self):
         ts = utility_functions.two_tree_mutation_ts()
@@ -439,54 +449,41 @@ class TestPriorVals(unittest.TestCase):
     def test_one_tree_n2(self):
         ts = utility_functions.single_tree_ts_n2()
         prior_vals = self.verify_prior_vals(ts, 'gamma')
-        self.assertTrue(np.allclose(prior_vals[2],
-                        np.array([0, 1, 0.22313016])))
+        self.assertTrue(np.allclose(prior_vals[2], [0, 1, 0.22313016]))
 
     def test_one_tree_n3(self):
         ts = utility_functions.single_tree_ts_n3()
         prior_vals = self.verify_prior_vals(ts, 'gamma')
-        self.assertTrue(np.allclose(prior_vals[3],
-                        np.array([0, 1, 0.011109])))
-        self.assertTrue(np.allclose(prior_vals[4],
-                        np.array([0, 1, 0.3973851])))
+        self.assertTrue(np.allclose(prior_vals[3], [0, 1, 0.011109]))
+        self.assertTrue(np.allclose(prior_vals[4], [0, 1, 0.3973851]))
 
     def test_one_tree_n4(self):
         ts = utility_functions.single_tree_ts_n4()
         prior_vals = self.verify_prior_vals(ts, 'gamma')
-        self.assertTrue(np.allclose(prior_vals[4],
-                        np.array([0, 1, 0.00467134])))
-        self.assertTrue(np.allclose(prior_vals[5],
-                        np.array([0, 1, 0.02167806])))
-        self.assertTrue(np.allclose(prior_vals[6],
-                        np.array([0, 1, 0.52637529])))
+        self.assertTrue(np.allclose(prior_vals[4], [0, 1, 0.00467134]))
+        self.assertTrue(np.allclose(prior_vals[5], [0, 1, 0.02167806]))
+        self.assertTrue(np.allclose(prior_vals[6], [0, 1, 0.52637529]))
 
     def test_polytomy_tree(self):
         ts = utility_functions.polytomy_tree_ts()
         prior_vals = self.verify_prior_vals(ts, 'gamma')
-        self.assertTrue(np.allclose(prior_vals[3],
-                        np.array([0, 1, 0.3973851])))
+        self.assertTrue(np.allclose(prior_vals[3], [0, 1, 0.3973851]))
 
     def test_two_tree_ts(self):
         ts = utility_functions.two_tree_ts()
         prior_vals = self.verify_prior_vals(ts, 'gamma')
-        self.assertTrue(np.allclose(prior_vals[3],
-                        np.array([0, 1, 0.011109])))
-        self.assertTrue(np.allclose(prior_vals[4],
-                        np.array([0, 1, 0.080002])))
-        self.assertTrue(np.allclose(prior_vals[5],
-                        np.array([0, 1, 0.3973851])))
+        self.assertTrue(np.allclose(prior_vals[3], [0, 1, 0.011109]))
+        self.assertTrue(np.allclose(prior_vals[4], [0, 1, 0.080002]))
+        self.assertTrue(np.allclose(prior_vals[5], [0, 1, 0.3973851]))
 
     def test_tree_with_unary_nodes(self):
         ts = utility_functions.single_tree_ts_with_unary()
         prior_vals = self.verify_prior_vals(ts, 'gamma')
-        self.assertTrue(np.allclose(prior_vals[3],
-                        np.array([0, 1, 0.011109])))
-        self.assertTrue(np.allclose(prior_vals[4],
-                        np.array([0, 1, 0.16443276])))
-        self.assertTrue(np.allclose(prior_vals[5],
-                        np.array([0, 1, 0.11312131])))
-        self.assertTrue(np.allclose(prior_vals[6],
-                        np.array([0, 1, 0.3973851])))
+        self.assertTrue(np.allclose(prior_vals[7], [0, 1, 0.397385]))
+        self.assertTrue(np.allclose(prior_vals[6], [0, 1, 0.113122]))
+        self.assertTrue(np.allclose(prior_vals[5], [0, 1, 0.164433]))
+        self.assertTrue(np.allclose(prior_vals[4], [0, 1, 0.093389]))
+        self.assertTrue(np.allclose(prior_vals[3], [0, 1, 0.011109]))
 
 
 class TestLikelihoodClass(unittest.TestCase):
@@ -875,10 +872,11 @@ class TestInsideAlgorithm(unittest.TestCase):
     def test_tree_with_unary_nodes(self):
         ts = utility_functions.single_tree_ts_with_unary()
         algo = self.run_inside_algorithm(ts, 'gamma')[0]
+        self.assertTrue(np.allclose(algo.inside[7], np.array([0, 1, 0.25406637])))
+        self.assertTrue(np.allclose(algo.inside[6], np.array([0, 1, 0.07506923])))
+        self.assertTrue(np.allclose(algo.inside[5], np.array([0, 1, 0.13189998])))
+        self.assertTrue(np.allclose(algo.inside[4], np.array([0, 1, 0.07370801])))
         self.assertTrue(np.allclose(algo.inside[3], np.array([0, 1, 0.01147716])))
-        self.assertTrue(np.allclose(algo.inside[4], np.array([0, 1, 0.12086781])))
-        self.assertTrue(np.allclose(algo.inside[5], np.array([0, 1, 0.07506923])))
-        self.assertTrue(np.allclose(algo.inside[6], np.array([0, 1, 0.25057244])))
 
     def test_two_tree_mutation_ts(self):
         ts = utility_functions.two_tree_mutation_ts()
@@ -979,8 +977,6 @@ class TestTotalFunctionalValueTree(unittest.TestCase):
         algo = InOutAlgorithms(ts, prior_vals, lls)
         algo.inside_pass(theta, rho)
         posterior = algo.outside_pass(theta, rho, normalize=False)
-        print(np.sum(
-            algo.inside.grid_data * algo.outside.grid_data, axis=1))
         self.assertTrue(np.array_equal(np.sum(
             algo.inside.grid_data * algo.outside.grid_data, axis=1),
             np.sum(algo.inside.grid_data * algo.outside.grid_data, axis=1)))
