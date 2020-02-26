@@ -1864,7 +1864,7 @@ def build_prior_grid(tree_sequence, timepoints=20, *, approximate_prior=False,
         try:
             timepoints = np.sort(timepoints.astype(FLOAT_DTYPE, casting='safe'))
         except TypeError:
-            logging.debug("Timepoints array cannot be converted to float dtype")
+            raise TypeError("Timepoints array cannot be converted to float dtype")
         if len(timepoints) < 2:
             raise ValueError("You must have at least 2 time points")
         elif np.any(timepoints < 0):
