@@ -33,10 +33,25 @@ import tsdate
 import utility_functions
 
 
-# class TestPrebuilt(unittest.TestCase):
-#     """
-#     Tests for tsdate on prebuilt tree sequences
-#     """
+class TestPrebuilt(unittest.TestCase):
+    """
+    Tests for tsdate on prebuilt tree sequences
+    """
+    def test_dangling_failure(self):
+        ts = utility_functions.single_tree_ts_n3()
+        # Mark node 0 as a non-sample node, which should make it dangling
+        tables = ts.dump_tables()
+        flags = tables.nodes.flags
+        flags[0] = flags[0] & (~tskit.NODE_IS_SAMPLE)
+        tables.nodes.flags = flags
+        self.assertRaises(ValueError, tsdate.date, tables.tree_sequence(), Ne=1)
+
+    def test_unary_warning(self):
+        with self.assertLogs(level="WARNING") as log:
+            tsdate.date(utility_functions.single_tree_ts_with_unary(), Ne=1)
+            self.assertEqual(len(log.output), 1)
+            self.assertIn("unary nodes", log.output[0])
+
 #     def test_simple_ts_n2(self):
 #         ts = utility_functions.single_tree_ts_n2()
 #         dated_ts = tsdate.date(ts, Ne=10000)

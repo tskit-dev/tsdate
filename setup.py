@@ -12,6 +12,7 @@ setup(
     packages=["tsdate"],
     long_description_content_type="text/markdown",
     url="http://pypi.python.org/pypi/tsdate",
+    python_requires='>=3.4',
     entry_points={
         'console_scripts': [
             'tsdate=tsdate.__main__:main',

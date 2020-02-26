@@ -183,6 +183,15 @@ class TestNodeTipWeights(unittest.TestCase):
         self.assertGreater(ts.num_trees, 1)
         self.verify_weights(ts)
 
+    def test_dangling_nodes_fail(self):
+        ts = utility_functions.single_tree_ts_n3()
+        # Mark node 0 as a non-sample node, which should make it dangling
+        tables = ts.dump_tables()
+        flags = tables.nodes.flags
+        flags[0] = flags[0] & (~tskit.NODE_IS_SAMPLE)
+        tables.nodes.flags = flags
+        self.assertRaises(ValueError, self.verify_weights, tables.tree_sequence())
+
     @unittest.skip("YAN to fix")
     def test_truncated_nodes(self):
         Ne = 1e2
