@@ -29,6 +29,8 @@ import itertools
 import multiprocessing
 import operator
 import functools
+import pathlib
+import appdirs
 
 import tskit
 
@@ -39,7 +41,12 @@ from scipy.special import comb
 from tqdm import tqdm
 
 FORMAT_NAME = "tsdate"
-FORMAT_VERSION = [1, 0]
+__version__ = "undefined"
+try:
+    from . import _version
+    __version__ = _version.version
+except ImportError:
+    pass
 FLOAT_DTYPE = np.float64
 LIN = "linear"
 LOG = "logarithmic"
@@ -192,7 +199,7 @@ class ConditionalCoalescentTimes():
 
     def precalculate_prior_for_approximation(self, precalc_approximation_n):
         n = precalc_approximation_n
-        logging.debug(
+        logging.info(
             "Creating prior lookup table for a total tree of n={} tips"
             " in `{}`, this may take some time for large n"
             .format(n, self.precalc_approx_fn(n)))
@@ -214,11 +221,13 @@ class ConditionalCoalescentTimes():
 
     @staticmethod
     def precalc_approx_fn(precalc_approximation_n):
-        script_dir = os.path.dirname(os.path.abspath(__file__))
-        if not os.path.isdir(os.path.join(script_dir, "data")):
-            os.mkdir(os.path.join(script_dir, "data"))
+        cache_dir = appdirs.user_cache_dir("tsdate", "data")
+        _cache_dir = pathlib.Path(cache_dir)
+        logging.info(f"Set cache_dir to {_cache_dir}")
+        # TODO: check how msprime does version look
         return os.path.join(
-            script_dir, "data", "prior_{}df.txt".format(precalc_approximation_n))
+            _cache_dir, "prior_{}df_{}.txt".format(precalc_approximation_n,
+                                                           __version__))
 
     @staticmethod
     def m_prob(m, i, n):
@@ -1794,8 +1803,9 @@ def constrain_ages_topo(ts, post_mn, timepoints, eps, nodes_to_date=None,
     return new_mn_post
 
 
-def build_prior_grid(tree_sequence, timepoints=20, approximate_prior=None,
-                     prior_distribution="lognorm", eps=1e-6, progress=False):
+def build_prior_grid(tree_sequence, timepoints=20, *, approximate_prior=False,
+                     approx_prior_size=None, prior_distribution="lognorm", eps=1e-6,
+                     progress=False):
     """
     Create prior distribution for the age of each node and the discretised time slices at
     which to evaluate node age.
@@ -1805,7 +1815,11 @@ def build_prior_grid(tree_sequence, timepoints=20, approximate_prior=None,
     :param int_or_array_like timepoints: The number of quantiles used to create the
         time slices, or manually-specified time slices as a numpy array
     :param bool approximate_prior: Whether to use a precalculated approximate prior or
-        exactly calculate prior
+        exactly calculate prior. If approximate prior has not been precalculated, tsdate
+        will do so and cache the result.
+    :param int approx_prior_size: Number of samples from which to precalculate prior. 
+        Should only enter value if approximate_prior=True. If approximate_prior=True and
+        no value specified, defaults to 1000.
     :param string prior_distr: What distribution to use to approximate the conditional
         coalescent prior. Can be "lognorm" for the lognormal distribution (generally a
         better fit, but slightly slower to calculate) or "gamma" for the gamma
@@ -1821,12 +1835,18 @@ def build_prior_grid(tree_sequence, timepoints=20, approximate_prior=None,
     fixed_node_set = set(tree_sequence.samples())
     span_data = SpansBySamples(tree_sequence, fixed_node_set, progress=progress)
     nodes_to_date = span_data.nodes_to_date
-    max_sample_size_before_approximation = None if approximate_prior is False else 1000
+
+    if approximate_prior:
+        if not approx_prior_size:
+            approx_prior_size = 1000
+    else:
+        if approx_prior_size is not None:
+            raise ValueError("Can't set approx_prior_size if approximate_prior is False")
 
     if prior_distribution not in ('lognorm', 'gamma'):
         raise ValueError("prior distribution must be lognorm or gamma")
 
-    base_priors = ConditionalCoalescentTimes(max_sample_size_before_approximation,
+    base_priors = ConditionalCoalescentTimes(approx_prior_size,
                                              prior_distribution)
     base_priors.add(len(fixed_node_set), approximate_prior)
     for total_fixed in span_data.total_fixed_at_0_counts:
