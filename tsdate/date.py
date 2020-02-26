@@ -1170,8 +1170,8 @@ class Likelihoods:
         A wrapper to allow this _lik to be called by pool.imap_unordered, returning the
         mutation and span values
         """
-        return muts_span, Likelihoods._lik(muts_span[0], muts_span[1], dt, theta,
-                                           normalize=normalize)
+        return muts_span, Likelihoods._lik(
+            muts_span[0], muts_span[1], dt, theta, normalize=normalize)
 
     def precalculate_mutation_likelihoods(
             self, num_threads=None, unique_method=0):
@@ -1207,7 +1207,8 @@ class Likelihoods:
 
         if num_threads:
             f = functools.partial(  # Set constant values for params for static _lik
-                self._lik_wrapper, dt=self.timediff_lower_tri, theta=self.theta)
+                self._lik_wrapper, dt=self.timediff_lower_tri, theta=self.theta,
+                normalize=self.normalize)
             if num_threads == 1:
                 # Useful for testing
                 for key in tqdm(self.unfixed_likelihood_cache.keys(),
@@ -1397,6 +1398,14 @@ class LogLikelihoods(Likelihoods):
             return ll - np.max(ll)
         else:
             return ll
+
+    @staticmethod
+    def _lik_wrapper(muts_span, dt, theta, normalize=True):
+        """
+        Needs redefining to refer to the LogLikelihoods class
+        """
+        return muts_span, LogLikelihoods._lik(
+            muts_span[0], muts_span[1], dt, theta, normalize=normalize)
 
     def rowsum_lower_tri(self, input_array):
         """

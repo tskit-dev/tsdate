@@ -490,13 +490,20 @@ class TestPriorVals(unittest.TestCase):
 
 
 class TestLikelihoodClass(unittest.TestCase):
-    def poisson(self, l, x):
+    def poisson(self, l, x, normalize=True):
         ll = np.exp(-l) * l ** x / scipy.special.factorial(x)
-        return ll / np.max(ll)
+        if normalize:
+            return ll / np.max(ll)
+        else:
+            return ll
 
-    def log_poisson(self, l, x):
-        ll = np.log(np.exp(-l) * l ** x / scipy.special.factorial(x))
-        return ll - np.max(ll)
+    def log_poisson(self, l, x, normalize=True):
+        with np.errstate(divide='ignore'):
+            ll = np.log(np.exp(-l) * l ** x / scipy.special.factorial(x))
+        if normalize:
+            return ll - np.max(ll)
+        else:
+            return ll
 
     def test_get_mut_edges(self):
         ts = utility_functions.two_tree_mutation_ts()
@@ -564,32 +571,40 @@ class TestLikelihoodClass(unittest.TestCase):
                     self.assertAlmostEqual(lower_tri[5], expected_lik_dt[0])
 
     def test_precalc_lik_upper_multithread(self):
-        ts = utility_functions.two_tree_ts()
+        ts = utility_functions.two_tree_mutation_ts()
         grid = np.array([0, 1, 2])
         eps = 0
         theta = 1
-        lik = Likelihoods(ts, grid, theta, eps)
-        num_muts = 0
-        dt = grid
-        for num_threads in (1, 2):
-            n_internal_edges = 0
-            lik.precalculate_mutation_likelihoods(num_threads=num_threads)
-            for edge in ts.edges():
-                if not ts.node(edge.child).is_sample():
-                    n_internal_edges += 1  # only two internal edges in this tree
-                    self.assertLessEqual(n_internal_edges, 2)
-                    span = edge.right - edge.left
-                    expected_lik_dt = self.poisson(dt * (theta / 2 * span), num_muts)
-                    upper_tri = lik.get_mut_lik_upper_tri(edge)
+        for L, pois in [(Likelihoods, self.poisson), (LogLikelihoods, self.log_poisson)]:
+            for normalize in (True, False):
+                lik = L(ts, grid, theta, eps, normalize=normalize)
+                dt = grid
+                for num_threads in (None, 1, 2):
+                    n_internal_edges = 0
+                    lik.precalculate_mutation_likelihoods(num_threads=num_threads)
+                    for edge in ts.edges():
+                        if not ts.node(edge.child).is_sample():
+                            n_internal_edges += 1  # only two internal edges in this tree
+                            self.assertLessEqual(n_internal_edges, 2)
+                            if edge.parent == 4 and edge.child == 3:
+                                num_muts = 2
+                            elif edge.parent == 5 and edge.child == 4:
+                                num_muts = 0
+                            else:
+                                self.fail("Unexpected edge")
+                            span = edge.right - edge.left
+                            expected_lik_dt = pois(
+                                dt * (theta / 2 * span), num_muts, normalize=normalize)
+                            upper_tri = lik.get_mut_lik_upper_tri(edge)
 
-                    self.assertAlmostEqual(upper_tri[0], expected_lik_dt[0])
-                    self.assertAlmostEqual(upper_tri[1], expected_lik_dt[1])
-                    self.assertAlmostEqual(upper_tri[2], expected_lik_dt[2])
+                            self.assertAlmostEqual(upper_tri[0], expected_lik_dt[0])
+                            self.assertAlmostEqual(upper_tri[1], expected_lik_dt[1])
+                            self.assertAlmostEqual(upper_tri[2], expected_lik_dt[2])
 
-                    self.assertAlmostEqual(upper_tri[3], expected_lik_dt[0])
-                    self.assertAlmostEqual(upper_tri[4], expected_lik_dt[1])
+                            self.assertAlmostEqual(upper_tri[3], expected_lik_dt[0])
+                            self.assertAlmostEqual(upper_tri[4], expected_lik_dt[1])
 
-                    self.assertAlmostEqual(upper_tri[5], expected_lik_dt[0])
+                            self.assertAlmostEqual(upper_tri[5], expected_lik_dt[0])
 
     def test_tri_functions(self):
         ts = utility_functions.two_tree_mutation_ts()
