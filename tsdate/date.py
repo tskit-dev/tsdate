@@ -363,7 +363,7 @@ class ConditionalCoalescentTimes():
 
 class SpansBySamples:
     """
-    A class to calculate the genomic spans covered by each
+    A class to efficiently calculate the genomic spans covered by each
     non-sample node, broken down by the number of samples that descend
     directly from that node. This is used to calculate the conditional
     coalescent prior. The main method is :meth:`get_weights`, which
@@ -508,8 +508,8 @@ class SpansBySamples:
             n_fixed_at_0 = prev_tree.num_tracked_samples(node)
             if n_fixed_at_0 == 0:
                 raise ValueError(
-                    "Invalid tree sequence: node {} has no descendant samples".format(
-                        node))
+                    "Invalid tree sequence: node {} is dangling (no descendant samples)"
+                    .format(node))
             if tree_num_children(prev_tree, node) > 1:
                 # This is a coalescent node
                 self._spans[node][num_fixed_at_0_treenodes][n_fixed_at_0] += coverage
@@ -703,7 +703,7 @@ class SpansBySamples:
                     continue
                     # node is either the root or (more likely) not in
                     # this tree
-                assert tree.num_samples(node) > 0
+                assert tree.num_samples(node) > 0  # No dangling nodes allowed
                 assert tree_num_children(tree, node) == 1
                 n = node
                 done = False
@@ -1929,6 +1929,19 @@ def get_dates(
             raise NotImplementedError(
                 "Samples must all be at time 0")
     fixed_node_set = set(tree_sequence.samples())
+
+    if tree_sequence.tables != tree_sequence.simplify(
+            filter_populations=False, filter_individuals=False, filter_sites=False,
+            keep_unary=True, record_provenance=False).tables:
+        raise ValueError(
+            "The input tree sequence includes dangling nodes: please simplify it")
+
+    if tree_sequence.tables != tree_sequence.simplify(
+            filter_populations=False, filter_individuals=False, filter_sites=False,
+            keep_unary=False, record_provenance=False).tables:
+        logging.warning(
+            "The input tree sequence has unary nodes: tsdate currently works "
+            "better if these are removed using `simplify(keep_unary=False)`")
 
     # Default to not creating approximate prior unless ts has > 1000 samples
     approx_prior = False
