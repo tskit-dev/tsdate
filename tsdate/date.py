@@ -502,6 +502,9 @@ class SpansBySamples:
         # If set to np.nan, this indicates that we are not currently tracking this node
         stored_pos = np.full(self.ts.num_nodes, np.nan)
 
+        # used to emit a warning if necessary
+        self.has_unary = False
+
         def save_to_spans(prev_tree, node, num_fixed_at_0_treenodes):
             """
             A convenience function to save accumulated tracked node data at the current
@@ -525,6 +528,8 @@ class SpansBySamples:
                 # This is a coalescent node
                 self._spans[node][num_fixed_at_0_treenodes][n_fixed_at_0] += coverage
             else:
+                if not self.has_unary:
+                    self.has_unary = True
                 # Treat unary nodes differently: mixture of coalescent nodes above+below
                 unary_nodes_above = 0
                 top_node = prev_tree.parent(node)
@@ -689,6 +694,10 @@ class SpansBySamples:
                                              len(fixed_at_0_nodes_out))
             n_tips_per_tree[prev_tree.index+1] = num_fixed_at_0_treenodes
 
+        if self.has_unary:
+            logging.warning(
+                "The input tree sequence has unary nodes: tsdate currently works "
+                "better if these are removed using `simplify(keep_unary=False)`")
         return node_spans, trees_with_undated, n_tips_per_tree
 
     def second_pass(self, trees_with_undated, n_tips_per_tree):
@@ -1624,6 +1633,11 @@ class InOutAlgorithms:
                     daughter_val = self.lik.scale_geometric(spanfrac, inside[edge.child])
                     edge_lik = self.lik.get_fixed(daughter_val, edge, theta, rho)
                 else:
+                    if np.all(np.isnan(inside[edge.child])):
+                        # Not visited the child. Either our edge order is wrong (bug)
+                        # or we have hit a dangling node
+                        raise ValueError("The input tree sequence includes "
+                                         "dangling nodes: please simplify it")
                     daughter_val = self.lik.scale_geometric(
                         spanfrac, self.lik.make_lower_tri(inside[edge.child]))
                     edge_lik = self.lik.get_inside(daughter_val, edge, theta, rho)
@@ -1951,19 +1965,6 @@ def get_dates(
             raise NotImplementedError(
                 "Samples must all be at time 0")
     fixed_node_set = set(tree_sequence.samples())
-
-    if tree_sequence.tables != tree_sequence.simplify(
-            filter_populations=False, filter_individuals=False, filter_sites=False,
-            keep_unary=True, record_provenance=False).tables:
-        raise ValueError(
-            "The input tree sequence includes dangling nodes: please simplify it")
-
-    if tree_sequence.tables != tree_sequence.simplify(
-            filter_populations=False, filter_individuals=False, filter_sites=False,
-            keep_unary=False, record_provenance=False).tables:
-        logging.warning(
-            "The input tree sequence has unary nodes: tsdate currently works "
-            "better if these are removed using `simplify(keep_unary=False)`")
 
     # Default to not creating approximate prior unless ts has > 1000 samples
     approx_prior = False
