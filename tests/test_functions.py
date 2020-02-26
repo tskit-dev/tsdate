@@ -31,6 +31,7 @@ import numpy as np
 import scipy
 import tskit  # NOQA
 import msprime
+import tsinfer
 
 import tsdate
 from tsdate.date import (SpansBySamples, PriorParams,
@@ -1060,9 +1061,76 @@ class TestGilTree(unittest.TestCase):
                                    axis=1), np.sum(algo.inside.grid_data[-1])))
 
 
+class TestOutsideEdgesOrdering(unittest.TestCase):
+    """
+    Test that edges_by_child_desc() and edges_by_child_then_parent_desc() order edges
+    correctly.
+    """
+
+    def edges_ordering(self, ts, fn):
+        fixed_node_set = set(ts.samples())
+        prior = tsdate.build_prior_grid(ts)
+        theta = None
+        liklhd = LogLikelihoods(ts, prior.timepoints, theta, 1e-6, fixed_node_set,
+                                progress=False)
+        dynamic_prog = InOutAlgorithms(ts, prior, liklhd, progress=False)
+
+        if fn == "outside_pass":
+            edges_by_child = dynamic_prog.edges_by_child_desc()
+            seen_children = list()
+            last_child_time = None
+
+            for child, edges in edges_by_child:
+                for edge in edges:
+                    self.assertTrue(edge.child not in seen_children)
+                cur_child_time = ts.tables.nodes.time[child]
+                if last_child_time:
+                    self.assertTrue(cur_child_time <= last_child_time)
+                seen_children.append(child)
+                last_child_time = ts.tables.nodes.time[child]
+        elif fn == "outside_maximization":
+            edges_by_child = dynamic_prog.edges_by_child_then_parent_desc()
+            seen_children = list()
+            last_child_time = None
+
+            for child, edges in edges_by_child:
+                last_parent_time = None
+                for edge in edges:
+                    cur_parent_time = ts.tables.nodes.time[edge.parent]
+                    if last_parent_time:
+                        self.assertTrue(cur_parent_time >= last_parent_time)
+                    last_parent_time = cur_parent_time
+                self.assertTrue(child not in seen_children)
+                cur_child_time = ts.tables.nodes.time[child]
+                if last_child_time:
+                    self.assertTrue(cur_child_time <= last_child_time)
+
+                seen_children.append(child)
+                last_child_time = ts.tables.nodes.time[child]
+
+    def test_two_tree_outside_traversal(self):
+        """
+        This is for the outside algorithm, where we simply want to traverse the ts
+        from oldest child nodes to youngest, grouping all child nodes of same id
+        together. In the outside maximization algorithm, we want to traverse the ts from
+        oldest child nodes to youngest, grouping all child nodes of same id together.
+        """
+        ts = utility_functions.two_tree_two_mrcas()
+        self.edges_ordering(ts, "outside_pass")
+        self.edges_ordering(ts, "outside_maximization")
+
+    def test_simulated_inferred_outside_traversal(self):
+        ts = msprime.simulate(500, Ne=10000, length=5e4, mutation_rate=1e-8,
+                              recombination_rate=1e-8)
+        sample_data = tsinfer.SampleData.from_tree_sequence(ts, use_times=False)
+        inferred_ts = tsinfer.infer(sample_data)
+        self.edges_ordering(inferred_ts, "outside_pass")
+        self.edges_ordering(inferred_ts, "outside_maximization")
+
+
 class TestMaximization(unittest.TestCase):
     """
-    Test the downward maximization function
+    Test the outside maximization function
     """
     def run_outside_maximization(self, ts, prior_distr="lognorm"):
         prior = tsdate.build_prior_grid(ts, prior_distribution=prior_distr)

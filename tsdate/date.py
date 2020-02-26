@@ -1580,22 +1580,28 @@ class InOutAlgorithms:
         Return an itertools.groupby object of edges grouped by child in descending order
         of the time of the child.
         """
-        child_edges = (self.ts.edge(i) for i in reversed(
-            np.argsort(self.ts.tables.nodes.time[self.ts.tables.edges.child[:]])))
-        return itertools.groupby(child_edges, operator.attrgetter('child'))
+        wtype = np.dtype([('Childage', 'f4'), ('Childnode', 'f4')])
+        w = np.empty(
+            len(self.ts.tables.nodes.time[self.ts.tables.edges.child[:]]), dtype=wtype)
+        w['Childage'] = self.ts.tables.nodes.time[self.ts.tables.edges.child[:]]
+        w['Childnode'] = self.ts.tables.edges.child[:]
+        sorted_child_parent = (self.ts.edge(i) for i in reversed(
+            np.argsort(w, order=('Childage', 'Childnode'))))
+        return itertools.groupby(sorted_child_parent, operator.attrgetter('child'))
 
     def edges_by_child_then_parent_desc(self):
         """
         Return an itertools.groupby object of edges grouped by child in descending order
         of the time of the child, then by descending order of age of child
         """
-        wtype = np.dtype([('Childage', 'f4'), ('Parentage', 'f4')])
+        wtype = np.dtype([('Childage', 'f4'), ('Childnode', 'f4'), ('Parentage', 'f4')])
         w = np.empty(
             len(self.ts.tables.nodes.time[self.ts.tables.edges.child[:]]), dtype=wtype)
         w['Childage'] = self.ts.tables.nodes.time[self.ts.tables.edges.child[:]]
-        w['Parentage'] = self.ts.tables.nodes.time[self.ts.tables.edges.parent[:]]
+        w['Childnode'] = self.ts.tables.edges.child[:]
+        w['Parentage'] = -self.ts.tables.nodes.time[self.ts.tables.edges.parent[:]]
         sorted_child_parent = (self.ts.edge(i) for i in reversed(
-            np.argsort(w, order=('Childage', 'Parentage'))))
+            np.argsort(w, order=('Childage', 'Childnode', 'Parentage'))))
         return itertools.groupby(sorted_child_parent, operator.attrgetter('child'))
 
     # === MAIN ALGORITHMS ===
@@ -1678,7 +1684,8 @@ class InOutAlgorithms:
 
         for child, edges in tqdm(
                 self.edges_by_child_desc(), desc="Outside",
-                total=self.ts.num_edges, disable=not progress):
+                total=len(np.unique(self.ts.tables.edges.child)),
+                disable=not progress):
             if child in self.fixednodes:
                 continue
             val = np.full(self.lik.grid_size, self.lik.identity_constant)
@@ -1740,7 +1747,8 @@ class InOutAlgorithms:
 
         for child, edges in tqdm(
                 self.edges_by_child_then_parent_desc(), desc="Maximization",
-                total=self.ts.num_edges, disable=not progress):
+                total=len(np.unique(self.ts.tables.edges.child)),
+                disable=not progress):
             if child in self.fixednodes:
                 continue
             for edge_index, edge in enumerate(edges):
@@ -1825,7 +1833,6 @@ def build_prior_grid(tree_sequence, timepoints=20, *, approximate_prior=False,
     """
     Create prior distribution for the age of each node and the discretised time slices at
     which to evaluate node age.
-
     :param TreeSequence tree_sequence: The input :class:`tskit.TreeSequence`, treated as
         undated
     :param int_or_array_like timepoints: The number of quantiles used to create the
