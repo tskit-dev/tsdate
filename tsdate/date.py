@@ -227,7 +227,7 @@ class ConditionalCoalescentTimes():
         # TODO: check how msprime does version look
         return os.path.join(
             _cache_dir, "prior_{}df_{}.txt".format(precalc_approximation_n,
-                                                           __version__))
+                                                   __version__))
 
     @staticmethod
     def m_prob(m, i, n):
@@ -1817,7 +1817,7 @@ def build_prior_grid(tree_sequence, timepoints=20, *, approximate_prior=False,
     :param bool approximate_prior: Whether to use a precalculated approximate prior or
         exactly calculate prior. If approximate prior has not been precalculated, tsdate
         will do so and cache the result.
-    :param int approx_prior_size: Number of samples from which to precalculate prior. 
+    :param int approx_prior_size: Number of samples from which to precalculate prior.
         Should only enter value if approximate_prior=True. If approximate_prior=True and
         no value specified, defaults to 1000.
     :param string prior_distr: What distribution to use to approximate the conditional
