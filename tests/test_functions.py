@@ -329,8 +329,11 @@ class TestMakePrior(unittest.TestCase):
 
     def test_precalculated_prior(self):
         # Force approx prior with a tiny n
-        priors_approx10 = ConditionalCoalescentTimes(10)
-        priors_approx10.add(10)
+        with self.assertLogs(level="WARNING") as log:
+            priors_approx10 = ConditionalCoalescentTimes(10)
+            priors_approx10.add(10)
+            self.assertEqual(len(log.output), 1)
+            self.assertIn("user cache", log.output[0])
         # Check we have created the prior file
         self.assertTrue(
             os.path.isfile(ConditionalCoalescentTimes.precalc_approx_fn(10)))

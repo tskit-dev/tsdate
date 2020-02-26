@@ -192,9 +192,12 @@ class ConditionalCoalescentTimes():
 
     def precalculate_prior_for_approximation(self, precalc_approximation_n):
         n = precalc_approximation_n
+        logging.warning(
+            "Initialising your tsdate installation by creating a user cache of "
+            "conditional coalescent prior values for {} tips".format(n))
         logging.debug(
             "Creating prior lookup table for a total tree of n={} tips"
-            " in `{}`, this may take some time for large n"
+            " in `{}`"
             .format(n, self.precalc_approx_fn(n)))
         # The first value should be zero tips, we don't want the 1 tip value
         prior_lookup_table = np.zeros((n, 2))
@@ -208,7 +211,7 @@ class ConditionalCoalescentTimes():
         if os.path.isfile(self.precalc_approx_fn(self.n_approx)):
             os.remove(self.precalc_approx_fn(self.n_approx))
         else:
-            logging.debug(
+            logging.warning(
                 "Precalculated prior in `{}` has not been created, so cannot be cleared"
                 .format(self.precalc_approx_fn(self.n_approx)))
 
