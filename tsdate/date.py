@@ -208,6 +208,9 @@ class ConditionalCoalescentTimes():
         all_tips = np.arange(2, n + 1)
         prior_lookup_table[1:, 0] = all_tips / n
         prior_lookup_table[1:, 1] = [self.tau_var(val, n + 1) for val in all_tips]
+        cache_dir = pathlib.Path(appdirs.user_cache_dir("tsdate", "tsdate"))
+        if not os.path.exists(cache_dir):
+            os.makedirs(cache_dir)
         np.savetxt(self.precalc_approx_fn(n), prior_lookup_table)
         return prior_lookup_table
 
@@ -221,13 +224,12 @@ class ConditionalCoalescentTimes():
 
     @staticmethod
     def precalc_approx_fn(precalc_approximation_n):
-        cache_dir = appdirs.user_cache_dir("tsdate", "data")
-        _cache_dir = pathlib.Path(cache_dir)
-        logging.info(f"Set cache_dir to {_cache_dir}")
+        cache_dir = pathlib.Path(appdirs.user_cache_dir("tsdate", "tsdate"))
+        logging.info(f"Set cache_dir to {cache_dir}")
         # TODO: check how msprime does version look
         return os.path.join(
-            _cache_dir, "prior_{}df_{}.txt".format(precalc_approximation_n,
-                                                   __version__))
+            cache_dir, "prior_{}df_{}.txt".format(precalc_approximation_n,
+                                                  __version__))
 
     @staticmethod
     def m_prob(m, i, n):
