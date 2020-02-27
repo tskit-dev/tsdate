@@ -223,7 +223,6 @@ class ConditionalCoalescentTimes():
     @staticmethod
     def get_precalc_cache(precalc_approximation_n):
         cache_dir = cache.get_cache_dir()
-        # TODO: check how msprime does version look
         return os.path.join(
             cache_dir, "prior_{}df_{}.txt".format(precalc_approximation_n,
                                                   __version__))

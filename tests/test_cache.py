@@ -1,6 +1,7 @@
 """
 Tests for the cache management code.
 """
+import unittest
 import pathlib
 import os
 
@@ -9,41 +10,45 @@ import numpy as np
 import msprime
 
 import tsdate
+from tsdate.date import ConditionalCoalescentTimes
 from tsdate import cache
 import tests
 
 
-class TestSetCacheDir(tests.CacheWritingTest):
+class TestSetCacheDir(unittest.TestCase):
     """
     Tests the set_cache_dir function.
     """
-    paths = [
-        "/somefile", "/some/other/file/", "relative/path", "relative/path/"]
 
-    def test_paths(self):
-        for test in self.paths:
-            tsdate.set_cache_dir(test)
-            self.assertEqual(tsdate.get_cache_dir(), pathlib.Path(test))
-            tsdate.set_cache_dir(pathlib.Path(test))
-            self.assertEqual(tsdate.get_cache_dir(), pathlib.Path(test))
-
-    def test_none(self):
-        tsdate.set_cache_dir(None)
+    def test_cache_dir_exists(self):
+        tsdate.set_cache_dir()
         cache_dir = pathlib.Path(appdirs.user_cache_dir("tsdate", "tsdate"))
         self.assertEqual(tsdate.get_cache_dir(), cache_dir)
 
+    def test_cached_prior(self):
+        """
+        Tests the caching of the precalculated prior
+        """
+        # Force approx prior with a tiny n
+        priors_approx10 = ConditionalCoalescentTimes(10)
+        priors_approx10.add(10)
+        # Check we have created the prior file
+        self.assertTrue(
+            os.path.isfile(ConditionalCoalescentTimes.get_precalc_cache(10)))
+        priors_approxNone = ConditionalCoalescentTimes(None)
+        priors_approxNone.add(10)
+        self.assertTrue(
+            np.allclose(priors_approx10[10], priors_approxNone[10], equal_nan=True))
+        # Test when using a bigger n that we're using the precalculated version
+        priors_approx10.add(100)
+        self.assertEquals(priors_approx10[100].shape[0], 100 + 1)
+        priors_approxNone.add(100, approximate=False)
+        self.assertEquals(priors_approxNone[100].shape[0], 100 + 1)
+        self.assertFalse(
+            np.allclose(priors_approx10[100], priors_approxNone[100], equal_nan=True))
 
-class TestReadingCacheDir(tests.CacheReadingTest):
-    """
-    Tests we can get cache dir and read from it correctly
-    """
-    def test_prior_writes_to_default_cache(self):
-        ts = msprime.simulate(10)
-        tsdate.build_prior_grid(ts, timepoints=20, approximate_prior=True,
-                                approx_prior_size=100)
-        cache_dir = cache.get_cache_dir()
-        precalc_file = os.path.join(cache_dir,
-                                    "prior_100df_{}.txt".format(tsdate.__version__))
-        self.assertTrue(os.path.exists(precalc_file))
-        approx_prior = np.genfromtxt(precalc_file)
-        self.assertTrue(approx_prior.shape == (100, 2))
+        priors_approx10.clear_precalculated_prior()
+        self.assertFalse(
+            os.path.isfile(ConditionalCoalescentTimes.get_precalc_cache(10)),
+            "The file `{}` should have been deleted, but has not been.\
+             Please delete it")

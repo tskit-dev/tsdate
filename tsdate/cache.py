@@ -49,7 +49,7 @@ logger = logging.getLogger(__name__)
 _cache_dir = None
 
 
-def set_cache_dir(cache_dir=None):
+def set_cache_dir():
     """
     The cache_dir is the directory in which tsdate stores and checks for
     downloaded data. If the specified cache_dir is not None, this value is
@@ -58,10 +58,9 @@ def set_cache_dir(cache_dir=None):
     default location using the :mod:`appdirs` module.
     No checks for existance, writability, etc. are performed by this function.
     """
-    if cache_dir is None:
-        cache_dir = appdirs.user_cache_dir("tsdate", "tsdate")
-        if not os.path.exists(cache_dir):
-            os.makedirs(cache_dir)
+    cache_dir = appdirs.user_cache_dir("tsdate", "tsdate")
+    if not os.path.exists(cache_dir):
+        os.makedirs(cache_dir)
     global _cache_dir
     _cache_dir = pathlib.Path(cache_dir)
     logger.info(f"Set cache_dir to {_cache_dir}")
