@@ -41,6 +41,11 @@ jobs:
           name: Lint Python
           command: |
               flake8 --max-line-length 89 tsdate setup.py tests
+      - save_cache:
+          key: tsdate-{{ checksum "data/prior_1000df.bak" }} 
+          paths:
+            - data/prior_1000df.bak
+            - tsdate/prior_1000df.txt
       - run:
           name: Copy approximate_prior cache file
           command: |
