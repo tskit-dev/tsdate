@@ -165,9 +165,9 @@ class TestNodeTipWeights(unittest.TestCase):
         n = ts.num_samples
         span_data = self.verify_weights(ts)
         self.assertEqual(span_data.lookup_weight(7, n, 3), 1.0)
-        self.assertEqual(span_data.lookup_weight(6, n, 2), 0.5)
+        self.assertEqual(span_data.lookup_weight(6, n, 1), 0.5)
         self.assertEqual(span_data.lookup_weight(6, n, 3), 0.5)
-        self.assertEqual(span_data.lookup_weight(5, n, 1), 0.5)
+        self.assertEqual(span_data.lookup_weight(5, n, 2), 0.5)
         self.assertEqual(span_data.lookup_weight(5, n, 3), 0.5)
         self.assertEqual(span_data.lookup_weight(4, n, 2), 0.75)
         self.assertEqual(span_data.lookup_weight(4, n, 3), 0.25)
@@ -419,12 +419,12 @@ class TestMixturePrior(unittest.TestCase):
         # Root is a 3 tip prior
         self.assertTrue(
             np.allclose(mixture_prior[7, self.alpha_beta], [1.6, 1.2]))
-        # Node 6 should be a 50:50 mixture of 2 and 3 tips
+        # Node 6 should be a 50:50 mixture between 1 and 3 tips
         self.assertTrue(
-            np.allclose(mixture_prior[6, self.alpha_beta], [0.80645, 0.96774]))
-        # Node 5 should be a 50:50 mixture between 1 and 3 tips
+            np.allclose(mixture_prior[6, self.alpha_beta], [0.44444, 0.66666]))
+        # Node 5 should be a 50:50 mixture of 2 and 3 tips
         self.assertTrue(
-            np.allclose(mixture_prior[5, self.alpha_beta], [0.44444, 0.66666]))
+            np.allclose(mixture_prior[5, self.alpha_beta], [0.80645, 0.96774]))
         # Node 4 should be a 75:25 mixture of 2 and 3 tips
         self.assertTrue(
             np.allclose(mixture_prior[4, self.alpha_beta], [0.62025, 1.06329]))
@@ -490,8 +490,8 @@ class TestPriorVals(unittest.TestCase):
         ts = utility_functions.single_tree_ts_with_unary()
         prior_vals = self.verify_prior_vals(ts, 'gamma')
         self.assertTrue(np.allclose(prior_vals[7], [0, 1, 0.397385]))
-        self.assertTrue(np.allclose(prior_vals[6], [0, 1, 0.164433]))
-        self.assertTrue(np.allclose(prior_vals[5], [0, 1, 0.113122]))
+        self.assertTrue(np.allclose(prior_vals[6], [0, 1, 0.113122]))
+        self.assertTrue(np.allclose(prior_vals[5], [0, 1, 0.164433]))
         self.assertTrue(np.allclose(prior_vals[4], [0, 1, 0.093389]))
         self.assertTrue(np.allclose(prior_vals[3], [0, 1, 0.011109]))
 
@@ -883,8 +883,8 @@ class TestInsideAlgorithm(unittest.TestCase):
         ts = utility_functions.single_tree_ts_with_unary()
         algo = self.run_inside_algorithm(ts, 'gamma')[0]
         self.assertTrue(np.allclose(algo.inside[7], np.array([0, 1, 0.25406637])))
-        self.assertTrue(np.allclose(algo.inside[6], np.array([0, 1, 0.13189998])))
-        self.assertTrue(np.allclose(algo.inside[5], np.array([0, 1, 0.07506923])))
+        self.assertTrue(np.allclose(algo.inside[6], np.array([0, 1, 0.07506923])))
+        self.assertTrue(np.allclose(algo.inside[5], np.array([0, 1, 0.13189998])))
         self.assertTrue(np.allclose(algo.inside[4], np.array([0, 1, 0.07370801])))
         self.assertTrue(np.allclose(algo.inside[3], np.array([0, 1, 0.01147716])))
 
