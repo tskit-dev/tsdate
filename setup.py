@@ -24,7 +24,8 @@ setup(
         "tskit>=0.2.3",
         "scipy>1.2.3",
         "numba>=0.46.0",
-        "tqdm"
+        "tqdm",
+        "appdirs"
     ],
     project_urls={
         'Source': 'https://github.com/awohns/tsdate',
