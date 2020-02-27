@@ -220,7 +220,6 @@ class ConditionalCoalescentTimes():
     @staticmethod
     def get_precalc_cache(precalc_approximation_n):
         cache_dir = cache.get_cache_dir()
-        print(__version__, precalc_approximation_n, cache_dir)
         return os.path.join(
             cache_dir, "prior_{}df_{}.txt".format(precalc_approximation_n,
                                                   __version__))
