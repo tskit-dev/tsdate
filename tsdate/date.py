@@ -1866,9 +1866,6 @@ def build_prior_grid(tree_sequence, timepoints=20, *, approximate_prior=False,
         if approx_prior_size is not None:
             raise ValueError("Can't set approx_prior_size if approximate_prior is False")
 
-    if prior_distribution not in ('lognorm', 'gamma'):
-        raise ValueError("prior distribution must be lognorm or gamma")
-
     base_priors = ConditionalCoalescentTimes(approx_prior_size,
                                              prior_distribution)
     base_priors.add(len(fixed_node_set), approximate_prior)
