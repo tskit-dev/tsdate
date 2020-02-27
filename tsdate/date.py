@@ -29,8 +29,6 @@ import itertools
 import multiprocessing
 import operator
 import functools
-import pathlib
-import appdirs
 
 import tskit
 
@@ -39,6 +37,8 @@ import numpy as np
 import scipy.stats
 from scipy.special import comb
 from tqdm import tqdm
+
+from . import cache
 
 FORMAT_NAME = "tsdate"
 __version__ = "undefined"
@@ -113,7 +113,7 @@ class ConditionalCoalescentTimes():
 
         if precalc_approximation_n:
             # Create lookup table based on a large n that can be used for n > ~50
-            filename = self.precalc_approx_fn(precalc_approximation_n)
+            filename = self.get_precalc_cache(precalc_approximation_n)
             if os.path.isfile(filename):
                 # Have already calculated and stored this
                 self.approx_prior = np.genfromtxt(filename)
@@ -202,30 +202,27 @@ class ConditionalCoalescentTimes():
         logging.info(
             "Creating prior lookup table for a total tree of n={} tips"
             " in `{}`, this may take some time for large n"
-            .format(n, self.precalc_approx_fn(n)))
+            .format(n, self.get_precalc_cache(n)))
         # The first value should be zero tips, we don't want the 1 tip value
         prior_lookup_table = np.zeros((n, 2))
         all_tips = np.arange(2, n + 1)
         prior_lookup_table[1:, 0] = all_tips / n
         prior_lookup_table[1:, 1] = [self.tau_var(val, n + 1) for val in all_tips]
-        cache_dir = pathlib.Path(appdirs.user_cache_dir("tsdate", "tsdate"))
-        if not os.path.exists(cache_dir):
-            os.makedirs(cache_dir)
-        np.savetxt(self.precalc_approx_fn(n), prior_lookup_table)
+        cache.set_cache_dir()
+        np.savetxt(self.get_precalc_cache(n), prior_lookup_table)
         return prior_lookup_table
 
     def clear_precalculated_prior(self):
-        if os.path.isfile(self.precalc_approx_fn(self.n_approx)):
-            os.remove(self.precalc_approx_fn(self.n_approx))
+        if os.path.isfile(self.get_precalc_cache(self.n_approx)):
+            os.remove(self.get_precalc_cache(self.n_approx))
         else:
             logging.debug(
                 "Precalculated prior in `{}` has not been created, so cannot be cleared"
-                .format(self.precalc_approx_fn(self.n_approx)))
+                .format(self.get_precalc_cache(self.n_approx)))
 
     @staticmethod
-    def precalc_approx_fn(precalc_approximation_n):
-        cache_dir = pathlib.Path(appdirs.user_cache_dir("tsdate", "tsdate"))
-        logging.info(f"Set cache_dir to {cache_dir}")
+    def get_precalc_cache(precalc_approximation_n):
+        cache_dir = cache.get_cache_dir()
         # TODO: check how msprime does version look
         return os.path.join(
             cache_dir, "prior_{}df_{}.txt".format(precalc_approximation_n,

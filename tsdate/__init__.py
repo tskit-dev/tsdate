@@ -22,5 +22,5 @@
 
 
 from .date import date, build_prior_grid # NOQA
-
+from .cache import * # NOQA
 from .provenance import __version__ # NOQA
