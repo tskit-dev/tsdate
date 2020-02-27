@@ -8,6 +8,7 @@ import os
 import appdirs
 import numpy as np
 
+import tsdate
 from tsdate.date import ConditionalCoalescentTimes
 
 
