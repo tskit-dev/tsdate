@@ -7,12 +7,9 @@ import os
 
 import appdirs
 import numpy as np
-import msprime
 
-import tsdate
 from tsdate.date import ConditionalCoalescentTimes
 from tsdate import cache
-import tests
 
 
 class TestSetCacheDir(unittest.TestCase):
@@ -21,9 +18,9 @@ class TestSetCacheDir(unittest.TestCase):
     """
 
     def test_cache_dir_exists(self):
-        tsdate.set_cache_dir()
+        cache.set_cache_dir()
         cache_dir = pathlib.Path(appdirs.user_cache_dir("tsdate", "tsdate"))
-        self.assertEqual(tsdate.get_cache_dir(), cache_dir)
+        self.assertEqual(cache.get_cache_dir(), cache_dir)
 
     def test_cached_prior(self):
         """

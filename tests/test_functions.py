@@ -24,7 +24,6 @@
 Test cases for the python API for tsdate.
 """
 import unittest
-import os
 import collections
 
 import numpy as np
