@@ -30,8 +30,6 @@ import logging
 
 import appdirs
 
-import tsdate
-
 
 __version__ = "undefined"
 try:
@@ -39,8 +37,9 @@ try:
     __version__ = _version.version
 except ImportError:
     try:
-        __version__ = tsdate.__version__
-    except ModuleNotFoundError:
+        from setuptools_scm import get_version
+        __version__ = get_version(root='..', relative_to=__file__)
+    except ImportError:
         pass
 
 
