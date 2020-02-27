@@ -235,7 +235,7 @@ def evaluate_tsdate_accuracy(parameter, parameters_arr, node_mut=False, inferred
                     method='maximization')
             elif parameter == 'timepoints':
                 prior = tsdate.build_prior_grid(target_ts, timepoints=param,
-                                                approximate_prior=None,
+                                                approximate_prior=True,
                                                 prior_distribution=prior_distr,
                                                 progress=False)
                 io_dated = tsdate.date(target_ts, mutation_rate=mutation_rate,

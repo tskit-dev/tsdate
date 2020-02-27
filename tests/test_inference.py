@@ -30,7 +30,7 @@ import msprime
 import tsinfer
 
 import tsdate
-import utility_functions
+from tests import utility_functions
 
 
 class TestPrebuilt(unittest.TestCase):
