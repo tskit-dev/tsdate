@@ -9,8 +9,8 @@
 # copies of the Software, and to permit persons to whom the Software is
 # furnished to do so, subject to the following conditions:
 #
-# The above copyright notice and this permission notice shall be included in all
-# copies or substantial portions of the Software.
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
 #
 # THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 # IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
@@ -20,7 +20,39 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+"""
+Handle cache for precalculated prior
+"""
 
-from .date import date, build_prior_grid # NOQA
-from .provenance import __version__ # NOQA
-from .cache import * # NOQA
+import os
+import pathlib
+import logging
+
+import appdirs
+
+
+__version__ = "undefined"
+try:
+    from . import _version
+    __version__ = _version.version
+except ImportError:
+    try:
+        from setuptools_scm import get_version
+        __version__ = get_version(root='..', relative_to=__file__)
+    except ImportError:
+        pass
+
+
+logger = logging.getLogger(__name__)
+
+
+def get_cache_dir():
+    """
+    The cache_dir is the directory in which tsdate stores and checks for
+    precalculated data.
+    """
+    cache_dir = pathlib.Path(appdirs.user_cache_dir("tsdate", "tsdate"))
+    if not os.path.exists(cache_dir):
+        logger.info(f"Set cache_dir to {cache_dir}")
+        os.makedirs(cache_dir)
+    return cache_dir

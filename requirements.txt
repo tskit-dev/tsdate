@@ -8,3 +8,4 @@ tskit
 scipy
 codecov
 numba
+appdirs
