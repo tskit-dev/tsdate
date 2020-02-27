@@ -45,31 +45,14 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
-_cache_dir = None
-
-
-def set_cache_dir():
-    """
-    The cache_dir is the directory in which tsdate stores and checks for
-    downloaded data. If the specified cache_dir is not None, this value is
-    converted to a pathlib.Path instance, which is used as the cache directory.
-    If cache_dir is None (the default) the cache is set to the
-    default location using the :mod:`appdirs` module.
-    No checks for existance, writability, etc. are performed by this function.
-    """
-    cache_dir = appdirs.user_cache_dir("tsdate", "tsdate")
-    if not os.path.exists(cache_dir):
-        os.makedirs(cache_dir)
-    global _cache_dir
-    _cache_dir = pathlib.Path(cache_dir)
-    logger.info(f"Set cache_dir to {_cache_dir}")
-
 
 def get_cache_dir():
     """
-    Returns the directory used to cache material precalculated and stored by tsdate as a
-    pathlib.Path instance. Defaults to a directory 'tsdate' in a user cache directory
-    (e.g., ~/.cache/tsdate on Unix flavours). See the :func:`.set_cache_dir` function
-    for how this value can be set.
+    The cache_dir is the directory in which tsdate stores and checks for
+    precalculated data.
     """
-    return _cache_dir
+    cache_dir = pathlib.Path(appdirs.user_cache_dir("tsdate", "tsdate"))
+    if not os.path.exists(cache_dir):
+        logger.info(f"Set cache_dir to {cache_dir}")
+        os.makedirs(cache_dir)
+    return cache_dir

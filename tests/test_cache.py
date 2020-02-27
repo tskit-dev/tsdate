@@ -18,7 +18,6 @@ class TestSetCacheDir(unittest.TestCase):
     """
 
     def test_cache_dir_exists(self):
-        tsdate.set_cache_dir()
         cache_dir = pathlib.Path(appdirs.user_cache_dir("tsdate", "tsdate"))
         self.assertEqual(tsdate.get_cache_dir(), cache_dir)
 

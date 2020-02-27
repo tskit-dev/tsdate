@@ -39,14 +39,9 @@ from scipy.special import comb
 from tqdm import tqdm
 
 from . import cache
+from .provenance import __version__
 
 FORMAT_NAME = "tsdate"
-__version__ = "undefined"
-try:
-    from . import _version
-    __version__ = _version.version
-except ImportError:
-    pass
 FLOAT_DTYPE = np.float64
 LIN = "linear"
 LOG = "logarithmic"
@@ -208,7 +203,6 @@ class ConditionalCoalescentTimes():
         all_tips = np.arange(2, n + 1)
         prior_lookup_table[1:, 0] = all_tips / n
         prior_lookup_table[1:, 1] = [self.tau_var(val, n + 1) for val in all_tips]
-        cache.set_cache_dir()
         np.savetxt(self.get_precalc_cache(n), prior_lookup_table)
         return prior_lookup_table
 
@@ -223,6 +217,7 @@ class ConditionalCoalescentTimes():
     @staticmethod
     def get_precalc_cache(precalc_approximation_n):
         cache_dir = cache.get_cache_dir()
+        print(__version__, precalc_approximation_n, cache_dir)
         return os.path.join(
             cache_dir, "prior_{}df_{}.txt".format(precalc_approximation_n,
                                                   __version__))
