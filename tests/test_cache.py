@@ -39,10 +39,11 @@ class TestReadingCacheDir(tests.CacheReadingTest):
     """
     def test_prior_writes_to_default_cache(self):
         ts = msprime.simulate(10)
-        tsdate.build_prior_grid(ts, timepoints=20, approximate_prior=True, approx_prior_size=100)
+        tsdate.build_prior_grid(ts, timepoints=20, approximate_prior=True,
+                                approx_prior_size=100)
         cache_dir = cache.get_cache_dir()
-        precalc_file = os.path.join(cache_dir, "prior_100df_{}.txt".format(tsdate.__version__))
-        self.assertTrue(os.path.exists(precalc_file)) 
+        precalc_file = os.path.join(cache_dir,
+                                    "prior_100df_{}.txt".format(tsdate.__version__))
+        self.assertTrue(os.path.exists(precalc_file))
         approx_prior = np.genfromtxt(precalc_file)
         self.assertTrue(approx_prior.shape == (100, 2))
-
