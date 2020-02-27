@@ -330,11 +330,16 @@ class TestMakePrior(unittest.TestCase):
 
     def test_precalculated_prior(self):
         # Force approx prior with a tiny n
-        priors_approx10 = ConditionalCoalescentTimes(10)
+        fn = ConditionalCoalescentTimes.precalc_approx_fn(10)
+        if os.path.isfile(fn):
+            self.skipTest("The file {} already exists. Delete before testing".format(fn))
+        with self.assertLogs(level="WARNING") as log:
+            priors_approx10 = ConditionalCoalescentTimes(10)
+            self.assertEqual(len(log.output), 1)
+            self.assertIn("user cache", log.output[0])
         priors_approx10.add(10)
         # Check we have created the prior file
-        self.assertTrue(
-            os.path.isfile(ConditionalCoalescentTimes.precalc_approx_fn(10)))
+        self.assertTrue(os.path.isfile(fn))
         priors_approxNone = ConditionalCoalescentTimes(None)
         priors_approxNone.add(10)
         self.assertTrue(
@@ -348,10 +353,8 @@ class TestMakePrior(unittest.TestCase):
             np.allclose(priors_approx10[100], priors_approxNone[100], equal_nan=True))
 
         priors_approx10.clear_precalculated_prior()
-        self.assertFalse(
-            os.path.isfile(ConditionalCoalescentTimes.precalc_approx_fn(10)),
-            "The file `{}` should have been deleted, but has not been.\
-             Please delete it")
+        self.assertFalse(os.path.isfile(fn), "The file " + fn + "should have been " +
+                         "deleted, but has not been. Please delete it")
 
 
 class TestMixturePrior(unittest.TestCase):
@@ -1213,19 +1216,16 @@ class TestBuildPriorGrid(unittest.TestCase):
     """
     Test tsdate.build_prior_grid() works as expected
     """
-    def test_build_prior_grid_input(self):
+    def test_bad_timepoints(self):
         ts = msprime.simulate(2)
-        self.assertRaises(ValueError, tsdate.build_prior_grid, ts, timepoints=-1)
-        self.assertRaises(ValueError, tsdate.build_prior_grid, ts,
-                          timepoints=np.array([1]))
-        self.assertRaises(ValueError, tsdate.build_prior_grid, ts,
-                          timepoints=np.array([-1, 2, 3]))
-        self.assertRaises(TypeError, tsdate.build_prior_grid, ts,
-                          timepoints=np.array(["hello", "there"]))
-        self.assertRaises(ValueError, tsdate.build_prior_grid, ts,
-                          timepoints=np.array([1, 1, 1]))
-        self.assertRaises(ValueError, tsdate.build_prior_grid, ts,
-                          timepoints="foobar")
+        for bad in [-1, np.array([1]), np.array([-1, 2, 3]), np.array([1, 1, 1]),
+                    "foobar"]:
+            self.assertRaises(ValueError, tsdate.build_prior_grid, ts, timepoints=bad)
+        for bad in [np.array(["hello", "there"])]:
+            self.assertRaises(TypeError, tsdate.build_prior_grid, ts, timepoints=bad)
+
+    def test_bad_prior_distr(self):
+        ts = msprime.simulate(2)
         self.assertRaises(ValueError, tsdate.build_prior_grid, ts,
                           prior_distribution="foobar")
 
