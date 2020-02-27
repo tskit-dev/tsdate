@@ -1826,6 +1826,7 @@ def build_prior_grid(tree_sequence, timepoints=20, *, approximate_prior=False,
     """
     Create prior distribution for the age of each node and the discretised time slices at
     which to evaluate node age.
+
     :param TreeSequence tree_sequence: The input :class:`tskit.TreeSequence`, treated as
         undated
     :param int_or_array_like timepoints: The number of quantiles used to create the
