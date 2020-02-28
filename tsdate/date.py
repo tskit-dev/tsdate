@@ -1357,7 +1357,9 @@ class Likelihoods:
 
     def _recombination_lik(self, edge, fixed=True):
         # Needs to return a lower tri *or* flattened array depending on `fixed`
-        raise NotImplementedError
+        raise NotImplementedError(
+            "Using the recombination clock is not currently supported"
+            ". See https://github.com/awohns/tsdate/issues/5 for details")
         # return (
         #     np.power(prev_state, self.n_breaks(edge)) *
         #     np.exp(-(prev_state * self.rho * edge.span * 2)))
@@ -1456,7 +1458,9 @@ class LogLikelihoods(Likelihoods):
 
     def _recombination_loglik(self, edge, fixed=True):
         # Needs to return a lower tri *or* flattened array depending on `fixed`
-        raise NotImplementedError
+        raise NotImplementedError(
+            "Using the recombination clock is not currently supported"
+            ". See https://github.com/awohns/tsdate/issues/5 for details")
         # return (
         #     np.power(prev_state, self.n_breaks(edge)) *
         #     np.exp(-(prev_state * self.rho * edge.span * 2)))
@@ -1958,11 +1962,6 @@ def get_dates(
     :return: tuple(mn_post, posterior, timepoints, eps, nodes_to_date)
     """
     # Stuff yet to be implemented. These can be deleted once fixed
-    if recombination_rate is not None:
-        raise NotImplementedError(
-            "Using the recombination clock is not currently supported"
-            ". See https://github.com/awohns/tsdate/issues/5 for details")
-
     for sample in tree_sequence.samples():
         if tree_sequence.node(sample).time != 0:
             raise NotImplementedError(

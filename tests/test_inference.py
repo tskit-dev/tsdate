@@ -31,6 +31,7 @@ import tsinfer
 
 import tsdate
 from tests import utility_functions
+from tsdate.date import LOG, LIN
 
 
 class TestPrebuilt(unittest.TestCase):
@@ -51,6 +52,16 @@ class TestPrebuilt(unittest.TestCase):
             tsdate.date(utility_functions.single_tree_ts_with_unary(), Ne=1)
             self.assertEqual(len(log.output), 1)
             self.assertIn("unary nodes", log.output[0])
+
+    def test_fails_with_recombination(self):
+        ts = utility_functions.two_tree_mutation_ts()
+        for probability_space in (LOG, LIN):
+            self.assertRaises(
+                NotImplementedError, tsdate.date, ts, Ne=1, recombination_rate=1,
+                probability_space=probability_space)
+            self.assertRaises(
+                NotImplementedError, tsdate.date, ts, Ne=1, recombination_rate=1,
+                probability_space=probability_space, mutation_rate=1)
 
 #     def test_simple_ts_n2(self):
 #         ts = utility_functions.single_tree_ts_n2()
