@@ -195,7 +195,7 @@ class ConditionalCoalescentTimes():
         # in a single sample - equivalent to the time of the sample itself, so
         # it should have var = 0 and mean = sample.time
         if self.prior_distr == 'lognorm':
-            # For a lognormal, alpha = -inf and beta = 1 sets mean == var == 0
+            # For a lognormal, alpha = -inf and beta = 0 sets mean == var == 0
             prior[1] = PriorParams(alpha=-np.inf, beta=0, mean=0, var=0)
         elif self.prior_distr == 'gamma':
             # For a gamma, alpha = 0 and beta = 1 sets mean (a/b) == var (a / b^2) == 0
@@ -310,16 +310,15 @@ class ConditionalCoalescentTimes():
         """
         Given an object that can be queried for tip weights for a node,
         and a set of conditional coalescent priors for different
-        numbers of sample tips under a node, return the alpha and beta
-        parameters of the gamma distribution that approximates the
-        distribution of times for each node by mixing gamma distributions
-        fitted to the basic_priors.
+        numbers of sample tips under a node, return distribution parameters
+        (shape and scale) that best fit the distribution for that node.
 
         :param .SpansBySamples spans_by_samples: An instance of the
             :class:`SpansBySamples` class that can be used to obtain
             weights for each.
         :return: A numpy array whose rows corresponds to the node id in
-            ``spans_by_samples.nodes_to_date`` and whose columns are PriorParams.
+            ``spans_by_samples.nodes_to_date`` and whose columns are the parameter
+            columns in PriorParams (i.e. not including the mean and variance)
             This can be used to approximate the probabilities of times for that
             node by matching against an appropriate distribution (e.g. gamma or lognorm)
         :rtype:  numpy.ndarray
@@ -380,8 +379,8 @@ class ConditionalCoalescentTimes():
                 # The node spans trees with multiple total tip numbers,
                 # don't use the cache
                 prior[node] = self.func_approx(*mixture_expect_and_var(mixture))
-        # Check that references to the tskit.NULL th node return NaNs, as we will later
-        # be indexing into the prior array using a node mapping which could have nulls
+        # Check that references to the tskit.NULL'th node return NaNs, as we will later
+        # be indexing into the prior array using a node mapping which could have NULLs
         assert np.all(np.isnan(prior[tskit.NULL, :]))
         return prior
 
@@ -519,15 +518,18 @@ class SpansBySamples:
             if np.isnan(stored_pos[node]):
                 # Don't save ones that we aren't tracking
                 return False
-            coverage = prev_tree.interval[1] - stored_pos[node]
-            node_spans[node] += coverage
+            n_fixed_at_0 = prev_tree.num_tracked_samples(node)
+            if n_fixed_at_0 > 0:
+                coverage = prev_tree.interval[1] - stored_pos[node]
+                node_spans[node] += coverage
+            else:
+                coverage = 0
+                logging.warning(
+                    "Node {} is dangling (no descendant samples) at pos {}: "
+                    "this node will have no weight in this region"
+                    .format(node, stored_pos[node]))
             if node in self.sample_node_set:
                 return True
-            n_fixed_at_0 = prev_tree.num_tracked_samples(node)
-            if n_fixed_at_0 == 0:
-                raise ValueError(
-                    "Invalid tree sequence: node {} is dangling (no descendant samples)"
-                    .format(node))
             if tree_num_children(prev_tree, node) > 1:
                 # This is a coalescent node
                 self._spans[node][num_fixed_at_0_treenodes][n_fixed_at_0] += coverage
@@ -792,16 +794,18 @@ class SpansBySamples:
             'formats': (np.uint64, FLOAT_DTYPE)})
 
         if self.nodes_remain_to_date():
-            raise ValueError(
+            logging.warning(
                 "When finalising node spans, found the following nodes not in any tree;"
-                " try simplifing your tree sequence: {}"
+                " you should probably simplify your tree sequence: {}"
                 .format(self.nodes_remaining_to_date()))
 
         for node, weights_by_total_tips in self._spans.items():
             self._spans[node] = {}  # Overwrite, so we don't leave the old data around
             for num_samples, weights in sorted(weights_by_total_tips.items()):
                 wt = np.array([(k, v) for k, v in weights.items()], dtype=weight_dtype)
-                wt['weight'] /= self.node_spans[node]
+                with np.errstate(invalid="ignore"):
+                    # Allow self.node_spans[node]=0 -> nan
+                    wt['weight'] /= self.node_spans[node]
                 self._spans[node][num_samples] = wt
         # Assign into the instance, for further reference
         self.normalized_node_span_data = self._spans
@@ -1068,19 +1072,13 @@ class NodeGridValues:
 
 def fill_prior(node_parameters, timepoints, ts, *, prior_distr, progress=False):
     """
-    Take the alpha and beta values from the distr_parameters data frame
+    Take the alpha and beta values from the node_parameters array, which contains
+    one row for each node in the TS (including fixed nodes)
     and fill out a NodeGridValues object with the prior values from the
     gamma or lognormal distribution with those parameters.
 
     TODO - what if there is an internal fixed node? Should we truncate
     """
-    # We can only date the nodes with parameters that are not all NaN
-    datable_nodes = np.where(np.logical_not(np.isnan(node_parameters).all(axis=1)))[0]
-    # Sort datable_nodes by time, as that's the order given when iterating over edges
-    prior_times = NodeGridValues(
-        ts.num_nodes,
-        datable_nodes[np.argsort(ts.tables.nodes.time[datable_nodes])].astype(np.int32),
-        timepoints)
     if prior_distr == 'lognorm':
         cdf_func = scipy.stats.lognorm.cdf
         main_param = np.sqrt(node_parameters[:, PriorParams.field_index('beta')])
@@ -1092,10 +1090,19 @@ def fill_prior(node_parameters, timepoints, ts, *, prior_distr, progress=False):
     else:
         raise ValueError("prior distribution must be lognorm or gamma")
 
+    datable_nodes = np.ones(ts.num_nodes, dtype=bool)
+    datable_nodes[ts.samples()] = False
+    datable_nodes = np.where(datable_nodes)[0]
+    prior_times = NodeGridValues(
+        ts.num_nodes,
+        datable_nodes[np.argsort(ts.tables.nodes.time[datable_nodes])].astype(np.int32),
+        timepoints)
+
     # TO DO - this can probably be done in an single numpy step rather than a for loop
     for node in tqdm(datable_nodes, desc="Assign Prior to Each Node",
                      disable=not progress):
-        prior_node = cdf_func(timepoints, main_param[node], scale=scale_param[node])
+        with np.errstate(divide='ignore', invalid='ignore'):
+            prior_node = cdf_func(timepoints, main_param[node], scale=scale_param[node])
         # force age to be less than max value
         prior_node = np.divide(prior_node, np.max(prior_node))
         # prior in each epoch
@@ -1546,11 +1553,22 @@ class InOutAlgorithms:
     """
     Contains the inside and outside algorithms
     """
-    def __init__(self, ts, prior, lik, *, progress=False):
-        self.ts = ts
+    def __init__(self, prior, lik, *, progress=False):
+        if (lik.fixednodes.intersection(prior.nonfixed_nodes) or
+                len(lik.fixednodes) + len(prior.nonfixed_nodes) != lik.ts.num_nodes):
+            print("fixed from lik", lik.fixednodes)
+            print("nonfixed from prior", prior.nonfixed_nodes)
+            raise ValueError(
+                "The prior and likelihood objects disagree on which nodes are fixed")
+        if not np.allclose(lik.timepoints, prior.timepoints):
+            raise ValueError(
+                "The prior and likelihood objects disagree on the timepoints used")
+
         self.prior = prior
         self.nonfixed_nodes = prior.nonfixed_nodes
         self.lik = lik
+        self.ts = lik.ts
+
         self.fixednodes = lik.fixednodes
         self.progress = progress
         # If necessary, convert prior to log space
@@ -1566,7 +1584,7 @@ class InOutAlgorithms:
             root = get_single_root(tree)
             if root is not None:
                 self.root_spans[root] += tree.span  # Count span if we have a single tree
-            # Add on the spans when this is a root
+        # Add on the spans when this is a root
         for root, span_when_root in self.root_spans.items():
             self.spans[root] += span_when_root
 
@@ -1613,8 +1631,7 @@ class InOutAlgorithms:
 
     # === MAIN ALGORITHMS ===
 
-    def inside_pass(self, *, normalize=True, cache_inside=False,
-                    progress=None):
+    def inside_pass(self, *, normalize=True, cache_inside=False, progress=None):
         """
         Use dynamic programming to find approximate posterior to sample from
         """
@@ -1738,6 +1755,7 @@ class InOutAlgorithms:
             progress = self.progress
         if not hasattr(self, "inside"):
             raise RuntimeError("You have not yet run the inside algorithm")
+
         maximized_node_times = np.zeros(self.ts.num_nodes, dtype='int')
 
         if self.lik.probability_space == LOG:
@@ -1907,6 +1925,7 @@ def build_prior_grid(tree_sequence, timepoints=20, *, approximate_prior=False,
     prior_params_for_contmpr_nodes = base_priors.get_mixture_prior_params(span_data)
     # Map the nodes in the prior params back to the node ids in the original ts
     prior_params_for_all_nodes = prior_params_for_contmpr_nodes[node_map, :]
+    # Set all fixed nodes (i.e. samples) to have 0 variance
     prior = fill_prior(prior_params_for_all_nodes, timepoints, tree_sequence,
                        prior_distr=prior_distribution, progress=progress)
     return prior
@@ -2008,7 +2027,7 @@ def get_dates(
     if theta is not None:
         liklhd.precalculate_mutation_likelihoods(num_threads=num_threads)
 
-    dynamic_prog = InOutAlgorithms(tree_sequence, prior, liklhd, progress=progress)
+    dynamic_prog = InOutAlgorithms(prior, liklhd, progress=progress)
     dynamic_prog.inside_pass(cache_inside=False)
 
     posterior = None

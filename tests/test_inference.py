@@ -39,13 +39,8 @@ class TestPrebuilt(unittest.TestCase):
     Tests for tsdate on prebuilt tree sequences
     """
     def test_dangling_failure(self):
-        ts = utility_functions.single_tree_ts_n3()
-        # Mark node 0 as a non-sample node, which should make it dangling
-        tables = ts.dump_tables()
-        flags = tables.nodes.flags
-        flags[0] = flags[0] & (~tskit.NODE_IS_SAMPLE)
-        tables.nodes.flags = flags
-        self.assertRaises(ValueError, tsdate.date, tables.tree_sequence(), Ne=1)
+        ts = utility_functions.single_tree_ts_n3_dangling()
+        self.assertRaisesRegexp(ValueError, "dangling", tsdate.date, ts, Ne=1)
 
     def test_unary_warning(self):
         with self.assertLogs(level="WARNING") as log:
