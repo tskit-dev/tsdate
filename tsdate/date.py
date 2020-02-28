@@ -1080,7 +1080,7 @@ def fill_prior(distr_parameters, timepoints, ts, nodes_to_date, prior_distr,
     else:
         raise ValueError("prior distribution must be lognorm or gamma")
 
-    for node in tqdm(nodes_to_date, desc="Assign prior to each node",
+    for node in tqdm(nodes_to_date, desc="Assign Prior to Each Node",
                      disable=not progress):
         prior_node = cdf_func(timepoints, main_param[node], scale=scale_param[node])
         # force age to be less than max value
