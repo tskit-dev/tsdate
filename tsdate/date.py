@@ -1102,12 +1102,13 @@ class Likelihoods:
     identity_constant = 1.0
     null_constant = 0.0
 
-    def __init__(self, ts, timepoints, theta=None, eps=0, fixed_node_set=None,
-                 normalize=True, progress=False):
+    def __init__(self, ts, timepoints, theta=None, rho=None, *,
+                 eps=0, fixed_node_set=None, normalize=True, progress=False):
         self.ts = ts
         self.timepoints = timepoints
         self.fixednodes = set(ts.samples()) if fixed_node_set is None else fixed_node_set
         self.theta = theta
+        self.rho = rho
         self.normalize = normalize
         self.grid_size = len(timepoints)
         self.tri_size = self.grid_size * (self.grid_size + 1) / 2
@@ -1354,34 +1355,36 @@ class Likelihoods:
             ret[np.isnan(ret)] = self.null_constant
         return ret
 
-    def _recombination_lik(self, rho, edge, fixed=True):
+    def _recombination_lik(self, edge, fixed=True):
         # Needs to return a lower tri *or* flattened array depending on `fixed`
-        raise NotImplementedError
+        raise NotImplementedError(
+            "Using the recombination clock is not currently supported"
+            ". See https://github.com/awohns/tsdate/issues/5 for details")
         # return (
         #     np.power(prev_state, self.n_breaks(edge)) *
-        #     np.exp(-(prev_state * rho * edge.span * 2)))
+        #     np.exp(-(prev_state * self.rho * edge.span * 2)))
 
-    def get_inside(self, arr, edge, theta=None, rho=None):
+    def get_inside(self, arr, edge):
         liks = self.identity_constant
-        if rho is not None:
-            liks = self._recombination_lik(rho, edge)
-        if theta is not None:
+        if self.rho is not None:
+            liks = self._recombination_lik(edge)
+        if self.theta is not None:
             liks *= self.get_mut_lik_lower_tri(edge)
         return self.rowsum_lower_tri(arr * liks)
 
-    def get_outside(self, arr, edge, theta=None, rho=None):
+    def get_outside(self, arr, edge):
         liks = self.identity_constant
-        if rho is not None:
-            liks = self._recombination_lik(rho, edge)
-        if theta is not None:
+        if self.rho is not None:
+            liks = self._recombination_lik(edge)
+        if self.theta is not None:
             liks *= self.get_mut_lik_upper_tri(edge)
         return self.rowsum_upper_tri(arr * liks)
 
-    def get_fixed(self, arr, edge, theta=None, rho=None):
+    def get_fixed(self, arr, edge):
         liks = self.identity_constant
-        if rho is not None:
-            liks = self._recombination_lik(rho, edge, fixed=True)
-        if theta is not None:
+        if self.rho is not None:
+            liks = self._recombination_lik(edge, fixed=True)
+        if self.theta is not None:
             liks *= self.get_mut_lik_fixed_node(edge)
         return arr * liks
 
@@ -1453,12 +1456,14 @@ class LogLikelihoods(Likelihoods):
         res.append(self.logsumexp(input_array[i:]))
         return np.array(res)
 
-    def _recombination_loglik(self, rho, edge, fixed=True):
+    def _recombination_loglik(self, edge, fixed=True):
         # Needs to return a lower tri *or* flattened array depending on `fixed`
-        raise NotImplementedError
+        raise NotImplementedError(
+            "Using the recombination clock is not currently supported"
+            ". See https://github.com/awohns/tsdate/issues/5 for details")
         # return (
         #     np.power(prev_state, self.n_breaks(edge)) *
-        #     np.exp(-(prev_state * rho * edge.span * 2)))
+        #     np.exp(-(prev_state * self.rho * edge.span * 2)))
 
     def combine(self, loglik_1, loglik_2):
         return loglik_1 + loglik_2
@@ -1474,27 +1479,27 @@ class LogLikelihoods(Likelihoods):
             ret[np.isnan(ret)] = self.null_constant
         return ret
 
-    def get_inside(self, arr, edge, theta=None, rho=None):
+    def get_inside(self, arr, edge):
         log_liks = self.identity_constant
-        if rho is not None:
-            log_liks = self._recombination_loglik(rho, edge)
-        if theta is not None:
+        if self.rho is not None:
+            log_liks = self._recombination_loglik(edge)
+        if self.theta is not None:
             log_liks += self.get_mut_lik_lower_tri(edge)
         return self.rowsum_lower_tri(arr + log_liks)
 
-    def get_outside(self, arr, edge, theta=None, rho=None):
+    def get_outside(self, arr, edge):
         log_liks = self.identity_constant
-        if rho is not None:
-            log_liks = self._recombination_loglik(rho, edge)
-        if theta is not None:
+        if self.rho is not None:
+            log_liks = self._recombination_loglik(edge)
+        if self.theta is not None:
             log_liks += self.get_mut_lik_upper_tri(edge)
         return self.rowsum_upper_tri(arr + log_liks)
 
-    def get_fixed(self, arr, edge, theta=None, rho=None):
+    def get_fixed(self, arr, edge):
         log_liks = self.identity_constant
-        if rho is not None:
-            log_liks = self._recombination_loglik(rho, edge, fixed=True)
-        if theta is not None:
+        if self.rho is not None:
+            log_liks = self._recombination_loglik(edge, fixed=True)
+        if self.theta is not None:
             log_liks += self.get_mut_lik_fixed_node(edge)
         return arr + log_liks
 
@@ -1528,7 +1533,7 @@ class InOutAlgorithms:
     """
     Contains the inside and outside algorithms
     """
-    def __init__(self, ts, prior, lik, progress=False):
+    def __init__(self, ts, prior, lik, *, progress=False):
         self.ts = ts
         self.prior = prior
         self.nonfixed_nodes = prior.nonfixed_nodes
@@ -1603,7 +1608,7 @@ class InOutAlgorithms:
 
     # === MAIN ALGORITHMS ===
 
-    def inside_pass(self, theta, rho, *, normalize=True, cache_inside=False,
+    def inside_pass(self, *, normalize=True, cache_inside=False,
                     progress=None):
         """
         Use dynamic programming to find approximate posterior to sample from
@@ -1634,7 +1639,7 @@ class InOutAlgorithms:
                     # NB: geometric scaling works exactly when all nodes fixed in graph
                     # but is an approximation when times are unknown.
                     daughter_val = self.lik.scale_geometric(spanfrac, inside[edge.child])
-                    edge_lik = self.lik.get_fixed(daughter_val, edge, theta, rho)
+                    edge_lik = self.lik.get_fixed(daughter_val, edge)
                 else:
                     if np.all(np.isnan(inside[edge.child])):
                         # Not visited the child. Either our edge order is wrong (bug)
@@ -1643,7 +1648,7 @@ class InOutAlgorithms:
                                          "dangling nodes: please simplify it")
                     daughter_val = self.lik.scale_geometric(
                         spanfrac, self.lik.make_lower_tri(inside[edge.child]))
-                    edge_lik = self.lik.get_inside(daughter_val, edge, theta, rho)
+                    edge_lik = self.lik.get_inside(daughter_val, edge)
                 val = self.lik.combine(val, edge_lik)
                 if cache_inside:
                     g_i[edge.id] = edge_lik
@@ -1655,9 +1660,8 @@ class InOutAlgorithms:
         self.inside = inside
         self.norm = norm
 
-    def outside_pass(
-            self, theta, rho, *,
-            normalize=False, progress=None, probability_space_returned=LIN):
+    def outside_pass(self, *,
+                     normalize=False, progress=None, probability_space_returned=LIN):
         """
         Computes the full posterior distribution on nodes.
         Input is population scaled mutation and recombination rates.
@@ -1699,7 +1703,7 @@ class InOutAlgorithms:
                 except AttributeError:  # we haven't cached g_i so we recalculate
                     daughter_val = self.lik.scale_geometric(
                         spanfrac, self.lik.make_lower_tri(self.inside[edge.child]))
-                    edge_lik = self.lik.get_inside(daughter_val, edge, theta, rho)
+                    edge_lik = self.lik.get_inside(daughter_val, edge)
                     cur_g_i = self.lik.reduce(edge_lik, self.norm[child])
                     inside_div_gi = self.lik.reduce(
                         self.inside[edge.parent], cur_g_i, div_0_null=True)
@@ -1707,7 +1711,7 @@ class InOutAlgorithms:
                     spanfrac,
                     self.lik.make_upper_tri(
                         self.lik.combine(outside[edge.parent], inside_div_gi)))
-                edge_lik = self.lik.get_outside(parent_val, edge, theta, rho)
+                edge_lik = self.lik.get_outside(parent_val, edge)
                 val = self.lik.combine(val, edge_lik)
 
             # vv[0] = 0  # Seems a hack: internal nodes should be allowed at time 0
@@ -1723,7 +1727,7 @@ class InOutAlgorithms:
         self.outside = outside
         return posterior
 
-    def outside_maximization(self, theta, eps=1e-6, progress=None):
+    def outside_maximization(self, *, eps=1e-6, progress=None):
         if progress is None:
             progress = self.progress
         if not hasattr(self, "inside"):
@@ -1755,7 +1759,7 @@ class InOutAlgorithms:
                     ll_mut = poisson(
                         mut_edges[edge.id],
                         (parent_time - self.lik.timepoints[:youngest_par_index + 1] +
-                            eps) * theta / 2 * edge_span(edge))
+                            eps) * self.lik.theta / 2 * edge_span(edge))
                     result = self.lik.reduce(ll_mut, np.max(ll_mut))
                 else:
                     cur_parent_index = maximized_node_times[edge.parent]
@@ -1765,7 +1769,7 @@ class InOutAlgorithms:
                     ll_mut = poisson(
                         mut_edges[edge.id],
                         (parent_time - self.lik.timepoints[:youngest_par_index + 1] +
-                            eps) * theta / 2 * edge_span(edge))
+                            eps) * self.lik.theta / 2 * edge_span(edge))
                     result[:youngest_par_index + 1] = self.lik.combine(
                         self.lik.reduce(ll_mut[:youngest_par_index + 1],
                                         np.max(ll_mut[:youngest_par_index + 1])),
@@ -1778,7 +1782,7 @@ class InOutAlgorithms:
         return self.lik.timepoints[np.array(maximized_node_times).astype('int')]
 
 
-def posterior_mean_var(ts, timepoints, posterior, fixed_node_set=None):
+def posterior_mean_var(ts, timepoints, posterior, *, fixed_node_set=None):
     """
     Mean and variance of node age in scaled time. Fixed nodes will be given a mean
     of their exact time in the tree sequence, and zero variance (as long as they are
@@ -1958,16 +1962,11 @@ def get_dates(
     :return: tuple(mn_post, posterior, timepoints, eps, nodes_to_date)
     """
     # Stuff yet to be implemented. These can be deleted once fixed
-    if recombination_rate is not None:
-        raise NotImplementedError(
-            "Using the recombination clock is not currently supported"
-            ". See https://github.com/awohns/tsdate/issues/5 for details")
-
     for sample in tree_sequence.samples():
         if tree_sequence.node(sample).time != 0:
             raise NotImplementedError(
                 "Samples must all be at time 0")
-    fixed_node_set = set(tree_sequence.samples())
+    fixed_nodes = set(tree_sequence.samples())
 
     # Default to not creating approximate prior unless ts has > 1000 samples
     approx_prior = False
@@ -1989,26 +1988,26 @@ def get_dates(
         rho = 4 * Ne * recombination_rate
 
     if probability_space != LOG:
-        liklhd = Likelihoods(tree_sequence, prior.timepoints, theta, eps,
-                             fixed_node_set, progress=progress)
+        liklhd = Likelihoods(tree_sequence, prior.timepoints, theta, rho,
+                             eps=eps, fixed_node_set=fixed_nodes, progress=progress)
     else:
-        liklhd = LogLikelihoods(tree_sequence, prior.timepoints, theta, eps,
-                                fixed_node_set, progress=progress)
+        liklhd = LogLikelihoods(tree_sequence, prior.timepoints, theta, rho,
+                                eps=eps, fixed_node_set=fixed_nodes, progress=progress)
 
     if theta is not None:
         liklhd.precalculate_mutation_likelihoods(num_threads=num_threads)
 
     dynamic_prog = InOutAlgorithms(tree_sequence, prior, liklhd, progress=progress)
-    dynamic_prog.inside_pass(theta, rho, cache_inside=False)
+    dynamic_prog.inside_pass(cache_inside=False)
 
     posterior = None
     if method == 'inside_outside':
-        posterior = dynamic_prog.outside_pass(theta, rho, normalize=outside_normalize)
+        posterior = dynamic_prog.outside_pass(normalize=outside_normalize)
         mn_post, _ = posterior_mean_var(tree_sequence, prior.timepoints, posterior,
-                                        fixed_node_set)
+                                        fixed_node_set=fixed_nodes)
     elif method == 'maximization':
         if theta is not None:
-            mn_post = dynamic_prog.outside_maximization(theta, eps)
+            mn_post = dynamic_prog.outside_maximization(eps=eps)
         else:
             raise ValueError("Outside maximization method requires mutation rate")
     else:
