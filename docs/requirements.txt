@@ -8,3 +8,4 @@ numba
 tskit
 scipy
 tqdm
+appdirs
