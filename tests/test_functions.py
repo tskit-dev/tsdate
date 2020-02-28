@@ -774,12 +774,11 @@ class TestInsideAlgorithm(unittest.TestCase):
                                         approximate_prior=False,
                                         prior_distribution=prior_distr)
         theta = 1
-        rho = None
         eps = 1e-6
-        lls = Likelihoods(ts, prior.timepoints, theta, eps)
+        lls = Likelihoods(ts, prior.timepoints, theta, eps=eps)
         lls.precalculate_mutation_likelihoods()
         algo = InOutAlgorithms(ts, prior, lls)
-        algo.inside_pass(theta, rho, normalize=normalize)
+        algo.inside_pass(normalize=normalize)
         return algo, prior
 
     def test_one_tree_n2(self):
@@ -885,13 +884,12 @@ class TestOutsideAlgorithm(unittest.TestCase):
         prior_vals = fill_prior(
             mixture_prior, grid, ts, nodes_to_date, prior_distr)
         theta = 1
-        rho = None
         eps = 1e-6
-        lls = Likelihoods(ts, grid, theta, eps)
+        lls = Likelihoods(ts, grid, theta, eps=eps)
         lls.precalculate_mutation_likelihoods()
         algo = InOutAlgorithms(ts, prior_vals, lls)
-        algo.inside_pass(theta, rho)
-        algo.outside_pass(theta, rho, normalize=False)
+        algo.inside_pass()
+        algo.outside_pass(normalize=False)
         return algo
 
     def test_one_tree_n2(self):
@@ -930,11 +928,10 @@ class TestOutsideAlgorithm(unittest.TestCase):
         ts = utility_functions.single_tree_ts_n2()
         prior = tsdate.build_prior_grid(ts)
         theta = 1
-        rho = None
         lls = Likelihoods(ts, prior.timepoints, theta)
         lls.precalculate_mutation_likelihoods()
         algo = InOutAlgorithms(ts, prior, lls)
-        self.assertRaises(RuntimeError, algo.outside_pass, theta, rho)
+        self.assertRaises(RuntimeError, algo.outside_pass)
 
 
 class TestTotalFunctionalValueTree(unittest.TestCase):
@@ -954,13 +951,12 @@ class TestTotalFunctionalValueTree(unittest.TestCase):
         prior_vals = fill_prior(
             mixture_prior, grid, ts, nodes_to_date, prior_distr=prior_distr)
         theta = 1
-        rho = None
         eps = 1e-6
-        lls = Likelihoods(ts, grid, theta, eps)
+        lls = Likelihoods(ts, grid, theta, eps=eps)
         lls.precalculate_mutation_likelihoods()
         algo = InOutAlgorithms(ts, prior_vals, lls)
-        algo.inside_pass(theta, rho)
-        posterior = algo.outside_pass(theta, rho, normalize=False)
+        algo.inside_pass()
+        posterior = algo.outside_pass(normalize=False)
         self.assertTrue(np.array_equal(np.sum(
             algo.inside.grid_data * algo.outside.grid_data, axis=1),
             np.sum(algo.inside.grid_data * algo.outside.grid_data, axis=1)))
@@ -1020,13 +1016,12 @@ class TestGilTree(unittest.TestCase):
             prior_vals.grid_data[0] = [0, 0.5, 0.3, 0.1, 0.05, 0.02, 0.03]
             prior_vals.grid_data[1] = [0, 0.05, 0.1, 0.2, 0.45, 0.1, 0.1]
             theta = 2
-            rho = None
             eps = 0.01
-            lls = Likelihoods(ts, grid, theta, eps, normalize=False)
+            lls = Likelihoods(ts, grid, theta, eps=eps, normalize=False)
             lls.precalculate_mutation_likelihoods()
             algo = InOutAlgorithms(ts, prior_vals, lls)
-            algo.inside_pass(theta, rho, normalize=False, cache_inside=cache_inside)
-            algo.outside_pass(theta, rho, normalize=False)
+            algo.inside_pass(normalize=False, cache_inside=cache_inside)
+            algo.outside_pass(normalize=False)
             self.assertTrue(
                 np.allclose(np.sum(algo.inside.grid_data * algo.outside.grid_data,
                                    axis=1), [7.44449E-05, 7.44449E-05]))
@@ -1042,11 +1037,11 @@ class TestOutsideEdgesOrdering(unittest.TestCase):
     """
 
     def edges_ordering(self, ts, fn):
-        fixed_node_set = set(ts.samples())
+        fixed_nodes = set(ts.samples())
         prior = tsdate.build_prior_grid(ts)
         theta = None
-        liklhd = LogLikelihoods(ts, prior.timepoints, theta, 1e-6, fixed_node_set,
-                                progress=False)
+        liklhd = LogLikelihoods(ts, prior.timepoints, theta,
+                                eps=1e-6, fixed_node_set=fixed_nodes, progress=False)
         dynamic_prog = InOutAlgorithms(ts, prior, liklhd, progress=False)
 
         if fn == "outside_pass":
@@ -1109,13 +1104,12 @@ class TestMaximization(unittest.TestCase):
     def run_outside_maximization(self, ts, prior_distr="lognorm"):
         prior = tsdate.build_prior_grid(ts, prior_distribution=prior_distr)
         theta = 1
-        rho = None
         eps = 1e-6
-        lls = Likelihoods(ts, prior.timepoints, theta, eps)
+        lls = Likelihoods(ts, prior.timepoints, theta, eps=eps)
         lls.precalculate_mutation_likelihoods()
         algo = InOutAlgorithms(ts, prior, lls)
-        algo.inside_pass(theta, rho)
-        return lls, algo, algo.outside_maximization(theta)
+        algo.inside_pass()
+        return lls, algo, algo.outside_maximization()
 
     def test_one_tree_n2(self):
         ts = utility_functions.single_tree_ts_n2()
