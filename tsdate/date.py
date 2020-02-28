@@ -96,7 +96,7 @@ class ConditionalCoalescentTimes():
     Make and store conditional coalescent priors
     """
 
-    def __init__(self, precalc_approximation_n, prior_distr='lognorm'):
+    def __init__(self, precalc_approximation_n, prior_distr='lognorm', progress=False):
         """
         :param bool precalc_approximation_n: the size of tree used for
             approximate prior (larger numbers give a better approximation).
@@ -105,6 +105,7 @@ class ConditionalCoalescentTimes():
         """
         self.n_approx = precalc_approximation_n
         self.prior_store = {}
+        self.progress = progress
 
         if precalc_approximation_n:
             # Create lookup table based on a large n that can be used for n > ~50
@@ -288,7 +289,8 @@ class ConditionalCoalescentTimes():
 
     def tau_var_exact(self, total_tips, all_tips):
         # TODO, vectorize this properly
-        return [self.tau_var(tips, total_tips) for tips in all_tips]
+        return [self.tau_var(tips, total_tips) for tips in tqdm(
+            all_tips, desc="Calculating Node Age Variances", disable=not self.progress)]
 
     def get_mixture_prior_params(self, spans_by_samples):
         """
@@ -334,7 +336,9 @@ class ConditionalCoalescentTimes():
         # allocate space for params for all nodes, even though we only use nodes_to_date
         num_nodes, num_params = spans_by_samples.ts.num_nodes, len(param_cols)
         prior = np.full((num_nodes + 1, num_params), np.nan, dtype=FLOAT_DTYPE)
-        for node in spans_by_samples.nodes_to_date:
+        for node in tqdm(spans_by_samples.nodes_to_date,
+                         total=len(spans_by_samples.nodes_to_date),
+                         disable=not self.progress, desc="Find Mixture Priors"):
             mixture = spans_by_samples.get_weights(node)
             if len(mixture) == 1:
                 # The norm: this node spans trees that all have the same set of samples
@@ -1861,7 +1865,8 @@ def build_prior_grid(tree_sequence, timepoints=20, *, approximate_prior=False,
             raise ValueError("Can't set approx_prior_size if approximate_prior is False")
 
     base_priors = ConditionalCoalescentTimes(approx_prior_size,
-                                             prior_distribution)
+                                             prior_distribution, progress)
+
     base_priors.add(len(fixed_node_set), approximate_prior)
     for total_fixed in span_data.total_fixed_at_0_counts:
         # For missing data: trees vary in total fixed node count => have different priors
