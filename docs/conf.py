@@ -12,7 +12,7 @@
 #
 import os
 import sys
-sys.path.insert(0, os.path.abspath('..'))
+sys.path.insert(0, os.path.abspath('../tsdate/'))
 
 # The master document
 master_doc = 'index'
@@ -72,5 +72,5 @@ html_static_path = []
 intersphinx_mapping = {
     'https://docs.python.org/': None,
     'https://docs.scipy.org/doc/numpy/': None,
-    'https://tskit.readthedocs.io/en/stable/': None,
+    'https://tsdate.readthedocs.io/en/stable/': None,
 }
