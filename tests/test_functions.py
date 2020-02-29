@@ -36,7 +36,7 @@ import tsdate
 from tsdate.date import (SpansBySamples, PriorParams, LIN, LOG,
                          ConditionalCoalescentTimes, fill_prior, Likelihoods,
                          LogLikelihoods, LogLikelihoodsStreaming, InOutAlgorithms,
-                         Prior, gamma_approx, constrain_ages_topo)  # NOQA
+                         NodeGridValues, gamma_approx, constrain_ages_topo)  # NOQA
 
 from tests import utility_functions
 
@@ -690,32 +690,24 @@ class TestLikelihoodClass(unittest.TestCase):
                                     np.log(ll_sum)))
 
 
-class TestPriorClass(unittest.TestCase):
+class TestNodeGridValuesClass(unittest.TestCase):
     def test_init(self):
-        nodetimes = np.ones(5)
         nonfixed_ids = np.array([3, 2])
         timepoints = np.array(range(10))
-        store = Prior(
-            timepoints, nodetimes=nodetimes, gridnodes=nonfixed_ids, fill_value=6)
+        store = NodeGridValues(timepoints, gridnodes=nonfixed_ids, fill_value=6)
         self.assertEquals(store.grid_data.shape, (len(nonfixed_ids), len(timepoints)))
-        self.assertEquals(len(store.fixed_times), (len(nodetimes)-len(nonfixed_ids)))
         self.assertTrue(np.all(store.grid_data == 6))
-        self.assertTrue(np.all(store.fixed_times == 1))
-        for i in range(len(nodetimes)):
+        for i in range(np.max(nonfixed_ids)+1):
             if i in nonfixed_ids:
                 self.assertTrue(np.all(store[i] == 6))
-                self.assertRaises(IndexError, store.fixed_time, i)
             else:
-                self.assertEqual(store.fixed_time(i), 1)
                 with self.assertRaises(IndexError):
                     _ = store[i]
 
     def test_probability_spaces(self):
-        nodetimes = np.ones(5)
         nonfixed_ids = np.array([3, 4])
         timepoints = np.array(range(10))
-        store = Prior(
-            timepoints, nodetimes=nodetimes, gridnodes=nonfixed_ids, fill_value=0.5)
+        store = NodeGridValues(timepoints, gridnodes=nonfixed_ids, fill_value=0.5)
         self.assertTrue(np.all(store.grid_data == 0.5))
         store.force_probability_space(LIN)
         self.assertTrue(np.all(store.grid_data == 0.5))
@@ -728,13 +720,12 @@ class TestPriorClass(unittest.TestCase):
         self.assertRaises(ValueError, store.force_probability_space, "foobar")
 
     def test_set_and_get(self):
-        nodetimes = np.ones(5)
         timepoints = [0, 1.1]
         fill = {}
         for nonfixed_ids in ([3, 4], [0]):
             np.random.seed(1)
-            store = Prior(timepoints, nodetimes=nodetimes, gridnodes=nonfixed_ids)
-            for i in range(len(nodetimes)):
+            store = NodeGridValues(timepoints, gridnodes=nonfixed_ids)
+            for i in range(5):
                 fill[i] = np.random.random(len(store.timepoints))
                 if i in nonfixed_ids:
                     store[i] = fill[i]
@@ -746,33 +737,21 @@ class TestPriorClass(unittest.TestCase):
 
     def test_bad_init(self):
         timepoints = [0, 1.2, 2]
-        nodetimes = np.ones(5)
         nonfixed_ids = [4, 0]
-        Prior(timepoints, nodetimes=nodetimes, gridnodes=nonfixed_ids)
-        # ids > nodetimes
-        self.assertRaises(
-            ValueError, Prior, timepoints, nodetimes=nodetimes, gridnodes=[4, 5])
+        NodeGridValues(timepoints, gridnodes=nonfixed_ids)
         # duplicate ids
-        self.assertRaises(
-            ValueError, Prior, timepoints, nodetimes=nodetimes, gridnodes=[4, 4, 0])
+        self.assertRaises(ValueError, NodeGridValues, timepoints, gridnodes=[4, 4, 0])
         # bad ids
         self.assertRaises(
-            ValueError, Prior, timepoints, nodetimes=nodetimes,
-            gridnodes=np.array([[1, 4], [2, 0]]))
-        self.assertRaises(
-            OverflowError, Prior, timepoints, nodetimes=nodetimes, gridnodes=[-1, 4])
+            ValueError, NodeGridValues, timepoints, gridnodes=np.array([[1, 4], [2, 0]]))
+        self.assertRaises(OverflowError, NodeGridValues, timepoints, gridnodes=[-1, 4])
         # bad timepoint
-        self.assertRaises(
-            ValueError, Prior, [], nodetimes=nodetimes, gridnodes=nonfixed_ids)
-        # bad nodetimes
-        self.assertRaises(
-            ValueError, Prior, timepoints, nodetimes=[], gridnodes=nonfixed_ids)
+        self.assertRaises(ValueError, NodeGridValues, [], gridnodes=nonfixed_ids)
 
     def test_clone(self):
         timepoints = [0, 1]
-        nodetimes = np.ones(5)
         nonfixed_ids = [3, 4]
-        orig = Prior(timepoints, nodetimes=nodetimes, gridnodes=nonfixed_ids)
+        orig = NodeGridValues(timepoints, gridnodes=nonfixed_ids)
         orig[3] = np.array([1, 2])
         orig[4] = np.array([4, 3])
         # test with np.zeros
@@ -785,17 +764,16 @@ class TestPriorClass(unittest.TestCase):
         self.assertTrue(np.all(clone.grid_data == 5))
 
         clone = orig.clone_grid_with_new_data(np.array([[1, 2], [4, 3]]))
-        for i in range(len(nodetimes)):
+        for i in range(np.max(nonfixed_ids)+1):
             if i in nonfixed_ids:
                 self.assertTrue(np.all(clone[i] == orig[i]))
             else:
                 self.assertRaises(IndexError, clone.__getitem__, i)
 
     def test_bad_clone(self):
-        nodetimes = np.zeros(10)
         ids = np.array([3, 4])
         timepoints = np.array([0, 1.2])
-        orig = Prior(timepoints, nodetimes=nodetimes, gridnodes=ids)
+        orig = NodeGridValues(timepoints, gridnodes=ids)
         self.assertRaises(
             ValueError, orig.clone_grid_with_new_data, np.array([[1, 2, 3], [4, 5, 6]]))
 
