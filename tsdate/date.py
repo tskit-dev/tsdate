@@ -69,8 +69,11 @@ def tree_is_isolated(tree, node):
     return tree_num_children(tree, node) == 0 and tree.parent(node) == tskit.NULL
 
 
-def tree_iterator_len(it):
-    return it.tree_sequence.num_trees
+def to_np_float_array(float_array):
+    if isinstance(float_array, np.ndarray):
+        return float_array.astype(FLOAT_DTYPE, copy=False)
+    else:
+        return np.array(float_array, dtype=FLOAT_DTYPE)
 
 
 def get_single_root(tree):
@@ -928,42 +931,39 @@ class NodeGridValues:
 
     :ivar num_nodes: The number of nodes that will be stored in this object
     :vartype num_nodes: int
-    :ivar nonfixed_nodes: a (possibly empty) numpy array of unique positive node ids each
+    :ivar gridnodes: a (possibly empty) numpy array of unique positive node ids each
         of which must be less than num_nodes. Each will have an array of grid_size
         associated with it. All others (up to num_nodes) will be associated with a single
         scalar value instead.
-    :vartype nonfixed_nodes: numpy.ndarray
+    :vartype gridnodes: numpy.ndarray
     :ivar timepoints: Array of time points
     :vartype timepoints: numpy.ndarray
     :ivar fill_value: What should we fill the data arrays with to start with
     :vartype fill_value: numpy.scalar
     """
 
-    def __init__(self, num_nodes, nonfixed_nodes, timepoints,
-                 fill_value=np.nan, dtype=FLOAT_DTYPE):
+    def __init__(self, timepoints, *, gridnodes, fill_value=np.nan):
         """
         :param numpy.ndarray grid: The input numpy.ndarray.
         """
-        if nonfixed_nodes.ndim != 1:
-            raise ValueError("nonfixed_nodes must be a 1D numpy array")
-        if np.any((nonfixed_nodes < 0) | (nonfixed_nodes >= num_nodes)):
-            raise ValueError(
-                "All non fixed node ids must be between zero and the total node number")
-        grid_size = len(timepoints) if type(timepoints) is np.ndarray else timepoints
-        self.timepoints = timepoints
+        self.timepoints = to_np_float_array(timepoints)
+        self.gridnodes = tskit.safe_np_int_cast(gridnodes, dtype=np.uint64)
+        if self.gridnodes.ndim != 1:
+            raise ValueError("Provided gridnodes list must be a 1D numpy array")
+        if len(np.unique(self.gridnodes)) != len(gridnodes):
+            raise ValueError("Provided gridnodes list must be unique")
+        if len(self.timepoints) < 1:
+            raise ValueError("Must have at least one timepoint")
+
         # Make timepoints immutable so no risk of overwritting them with copy
         self.timepoints.setflags(write=False)
-        self.num_nodes = num_nodes
-        self.nonfixed_nodes = nonfixed_nodes
-        self.num_nonfixed = len(nonfixed_nodes)
-        self.grid_data = np.full((self.num_nonfixed, grid_size), fill_value, dtype=dtype)
-        self.fixed_data = np.full(num_nodes - self.num_nonfixed, fill_value, dtype=dtype)
-        self.row_lookup = np.empty(num_nodes, dtype=np.int64)
-        # non-fixed nodes get a positive value, indicating lookup in the grid_data array
-        self.row_lookup[nonfixed_nodes] = np.arange(self.num_nonfixed)
-        # fixed nodes get a negative value from -1, indicating lookup in the scalar array
-        self.row_lookup[np.logical_not(np.isin(np.arange(num_nodes), nonfixed_nodes))] =\
-            -np.arange(num_nodes - self.num_nonfixed) - 1
+        self.num_gridnodes = len(self.gridnodes)
+        # This stores likelihoods
+        self.grid_data = np.full(
+            (self.num_gridnodes, len(self.timepoints)), fill_value, dtype=FLOAT_DTYPE)
+        # Map node numbers onto grid_data rows
+        self.grid_lookup = -np.ones(np.max(self.gridnodes) + np.uint(1), dtype=np.int64)
+        self.grid_lookup[self.gridnodes] = np.arange(self.num_gridnodes)
         self.probability_space = LIN
 
     def force_probability_space(self, probability_space):
@@ -971,28 +971,22 @@ class NodeGridValues:
         probability_space can be "logarithmic" or "linear": this function will force
         the current probability space to the desired type
         """
-        descr = self.probability_space, " probabilities into", probability_space, "space"
+        prob_spaces = [LOG, LIN]
+        if probability_space not in prob_spaces:
+            raise ValueError("probability_space must be one of {}".format(prob_spaces))
         if probability_space == LIN:
             if self.probability_space == LIN:
                 pass
             elif self.probability_space == LOG:
                 self.grid_data = np.exp(self.grid_data)
-                self.fixed_data = np.exp(self.fixed_data)
                 self.probability_space = LIN
-            else:
-                logging.warning("Cannot force", *descr)
         elif probability_space == LOG:
             if self.probability_space == LOG:
                 pass
             elif self.probability_space == LIN:
                 with np.errstate(divide='ignore'):
                     self.grid_data = np.log(self.grid_data)
-                    self.fixed_data = np.log(self.fixed_data)
                 self.probability_space = LOG
-            else:
-                logging.warning("Cannot force", *descr)
-        else:
-            logging.warning("Cannot force", *descr)
 
     def normalize(self):
         """
@@ -1004,65 +998,44 @@ class NodeGridValues:
         elif self.probability_space == LOG:
             self.grid_data = self.grid_data - rowmax[:, np.newaxis]
         else:
-            raise RuntimeError("Probability space is not", LIN, "or", LOG)
+            raise ValueError("Probability space is not", LIN, "or", LOG)
 
     def __getitem__(self, node_id):
-        index = self.row_lookup[node_id]
-        if index < 0:
-            return self.fixed_data[1 + index]
+        row = self.grid_lookup[node_id]
+        if row < 0:
+            raise IndexError("Bad index")
         else:
-            return self.grid_data[index, :]
+            return self.grid_data[row, :]
 
     def __setitem__(self, node_id, value):
-        index = self.row_lookup[node_id]
-        if index < 0:
-            self.fixed_data[1 + index] = value
+        row = self.grid_lookup[node_id]
+        if row < 0:
+            raise IndexError("Bad index")
         else:
-            self.grid_data[index, :] = value
+            self.grid_data[row, :] = value
 
-    def clone_with_new_data(
-            self, grid_data=np.nan, fixed_data=None, probability_space=None):
+    def clone_grid_with_new_data(self, data, probability_space=None):
         """
-        Take the row indices etc from an existing NodeGridValues object and make a new
-        similar one but with different data. If grid_data is a single number, fill the
+        Take the gridnodes and lookup etc from an existing NodeGridValues object and make
+        a new similar one but with different data. If data is a single number, fill the
         entire data array with that, otherwise assume the data is a numpy array of the
-        correct size to fill the gridded data. If grid_data is None, fill with NaN
-
-        If fixed_data is None and grid_data is a single number, use the same value as
-        grid_data for the fixed data values. If fixed_data is None and grid_data is an
-        array, set the fixed data to np.nan
+        correct size to fill the gridded data. If data is None, fill with NaN
         """
-        def fill_fixed(orig, fixed_data):
-            if type(fixed_data) is np.ndarray:
-                if orig.fixed_data.shape != fixed_data.shape:
-                    raise ValueError(
-                        "The fixed data array must be the same shape as the original")
-                return fixed_data
-            else:
-                return np.full(
-                    orig.fixed_data.shape, fixed_data, dtype=orig.fixed_data.dtype)
         new_obj = NodeGridValues.__new__(NodeGridValues)
-        new_obj.num_nodes = self.num_nodes
-        new_obj.nonfixed_nodes = self.nonfixed_nodes
-        new_obj.num_nonfixed = self.num_nonfixed
-        new_obj.row_lookup = self.row_lookup
         new_obj.timepoints = self.timepoints
-        if type(grid_data) is np.ndarray:
-            if self.grid_data.shape != grid_data.shape:
+        new_obj.gridnodes = self.gridnodes
+        new_obj.num_gridnodes = self.num_gridnodes
+        new_obj.grid_lookup = self.grid_lookup
+        if type(data) is np.ndarray:
+            if self.grid_data.shape != data.shape:
                 raise ValueError(
                     "The grid data array must be the same shape as the original")
-            new_obj.grid_data = grid_data
-            new_obj.fixed_data = fill_fixed(
-                self, np.nan if fixed_data is None else fixed_data)
+            new_obj.grid_data = data
         else:
-            if grid_data == 0:  # Fast allocation
-                new_obj.grid_data = np.zeros(
-                    self.grid_data.shape, dtype=self.grid_data.dtype)
+            if data == 0:  # Fast allocation
+                new_obj.grid_data = np.zeros_like(self.grid_data)
             else:
-                new_obj.grid_data = np.full(
-                    self.grid_data.shape, grid_data, dtype=self.grid_data.dtype)
-            new_obj.fixed_data = fill_fixed(
-                self, grid_data if fixed_data is None else fixed_data)
+                new_obj.grid_data = np.full_like(self.grid_data, data)
         if probability_space is None:
             new_obj.probability_space = self.probability_space
         else:
@@ -1408,7 +1381,9 @@ class Likelihoods:
             liks *= self.get_mut_lik_fixed_node(edge)
         return arr * liks
 
-    def scale_geometric(self, fraction, value):
+    def scale_geometric(self, fraction, value=None):
+        if value is None:
+            value = self.identity_constant
         return value ** fraction
 
 
@@ -1523,7 +1498,9 @@ class LogLikelihoods(Likelihoods):
             log_liks += self.get_mut_lik_fixed_node(edge)
         return arr + log_liks
 
-    def scale_geometric(self, fraction, value):
+    def scale_geometric(self, fraction, value=None):
+        if value is None:
+            value = self.identity_constant
         return fraction * value
 
 
@@ -1563,7 +1540,7 @@ class InOutAlgorithms:
                 "The prior and likelihood objects disagree on the timepoints used")
 
         self.prior = prior
-        self.nonfixed_nodes = prior.nonfixed_nodes
+        self.gridnodes = prior.gridnodes
         self.lik = lik
         self.ts = lik.ts
 
@@ -1635,8 +1612,7 @@ class InOutAlgorithms:
         """
         if progress is None:
             progress = self.progress
-        inside = self.prior.clone_with_new_data(  # store inside matrix values
-            grid_data=np.nan, fixed_data=self.lik.identity_constant)
+        inside = self.prior.clone_grid_with_new_data(data=np.nan)
         if cache_inside:
             g_i = np.full(
                 (self.ts.num_edges, self.lik.grid_size), self.lik.identity_constant)
@@ -1644,7 +1620,7 @@ class InOutAlgorithms:
         # Iterate through the nodes via groupby on parent node
         for parent, edges in tqdm(
                 self.edges_by_parent_asc(), desc="Inside",
-                total=inside.num_nonfixed, disable=not progress):
+                total=inside.num_gridnodes, disable=not progress):
             """
             for each node, find the conditional prob of age at every time
             in time grid
@@ -1658,7 +1634,7 @@ class InOutAlgorithms:
                 if edge.child in self.fixednodes:
                     # NB: geometric scaling works exactly when all nodes fixed in graph
                     # but is an approximation when times are unknown.
-                    daughter_val = self.lik.scale_geometric(spanfrac, inside[edge.child])
+                    daughter_val = self.lik.scale_geometric(spanfrac)
                     edge_lik = self.lik.get_fixed(daughter_val, edge)
                 else:
                     inside_values = inside[edge.child]
@@ -1698,8 +1674,7 @@ class InOutAlgorithms:
         if not hasattr(self, "inside"):
             raise RuntimeError("You have not yet run the inside algorithm")
 
-        outside = self.inside.clone_with_new_data(
-            grid_data=0, probability_space=LIN)
+        outside = self.inside.clone_grid_with_new_data(data=0, probability_space=LIN)
         for root, span_when_root in self.root_spans.items():
             outside[root] = span_when_root / self.spans[root]
         outside.force_probability_space(self.inside.probability_space)
@@ -1740,9 +1715,9 @@ class InOutAlgorithms:
             outside[child] = self.lik.reduce(val, self.norm[child])
             if normalize:
                 outside[child] = self.lik.reduce(val, np.max(val))
-        posterior = outside.clone_with_new_data(
-           grid_data=self.lik.combine(self.inside.grid_data, outside.grid_data),
-           fixed_data=np.nan)  # We should never use the posterior for a fixed node
+        posterior = outside.clone_grid_with_new_data(
+           data=self.lik.combine(self.inside.grid_data, outside.grid_data),
+           )  # We should never use the posterior for a fixed node
         posterior.normalize()
         posterior.force_probability_space(probability_space_returned)
         self.outside = outside
@@ -1818,7 +1793,7 @@ def posterior_mean_var(ts, timepoints, posterior, *, fixed_node_set=None):
     mn_post[fixed_nodes] = ts.tables.nodes.time[fixed_nodes]
     vr_post[fixed_nodes] = 0
 
-    for row, node_id in zip(posterior.grid_data, posterior.nonfixed_nodes):
+    for row, node_id in zip(posterior.grid_data, posterior.gridnodes):
         mn_post[node_id] = np.sum(row * timepoints) / np.sum(row)
         vr_post[node_id] = (np.sum(row * timepoints ** 2) / np.sum(row) -
                             mn_post[node_id] ** 2)
@@ -1993,7 +1968,7 @@ def get_dates(
     for sample in tree_sequence.samples():
         if tree_sequence.node(sample).time != 0:
             raise NotImplementedError(
-                "Samples must all be at time 0")
+                "Sample {} is not at time 0".format(sample))
     fixed_nodes = set(tree_sequence.samples())
 
     # Default to not creating approximate prior unless ts has > 1000 samples
@@ -2042,4 +2017,4 @@ def get_dates(
         raise ValueError(
             "estimation method must be either 'inside_outside' or 'maximization'")
 
-    return mn_post, posterior, prior.timepoints, eps, prior.nonfixed_nodes
+    return mn_post, posterior, prior.timepoints, eps, prior.gridnodes
