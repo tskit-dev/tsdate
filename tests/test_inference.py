@@ -48,7 +48,7 @@ class TestPrebuilt(unittest.TestCase):
             self.assertEqual(len(log.output), 1)
             self.assertIn("unary nodes", log.output[0])
 
-    def test_fails_with_recombination(self):
+    def test_fails_with_recombination_clock(self):
         ts = utility_functions.two_tree_mutation_ts()
         for probability_space in (LOG, LIN):
             self.assertRaises(
@@ -57,6 +57,12 @@ class TestPrebuilt(unittest.TestCase):
             self.assertRaises(
                 NotImplementedError, tsdate.date, ts, Ne=1, recombination_rate=1,
                 probability_space=probability_space, mutation_rate=1)
+
+    def test_non_contemporaneous(self):
+        ts = utility_functions.two_tree_ts_n3_non_contemporaneous()
+        theta = 2
+        ts = msprime.mutate(ts, rate=theta)
+        tsdate.date(ts, Ne=1, mutation_rate=theta, probability_space=LIN)
 
 #     def test_simple_ts_n2(self):
 #         ts = utility_functions.single_tree_ts_n2()
@@ -209,7 +215,8 @@ class TestSimulated(unittest.TestCase):
             msprime.Sample(population=0, time=0),
             msprime.Sample(population=0, time=1.0)
         ]
-        ts = msprime.simulate(samples=samples, Ne=1, mutation_rate=2)
+        ts = msprime.simulate(samples=samples, Ne=1, mutation_rate=2, random_seed=123)
+        print(ts.draw_text())
         self.assertRaises(NotImplementedError, tsdate.date, ts, 1, 2)
 
     @unittest.skip("YAN to fix")

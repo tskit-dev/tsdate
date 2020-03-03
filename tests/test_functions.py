@@ -189,7 +189,7 @@ class TestNodeTipWeights(unittest.TestCase):
         self.verify_weights(ts)
 
     def test_dangling_nodes_warn(self):
-        ts = utility_functions.single_tree_ts_n3_dangling()
+        ts = utility_functions.single_tree_ts_n2_dangling()
         with self.assertLogs(level="WARNING") as log:
             self.verify_weights(ts)
             self.assertGreater(len(log.output), 0)
@@ -434,6 +434,17 @@ class TestMixturePrior(unittest.TestCase):
         self.assertTrue(
             np.allclose(mixture_prior[4, self.alpha_beta], [0.11111, 0.55555]))
 
+    def test_simulated_non_contemporaneous(self):
+        samples = [
+            msprime.Sample(population=0, time=0),
+            msprime.Sample(population=0, time=0),
+            msprime.Sample(population=0, time=0),
+            msprime.Sample(population=0, time=1.0)
+        ]
+        ts = msprime.simulate(samples=samples, Ne=1, mutation_rate=2, random_seed=123)
+        self.get_mixture_prior_params(ts, 'lognorm')
+        self.get_mixture_prior_params(ts, 'gamma')
+
 
 class TestPriorVals(unittest.TestCase):
     def verify_prior_vals(self, ts, prior_distr):
@@ -489,6 +500,18 @@ class TestPriorVals(unittest.TestCase):
         ts = utility_functions.two_tree_ts_n3_non_contemporaneous()
         prior_vals = self.verify_prior_vals(ts, 'gamma')
         self.assertEqual(prior_vals.fixed_time(2), ts.node(2).time)
+
+    def test_simulated_non_contemporaneous(self):
+        samples = [
+            msprime.Sample(population=0, time=0),
+            msprime.Sample(population=0, time=0),
+            msprime.Sample(population=0, time=0),
+            msprime.Sample(population=0, time=1.0)
+        ]
+        ts = msprime.simulate(samples=samples, Ne=1, mutation_rate=2, random_seed=123)
+        prior_vals = self.verify_prior_vals(ts, 'gamma')
+        print(prior_vals.timepoints)
+        raise
 
 
 class TestLikelihoodClass(unittest.TestCase):
@@ -789,7 +812,7 @@ class TestAlgorithmClass(unittest.TestCase):
 
     def test_nonmatching_prior_vs_lik_fixednodes(self):
         ts1 = utility_functions.single_tree_ts_n3()
-        ts2 = utility_functions.single_tree_ts_n3_dangling()
+        ts2 = utility_functions.single_tree_ts_n2_dangling()
         timepoints = np.array([0, 1.2, 2])
         prior = tsdate.build_prior_grid(ts1, timepoints)
         lls = Likelihoods(ts2, prior.timepoints)
@@ -901,7 +924,7 @@ class TestInsideAlgorithm(unittest.TestCase):
         self.assertTrue(np.allclose(algo.inside[5], np.array([0, 7.06320034e-11, 1])))
 
     def test_dangling_fails(self):
-        ts = utility_functions.single_tree_ts_n3_dangling()
+        ts = utility_functions.single_tree_ts_n2_dangling()
         print(ts.draw_text())
         print("Samples:", ts.samples())
         prior = tsdate.build_prior_grid(ts, timepoints=np.array([0, 1.2, 2]))

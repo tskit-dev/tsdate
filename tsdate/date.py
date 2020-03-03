@@ -1066,10 +1066,10 @@ def fill_prior(node_parameters, timepoints, ts, *, prior_distr, progress=False):
     datable_nodes = np.ones(ts.num_nodes, dtype=bool)
     datable_nodes[ts.samples()] = False
     datable_nodes = np.where(datable_nodes)[0]
-    prior_times = NodeGridValues(
-        ts.num_nodes,
-        datable_nodes[np.argsort(ts.tables.nodes.time[datable_nodes])].astype(np.int32),
-        timepoints)
+    # Sort by time
+    datable_nodes = datable_nodes[
+        np.argsort(ts.tables.nodes.time[datable_nodes])].astype(np.int32)
+    prior_times = NodeGridValues(timepoints, gridnodes=datable_nodes)
 
     # TO DO - this can probably be done in an single numpy step rather than a for loop
     for node in tqdm(datable_nodes, desc="Assign Prior to Each Node",
@@ -1259,10 +1259,12 @@ class Likelihoods:
 
         mutations_on_edge = self.mut_edges[edge.id]
         child_time = self.ts.node(edge.child).time
-        assert child_time == 0
-        # Temporary hack - we should really take a more precise likelihood
-        return self._lik(mutations_on_edge, edge_span(edge), self.timediff, self.theta,
-                         normalize=self.normalize)
+        timediff = self.timediff - child_time
+        mask = timediff > 0
+        lik = np.full(len(timediff), self.null_constant, dtype=FLOAT_DTYPE)
+        lik[mask] = self._lik(mutations_on_edge, edge_span(edge), timediff[mask],
+                              self.theta, normalize=self.normalize)
+        return lik
 
     def get_mut_lik_lower_tri(self, edge):
         """
@@ -1531,8 +1533,8 @@ class InOutAlgorithms:
     Contains the inside and outside algorithms
     """
     def __init__(self, prior, lik, *, progress=False):
-        if (lik.fixednodes.intersection(prior.nonfixed_nodes) or
-                len(lik.fixednodes) + len(prior.nonfixed_nodes) != lik.ts.num_nodes):
+        if (lik.fixednodes.intersection(prior.gridnodes) or
+                len(lik.fixednodes) + len(prior.gridnodes) != lik.ts.num_nodes):
             raise ValueError(
                 "The prior and likelihood objects disagree on which nodes are fixed")
         if not np.allclose(lik.timepoints, prior.timepoints):
@@ -1641,8 +1643,8 @@ class InOutAlgorithms:
                     if np.ndim(inside_values) == 0 or np.all(np.isnan(inside_values)):
                         # Child appears fixed, or we have not visited it. Either our
                         # edge order is wrong (bug) or we have hit a dangling node
-                        raise ValueError("The input tree sequence includes "
-                                         "dangling nodes: please simplify it")
+                        raise ValueError("Node {} appears to be dangling: please "
+                                         "simplify the tree sequence".format(edge.child))
                     daughter_val = self.lik.scale_geometric(
                         spanfrac, self.lik.make_lower_tri(inside[edge.child]))
                     edge_lik = self.lik.get_inside(daughter_val, edge)
@@ -1834,7 +1836,8 @@ def build_prior_grid(tree_sequence, timepoints=20, *, approximate_prior=False,
     time slices at which to evaluate node age.
 
     :param TreeSequence tree_sequence: The input :class:`tskit.TreeSequence`, treated as
-        undated
+        undated. Currently, only the samples at time 0 are used to create the conditional
+        coalescent prior.
     :param int_or_array_like timepoints: The number of quantiles used to create the
         time slices, or manually-specified time slices as a numpy array
     :param bool approximate_prior: Whether to use a precalculated approximate prior or
@@ -1964,11 +1967,6 @@ def get_dates(
 
     :return: tuple(mn_post, posterior, timepoints, eps, nodes_to_date)
     """
-    # Stuff yet to be implemented. These can be deleted once fixed
-    for sample in tree_sequence.samples():
-        if tree_sequence.node(sample).time != 0:
-            raise NotImplementedError(
-                "Sample {} is not at time 0".format(sample))
     fixed_nodes = set(tree_sequence.samples())
 
     # Default to not creating approximate prior unless ts has > 1000 samples
