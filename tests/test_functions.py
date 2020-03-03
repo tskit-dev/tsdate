@@ -425,9 +425,7 @@ class TestPriorVals(unittest.TestCase):
         priors.add(ts.num_samples, approximate=False)
         grid = np.linspace(0, 3, 3)
         mixture_prior = priors.get_mixture_prior_params(span_data)
-        nodes_to_date = span_data.nodes_to_date
-        prior_vals = fill_prior(mixture_prior, grid, ts, nodes_to_date,
-                                prior_distr=prior_distr)
+        prior_vals = fill_prior(mixture_prior, grid, ts, prior_distr=prior_distr)
         return prior_vals
 
     def test_one_tree_n2(self):
@@ -880,9 +878,7 @@ class TestOutsideAlgorithm(unittest.TestCase):
         priors.add(ts.num_samples, approximate=False)
         grid = np.array([0, 1.2, 2])
         mixture_prior = priors.get_mixture_prior_params(span_data)
-        nodes_to_date = span_data.nodes_to_date
-        prior_vals = fill_prior(
-            mixture_prior, grid, ts, nodes_to_date, prior_distr)
+        prior_vals = fill_prior(mixture_prior, grid, ts, prior_distr=prior_distr)
         theta = 1
         eps = 1e-6
         lls = Likelihoods(ts, grid, theta, eps=eps)
@@ -947,9 +943,7 @@ class TestTotalFunctionalValueTree(unittest.TestCase):
         priors.add(ts.num_samples, approximate=False)
         grid = np.array([0, 1.2, 2])
         mixture_prior = priors.get_mixture_prior_params(span_data)
-        nodes_to_date = span_data.nodes_to_date
-        prior_vals = fill_prior(
-            mixture_prior, grid, ts, nodes_to_date, prior_distr=prior_distr)
+        prior_vals = fill_prior(mixture_prior, grid, ts, prior_distr=prior_distr)
         theta = 1
         eps = 1e-6
         lls = Likelihoods(ts, grid, theta, eps=eps)
@@ -1010,9 +1004,7 @@ class TestGilTree(unittest.TestCase):
             priors.add(ts.num_samples, approximate=False)
             grid = np.array([0, 0.1, 0.2, 0.5, 1, 2, 5])
             mixture_prior = priors.get_mixture_prior_params(span_data)
-            nodes_to_date = span_data.nodes_to_date
-            prior_vals = fill_prior(
-                mixture_prior, grid, ts, nodes_to_date, prior_distr)
+            prior_vals = fill_prior(mixture_prior, grid, ts, prior_distr=prior_distr)
             prior_vals.grid_data[0] = [0, 0.5, 0.3, 0.1, 0.05, 0.02, 0.03]
             prior_vals.grid_data[1] = [0, 0.05, 0.1, 0.2, 0.45, 0.1, 0.1]
             theta = 2
@@ -1090,7 +1082,7 @@ class TestOutsideEdgesOrdering(unittest.TestCase):
 
     def test_simulated_inferred_outside_traversal(self):
         ts = msprime.simulate(500, Ne=10000, length=5e4, mutation_rate=1e-8,
-                              recombination_rate=1e-8)
+                              recombination_rate=1e-8, random_seed=12)
         sample_data = tsinfer.SampleData.from_tree_sequence(ts, use_times=False)
         inferred_ts = tsinfer.infer(sample_data)
         self.edges_ordering(inferred_ts, "outside_pass")
@@ -1182,7 +1174,7 @@ class TestBuildPriorGrid(unittest.TestCase):
     Test tsdate.build_prior_grid() works as expected
     """
     def test_bad_timepoints(self):
-        ts = msprime.simulate(2)
+        ts = msprime.simulate(2, random_seed=123)
         for bad in [-1, np.array([1]), np.array([-1, 2, 3]), np.array([1, 1, 1]),
                     "foobar"]:
             self.assertRaises(ValueError, tsdate.build_prior_grid, ts, timepoints=bad)
@@ -1190,7 +1182,7 @@ class TestBuildPriorGrid(unittest.TestCase):
             self.assertRaises(TypeError, tsdate.build_prior_grid, ts, timepoints=bad)
 
     def test_bad_prior_distr(self):
-        ts = msprime.simulate(2)
+        ts = msprime.simulate(2, random_seed=12)
         self.assertRaises(ValueError, tsdate.build_prior_grid, ts,
                           prior_distribution="foobar")
 
