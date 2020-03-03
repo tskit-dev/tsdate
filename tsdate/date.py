@@ -1556,8 +1556,6 @@ class InOutAlgorithms:
     def __init__(self, prior, lik, *, progress=False):
         if (lik.fixednodes.intersection(prior.nonfixed_nodes) or
                 len(lik.fixednodes) + len(prior.nonfixed_nodes) != lik.ts.num_nodes):
-            print("fixed from lik", lik.fixednodes)
-            print("nonfixed from prior", prior.nonfixed_nodes)
             raise ValueError(
                 "The prior and likelihood objects disagree on which nodes are fixed")
         if not np.allclose(lik.timepoints, prior.timepoints):

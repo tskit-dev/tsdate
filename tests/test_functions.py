@@ -1217,14 +1217,6 @@ class TestBuildPriorGrid(unittest.TestCase):
         self.assertRaises(ValueError, tsdate.build_prior_grid, ts,
                           prior_distribution="foobar")
 
-    def test_warn_dangling(self):
-        ts = utility_functions.single_tree_ts_n3_dangling()
-        with self.assertLogs(level="WARNING") as log:
-            tsdate.build_prior_grid(ts)
-            self.assertEqual(len(log.output), 2)
-            self.assertIn("dangling", log.output[0])
-            self.assertIn("simplify", log.output[1])
-
 
 class TestConstrainAgesTopo(unittest.TestCase):
     """
