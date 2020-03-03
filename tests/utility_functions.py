@@ -499,6 +499,16 @@ def single_tree_ts_n3_sample_as_parent():
     return tskit.load_text(nodes=nodes, edges=edges, strict=False)
 
 
+def single_tree_ts_n3_dangling():
+    # Mark node 0 as a non-sample node, which should make it dangling
+    ts = single_tree_ts_n3()
+    tables = ts.dump_tables()
+    flags = tables.nodes.flags
+    flags[0] = flags[0] & (~tskit.NODE_IS_SAMPLE)
+    tables.nodes.flags = flags
+    return tables.tree_sequence()
+
+
 def truncate_ts_samples(ts, average_span, random_seed, min_span=5):
     """
     Create a tree sequence that has sample nodes which have been truncated

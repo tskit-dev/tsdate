@@ -85,8 +85,7 @@ class TestNodeTipWeights(unittest.TestCase):
             for n in tree.nodes():
                 if not tree.is_sample(n):
                     # do not count a span of a node where there are no sample descendants
-                    if tree.num_samples(n) > 0:
-                        nonsample_nodes[n] += tree.span
+                    nonsample_nodes[n] += (tree.span if tree.num_samples(n) > 0 else 0)
         self.assertEqual(set(span_data.nodes_to_date), set(nonsample_nodes.keys()))
         for id, span in nonsample_nodes.items():
             self.assertAlmostEqual(span, span_data.node_spans[id])
@@ -96,7 +95,9 @@ class TestNodeTipWeights(unittest.TestCase):
                 self.assertTrue(0 <= focal_node < ts.num_nodes)
                 wt += np.sum(weights['weight'])
                 self.assertLessEqual(max(weights['descendant_tips']), ts.num_samples)
-            self.assertAlmostEqual(wt, 1.0)
+            if not np.isnan(wt):
+                # Dangling nodes will have wt=nan
+                self.assertAlmostEqual(wt, 1.0)
         return span_data
 
     def test_one_tree_n2(self):
@@ -148,8 +149,12 @@ class TestNodeTipWeights(unittest.TestCase):
         ts = utility_functions.two_tree_ts().keep_intervals(
             [(0, 0.2)], simplify=False)
         n = ts.num_samples
-        # Here we have no reference in the trees to node 6
-        self.assertRaises(ValueError, SpansBySamples, ts)
+        # Here we have no reference in the trees to node 5
+        with self.assertLogs(level="WARNING") as log:
+            SpansBySamples(ts)
+            self.assertGreater(len(log.output), 0)
+            self.assertIn("5", log.output[-1])  # Should mention the node number
+            self.assertIn("simplify", log.output[-1])  # Should advise to simplify
         ts = ts.simplify()
         span_data = self.verify_weights(ts)
         # Root on (deleted) R tree is missing
@@ -183,14 +188,12 @@ class TestNodeTipWeights(unittest.TestCase):
         self.assertGreater(ts.num_trees, 1)
         self.verify_weights(ts)
 
-    def test_dangling_nodes_fail(self):
-        ts = utility_functions.single_tree_ts_n3()
-        # Mark node 0 as a non-sample node, which should make it dangling
-        tables = ts.dump_tables()
-        flags = tables.nodes.flags
-        flags[0] = flags[0] & (~tskit.NODE_IS_SAMPLE)
-        tables.nodes.flags = flags
-        self.assertRaises(ValueError, self.verify_weights, tables.tree_sequence())
+    def test_dangling_nodes_warn(self):
+        ts = utility_functions.single_tree_ts_n3_dangling()
+        with self.assertLogs(level="WARNING") as log:
+            self.verify_weights(ts)
+            self.assertGreater(len(log.output), 0)
+            self.assertIn("dangling", log.output[0])
 
     @unittest.skip("YAN to fix")
     def test_truncated_nodes(self):
@@ -766,6 +769,24 @@ class TestNodeGridValuesClass(unittest.TestCase):
             orig, 0, np.array([[1, 2], [4, 5]]))
 
 
+class TestAlgorithmClass(unittest.TestCase):
+    def test_nonmatching_prior_vs_lik_timepoints(self):
+        ts = utility_functions.single_tree_ts_n3()
+        timepoints1 = np.array([0, 1.2, 2])
+        timepoints2 = np.array([0, 1.1, 2])
+        prior = tsdate.build_prior_grid(ts, timepoints1)
+        lls = Likelihoods(ts, timepoints2)
+        self.assertRaisesRegexp(ValueError, "timepoints", InOutAlgorithms, prior, lls)
+
+    def test_nonmatching_prior_vs_lik_fixednodes(self):
+        ts1 = utility_functions.single_tree_ts_n3()
+        ts2 = utility_functions.single_tree_ts_n3_dangling()
+        timepoints = np.array([0, 1.2, 2])
+        prior = tsdate.build_prior_grid(ts1, timepoints)
+        lls = Likelihoods(ts2, prior.timepoints)
+        self.assertRaisesRegexp(ValueError, "fixed", InOutAlgorithms, prior, lls)
+
+
 class TestInsideAlgorithm(unittest.TestCase):
     def run_inside_algorithm(self, ts, prior_distr, normalize=True):
         prior = tsdate.build_prior_grid(ts, timepoints=np.array([0, 1.2, 2]),
@@ -775,7 +796,7 @@ class TestInsideAlgorithm(unittest.TestCase):
         eps = 1e-6
         lls = Likelihoods(ts, prior.timepoints, theta, eps=eps)
         lls.precalculate_mutation_likelihoods()
-        algo = InOutAlgorithms(ts, prior, lls)
+        algo = InOutAlgorithms(prior, lls)
         algo.inside_pass(normalize=normalize)
         return algo, prior
 
@@ -870,6 +891,17 @@ class TestInsideAlgorithm(unittest.TestCase):
         # NB the replacement below has not been hand-calculated
         self.assertTrue(np.allclose(algo.inside[5], np.array([0, 7.06320034e-11, 1])))
 
+    def test_dangling_fails(self):
+        ts = utility_functions.single_tree_ts_n3_dangling()
+        print(ts.draw_text())
+        print("Samples:", ts.samples())
+        prior = tsdate.build_prior_grid(ts, timepoints=np.array([0, 1.2, 2]))
+        theta = 1
+        eps = 1e-6
+        lls = Likelihoods(ts, prior.timepoints, theta, eps)
+        algo = InOutAlgorithms(prior, lls)
+        self.assertRaisesRegexp(ValueError, "dangling", algo.inside_pass)
+
 
 class TestOutsideAlgorithm(unittest.TestCase):
     def run_outside_algorithm(self, ts, prior_distr="lognorm"):
@@ -883,7 +915,7 @@ class TestOutsideAlgorithm(unittest.TestCase):
         eps = 1e-6
         lls = Likelihoods(ts, grid, theta, eps=eps)
         lls.precalculate_mutation_likelihoods()
-        algo = InOutAlgorithms(ts, prior_vals, lls)
+        algo = InOutAlgorithms(prior_vals, lls)
         algo.inside_pass()
         algo.outside_pass(normalize=False)
         return algo
@@ -926,7 +958,7 @@ class TestOutsideAlgorithm(unittest.TestCase):
         theta = 1
         lls = Likelihoods(ts, prior.timepoints, theta)
         lls.precalculate_mutation_likelihoods()
-        algo = InOutAlgorithms(ts, prior, lls)
+        algo = InOutAlgorithms(prior, lls)
         self.assertRaises(RuntimeError, algo.outside_pass)
 
 
@@ -948,7 +980,7 @@ class TestTotalFunctionalValueTree(unittest.TestCase):
         eps = 1e-6
         lls = Likelihoods(ts, grid, theta, eps=eps)
         lls.precalculate_mutation_likelihoods()
-        algo = InOutAlgorithms(ts, prior_vals, lls)
+        algo = InOutAlgorithms(prior_vals, lls)
         algo.inside_pass()
         posterior = algo.outside_pass(normalize=False)
         self.assertTrue(np.array_equal(np.sum(
@@ -1011,7 +1043,7 @@ class TestGilTree(unittest.TestCase):
             eps = 0.01
             lls = Likelihoods(ts, grid, theta, eps=eps, normalize=False)
             lls.precalculate_mutation_likelihoods()
-            algo = InOutAlgorithms(ts, prior_vals, lls)
+            algo = InOutAlgorithms(prior_vals, lls)
             algo.inside_pass(normalize=False, cache_inside=cache_inside)
             algo.outside_pass(normalize=False)
             self.assertTrue(
@@ -1034,8 +1066,7 @@ class TestOutsideEdgesOrdering(unittest.TestCase):
         theta = None
         liklhd = LogLikelihoods(ts, prior.timepoints, theta,
                                 eps=1e-6, fixed_node_set=fixed_nodes, progress=False)
-        dynamic_prog = InOutAlgorithms(ts, prior, liklhd, progress=False)
-
+        dynamic_prog = InOutAlgorithms(prior, liklhd, progress=False)
         if fn == "outside_pass":
             edges_by_child = dynamic_prog.edges_by_child_desc()
             seen_children = list()
@@ -1099,7 +1130,7 @@ class TestMaximization(unittest.TestCase):
         eps = 1e-6
         lls = Likelihoods(ts, prior.timepoints, theta, eps=eps)
         lls.precalculate_mutation_likelihoods()
-        algo = InOutAlgorithms(ts, prior, lls)
+        algo = InOutAlgorithms(prior, lls)
         algo.inside_pass()
         return lls, algo, algo.outside_maximization()
 
