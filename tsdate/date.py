@@ -73,6 +73,17 @@ def tree_iterator_len(it):
     return it.tree_sequence.num_trees
 
 
+def get_single_root(tree):
+    # TODO - use new 'root_threshold=2' to avoid having to check isolated nodes
+    topological_roots = [r for r in tree.roots if tree_num_children(tree, r) != 0]
+    if len(topological_roots) > 1:
+        raise ValueError(
+            "Invalid tree sequence: tree {} has >1 root".format(tree.index))
+    if len(topological_roots) == 0:
+        return None  # Empty tree
+    return topological_roots[0]
+
+
 def lognorm_approx(mean, var):
     """
     alpha is mean of underlying normal distribution
@@ -576,7 +587,7 @@ class SpansBySamples:
                 self.ts.trees(tracked_samples=focal_tips),
                 desc="Find Node Spans", total=self.ts.num_trees,
                 disable=not self.progress):
-
+            get_single_root(prev_tree)  # Check only one root
             try:
                 # Get the edge diffs from the prev tree to the new tree
                 _, e_out, e_in = next(edge_diff_iter)
@@ -1552,18 +1563,10 @@ class InOutAlgorithms:
 
         self.root_spans = defaultdict(float)
         for tree in self.ts.trees():
-            # TODO - use new 'root_threshold=2' to avoid having to check isolated nodes
-            n_roots_in_tree = 0
-            for root in tree.roots:
-                if tree_num_children(tree, root) == 0:
-                    # Isolated node
-                    continue
-                n_roots_in_tree += 1
-                if n_roots_in_tree > 1:
-                    raise ValueError("Invalid tree sequence: tree {} has >1 root".format(
-                        tree.index))
-                self.root_spans[root] += tree.span
-        # Add on the spans when this is a root
+            root = get_single_root(tree)
+            if root is not None:
+                self.root_spans[root] += tree.span  # Count span if we have a single tree
+            # Add on the spans when this is a root
         for root, span_when_root in self.root_spans.items():
             self.spans[root] += span_when_root
 
