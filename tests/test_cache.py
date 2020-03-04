@@ -9,7 +9,7 @@ import appdirs
 import numpy as np
 
 import tsdate
-from tsdate.date import ConditionalCoalescentTimes
+from tsdate.prior import ConditionalCoalescentTimes
 
 
 class TestSetCacheDir(unittest.TestCase):
@@ -45,6 +45,6 @@ class TestSetCacheDir(unittest.TestCase):
         self.assertFalse(
             np.allclose(priors_approx10[100], priors_approxNone[100], equal_nan=True))
 
-        priors_approx10.clear_precalculated_prior()
+        priors_approx10.clear_precalculated_priors()
         self.assertFalse(os.path.isfile(fn), "The file " + fn + "should have been " +
                          "deleted, but has not been. Please delete it")
