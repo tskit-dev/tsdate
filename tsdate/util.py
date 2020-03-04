@@ -42,3 +42,14 @@ def get_single_root(tree):
     if len(topological_roots) == 0:
         return None  # Empty tree
     return topological_roots[0]
+
+
+def reduce_to_contemporaneous(ts):
+    """
+    Simplify the ts to only the contemporaneous samples, and return the new ts + node map
+    """
+    samples = ts.samples()
+    contmpr_samples = samples[ts.tables.nodes.time[samples] == 0]
+    return ts.simplify(
+        contmpr_samples, map_nodes=True, keep_unary=True, filter_populations=False,
+        filter_sites=False, record_provenance=False, filter_individuals=False)
