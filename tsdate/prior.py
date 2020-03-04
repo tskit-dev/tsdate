@@ -958,18 +958,13 @@ def build_grid(tree_sequence, timepoints=20, *, approximate_priors=False,
         if approx_prior_size is not None:
             raise ValueError("Can't set approx_prior_size if approximate_prior is False")
 
-    samples = tree_sequence.samples()
-    contmpr_samples = samples[tree_sequence.tables.nodes.time[samples] == 0]
-    num_contmpr_nodes = len(contmpr_samples)
-    contmpr_samp_ts, node_map = tree_sequence.simplify(
-        contmpr_samples, map_nodes=True, keep_unary=True, filter_populations=False,
-        filter_sites=False, record_provenance=False, filter_individuals=False)
-    span_data = SpansBySamples(contmpr_samp_ts, progress=progress)
+    contmpr_ts, node_map = util.reduce_to_contemporaneous(tree_sequence)
+    span_data = SpansBySamples(contmpr_ts, progress=progress)
 
     base_priors = ConditionalCoalescentTimes(approx_prior_size, prior_distribution,
                                              progress=progress)
 
-    base_priors.add(num_contmpr_nodes, approximate_priors)
+    base_priors.add(contmpr_ts.num_samples, approximate_priors)
     for total_fixed in span_data.total_fixed_at_0_counts:
         # For missing data: trees vary in total fixed node count => have different priors
         base_priors.add(total_fixed, approximate_priors)
@@ -992,10 +987,10 @@ def build_grid(tree_sequence, timepoints=20, *, approximate_priors=False,
     else:
         raise ValueError("time_slices must be an integer or a numpy array of floats")
 
-    prior_params_for_contmpr_nodes = base_priors.get_mixture_prior_params(span_data)
+    prior_params_contmpr = base_priors.get_mixture_prior_params(span_data)
     # Map the nodes in the prior params back to the node ids in the original ts
-    prior_params_for_all_nodes = prior_params_for_contmpr_nodes[node_map, :]
+    prior_params = prior_params_contmpr[node_map, :]
     # Set all fixed nodes (i.e. samples) to have 0 variance
-    priors = fill_priors(prior_params_for_all_nodes, timepoints, tree_sequence,
+    priors = fill_priors(prior_params, timepoints, tree_sequence,
                          prior_distr=prior_distribution, progress=progress)
     return priors
