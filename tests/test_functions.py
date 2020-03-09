@@ -189,7 +189,7 @@ class TestNodeTipWeights(unittest.TestCase):
         self.verify_weights(ts)
 
     def test_dangling_nodes_warn(self):
-        ts = utility_functions.single_tree_ts_n3_dangling()
+        ts = utility_functions.single_tree_ts_n2_dangling()
         with self.assertLogs(level="WARNING") as log:
             self.verify_weights(ts)
             self.assertGreater(len(log.output), 0)
@@ -780,7 +780,7 @@ class TestAlgorithmClass(unittest.TestCase):
 
     def test_nonmatching_prior_vs_lik_fixednodes(self):
         ts1 = utility_functions.single_tree_ts_n3()
-        ts2 = utility_functions.single_tree_ts_n3_dangling()
+        ts2 = utility_functions.single_tree_ts_n2_dangling()
         timepoints = np.array([0, 1.2, 2])
         priors = tsdate.build_prior_grid(ts1, timepoints)
         lls = Likelihoods(ts2, priors.timepoints)
@@ -892,7 +892,7 @@ class TestInsideAlgorithm(unittest.TestCase):
         self.assertTrue(np.allclose(algo.inside[5], np.array([0, 7.06320034e-11, 1])))
 
     def test_dangling_fails(self):
-        ts = utility_functions.single_tree_ts_n3_dangling()
+        ts = utility_functions.single_tree_ts_n2_dangling()
         print(ts.draw_text())
         print("Samples:", ts.samples())
         priors = tsdate.build_prior_grid(ts, timepoints=np.array([0, 1.2, 2]))
