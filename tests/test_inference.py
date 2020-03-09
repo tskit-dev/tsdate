@@ -39,7 +39,7 @@ class TestPrebuilt(unittest.TestCase):
     Tests for tsdate on prebuilt tree sequences
     """
     def test_dangling_failure(self):
-        ts = utility_functions.single_tree_ts_n3_dangling()
+        ts = utility_functions.single_tree_ts_n2_dangling()
         self.assertRaisesRegexp(ValueError, "dangling", tsdate.date, ts, Ne=1)
 
     def test_unary_warning(self):
