@@ -195,6 +195,43 @@ class TestNodeTipWeights(unittest.TestCase):
             self.assertGreater(len(log.output), 0)
             self.assertIn("dangling", log.output[0])
 
+    def test_single_tree_n2_delete_intervals(self):
+        ts = utility_functions.single_tree_ts_n2()
+        deleted_interval_ts = ts.delete_intervals([[0.5, 0.6]])
+        n = deleted_interval_ts.num_samples
+        span_data = self.verify_weights(ts) 
+        span_data_deleted = self.verify_weights(deleted_interval_ts) 
+        self.assertEqual(span_data.lookup_weight(2, n, 2),
+                         span_data_deleted.lookup_weight(2, n , 2))
+
+    def test_single_tree_n4_delete_intervals(self):
+        ts = utility_functions.single_tree_ts_n4()
+        deleted_interval_ts = ts.delete_intervals([[0.5, 0.6]])
+        n = deleted_interval_ts.num_samples
+        span_data = self.verify_weights(ts) 
+        span_data_deleted = self.verify_weights(deleted_interval_ts) 
+        self.assertEqual(span_data.lookup_weight(4, n, 2),
+                         span_data_deleted.lookup_weight(4, n, 2))
+        self.assertEqual(span_data.lookup_weight(5, n, 3),
+                         span_data_deleted.lookup_weight(5, n, 3))
+        self.assertEqual(span_data.lookup_weight(6, n, 4),
+                         span_data_deleted.lookup_weight(6, n, 4))
+
+    def test_two_tree_ts_delete_intervals(self):
+        ts = utility_functions.two_tree_ts()
+        deleted_interval_ts = ts.delete_intervals([[0.5, 0.6]])
+        n = deleted_interval_ts.num_samples
+        span_data = self.verify_weights(ts) 
+        span_data_deleted = self.verify_weights(deleted_interval_ts) 
+        self.assertEqual(span_data.lookup_weight(3, n, 2), 
+                         span_data_deleted.lookup_weight(3, n, 2))
+        self.assertAlmostEqual(
+            span_data_deleted.lookup_weight(4, n, 2)[0], 0.7 / 0.9)
+        self.assertAlmostEqual(
+            span_data_deleted.lookup_weight(4, n, 3)[0], 0.2 / 0.9)
+        self.assertEqual(span_data.lookup_weight(5, n, 3),
+                         span_data_deleted.lookup_weight(3, n, 2))
+
     @unittest.skip("YAN to fix")
     def test_truncated_nodes(self):
         Ne = 1e2
@@ -420,6 +457,33 @@ class TestMixturePrior(unittest.TestCase):
         self.assertTrue(
             np.allclose(mixture_priors[5, self.alpha_beta], [1.6, 1.2]))
 
+    def check_intervals(self, ts, delete_interval_ts, keep_interval_ts):
+        tests = list()
+        for distr in ['gamma', 'lognorm']:
+            mix_priors = self.get_mixture_prior_params(ts, distr)
+            for interval_ts in [delete_interval_ts, keep_interval_ts]:
+                mix_priors_ints = self.get_mixture_prior_params(interval_ts, distr)
+                for internal_node in range(ts.num_samples, ts.num_nodes):
+                    tests.append(np.allclose(
+                        mix_priors[internal_node, self.alpha_beta],
+                        mix_priors_ints[internal_node, self.alpha_beta]))
+        return tests 
+
+    def test_one_tree_n2_intervals(self):
+        ts = utility_functions.single_tree_ts_n2()
+        delete_interval_ts = ts.delete_intervals([[0.5, 0.6]])
+        keep_interval_ts = ts.keep_intervals([[0, 0.1]])
+        tests = self.check_intervals(ts, delete_interval_ts, keep_interval_ts)
+        self.assertTrue(np.all(tests))
+
+    def test_two_tree_mutation_ts_intervals(self):
+        ts = utility_functions.two_tree_mutation_ts()
+        ts_extra_length = utility_functions.two_tree_ts_extra_length()
+        delete_interval_ts = ts_extra_length.delete_intervals([[0.75, 1.25]])
+        keep_interval_ts = ts_extra_length.keep_intervals([[0, 1.]])
+        tests = self.check_intervals(ts, delete_interval_ts, keep_interval_ts)
+        self.assertTrue(np.all(tests))
+
 
 class TestPriorVals(unittest.TestCase):
     def verify_prior_vals(self, ts, prior_distr):
@@ -469,6 +533,16 @@ class TestPriorVals(unittest.TestCase):
         self.assertTrue(np.allclose(prior_vals[5], [0, 1, 0.164433]))
         self.assertTrue(np.allclose(prior_vals[4], [0, 1, 0.093389]))
         self.assertTrue(np.allclose(prior_vals[3], [0, 1, 0.011109]))
+
+    def test_one_tree_n2_intervals(self):
+        ts = utility_functions.single_tree_ts_n2()
+        delete_interval_ts = ts.delete_intervals([[0.1, 0.3]])
+        keep_interval_ts = ts.keep_intervals([[0.4, 0.6]])
+        prior_vals = self.verify_prior_vals(ts, 'gamma')
+        prior_vals_keep = self.verify_prior_vals(keep_interval_ts, 'gamma')
+        prior_vals_delete = self.verify_prior_vals(delete_interval_ts, 'gamma')
+        self.assertTrue(np.allclose(prior_vals[2], prior_vals_keep[2]))
+        self.assertTrue(np.allclose(prior_vals[2], prior_vals_delete[2]))
 
 
 class TestLikelihoodClass(unittest.TestCase):

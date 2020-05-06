@@ -58,6 +58,19 @@ class TestPrebuilt(unittest.TestCase):
                 NotImplementedError, tsdate.date, ts, Ne=1, recombination_rate=1,
                 probability_space=probability_space, mutation_rate=1)
 
+    def test_intervals(self):
+        ts = utility_functions.two_tree_ts()
+        long_ts = utility_functions.two_tree_ts_extra_length()
+        keep_ts = long_ts.keep_intervals([[0., 1.]])
+        delete_ts = long_ts.delete_intervals([[1., 1.5]])
+        dated_ts = tsdate.date(ts, Ne=1)
+        dated_keep_ts = tsdate.date(keep_ts, Ne=1) 
+        dated_deleted_ts = tsdate.date(delete_ts, Ne=1)
+        self.assertTrue(np.allclose(dated_ts.tables.nodes.time[:],
+                                    dated_keep_ts.tables.nodes.time[:]))
+        self.assertTrue(np.allclose(dated_ts.tables.nodes.time[:],
+                                    dated_deleted_ts.tables.nodes.time[:]))
+
 #     def test_simple_ts_n2(self):
 #         ts = utility_functions.single_tree_ts_n2()
 #         dated_ts = tsdate.date(ts, Ne=10000)
