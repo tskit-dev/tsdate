@@ -64,7 +64,7 @@ class TestPrebuilt(unittest.TestCase):
         keep_ts = long_ts.keep_intervals([[0., 1.]])
         delete_ts = long_ts.delete_intervals([[1., 1.5]])
         dated_ts = tsdate.date(ts, Ne=1)
-        dated_keep_ts = tsdate.date(keep_ts, Ne=1) 
+        dated_keep_ts = tsdate.date(keep_ts, Ne=1)
         dated_deleted_ts = tsdate.date(delete_ts, Ne=1)
         self.assertTrue(np.allclose(dated_ts.tables.nodes.time[:],
                                     dated_keep_ts.tables.nodes.time[:]))

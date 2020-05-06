@@ -314,6 +314,38 @@ def two_tree_ts():
     return tskit.load_text(nodes=nodes, edges=edges, strict=False)
 
 
+def two_tree_ts_extra_length():
+    r"""
+    Simple case where we have n = 3 and 2 trees, but with extra length
+    for testing keep_intervals() and delete_intervals().
+                   .    5
+                   .   / \
+            4      .  |   4
+           / \     .  |   |\
+          3   \    .  |   | \
+         / \   \   .  |   |  \
+       [0] [1] [2] . [0] [1] [2]
+    """
+    nodes = io.StringIO("""\
+    id      is_sample   time
+    0       1           0
+    1       1           0
+    2       1           0
+    3       0           1
+    4       0           2
+    5       0           3
+    """)
+    edges = io.StringIO("""\
+    left    right   parent  child
+    0       0.2     3       0,1
+    0       1.5     4       2
+    0       0.2     4       3
+    0.2     1.5     4       1
+    0.2     1.5     5       0,4
+    """)
+    return tskit.load_text(nodes=nodes, edges=edges, strict=False)
+
+
 def two_tree_ts_n3_non_contemporaneous():
     r"""
     Simple case where we have n = 3 and two trees with node 2 ancient.

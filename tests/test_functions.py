@@ -199,17 +199,17 @@ class TestNodeTipWeights(unittest.TestCase):
         ts = utility_functions.single_tree_ts_n2()
         deleted_interval_ts = ts.delete_intervals([[0.5, 0.6]])
         n = deleted_interval_ts.num_samples
-        span_data = self.verify_weights(ts) 
-        span_data_deleted = self.verify_weights(deleted_interval_ts) 
+        span_data = self.verify_weights(ts)
+        span_data_deleted = self.verify_weights(deleted_interval_ts)
         self.assertEqual(span_data.lookup_weight(2, n, 2),
-                         span_data_deleted.lookup_weight(2, n , 2))
+                         span_data_deleted.lookup_weight(2, n, 2))
 
     def test_single_tree_n4_delete_intervals(self):
         ts = utility_functions.single_tree_ts_n4()
         deleted_interval_ts = ts.delete_intervals([[0.5, 0.6]])
         n = deleted_interval_ts.num_samples
-        span_data = self.verify_weights(ts) 
-        span_data_deleted = self.verify_weights(deleted_interval_ts) 
+        span_data = self.verify_weights(ts)
+        span_data_deleted = self.verify_weights(deleted_interval_ts)
         self.assertEqual(span_data.lookup_weight(4, n, 2),
                          span_data_deleted.lookup_weight(4, n, 2))
         self.assertEqual(span_data.lookup_weight(5, n, 3),
@@ -221,9 +221,9 @@ class TestNodeTipWeights(unittest.TestCase):
         ts = utility_functions.two_tree_ts()
         deleted_interval_ts = ts.delete_intervals([[0.5, 0.6]])
         n = deleted_interval_ts.num_samples
-        span_data = self.verify_weights(ts) 
-        span_data_deleted = self.verify_weights(deleted_interval_ts) 
-        self.assertEqual(span_data.lookup_weight(3, n, 2), 
+        span_data = self.verify_weights(ts)
+        span_data_deleted = self.verify_weights(deleted_interval_ts)
+        self.assertEqual(span_data.lookup_weight(3, n, 2),
                          span_data_deleted.lookup_weight(3, n, 2))
         self.assertAlmostEqual(
             span_data_deleted.lookup_weight(4, n, 2)[0], 0.7 / 0.9)
@@ -467,7 +467,7 @@ class TestMixturePrior(unittest.TestCase):
                     tests.append(np.allclose(
                         mix_priors[internal_node, self.alpha_beta],
                         mix_priors_ints[internal_node, self.alpha_beta]))
-        return tests 
+        return tests
 
     def test_one_tree_n2_intervals(self):
         ts = utility_functions.single_tree_ts_n2()
