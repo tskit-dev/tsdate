@@ -967,7 +967,8 @@ def build_grid(tree_sequence, timepoints=20, *, approximate_priors=False,
     base_priors.add(contmpr_ts.num_samples, approximate_priors)
     for total_fixed in span_data.total_fixed_at_0_counts:
         # For missing data: trees vary in total fixed node count => have different priors
-        base_priors.add(total_fixed, approximate_priors)
+        if total_fixed > 0:
+            base_priors.add(total_fixed, approximate_priors)
 
     if isinstance(timepoints, int):
         if timepoints < 2:
