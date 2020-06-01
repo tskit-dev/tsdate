@@ -546,8 +546,8 @@ class TestPriorVals(unittest.TestCase):
 
 
 class TestLikelihoodClass(unittest.TestCase):
-    def poisson(self, l, x, normalize=True):
-        ll = np.exp(-l) * l ** x / scipy.special.factorial(x)
+    def poisson(self, param, x, normalize=True):
+        ll = np.exp(-param) * param ** x / scipy.special.factorial(x)
         if normalize:
             return ll / np.max(ll)
         else:
