@@ -553,9 +553,9 @@ class TestLikelihoodClass(unittest.TestCase):
         else:
             return ll
 
-    def log_poisson(self, l, x, normalize=True):
+    def log_poisson(self, param, x, normalize=True):
         with np.errstate(divide='ignore'):
-            ll = np.log(np.exp(-l) * l ** x / scipy.special.factorial(x))
+            ll = np.log(np.exp(-param) * param ** x / scipy.special.factorial(x))
         if normalize:
             return ll - np.max(ll)
         else:
