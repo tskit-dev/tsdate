@@ -914,7 +914,8 @@ def get_dates(
 
     posterior = None
     if method == 'inside_outside':
-        posterior = dynamic_prog.outside_pass(normalize=outside_normalize,
+        posterior = dynamic_prog.outside_pass(
+                normalize=outside_normalize,
                 ignore_oldest_root=ignore_oldest_root)
         mn_post, _ = posterior_mean_var(tree_sequence, priors.timepoints, posterior,
                                         fixed_node_set=fixed_nodes)
