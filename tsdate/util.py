@@ -81,7 +81,7 @@ def preprocess_ts(tree_sequence, *, minimum_gap=1000000, remove_telomeres=True,
         sequence. Default: "1000000"
     :param bool remove_telomeres: Should all material before the first site and after the
         last site be removed, regardless of the length. Default: "True"
-    :param **kwargs: All further keyword arguments are passed to the ``tskit.simplify``
+    :param \\**kwargs: All further keyword arguments are passed to the ``tskit.simplify``
         command.
 
     :return: A tree sequence with gaps removed.
@@ -181,10 +181,9 @@ def sites_time_from_ts(tree_sequence, *, unconstrained=True, mutation_age="child
         all mutations are singletons and the mutation_age parameter is assigned to
         "child" or "geometric".
         Default: 1e-6
-    :return: An array of length tree_sequence.num_sites with the estimated time of each
-        site.
-    :rtype numpy.array
 
+    :return: Array of length tree_sequence.num_sites with estimated time of each site
+    :rtype: numpy.array
     """
     if tree_sequence.num_sites < 1:
         raise ValueError("Invalid tree sequence: no sites present")
@@ -230,8 +229,9 @@ def add_sampledata_times(samples, sites_time):
     :param tsinfer.formats.SampleData samples: A tsinfer SampleData object to
         add site times to. Any historic individuals in this SampleData file are used to
         constrain site times.
-    :return A tsinfer.SampleData file
-    :rtype tsinfer.SampleData
+
+    :return: A tsinfer.SampleData file
+    :rtype: tsinfer.SampleData
     """
     assert samples.num_sites == len(sites_time)
     # Get constraints from ancients

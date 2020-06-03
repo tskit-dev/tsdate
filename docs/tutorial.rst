@@ -164,7 +164,7 @@ samples. Next, we find derived alleles which are carried by the historic samples
 the age of the historic samples to constrain the ages of these alleles. Finally, we
 reinfer the tree sequence, using the date estimates from tsdate and the historic 
 constraints rather than the frequency of the alleles to order mutations in ``tsinfer``.
-Historic samples are added to the ancestors tree sequence as `*proxy nodes*, in addition
+Historic samples are added to the ancestors tree sequence as `proxy nodes, in addition
 to being used as samples <https://tsinfer.readthedocs.io/en/latest/api.html?highlight=proxy#tsinfer.AncestorData.insert_proxy_samples>`_.
 
 ++++++++++++++++++++++++++++++

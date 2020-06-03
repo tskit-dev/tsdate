@@ -933,20 +933,20 @@ def build_grid(tree_sequence, timepoints=20, *, approximate_priors=False,
     :param TreeSequence tree_sequence: The input :class:`tskit.TreeSequence`, treated as
         undated
     :param int_or_array_like timepoints: The number of quantiles used to create the
-        time slices, or manually-specified time slices as a numpy array
+        time slices, or manually-specified time slices as a numpy array. Default: 20
     :param bool approximate_priors: Whether to use a precalculated approximate prior or
         exactly calculate prior. If approximate prior has not been precalculated, tsdate
-        will do so and cache the result.
+        will do so and cache the result. Default: False
     :param int approx_prior_size: Number of samples from which to precalculate prior.
         Should only enter value if approximate_priors=True. If approximate_priors=True
-        and no value specified, defaults to 1000.
+        and no value specified, defaults to 1000. Default: None
     :param string prior_distr: What distribution to use to approximate the conditional
         coalescent prior. Can be "lognorm" for the lognormal distribution (generally a
         better fit, but slightly slower to calculate) or "gamma" for the gamma
         distribution (slightly faster, but a poorer fit for recent nodes). Default:
         "lognorm"
     :param float eps: Specify minimum distance separating points in the time grid. Also
-        specifies the error factor in time difference calculations.
+        specifies the error factor in time difference calculations. Default: 1e-6
     :return: A prior object to pass to tsdate.date() containing prior values for
         inference and a discretised time grid
     :rtype:  base.NodeGridValues Object

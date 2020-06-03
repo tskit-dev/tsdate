@@ -610,7 +610,7 @@ class InOutAlgorithms:
         self.inside = inside
         self.norm = norm
 
-    def outside_pass(self, *, normalize=False, progress=None,
+    def outside_pass(self, *, normalize=False, ignore_oldest_root=False, progress=None,
                      probability_space_returned=base.LIN):
         """
         Computes the full posterior distribution on nodes.
@@ -618,6 +618,9 @@ class InOutAlgorithms:
 
         Normalising may be necessary if there is overflow, but means that we cannot
         check the total functional value at each node
+
+        Ignoring the oldest root may also be necessary when the oldest root node
+        causes numerical stability issues.
 
         The rows in the posterior returned correspond to node IDs as given by
         self.nodes
@@ -641,6 +644,9 @@ class InOutAlgorithms:
                 continue
             val = np.full(self.lik.grid_size, self.lik.identity_constant)
             for edge in edges:
+                if ignore_oldest_root:
+                    if edge.parent == self.ts.num_nodes - 1:
+                        continue
                 if edge.parent in self.fixednodes:
                     raise RuntimeError(
                         "Fixed nodes cannot currently be parents in the TS")
@@ -661,6 +667,8 @@ class InOutAlgorithms:
                     spanfrac,
                     self.lik.make_upper_tri(
                         self.lik.combine(outside[edge.parent], inside_div_gi)))
+                if normalize:
+                    parent_val = self.lik.reduce(parent_val, np.max(parent_val))
                 edge_lik = self.lik.get_outside(parent_val, edge)
                 val = self.lik.combine(val, edge_lik)
 
@@ -820,32 +828,35 @@ def date(
         specified.
     :param float mutation_rate: The estimated mutation rate per unit of genome per
         generation. If provided, the dating algorithm will use a mutation rate clock to
-        help estimate node dates.
+        help estimate node dates. Default: None
     :param float recombination_rate: The estimated recombination rate per unit of genome
         per generation. If provided, the dating algorithm will use a recombination rate
-        clock to help estimate node dates.
+        clock to help estimate node dates. Default: None
     :param NodeGridValues priors: NodeGridValue object containing the prior probabilities
-        for each node at a set of discrete time points
+        for each node at a set of discrete time points. Default: None
     :param float eps: Specify minimum distance separating time points. Also specifies
-        the error factor in time difference calculations.
+        the error factor in time difference calculations. Default: 1e-6
     :param int num_threads: The number of threads to use. A simpler unthreaded algorithm
-        is used unless this is >= 1 (default: None).
+        is used unless this is >= 1. Default: None
     :param string method: What estimation method to use: can be
         "inside_outside" (empirically better, theoretically problematic) or
         "maximization" (worse empirically, especially with gamma approximated priors,
-        but theoretically robust). Default: "inside_outside".
-    :param bool probability_space: Should the internal algorithm save probabilities in
+        but theoretically robust). Default: "inside_outside"
+    :param string probability_space: Should the internal algorithm save probabilities in
         "logarithmic" (slower, less liable to to overflow) or "linear" space (fast, may
         overflow). Default: "logarithmic"
-    :param bool progress: Whether to display a progress bar.
+    :param bool ignore_oldest_root: Should the oldest root in the tree sequence be
+        ignored in the outside algorithm (if "inside_outside" is used as the method).
+        Ignoring outside root provides greater stability when dating tree sequences
+        inferred from real data. Default: False
+    :param bool progress: Whether to display a progress bar. Default: False
     :return: A tree sequence with inferred node times in units of generations.
     :rtype: tskit.TreeSequence
     """
     tree_sequence, dates, _, timepoints, eps, nds = get_dates(
         tree_sequence, Ne, mutation_rate, recombination_rate, priors, progress=progress,
         **kwargs)
-    constrained = constrain_ages_topo(tree_sequence, dates, eps, nds,
-                                      progress)
+    constrained = constrain_ages_topo(tree_sequence, dates, eps, nds, progress)
     tables = tree_sequence.dump_tables()
     tables.nodes.time = constrained
     tables.sort()
@@ -858,7 +869,7 @@ def date(
 def get_dates(
         tree_sequence, Ne, mutation_rate=None, recombination_rate=None, priors=None, *,
         eps=1e-6, num_threads=None, method='inside_outside', outside_normalize=True,
-        progress=False, cache_inside=False,
+        ignore_oldest_root=False, progress=False, cache_inside=False,
         probability_space=base.LOG):
     """
     Infer dates for the nodes in a tree sequence, returning an array of inferred dates
@@ -909,7 +920,9 @@ def get_dates(
 
     posterior = None
     if method == 'inside_outside':
-        posterior = dynamic_prog.outside_pass(normalize=outside_normalize)
+        posterior = dynamic_prog.outside_pass(
+                normalize=outside_normalize,
+                ignore_oldest_root=ignore_oldest_root)
         tree_sequence, mn_post, _ = posterior_mean_var(
                 tree_sequence, priors.timepoints, posterior, Ne,
                 fixed_node_set=fixed_nodes)

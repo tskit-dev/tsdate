@@ -984,7 +984,9 @@ class TestInsideAlgorithm(unittest.TestCase):
 
 
 class TestOutsideAlgorithm(unittest.TestCase):
-    def run_outside_algorithm(self, ts, prior_distr="lognorm"):
+    def run_outside_algorithm(
+            self, ts, prior_distr="lognorm", normalize=False,
+            ignore_oldest_root=False):
         span_data = SpansBySamples(ts)
         priors = ConditionalCoalescentTimes(None, prior_distr)
         priors.add(ts.num_samples, approximate=False)
@@ -997,7 +999,7 @@ class TestOutsideAlgorithm(unittest.TestCase):
         lls.precalculate_mutation_likelihoods()
         algo = InOutAlgorithms(prior_vals, lls)
         algo.inside_pass()
-        algo.outside_pass(normalize=False)
+        algo.outside_pass(normalize=normalize, ignore_oldest_root=ignore_oldest_root)
         return algo
 
     def test_one_tree_n2(self):
@@ -1040,6 +1042,42 @@ class TestOutsideAlgorithm(unittest.TestCase):
         lls.precalculate_mutation_likelihoods()
         algo = InOutAlgorithms(priors, lls)
         self.assertRaises(RuntimeError, algo.outside_pass)
+
+    def test_normalize_outside(self):
+        ts = msprime.simulate(50, Ne=10000, mutation_rate=1e-8, recombination_rate=1e-8)
+        normalize = self.run_outside_algorithm(ts, normalize=True)
+        no_normalize = self.run_outside_algorithm(ts, normalize=False)
+        self.assertTrue(
+                np.allclose(
+                    normalize.outside.grid_data[:],
+                    (no_normalize.outside.grid_data[:] /
+                        np.max(
+                            no_normalize.outside.grid_data[:], axis=1)[:, np.newaxis])))
+
+    def test_ignore_oldest_root(self):
+        ts = utility_functions.single_tree_ts_mutation_n3()
+        ignore_oldest = self.run_outside_algorithm(ts, ignore_oldest_root=True)
+        use_oldest = self.run_outside_algorithm(ts, ignore_oldest_root=False)
+        self.assertTrue(~np.array_equal(
+            ignore_oldest.outside[3], use_oldest.outside[3]))
+        # When node is not used in outside algorithm, all values should be equal
+        self.assertTrue(np.all(ignore_oldest.outside[3] == ignore_oldest.outside[3][0]))
+        self.assertTrue(np.all(use_oldest.outside[4] == use_oldest.outside[4][0]))
+
+    def test_ignore_oldest_root_two_mrcas(self):
+        ts = utility_functions.two_tree_two_mrcas()
+        ignore_oldest = self.run_outside_algorithm(ts, ignore_oldest_root=True)
+        use_oldest = self.run_outside_algorithm(ts, ignore_oldest_root=False)
+        self.assertTrue(~np.array_equal(
+            ignore_oldest.outside[7], use_oldest.outside[7]))
+        self.assertTrue(~np.array_equal(
+            ignore_oldest.outside[6], use_oldest.outside[6]))
+        # In this example, if the outside algorithm was *not* used, nodes 4 and 5 should
+        # have same outside values. If it is used, node 5 should seem younger than 4
+        self.assertTrue(np.array_equal(
+            ignore_oldest.outside[4], ignore_oldest.outside[5]))
+        self.assertTrue(~np.array_equal(
+            use_oldest.outside[4], use_oldest.outside[5]))
 
 
 class TestTotalFunctionalValueTree(unittest.TestCase):
