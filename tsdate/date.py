@@ -608,7 +608,7 @@ class InOutAlgorithms:
         self.inside = inside
         self.norm = norm
 
-    def outside_pass(self, *, normalize=False, progress=None,
+    def outside_pass(self, *, normalize=False, ignore_oldest_root=False, progress=None,
                      probability_space_returned=base.LIN):
         """
         Computes the full posterior distribution on nodes.
@@ -639,6 +639,9 @@ class InOutAlgorithms:
                 continue
             val = np.full(self.lik.grid_size, self.lik.identity_constant)
             for edge in edges:
+                if ignore_oldest_root:
+                    if edge.parent == self.ts.num_nodes - 1:
+                        continue
                 if edge.parent in self.fixednodes:
                     raise RuntimeError(
                         "Fixed nodes cannot currently be parents in the TS")
@@ -659,6 +662,8 @@ class InOutAlgorithms:
                     spanfrac,
                     self.lik.make_upper_tri(
                         self.lik.combine(outside[edge.parent], inside_div_gi)))
+                if normalize:
+                    parent_val = self.lik.reduce(parent_val, np.max(parent_val))
                 edge_lik = self.lik.get_outside(parent_val, edge)
                 val = self.lik.combine(val, edge_lik)
 
@@ -827,7 +832,7 @@ def date(
 def get_dates(
         tree_sequence, Ne, mutation_rate=None, recombination_rate=None, priors=None, *,
         eps=1e-6, num_threads=None, method='inside_outside', outside_normalize=True,
-        progress=False, cache_inside=False,
+        ignore_oldest_root=False, progress=False, cache_inside=False,
         probability_space=base.LOG):
     """
     Infer dates for the nodes in a tree sequence, returning an array of inferred dates
@@ -878,7 +883,8 @@ def get_dates(
 
     posterior = None
     if method == 'inside_outside':
-        posterior = dynamic_prog.outside_pass(normalize=outside_normalize)
+        posterior = dynamic_prog.outside_pass(normalize=outside_normalize,
+                ignore_oldest_root=ignore_oldest_root)
         mn_post, _ = posterior_mean_var(tree_sequence, priors.timepoints, posterior,
                                         fixed_node_set=fixed_nodes)
     elif method == 'maximization':
