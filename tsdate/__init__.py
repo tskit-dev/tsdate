@@ -21,7 +21,7 @@
 # SOFTWARE.
 
 
-from .date import date # NOQA
+from .date import date, get_dates # NOQA
 from .prior import build_grid as build_prior_grid # NOQA
 from .provenance import __version__ # NOQA
 from .cache import * # NOQA
