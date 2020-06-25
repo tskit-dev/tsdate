@@ -1302,7 +1302,6 @@ class TestConstrainAgesTopo(unittest.TestCase):
         """
         ts = utility_functions.two_tree_ts()
         post_mn = np.array([0., 0., 0., 2., 1., 3.])
-        timepoints = np.array([0, 1, 2])
         eps = 1e-6
         nodes_to_date = np.array([3, 4, 5])
         constrained_ages = constrain_ages_topo(ts, post_mn, eps,
@@ -1313,7 +1312,6 @@ class TestConstrainAgesTopo(unittest.TestCase):
     def test_constrain_ages_topo_no_nodes_to_date(self):
         ts = utility_functions.two_tree_ts()
         post_mn = np.array([0., 0., 0., 2., 1., 3.])
-        timepoints = np.array([0, 1, 2])
         eps = 1e-6
         nodes_to_date = None
         constrained_ages = constrain_ages_topo(ts, post_mn, eps,
