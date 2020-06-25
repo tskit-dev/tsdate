@@ -757,7 +757,7 @@ def posterior_mean_var(ts, timepoints, posterior, *, fixed_node_set=None):
     return mn_post, vr_post
 
 
-def constrain_ages_topo(ts, post_mn, timepoints, eps, nodes_to_date=None,
+def constrain_ages_topo(ts, post_mn, eps, nodes_to_date=None,
                         progress=False):
     """
     If predicted node times violate topology, restrict node ages so that they
@@ -821,8 +821,7 @@ def date(
     dates, _, timepoints, eps, nds = get_dates(
         tree_sequence, Ne, mutation_rate, recombination_rate, priors, progress=progress,
         **kwargs)
-    constrained = constrain_ages_topo(tree_sequence, dates, timepoints, eps, nds,
-                                      progress)
+    constrained = constrain_ages_topo(tree_sequence, dates, eps, nds, progress)
     tables = tree_sequence.dump_tables()
     tables.nodes.time = constrained * 2 * Ne
     tables.sort()
