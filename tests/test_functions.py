@@ -1305,7 +1305,7 @@ class TestConstrainAgesTopo(unittest.TestCase):
         timepoints = np.array([0, 1, 2])
         eps = 1e-6
         nodes_to_date = np.array([3, 4, 5])
-        constrained_ages = constrain_ages_topo(ts, post_mn, timepoints, eps,
+        constrained_ages = constrain_ages_topo(ts, post_mn, eps,
                                                nodes_to_date)
         self.assertTrue(np.array_equal(np.array([0., 0., 0., 2., 2.000001, 3.]),
                                        constrained_ages))
@@ -1316,7 +1316,7 @@ class TestConstrainAgesTopo(unittest.TestCase):
         timepoints = np.array([0, 1, 2])
         eps = 1e-6
         nodes_to_date = None
-        constrained_ages = constrain_ages_topo(ts, post_mn, timepoints, eps,
+        constrained_ages = constrain_ages_topo(ts, post_mn, eps,
                                                nodes_to_date)
         self.assertTrue(np.array_equal(np.array([0., 0., 0., 2., 2.000001, 3.]),
                                        constrained_ages))
