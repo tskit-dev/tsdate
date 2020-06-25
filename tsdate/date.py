@@ -849,8 +849,12 @@ def date(
     tree_sequence, dates, _, timepoints, eps, nds = get_dates(
         tree_sequence, Ne, mutation_rate, recombination_rate, priors, progress=progress,
         **kwargs)
+<<<<<<< HEAD
     constrained = constrain_ages_topo(tree_sequence, dates, eps, nds,
                                       progress)
+=======
+    constrained = constrain_ages_topo(tree_sequence, dates, eps, nds, progress)
+>>>>>>> remove timepoints from constrained age
     tables = tree_sequence.dump_tables()
     tables.nodes.time = constrained
     tables.sort()
