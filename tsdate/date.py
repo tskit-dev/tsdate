@@ -45,15 +45,28 @@ class Likelihoods:
     flattened lower triangular matrix of all the possible delta t's. This class also
     provides methods for accessing this lower triangular matrix, multiplying it, etc.
     """
+
     probability_space = base.LIN
     identity_constant = 1.0
     null_constant = 0.0
 
-    def __init__(self, ts, timepoints, theta=None, rho=None, *,
-                 eps=0, fixed_node_set=None, normalize=True, progress=False):
+    def __init__(
+        self,
+        ts,
+        timepoints,
+        theta=None,
+        rho=None,
+        *,
+        eps=0,
+        fixed_node_set=None,
+        normalize=True,
+        progress=False
+    ):
         self.ts = ts
         self.timepoints = timepoints
-        self.fixednodes = set(ts.samples()) if fixed_node_set is None else fixed_node_set
+        self.fixednodes = (
+            set(ts.samples()) if fixed_node_set is None else fixed_node_set
+        )
         self.theta = theta
         self.rho = rho
         self.normalize = normalize
@@ -65,8 +78,11 @@ class Likelihoods:
         # Need to set eps properly in the 2 lines below, to account for values in the
         # same timeslice
         self.timediff_lower_tri = np.concatenate(
-            [self.timepoints[time_index] - self.timepoints[0:time_index + 1] + eps
-                for time_index in np.arange(len(self.timepoints))])
+            [
+                self.timepoints[time_index] - self.timepoints[0 : time_index + 1] + eps
+                for time_index in np.arange(len(self.timepoints))
+            ]
+        )
         self.timediff = self.timepoints - self.timepoints[0] + eps
 
         # The mut_ll contains unpacked (1D) lower triangular matrices. We need to
@@ -88,10 +104,14 @@ class Likelihoods:
         # These are used for transforming an array of grid_size into one of tri_size
         # By repeating elements over rows to form an upper or a lower triangular matrix
         self.to_lower_tri = np.concatenate(
-            [np.arange(time_idx + 1) for time_idx in np.arange(self.grid_size)])
+            [np.arange(time_idx + 1) for time_idx in np.arange(self.grid_size)]
+        )
         self.to_upper_tri = np.concatenate(
-            [np.arange(time_idx, self.grid_size)
-                for time_idx in np.arange(self.grid_size + 1)])
+            [
+                np.arange(time_idx, self.grid_size)
+                for time_idx in np.arange(self.grid_size + 1)
+            ]
+        )
 
     @staticmethod
     def get_mut_edges(ts):
@@ -136,11 +156,14 @@ class Likelihoods:
         A wrapper to allow this _lik to be called by pool.imap_unordered, returning the
         mutation and span values
         """
-        return muts_span, Likelihoods._lik(
-            muts_span[0], muts_span[1], dt, theta, normalize=normalize)
+        return (
+            muts_span,
+            Likelihoods._lik(
+                muts_span[0], muts_span[1], dt, theta, normalize=normalize
+            ),
+        )
 
-    def precalculate_mutation_likelihoods(
-            self, num_threads=None, unique_method=0):
+    def precalculate_mutation_likelihoods(self, num_threads=None, unique_method=0):
         """
         We precalculate these because the pmf function is slow, but can be trivially
         parallelised. We store the likelihoods in a cache because they only depend on
@@ -153,19 +176,23 @@ class Likelihoods:
         """
 
         if self.theta is None:
-            raise RuntimeError("Cannot calculate mutation likelihoods with no theta set")
+            raise RuntimeError(
+                "Cannot calculate mutation likelihoods with no theta set"
+            )
         if unique_method == 0:
             self.unfixed_likelihood_cache = {
-                (muts, util.edge_span(e)): None for muts, e in
-                zip(self.mut_edges, self.ts.edges())
-                if e.child not in self.fixednodes}
+                (muts, util.edge_span(e)): None
+                for muts, e in zip(self.mut_edges, self.ts.edges())
+                if e.child not in self.fixednodes
+            }
         else:
             edges = self.ts.tables.edges
             fixed_nodes = np.array(list(self.fixednodes))
             keys = np.unique(
                 np.core.records.fromarrays(
-                    (self.mut_edges, edges.right - edges.left), names='muts,span')[
-                        np.logical_not(np.isin(edges.child, fixed_nodes))])
+                    (self.mut_edges, edges.right - edges.left), names="muts,span"
+                )[np.logical_not(np.isin(edges.child, fixed_nodes))]
+            )
             if unique_method == 1:
                 self.unfixed_likelihood_cache = dict.fromkeys({tuple(t) for t in keys})
             else:
@@ -173,31 +200,45 @@ class Likelihoods:
 
         if num_threads:
             f = functools.partial(  # Set constant values for params for static _lik
-                self._lik_wrapper, dt=self.timediff_lower_tri, theta=self.theta,
-                normalize=self.normalize)
+                self._lik_wrapper,
+                dt=self.timediff_lower_tri,
+                theta=self.theta,
+                normalize=self.normalize,
+            )
             if num_threads == 1:
                 # Useful for testing
-                for key in tqdm(self.unfixed_likelihood_cache.keys(),
-                                disable=not self.progress,
-                                desc="Precalculating Likelihoods"):
+                for key in tqdm(
+                    self.unfixed_likelihood_cache.keys(),
+                    disable=not self.progress,
+                    desc="Precalculating Likelihoods",
+                ):
                     returned_key, likelihoods = f(key)
                     self.unfixed_likelihood_cache[returned_key] = likelihoods
             else:
-                with tqdm(total=len(self.unfixed_likelihood_cache.keys()),
-                          disable=not self.progress,
-                          desc="Precalculating Likelihoods") as prog_bar:
+                with tqdm(
+                    total=len(self.unfixed_likelihood_cache.keys()),
+                    disable=not self.progress,
+                    desc="Precalculating Likelihoods",
+                ) as prog_bar:
                     with multiprocessing.Pool(processes=num_threads) as pool:
                         for key, pmf in pool.imap_unordered(
-                                f, self.unfixed_likelihood_cache.keys()):
+                            f, self.unfixed_likelihood_cache.keys()
+                        ):
                             self.unfixed_likelihood_cache[key] = pmf
                             prog_bar.update()
         else:
-            for muts, span in tqdm(self.unfixed_likelihood_cache.keys(),
-                                   disable=not self.progress,
-                                   desc="Precalculating Likelihoods"):
+            for muts, span in tqdm(
+                self.unfixed_likelihood_cache.keys(),
+                disable=not self.progress,
+                desc="Precalculating Likelihoods",
+            ):
                 self.unfixed_likelihood_cache[muts, span] = self._lik(
-                    muts, span, dt=self.timediff_lower_tri, theta=self.theta,
-                    normalize=self.normalize)
+                    muts,
+                    span,
+                    dt=self.timediff_lower_tri,
+                    theta=self.theta,
+                    normalize=self.normalize,
+                )
 
     def get_mut_lik_fixed_node(self, edge):
         """
@@ -206,17 +247,24 @@ class Likelihoods:
         that are equal to or older than the child age. This is not cached, as it is
         likely to be unique for each edge
         """
-        assert edge.child in self.fixednodes, \
-            "Wrongly called fixed node function on non-fixed node"
-        assert self.theta is not None, \
-            "Cannot calculate mutation likelihoods with no theta set"
+        assert (
+            edge.child in self.fixednodes
+        ), "Wrongly called fixed node function on non-fixed node"
+        assert (
+            self.theta is not None
+        ), "Cannot calculate mutation likelihoods with no theta set"
 
         mutations_on_edge = self.mut_edges[edge.id]
         child_time = self.ts.node(edge.child).time
         assert child_time == 0
         # Temporary hack - we should really take a more precise likelihood
-        return self._lik(mutations_on_edge, util.edge_span(edge), self.timediff,
-                         self.theta, normalize=self.normalize)
+        return self._lik(
+            mutations_on_edge,
+            util.edge_span(edge),
+            self.timediff,
+            self.theta,
+            normalize=self.normalize,
+        )
 
     def get_mut_lik_lower_tri(self, edge):
         """
@@ -227,10 +275,12 @@ class Likelihoods:
 
         """
         # Debugging asserts - should probably remove eventually
-        assert edge.child not in self.fixednodes, \
-            "Wrongly called lower_tri function on fixed node"
-        assert hasattr(self, "unfixed_likelihood_cache"), \
-            "Must call `precalculate_mutation_likelihoods()` before getting likelihoods"
+        assert (
+            edge.child not in self.fixednodes
+        ), "Wrongly called lower_tri function on fixed node"
+        assert hasattr(
+            self, "unfixed_likelihood_cache"
+        ), "Must call `precalculate_mutation_likelihoods()` before getting likelihoods"
 
         mutations_on_edge = self.mut_edges[edge.id]
         return self.unfixed_likelihood_cache[mutations_on_edge, util.edge_span(edge)]
@@ -296,8 +346,8 @@ class Likelihoods:
         NB: "reduce" is not a very good name for the function: can we think of
         something better that will also be meaningful in log space?
         """
-        with np.errstate(divide='ignore', invalid='ignore'):
-            ret = lik_1/lik_2
+        with np.errstate(divide="ignore", invalid="ignore"):
+            ret = lik_1 / lik_2
         if div_0_null:
             ret[np.isnan(ret)] = self.null_constant
         return ret
@@ -306,7 +356,8 @@ class Likelihoods:
         # Needs to return a lower tri *or* flattened array depending on `fixed`
         raise NotImplementedError(
             "Using the recombination clock is not currently supported"
-            ". See https://github.com/awohns/tsdate/issues/5 for details")
+            ". See https://github.com/awohns/tsdate/issues/5 for details"
+        )
         # return (
         #     np.power(prev_state, self.n_breaks(edge)) *
         #     np.exp(-(prev_state * self.rho * edge.span * 2)))
@@ -343,6 +394,7 @@ class LogLikelihoods(Likelihoods):
     """
     Identical to the Likelihoods class but stores and returns log likelihoods
     """
+
     probability_space = base.LOG
     identity_constant = 0.0
     null_constant = -np.inf
@@ -372,8 +424,12 @@ class LogLikelihoods(Likelihoods):
         """
         Needs redefining to refer to the LogLikelihoods class
         """
-        return muts_span, LogLikelihoods._lik(
-            muts_span[0], muts_span[1], dt, theta, normalize=normalize)
+        return (
+            muts_span,
+            LogLikelihoods._lik(
+                muts_span[0], muts_span[1], dt, theta, normalize=normalize
+            ),
+        )
 
     def rowsum_lower_tri(self, input_array):
         """
@@ -407,7 +463,8 @@ class LogLikelihoods(Likelihoods):
         # Needs to return a lower tri *or* flattened array depending on `fixed`
         raise NotImplementedError(
             "Using the recombination clock is not currently supported"
-            ". See https://github.com/awohns/tsdate/issues/5 for details")
+            ". See https://github.com/awohns/tsdate/issues/5 for details"
+        )
         # return (
         #     np.power(prev_state, self.n_breaks(edge)) *
         #     np.exp(-(prev_state * self.rho * edge.span * 2)))
@@ -420,7 +477,7 @@ class LogLikelihoods(Likelihoods):
         In log space, loglik_1 - loglik_2
         If div_0_null==True, then if either is -inf it returns -inf (the null_constant)
         """
-        with np.errstate(divide='ignore', invalid='ignore'):
+        with np.errstate(divide="ignore", invalid="ignore"):
             ret = loglik_1 - loglik_2
         if div_0_null:
             ret[np.isnan(ret)] = self.null_constant
@@ -460,6 +517,7 @@ class LogLikelihoodsStreaming(LogLikelihoods):
     useful for large grid sizes, see
     http://www.nowozin.net/sebastian/blog/streaming-log-sum-exp-computation.html
     """
+
     @staticmethod
     @numba.jit(nopython=True)
     def logsumexp(X):
@@ -480,14 +538,19 @@ class InOutAlgorithms:
     """
     Contains the inside and outside algorithms
     """
+
     def __init__(self, priors, lik, *, progress=False):
-        if (lik.fixednodes.intersection(priors.nonfixed_nodes) or
-                len(lik.fixednodes) + len(priors.nonfixed_nodes) != lik.ts.num_nodes):
+        if (
+            lik.fixednodes.intersection(priors.nonfixed_nodes)
+            or len(lik.fixednodes) + len(priors.nonfixed_nodes) != lik.ts.num_nodes
+        ):
             raise ValueError(
-                "The prior and likelihood objects disagree on which nodes are fixed")
+                "The prior and likelihood objects disagree on which nodes are fixed"
+            )
         if not np.allclose(lik.timepoints, priors.timepoints):
             raise ValueError(
-                "The prior and likelihood objects disagree on the timepoints used")
+                "The prior and likelihood objects disagree on the timepoints used"
+            )
 
         self.priors = priors
         self.nonfixed_nodes = priors.nonfixed_nodes
@@ -501,14 +564,17 @@ class InOutAlgorithms:
 
         self.spans = np.bincount(
             self.ts.tables.edges.child,
-            weights=self.ts.tables.edges.right - self.ts.tables.edges.left)
-        self.spans = np.pad(self.spans, (0, self.ts.num_nodes-len(self.spans)))
+            weights=self.ts.tables.edges.right - self.ts.tables.edges.left,
+        )
+        self.spans = np.pad(self.spans, (0, self.ts.num_nodes - len(self.spans)))
 
         self.root_spans = defaultdict(float)
         for tree in self.ts.trees():
             root = util.get_single_root(tree)
             if root is not None:
-                self.root_spans[root] += tree.span  # Count span if we have a single tree
+                self.root_spans[
+                    root
+                ] += tree.span  # Count span if we have a single tree
         # Add on the spans when this is a root
         for root, span_when_root in self.root_spans.items():
             self.spans[root] += span_when_root
@@ -523,36 +589,44 @@ class InOutAlgorithms:
         (https://tskit.readthedocs.io/en/latest/data-model.html#edge-requirements)
         we can simply use the standard edge order
         """
-        return itertools.groupby(self.ts.edges(), operator.attrgetter('parent'))
+        return itertools.groupby(self.ts.edges(), operator.attrgetter("parent"))
 
     def edges_by_child_desc(self):
         """
         Return an itertools.groupby object of edges grouped by child in descending order
         of the time of the child.
         """
-        wtype = np.dtype([('Childage', 'f4'), ('Childnode', 'f4')])
+        wtype = np.dtype([("Childage", "f4"), ("Childnode", "f4")])
         w = np.empty(
-            len(self.ts.tables.nodes.time[self.ts.tables.edges.child[:]]), dtype=wtype)
-        w['Childage'] = self.ts.tables.nodes.time[self.ts.tables.edges.child[:]]
-        w['Childnode'] = self.ts.tables.edges.child[:]
-        sorted_child_parent = (self.ts.edge(i) for i in reversed(
-            np.argsort(w, order=('Childage', 'Childnode'))))
-        return itertools.groupby(sorted_child_parent, operator.attrgetter('child'))
+            len(self.ts.tables.nodes.time[self.ts.tables.edges.child[:]]), dtype=wtype
+        )
+        w["Childage"] = self.ts.tables.nodes.time[self.ts.tables.edges.child[:]]
+        w["Childnode"] = self.ts.tables.edges.child[:]
+        sorted_child_parent = (
+            self.ts.edge(i)
+            for i in reversed(np.argsort(w, order=("Childage", "Childnode")))
+        )
+        return itertools.groupby(sorted_child_parent, operator.attrgetter("child"))
 
     def edges_by_child_then_parent_desc(self):
         """
         Return an itertools.groupby object of edges grouped by child in descending order
         of the time of the child, then by descending order of age of child
         """
-        wtype = np.dtype([('Childage', 'f4'), ('Childnode', 'f4'), ('Parentage', 'f4')])
+        wtype = np.dtype([("Childage", "f4"), ("Childnode", "f4"), ("Parentage", "f4")])
         w = np.empty(
-            len(self.ts.tables.nodes.time[self.ts.tables.edges.child[:]]), dtype=wtype)
-        w['Childage'] = self.ts.tables.nodes.time[self.ts.tables.edges.child[:]]
-        w['Childnode'] = self.ts.tables.edges.child[:]
-        w['Parentage'] = -self.ts.tables.nodes.time[self.ts.tables.edges.parent[:]]
-        sorted_child_parent = (self.ts.edge(i) for i in reversed(
-            np.argsort(w, order=('Childage', 'Childnode', 'Parentage'))))
-        return itertools.groupby(sorted_child_parent, operator.attrgetter('child'))
+            len(self.ts.tables.nodes.time[self.ts.tables.edges.child[:]]), dtype=wtype
+        )
+        w["Childage"] = self.ts.tables.nodes.time[self.ts.tables.edges.child[:]]
+        w["Childnode"] = self.ts.tables.edges.child[:]
+        w["Parentage"] = -self.ts.tables.nodes.time[self.ts.tables.edges.parent[:]]
+        sorted_child_parent = (
+            self.ts.edge(i)
+            for i in reversed(
+                np.argsort(w, order=("Childage", "Childnode", "Parentage"))
+            )
+        )
+        return itertools.groupby(sorted_child_parent, operator.attrgetter("child"))
 
     # === MAIN ALGORITHMS ===
 
@@ -563,15 +637,20 @@ class InOutAlgorithms:
         if progress is None:
             progress = self.progress
         inside = self.priors.clone_with_new_data(  # store inside matrix values
-            grid_data=np.nan, fixed_data=self.lik.identity_constant)
+            grid_data=np.nan, fixed_data=self.lik.identity_constant
+        )
         if cache_inside:
             g_i = np.full(
-                (self.ts.num_edges, self.lik.grid_size), self.lik.identity_constant)
+                (self.ts.num_edges, self.lik.grid_size), self.lik.identity_constant
+            )
         norm = np.full(self.ts.num_nodes, np.nan)
         # Iterate through the nodes via groupby on parent node
         for parent, edges in tqdm(
-                self.edges_by_parent_asc(), desc="Inside",
-                total=inside.num_nonfixed, disable=not progress):
+            self.edges_by_parent_asc(),
+            desc="Inside",
+            total=inside.num_nonfixed,
+            disable=not progress,
+        ):
             """
             for each node, find the conditional prob of age at every time
             in time grid
@@ -585,17 +664,22 @@ class InOutAlgorithms:
                 if edge.child in self.fixednodes:
                     # NB: geometric scaling works exactly when all nodes fixed in graph
                     # but is an approximation when times are unknown.
-                    daughter_val = self.lik.scale_geometric(spanfrac, inside[edge.child])
+                    daughter_val = self.lik.scale_geometric(
+                        spanfrac, inside[edge.child]
+                    )
                     edge_lik = self.lik.get_fixed(daughter_val, edge)
                 else:
                     inside_values = inside[edge.child]
                     if np.ndim(inside_values) == 0 or np.all(np.isnan(inside_values)):
                         # Child appears fixed, or we have not visited it. Either our
                         # edge order is wrong (bug) or we have hit a dangling node
-                        raise ValueError("The input tree sequence includes "
-                                         "dangling nodes: please simplify it")
+                        raise ValueError(
+                            "The input tree sequence includes "
+                            "dangling nodes: please simplify it"
+                        )
                     daughter_val = self.lik.scale_geometric(
-                        spanfrac, self.lik.make_lower_tri(inside[edge.child]))
+                        spanfrac, self.lik.make_lower_tri(inside[edge.child])
+                    )
                     edge_lik = self.lik.get_inside(daughter_val, edge)
                 val = self.lik.combine(val, edge_lik)
                 if cache_inside:
@@ -608,8 +692,9 @@ class InOutAlgorithms:
         self.inside = inside
         self.norm = norm
 
-    def outside_pass(self, *, normalize=False, progress=None,
-                     probability_space_returned=base.LIN):
+    def outside_pass(
+        self, *, normalize=False, progress=None, probability_space_returned=base.LIN
+    ):
         """
         Computes the full posterior distribution on nodes.
         Input is population scaled mutation and recombination rates.
@@ -626,39 +711,48 @@ class InOutAlgorithms:
             raise RuntimeError("You have not yet run the inside algorithm")
 
         outside = self.inside.clone_with_new_data(
-            grid_data=0, probability_space=base.LIN)
+            grid_data=0, probability_space=base.LIN
+        )
         for root, span_when_root in self.root_spans.items():
             outside[root] = span_when_root / self.spans[root]
         outside.force_probability_space(self.inside.probability_space)
 
         for child, edges in tqdm(
-                self.edges_by_child_desc(), desc="Outside",
-                total=len(np.unique(self.ts.tables.edges.child)),
-                disable=not progress):
+            self.edges_by_child_desc(),
+            desc="Outside",
+            total=len(np.unique(self.ts.tables.edges.child)),
+            disable=not progress,
+        ):
             if child in self.fixednodes:
                 continue
             val = np.full(self.lik.grid_size, self.lik.identity_constant)
             for edge in edges:
                 if edge.parent in self.fixednodes:
                     raise RuntimeError(
-                        "Fixed nodes cannot currently be parents in the TS")
+                        "Fixed nodes cannot currently be parents in the TS"
+                    )
                 # Geometric scaling works exactly for all nodes fixed in graph
                 # but is an approximation when times are unknown.
                 spanfrac = util.edge_span(edge) / self.spans[child]
                 try:
                     inside_div_gi = self.lik.reduce(
-                        self.inside[edge.parent], self.g_i[edge.id], div_0_null=True)
+                        self.inside[edge.parent], self.g_i[edge.id], div_0_null=True
+                    )
                 except AttributeError:  # we haven't cached g_i so we recalculate
                     daughter_val = self.lik.scale_geometric(
-                        spanfrac, self.lik.make_lower_tri(self.inside[edge.child]))
+                        spanfrac, self.lik.make_lower_tri(self.inside[edge.child])
+                    )
                     edge_lik = self.lik.get_inside(daughter_val, edge)
                     cur_g_i = self.lik.reduce(edge_lik, self.norm[child])
                     inside_div_gi = self.lik.reduce(
-                        self.inside[edge.parent], cur_g_i, div_0_null=True)
+                        self.inside[edge.parent], cur_g_i, div_0_null=True
+                    )
                 parent_val = self.lik.scale_geometric(
                     spanfrac,
                     self.lik.make_upper_tri(
-                        self.lik.combine(outside[edge.parent], inside_div_gi)))
+                        self.lik.combine(outside[edge.parent], inside_div_gi)
+                    ),
+                )
                 edge_lik = self.lik.get_outside(parent_val, edge)
                 val = self.lik.combine(val, edge_lik)
 
@@ -668,8 +762,9 @@ class InOutAlgorithms:
             if normalize:
                 outside[child] = self.lik.reduce(val, np.max(val))
         posterior = outside.clone_with_new_data(
-           grid_data=self.lik.combine(self.inside.grid_data, outside.grid_data),
-           fixed_data=np.nan)  # We should never use the posterior for a fixed node
+            grid_data=self.lik.combine(self.inside.grid_data, outside.grid_data),
+            fixed_data=np.nan,
+        )  # We should never use the posterior for a fixed node
         posterior.normalize()
         posterior.force_probability_space(probability_space_returned)
         self.outside = outside
@@ -681,7 +776,7 @@ class InOutAlgorithms:
         if not hasattr(self, "inside"):
             raise RuntimeError("You have not yet run the inside algorithm")
 
-        maximized_node_times = np.zeros(self.ts.num_nodes, dtype='int')
+        maximized_node_times = np.zeros(self.ts.num_nodes, dtype="int")
 
         if self.lik.probability_space == base.LOG:
             poisson = scipy.stats.poisson.logpmf
@@ -689,16 +784,21 @@ class InOutAlgorithms:
             poisson = scipy.stats.poisson.pmf
 
         mut_edges = self.lik.mut_edges
-        mrcas = np.where(np.isin(
-            np.arange(self.ts.num_nodes), self.ts.tables.edges.child, invert=True))[0]
+        mrcas = np.where(
+            np.isin(
+                np.arange(self.ts.num_nodes), self.ts.tables.edges.child, invert=True
+            )
+        )[0]
         for i in mrcas:
             if i not in self.fixednodes:
                 maximized_node_times[i] = np.argmax(self.inside[i])
 
         for child, edges in tqdm(
-                self.edges_by_child_then_parent_desc(), desc="Maximization",
-                total=len(np.unique(self.ts.tables.edges.child)),
-                disable=not progress):
+            self.edges_by_child_then_parent_desc(),
+            desc="Maximization",
+            total=len(np.unique(self.ts.tables.edges.child)),
+            disable=not progress,
+        ):
             if child in self.fixednodes:
                 continue
             for edge_index, edge in enumerate(edges):
@@ -707,8 +807,15 @@ class InOutAlgorithms:
                     parent_time = self.lik.timepoints[maximized_node_times[edge.parent]]
                     ll_mut = poisson(
                         mut_edges[edge.id],
-                        (parent_time - self.lik.timepoints[:youngest_par_index + 1] +
-                            eps) * self.lik.theta / 2 * util.edge_span(edge))
+                        (
+                            parent_time
+                            - self.lik.timepoints[: youngest_par_index + 1]
+                            + eps
+                        )
+                        * self.lik.theta
+                        / 2
+                        * util.edge_span(edge),
+                    )
                     result = self.lik.reduce(ll_mut, np.max(ll_mut))
                 else:
                     cur_parent_index = maximized_node_times[edge.parent]
@@ -717,18 +824,29 @@ class InOutAlgorithms:
                     parent_time = self.lik.timepoints[maximized_node_times[edge.parent]]
                     ll_mut = poisson(
                         mut_edges[edge.id],
-                        (parent_time - self.lik.timepoints[:youngest_par_index + 1] +
-                            eps) * self.lik.theta / 2 * util.edge_span(edge))
-                    result[:youngest_par_index + 1] = self.lik.combine(
-                        self.lik.reduce(ll_mut[:youngest_par_index + 1],
-                                        np.max(ll_mut[:youngest_par_index + 1])),
-                        result[:youngest_par_index + 1])
-            inside_val = self.inside[child][:(youngest_par_index + 1)]
+                        (
+                            parent_time
+                            - self.lik.timepoints[: youngest_par_index + 1]
+                            + eps
+                        )
+                        * self.lik.theta
+                        / 2
+                        * util.edge_span(edge),
+                    )
+                    result[: youngest_par_index + 1] = self.lik.combine(
+                        self.lik.reduce(
+                            ll_mut[: youngest_par_index + 1],
+                            np.max(ll_mut[: youngest_par_index + 1]),
+                        ),
+                        result[: youngest_par_index + 1],
+                    )
+            inside_val = self.inside[child][: (youngest_par_index + 1)]
 
-            maximized_node_times[child] = np.argmax(self.lik.combine(
-                result[:youngest_par_index + 1], inside_val))
+            maximized_node_times[child] = np.argmax(
+                self.lik.combine(result[: youngest_par_index + 1], inside_val)
+            )
 
-        return self.lik.timepoints[np.array(maximized_node_times).astype('int')]
+        return self.lik.timepoints[np.array(maximized_node_times).astype("int")]
 
 
 def posterior_mean_var(ts, timepoints, posterior, *, fixed_node_set=None):
@@ -747,13 +865,13 @@ def posterior_mean_var(ts, timepoints, posterior, *, fixed_node_set=None):
 
     for row, node_id in zip(posterior.grid_data, posterior.nonfixed_nodes):
         mn_post[node_id] = np.sum(row * timepoints) / np.sum(row)
-        vr_post[node_id] = (np.sum(row * timepoints ** 2) / np.sum(row) -
-                            mn_post[node_id] ** 2)
+        vr_post[node_id] = (
+            np.sum(row * timepoints ** 2) / np.sum(row) - mn_post[node_id] ** 2
+        )
     return mn_post, vr_post
 
 
-def constrain_ages_topo(ts, post_mn, timepoints, eps, nodes_to_date=None,
-                        progress=False):
+def constrain_ages_topo(ts, post_mn, eps, nodes_to_date=None, progress=False):
     """
     If predicted node times violate topology, restrict node ages so that they
     must be older than all their children.
@@ -765,21 +883,34 @@ def constrain_ages_topo(ts, post_mn, timepoints, eps, nodes_to_date=None,
 
     tables = ts.tables
     parents = tables.edges.parent
-    nd_children = tables.edges.child
-    for nd in tqdm(sorted(nodes_to_date), desc="Constrain Ages",
-                   disable=not progress):
-        children = nd_children[parents == nd]
-        time = new_mn_post[children]
-        if np.any(new_mn_post[nd] <= time):
-            # closest_time = (np.abs(grid - max(time))).argmin()
-            # new_mn_post[nd] = grid[closest_time] + eps
-            new_mn_post[nd] = np.max(time) + eps
+    nd_children = tables.edges.child[np.argsort(parents)]
+    parents = sorted(parents)
+    parents_unique = np.unique(parents, return_index=True)
+    parent_indices = parents_unique[1][np.isin(parents_unique[0], nodes_to_date)]
+    for index, nd in tqdm(
+        enumerate(sorted(nodes_to_date)), desc="Constrain Ages", disable=not progress
+    ):
+        if index + 1 != len(nodes_to_date):
+            children_index = np.arange(parent_indices[index], parent_indices[index + 1])
+        else:
+            children_index = np.arange(parent_indices[index], ts.num_edges)
+        children = nd_children[children_index]
+        time = np.max(new_mn_post[children])
+        if new_mn_post[nd] <= time:
+            new_mn_post[nd] = time + eps
     return new_mn_post
 
 
 def date(
-        tree_sequence, Ne, mutation_rate=None, recombination_rate=None, priors=None, *,
-        progress=False, **kwargs):
+    tree_sequence,
+    Ne,
+    mutation_rate=None,
+    recombination_rate=None,
+    priors=None,
+    *,
+    progress=False,
+    **kwargs
+):
     """
     Take a tree sequence with arbitrary node times and recalculate node times using
     the `tsdate` algorithm. If a mutation_rate is given, the mutation clock is used. The
@@ -814,10 +945,17 @@ def date(
     :rtype: tskit.TreeSequence
     """
     dates, _, timepoints, eps, nds = get_dates(
-        tree_sequence, Ne, mutation_rate, recombination_rate, priors, progress=progress,
-        **kwargs)
-    constrained = constrain_ages_topo(tree_sequence, dates, timepoints, eps, nds,
-                                      progress)
+        tree_sequence,
+        Ne,
+        mutation_rate,
+        recombination_rate,
+        priors,
+        progress=progress,
+        **kwargs
+    )
+    constrained = constrain_ages_topo(
+        tree_sequence, dates, eps, nds, progress
+    )
     tables = tree_sequence.dump_tables()
     tables.nodes.time = constrained * 2 * Ne
     tables.sort()
@@ -825,10 +963,20 @@ def date(
 
 
 def get_dates(
-        tree_sequence, Ne, mutation_rate=None, recombination_rate=None, priors=None, *,
-        eps=1e-6, num_threads=None, method='inside_outside', outside_normalize=True,
-        progress=False, cache_inside=False,
-        probability_space=base.LOG):
+    tree_sequence,
+    Ne,
+    mutation_rate=None,
+    recombination_rate=None,
+    priors=None,
+    *,
+    eps=1e-6,
+    num_threads=None,
+    method="inside_outside",
+    outside_normalize=True,
+    progress=False,
+    cache_inside=False,
+    probability_space=base.LOG
+):
     """
     Infer dates for the nodes in a tree sequence, returning an array of inferred dates
     for nodes, plus other variables such as the distribution of posterior probabilities
@@ -840,8 +988,7 @@ def get_dates(
     # Stuff yet to be implemented. These can be deleted once fixed
     for sample in tree_sequence.samples():
         if tree_sequence.node(sample).time != 0:
-            raise NotImplementedError(
-                "Samples must all be at time 0")
+            raise NotImplementedError("Samples must all be at time 0")
     fixed_nodes = set(tree_sequence.samples())
 
     # Default to not creating approximate priors unless ts has > 1000 samples
@@ -850,8 +997,9 @@ def get_dates(
         approx_priors = True
 
     if priors is None:
-        priors = prior.build_grid(tree_sequence, eps=eps, progress=progress,
-                                  approximate_priors=approx_priors)
+        priors = prior.build_grid(
+            tree_sequence, eps=eps, progress=progress, approximate_priors=approx_priors
+        )
     else:
         logging.info("Using user-specified priors")
         priors = priors
@@ -864,11 +1012,25 @@ def get_dates(
         rho = 4 * Ne * recombination_rate
 
     if probability_space != base.LOG:
-        liklhd = Likelihoods(tree_sequence, priors.timepoints, theta, rho,
-                             eps=eps, fixed_node_set=fixed_nodes, progress=progress)
+        liklhd = Likelihoods(
+            tree_sequence,
+            priors.timepoints,
+            theta,
+            rho,
+            eps=eps,
+            fixed_node_set=fixed_nodes,
+            progress=progress,
+        )
     else:
-        liklhd = LogLikelihoods(tree_sequence, priors.timepoints, theta, rho,
-                                eps=eps, fixed_node_set=fixed_nodes, progress=progress)
+        liklhd = LogLikelihoods(
+            tree_sequence,
+            priors.timepoints,
+            theta,
+            rho,
+            eps=eps,
+            fixed_node_set=fixed_nodes,
+            progress=progress,
+        )
 
     if theta is not None:
         liklhd.precalculate_mutation_likelihoods(num_threads=num_threads)
@@ -877,17 +1039,19 @@ def get_dates(
     dynamic_prog.inside_pass(cache_inside=False)
 
     posterior = None
-    if method == 'inside_outside':
+    if method == "inside_outside":
         posterior = dynamic_prog.outside_pass(normalize=outside_normalize)
-        mn_post, _ = posterior_mean_var(tree_sequence, priors.timepoints, posterior,
-                                        fixed_node_set=fixed_nodes)
-    elif method == 'maximization':
+        mn_post, _ = posterior_mean_var(
+            tree_sequence, priors.timepoints, posterior, fixed_node_set=fixed_nodes
+        )
+    elif method == "maximization":
         if theta is not None:
             mn_post = dynamic_prog.outside_maximization(eps=eps)
         else:
             raise ValueError("Outside maximization method requires mutation rate")
     else:
         raise ValueError(
-            "estimation method must be either 'inside_outside' or 'maximization'")
+            "estimation method must be either 'inside_outside' or 'maximization'"
+        )
 
     return mn_post, posterior, priors.timepoints, eps, priors.nonfixed_nodes
