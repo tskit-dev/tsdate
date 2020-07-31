@@ -25,18 +25,21 @@ Test cases for the python API for tsdate.
 """
 import unittest
 import collections
+import json
 
 import numpy as np
 import scipy
 import msprime
 import tsinfer
+import tskit
 
 import tsdate
 from tsdate.base import NodeGridValues
 from tsdate.prior import (SpansBySamples, PriorParams, ConditionalCoalescentTimes,
                           fill_priors, gamma_approx)
 from tsdate.date import (Likelihoods, LogLikelihoods, LogLikelihoodsStreaming,
-                         InOutAlgorithms, constrain_ages_topo)
+                         InOutAlgorithms, posterior_mean_var, constrain_ages_topo,
+                         get_dates, date)
 
 import utility_functions
 
@@ -1044,10 +1047,10 @@ class TestTotalFunctionalValueTree(unittest.TestCase):
     """
 
     def find_posterior(self, ts, prior_distr):
+        grid = np.array([0, 1.2, 2])
         span_data = SpansBySamples(ts)
         priors = ConditionalCoalescentTimes(None, prior_distr=prior_distr)
         priors.add(ts.num_samples, approximate=False)
-        grid = np.array([0, 1.2, 2])
         mixture_priors = priors.get_mixture_prior_params(span_data)
         prior_vals = fill_priors(mixture_priors, grid, ts, prior_distr=prior_distr)
         theta = 1
@@ -1290,6 +1293,49 @@ class TestBuildPriorGrid(unittest.TestCase):
         ts = msprime.simulate(2, random_seed=12)
         self.assertRaises(ValueError, tsdate.build_prior_grid, ts,
                           prior_distribution="foobar")
+
+
+class TestPosteriorMeanVar(unittest.TestCase):
+    """
+    Test posterior_mean_var works as expected
+    """
+
+    def test_posterior_mean_var(self):
+        ts = utility_functions.single_tree_ts_n2()
+        grid = np.array([0, 1.2, 2])
+        for distr in ('gamma', 'lognorm'):
+            posterior, algo = TestTotalFunctionalValueTree().find_posterior(ts, distr)
+            ts_node_metadata, mn_post, vr_post = posterior_mean_var(ts, grid, posterior)
+            self.assertTrue(np.array_equal(mn_post,
+                                           [0, 0, np.sum(grid * posterior[2]) /
+                                               np.sum(posterior[2])]))
+
+    def test_node_metadata_single_tree_n2(self):
+        ts = utility_functions.single_tree_ts_n2()
+        grid = np.array([0, 1.2, 2])
+        posterior, algo = TestTotalFunctionalValueTree().find_posterior(ts, "lognorm")
+        ts_node_metadata, mn_post, vr_post = posterior_mean_var(ts, grid, posterior)
+        self.assertTrue(json.loads(
+            ts_node_metadata.node(2).metadata)["mn"] == mn_post[2])
+        self.assertTrue(json.loads(
+            ts_node_metadata.node(2).metadata)["vr"] == vr_post[2])
+
+    def test_node_metadata_simulated_tree(self):
+        larger_ts = msprime.simulate(
+                10, mutation_rate=1, recombination_rate=1, length=20)
+        _, mn_post, _, _, eps, _ = get_dates(larger_ts, 10000)
+        dated_ts = date(larger_ts, 10000)
+        metadata = dated_ts.tables.nodes.metadata
+        metadata_offset = dated_ts.tables.nodes.metadata_offset
+        unconstrained_mn = [
+                json.loads(met.decode())["mn"] for met in tskit.unpack_bytes(
+                    metadata,
+                    metadata_offset) if len(met.decode()) > 0]
+        self.assertTrue(np.array_equal(unconstrained_mn,
+                                       mn_post[larger_ts.num_samples:]))
+        self.assertTrue(np.all(
+            dated_ts.tables.nodes.time[larger_ts.num_samples:] >=
+            20000 * mn_post[larger_ts.num_samples:]))
 
 
 class TestConstrainAgesTopo(unittest.TestCase):

@@ -131,14 +131,15 @@ class TestSimulated(unittest.TestCase):
     Tests for tsdate on simulated tree sequences.
     """
     def ts_equal_except_times(self, ts1, ts2):
-        for (t1_name, t1), (t2_name, t2) in zip(ts1.tables, ts2.tables):
+        for (_, t1), (_, t2) in zip(ts1.tables, ts2.tables):
             if isinstance(t1, tskit.ProvenanceTable):
                 # TO DO - should check that the provenance has had the "tsdate" method
                 # added
                 pass
             elif isinstance(t1, tskit.NodeTable):
+                # Dated tree sequence will have metadata added for unconstrained times
                 for column_name in t1.column_names:
-                    if column_name != 'time':
+                    if column_name not in ["time", "metadata", "metadata_offset"]:
                         col_t1 = getattr(t1, column_name)
                         col_t2 = getattr(t2, column_name)
                         self.assertTrue(np.array_equal(col_t1, col_t2))
