@@ -1318,3 +1318,13 @@ class TestConstrainAgesTopo(unittest.TestCase):
                                                nodes_to_date)
         self.assertTrue(np.array_equal(np.array([0., 0., 0., 2., 2.000001, 3.]),
                                        constrained_ages))
+
+class TestGetUnconstrainedTimes(unittest.TestCase):
+    """
+    Test get_unconstrained_times correctly gets unconstrained from a dated tree sequence
+    """
+    def test_get_unconstrained_times(self):
+        #TODO
+
+    def get_unconstrained_times_with_historic_samples(self):
+        #TODO

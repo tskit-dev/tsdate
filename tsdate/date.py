@@ -24,6 +24,7 @@ Infer the age of nodes conditional on a tree sequence topology.
 """
 from collections import defaultdict
 import itertools
+import json
 import multiprocessing
 import operator
 import functools
@@ -33,6 +34,8 @@ import numba
 import numpy as np
 import scipy.stats
 from tqdm import tqdm
+
+import tskit
 
 from . import base, util, prior
 
@@ -213,9 +216,13 @@ class Likelihoods:
 
         mutations_on_edge = self.mut_edges[edge.id]
         child_time = self.ts.node(edge.child).time
-        assert child_time == 0
+        if child_time == 0:
+            timediff = self.timediff
+        else:
+            timediff = self.timepoints - child_time 
+            timediff[timediff < 0] = 0
         # Temporary hack - we should really take a more precise likelihood
-        return self._lik(mutations_on_edge, util.edge_span(edge), self.timediff,
+        return self._lik(mutations_on_edge, util.edge_span(edge), timediff,
                          self.theta, normalize=self.normalize)
 
     def get_mut_lik_lower_tri(self, edge):
@@ -742,19 +749,36 @@ def posterior_mean_var(ts, timepoints, posterior, *, fixed_node_set=None):
     of their exact time in the tree sequence, and zero variance (as long as they are
     identified by the fixed_node_set
     If fixed_node_set is None, we attempt to date all the non-sample nodes
+    Also assigns the estimated mean and variance of each node as metadata in the tree
+    sequence.
     """
     mn_post = np.full(ts.num_nodes, np.nan)  # Fill with NaNs so we detect when there's
     vr_post = np.full(ts.num_nodes, np.nan)  # been an error
+    tables = ts.dump_tables()
 
     fixed_nodes = np.array(list(fixed_node_set))
-    mn_post[fixed_nodes] = ts.tables.nodes.time[fixed_nodes]
+    mn_post[fixed_nodes] = tables.nodes.time[fixed_nodes]
     vr_post[fixed_nodes] = 0
+
+    metadata_array = tskit.unpack_bytes(ts.tables.nodes.metadata,
+            ts.tables.nodes.metadata_offset)
 
     for row, node_id in zip(posterior.grid_data, posterior.nonfixed_nodes):
         mn_post[node_id] = np.sum(row * timepoints) / np.sum(row)
         vr_post[node_id] = (np.sum(row * timepoints ** 2) / np.sum(row) -
                             mn_post[node_id] ** 2)
-    return mn_post, vr_post
+        metadata_array[node_id] = json.dumps({"mn": mn_post[node_id], "vr": vr_post[node_id]}).encode()
+    md, md_offset = tskit.pack_bytes(metadata_array)
+    tables.nodes.set_columns(
+            flags=tables.nodes.flags,
+            time=tables.nodes.time,
+            population=tables.nodes.population,
+            individual=tables.nodes.individual,
+            metadata=md,
+            metadata_offset=md_offset,
+        )
+    ts = tables.tree_sequence()
+    return ts, mn_post, vr_post
 
 
 def constrain_ages_topo(ts, post_mn, eps, nodes_to_date=None,
@@ -771,14 +795,19 @@ def constrain_ages_topo(ts, post_mn, eps, nodes_to_date=None,
     tables = ts.tables
     parents = tables.edges.parent
     nd_children = tables.edges.child
-    for nd in tqdm(sorted(nodes_to_date), desc="Constrain Ages",
+    assert np.array_equal(sorted(parents), parents)
+    parents_unique = np.unique(parents, return_index=True)
+    parent_indices = parents_unique[1][np.isin(parents_unique[0], nodes_to_date)]
+    for index, nd in tqdm(enumerate(sorted(nodes_to_date)), desc="Constrain Ages",
                    disable=not progress):
-        children = nd_children[parents == nd]
-        time = new_mn_post[children]
-        if np.any(new_mn_post[nd] <= time):
-            # closest_time = (np.abs(grid - max(time))).argmin()
-            # new_mn_post[nd] = grid[closest_time] + eps
-            new_mn_post[nd] = np.max(time) + eps
+        if index + 1 != len(nodes_to_date):
+            children_index = np.arange(parent_indices[index], parent_indices[index + 1])
+        else:
+            children_index = np.arange(parent_indices[index], ts.num_edges)
+        children = nd_children[children_index]
+        time = np.max(new_mn_post[children])
+        if new_mn_post[nd] <= time:
+            new_mn_post[nd] = time + eps
     return new_mn_post
 
 
@@ -818,7 +847,7 @@ def date(
     :return: A tree sequence with inferred node times in units of generations.
     :rtype: tskit.TreeSequence
     """
-    dates, _, timepoints, eps, nds = get_dates(
+    tree_sequence, dates, _, timepoints, eps, nds = get_dates(
         tree_sequence, Ne, mutation_rate, recombination_rate, priors, progress=progress,
         **kwargs)
     constrained = constrain_ages_topo(tree_sequence, dates, eps, nds, progress)
@@ -842,11 +871,15 @@ def get_dates(
     :return: tuple(mn_post, posterior, timepoints, eps, nodes_to_date)
     """
     # Stuff yet to be implemented. These can be deleted once fixed
-    for sample in tree_sequence.samples():
-        if tree_sequence.node(sample).time != 0:
-            raise NotImplementedError(
-                "Samples must all be at time 0")
+    #for sample in tree_sequence.samples():
+    #    if tree_sequence.node(sample).time != 0:
+    #        raise NotImplementedError(
+    #            "Samples must all be at time 0")
     fixed_nodes = set(tree_sequence.samples())
+    tables = tree_sequence.dump_tables()
+    times = tables.nodes.time[:] / (2 * Ne)
+    tables.nodes.time = times
+    tree_sequence = tables.tree_sequence()
 
     # Default to not creating approximate priors unless ts has > 1000 samples
     approx_priors = False
@@ -885,7 +918,7 @@ def get_dates(
         posterior = dynamic_prog.outside_pass(
                 normalize=outside_normalize,
                 ignore_oldest_root=ignore_oldest_root)
-        mn_post, _ = posterior_mean_var(tree_sequence, priors.timepoints, posterior,
+        ts, mn_post, _ = posterior_mean_var(tree_sequence, priors.timepoints, posterior,
                                         fixed_node_set=fixed_nodes)
     elif method == 'maximization':
         if theta is not None:
@@ -896,4 +929,4 @@ def get_dates(
         raise ValueError(
             "estimation method must be either 'inside_outside' or 'maximization'")
 
-    return mn_post, posterior, priors.timepoints, eps, priors.nonfixed_nodes
+    return ts, mn_post, posterior, priors.timepoints, eps, priors.nonfixed_nodes
