@@ -50,13 +50,25 @@ def setup_logging(args):
 
 
 def tsdate_cli_parser():
-    parser = argparse.ArgumentParser(
-        description="Set up base data, generate inferred datasets,\
-                     and process datasets.")
-    parser.add_argument(
+    top_parser = argparse.ArgumentParser(
+        description="This is the command line interface for tsdate, a tool to date \
+                tree sequences.")
+    top_parser.add_argument(
         "-V", "--version", action='version',
         version='%(prog)s {}'.format(tsdate.__version__))
-    parser.add_argument('ts',
+
+    subparsers = top_parser.add_subparsers(dest="subcommand")
+    subparsers.required = True
+
+    parser = subparsers.add_parser(
+        "date",
+        help=(
+            "Takes an inferred tree sequence topology and "
+            "returns a dated tree sequence."
+        ),
+    )
+
+    parser.add_argument('tree_sequence',
                         help="The path and name of the input tree sequence from which \
                         we estimate node ages.")
     parser.add_argument('output',
@@ -93,14 +105,33 @@ def tsdate_cli_parser():
                         help="Show progress bar.")
     parser.add_argument('-v', '--verbosity', type=int, default=0,
                         help="How much verbosity to output.")
-    return parser
+    parser.set_defaults(runner=run_date)
+
+    parser = subparsers.add_parser(
+        "preprocess",
+        help=("Remove regions without data from an input tree sequence."))
+    parser.add_argument("tree_sequence", help="The tree sequence to preprocess.")
+    parser.add_argument('output',
+                        help="The path and name of output file where the preprocessed \
+                        tree sequence will saved.")
+    parser.add_argument('--minimum_gap', type=float,
+                        help="The minimum gap between sites to trim from the tree \
+                        sequence. Default: '1000000'", default=1000000)
+    parser.add_argument('--trim-telomeres', type=bool,
+                        help="Should all material before the first site and after the \
+                        last site be trimmed, regardless of the length of these \
+                        regions. Default: 'True'", default=True)
+    parser.add_argument('-v', '--verbosity', type=int, default=0,
+                        help="How much verbosity to output.")
+    parser.set_defaults(runner=run_preprocess)
+    return top_parser
 
 
 def run_date(args):
     try:
-        ts = tskit.load(args.ts)
+        ts = tskit.load(args.tree_sequence)
     except tskit.FileFormatError as ffe:
-        exit("Error loading '{}: {}".format(args.ts, ffe))
+        exit("Error loading '{}: {}".format(args.tree_sequence, ffe))
     dated_ts = tsdate.date(
         ts, args.Ne, mutation_rate=args.mutation_rate,
         recombination_rate=args.recombination_rate,
@@ -110,8 +141,17 @@ def run_date(args):
     dated_ts.dump(args.output)
 
 
+def run_preprocess(args):
+    try:
+        ts = tskit.load(args.tree_sequence)
+    except tskit.FileFormatError as ffe:
+        exit("Error loading '{}: {}".format(args.tree_sequence, ffe))
+    snipped_ts = tsdate.preprocess_ts(ts, args.minimum_gap, args.trim_telomeres)
+    snipped_ts.dump(args.output)
+
+
 def tsdate_main(arg_list=None):
     parser = tsdate_cli_parser()
     args = parser.parse_args(arg_list)
     setup_logging(args)
-    run_date(args)
+    args.runner(args)
