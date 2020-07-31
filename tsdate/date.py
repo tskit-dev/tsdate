@@ -215,9 +215,13 @@ class Likelihoods:
 
         mutations_on_edge = self.mut_edges[edge.id]
         child_time = self.ts.node(edge.child).time
-        assert child_time == 0
+        if child_time == 0:
+            timediff = self.timediff
+        else:
+            timediff = self.timepoints - child_time 
+            timediff[timediff < 0] = 0
         # Temporary hack - we should really take a more precise likelihood
-        return self._lik(mutations_on_edge, util.edge_span(edge), self.timediff,
+        return self._lik(mutations_on_edge, util.edge_span(edge), timediff,
                          self.theta, normalize=self.normalize)
 
     def get_mut_lik_lower_tri(self, edge):
@@ -849,12 +853,8 @@ def date(
     tree_sequence, dates, _, timepoints, eps, nds = get_dates(
         tree_sequence, Ne, mutation_rate, recombination_rate, priors, progress=progress,
         **kwargs)
-<<<<<<< HEAD
     constrained = constrain_ages_topo(tree_sequence, dates, eps, nds,
                                       progress)
-=======
-    constrained = constrain_ages_topo(tree_sequence, dates, eps, nds, progress)
->>>>>>> remove timepoints from constrained age
     tables = tree_sequence.dump_tables()
     tables.nodes.time = constrained
     tables.sort()
@@ -878,11 +878,15 @@ def get_dates(
     :return: tuple(mn_post, posterior, timepoints, eps, nodes_to_date)
     """
     # Stuff yet to be implemented. These can be deleted once fixed
-    for sample in tree_sequence.samples():
-        if tree_sequence.node(sample).time != 0:
-            raise NotImplementedError(
-                "Samples must all be at time 0")
+    #for sample in tree_sequence.samples():
+    #    if tree_sequence.node(sample).time != 0:
+    #        raise NotImplementedError(
+    #            "Samples must all be at time 0")
     fixed_nodes = set(tree_sequence.samples())
+    tables = tree_sequence.dump_tables()
+    times = tables.nodes.time[:] / (2 * Ne)
+    tables.nodes.time = times
+    tree_sequence = tables.tree_sequence()
 
     # Default to not creating approximate priors unless ts has > 1000 samples
     approx_priors = False
@@ -921,7 +925,7 @@ def get_dates(
         posterior = dynamic_prog.outside_pass(
                 normalize=outside_normalize,
                 ignore_oldest_root=ignore_oldest_root)
-        mn_post, _ = posterior_mean_var(tree_sequence, priors.timepoints, posterior,
+        ts, mn_post, _ = posterior_mean_var(tree_sequence, priors.timepoints, posterior,
                                         fixed_node_set=fixed_nodes)
     elif method == 'maximization':
         if theta is not None:

@@ -391,9 +391,9 @@ class SpansBySamples:
 
         self.ts = tree_sequence
         self.sample_node_set = set(self.ts.samples())
-        if np.any(self.ts.tables.nodes.time[self.ts.samples()] != 0):
-            raise ValueError(
-                "The SpansBySamples class needs a tree seq with all samples at time 0")
+        #if np.any(self.ts.tables.nodes.time[self.ts.samples()] != 0):
+        #    raise ValueError(
+        #        "The SpansBySamples class needs a tree seq with all samples at time 0")
         self.progress = progress
 
         # We will store the spans in here, and normalize them at the end
@@ -660,7 +660,6 @@ class SpansBySamples:
                 num_fixed_at_0_treenodes += (len(fixed_at_0_nodes_in) -
                                              len(fixed_at_0_nodes_out))
             n_tips_per_tree[prev_tree.index+1] = num_fixed_at_0_treenodes
-
         if self.has_unary:
             logging.warning(
                 "The input tree sequence has unary nodes: tsdate currently works "
@@ -958,13 +957,13 @@ def build_grid(tree_sequence, timepoints=20, *, approximate_priors=False,
         if approx_prior_size is not None:
             raise ValueError("Can't set approx_prior_size if approximate_prior is False")
 
-    contmpr_ts, node_map = util.reduce_to_contemporaneous(tree_sequence)
-    span_data = SpansBySamples(contmpr_ts, progress=progress)
+    #contmpr_ts, node_map = util.reduce_to_contemporaneous(tree_sequence)
+    span_data = SpansBySamples(tree_sequence, progress=progress)
 
     base_priors = ConditionalCoalescentTimes(approx_prior_size, prior_distribution,
                                              progress=progress)
 
-    base_priors.add(contmpr_ts.num_samples, approximate_priors)
+    base_priors.add(tree_sequence.num_samples, approximate_priors)
     for total_fixed in span_data.total_fixed_at_0_counts:
         # For missing data: trees vary in total fixed node count => have different priors
         if total_fixed > 0:
@@ -988,9 +987,9 @@ def build_grid(tree_sequence, timepoints=20, *, approximate_priors=False,
     else:
         raise ValueError("time_slices must be an integer or a numpy array of floats")
 
-    prior_params_contmpr = base_priors.get_mixture_prior_params(span_data)
+    prior_params = base_priors.get_mixture_prior_params(span_data)
     # Map the nodes in the prior params back to the node ids in the original ts
-    prior_params = prior_params_contmpr[node_map, :]
+    #prior_params = prior_params_contmpr[node_map, :]
     # Set all fixed nodes (i.e. samples) to have 0 variance
     priors = fill_priors(prior_params, timepoints, tree_sequence,
                          prior_distr=prior_distribution, progress=progress)
