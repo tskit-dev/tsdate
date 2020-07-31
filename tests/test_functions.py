@@ -38,7 +38,7 @@ from tsdate.prior import (SpansBySamples, PriorParams, ConditionalCoalescentTime
 from tsdate.date import (Likelihoods, LogLikelihoods, LogLikelihoodsStreaming,
                          InOutAlgorithms, constrain_ages_topo)
 
-from tests import utility_functions
+import utility_functions
 
 
 class TestBasicFunctions(unittest.TestCase):
@@ -91,7 +91,7 @@ class TestNodeTipWeights(unittest.TestCase):
             self.assertAlmostEqual(span, span_data.node_spans[id])
         for focal_node in span_data.nodes_to_date:
             wt = 0
-            for num_samples, weights in span_data.get_weights(focal_node).items():
+            for _, weights in span_data.get_weights(focal_node).items():
                 self.assertTrue(0 <= focal_node < ts.num_nodes)
                 wt += np.sum(weights['weight'])
                 self.assertLessEqual(max(weights['descendant_tips']), ts.num_samples)
@@ -1296,27 +1296,69 @@ class TestConstrainAgesTopo(unittest.TestCase):
     """
     Test constrain_ages_topo works as expected
     """
+
     def test_constrain_ages_topo(self):
         """
         Set node 3 to be older than node 4 in two_tree_ts
         """
         ts = utility_functions.two_tree_ts()
-        post_mn = np.array([0., 0., 0., 2., 1., 3.])
-        timepoints = np.array([0, 1, 2])
+        post_mn = np.array([0.0, 0.0, 0.0, 2.0, 1.0, 3.0])
         eps = 1e-6
         nodes_to_date = np.array([3, 4, 5])
-        constrained_ages = constrain_ages_topo(ts, post_mn, timepoints, eps,
-                                               nodes_to_date)
-        self.assertTrue(np.array_equal(np.array([0., 0., 0., 2., 2.000001, 3.]),
-                                       constrained_ages))
+        constrained_ages = constrain_ages_topo(ts, post_mn, eps, nodes_to_date)
+        self.assertTrue(
+            np.array_equal(
+                np.array([0.0, 0.0, 0.0, 2.0, 2.000001, 3.0]), constrained_ages
+            )
+        )
 
     def test_constrain_ages_topo_no_nodes_to_date(self):
         ts = utility_functions.two_tree_ts()
-        post_mn = np.array([0., 0., 0., 2., 1., 3.])
-        timepoints = np.array([0, 1, 2])
+        post_mn = np.array([0.0, 0.0, 0.0, 2.0, 1.0, 3.0])
         eps = 1e-6
         nodes_to_date = None
-        constrained_ages = constrain_ages_topo(ts, post_mn, timepoints, eps,
-                                               nodes_to_date)
-        self.assertTrue(np.array_equal(np.array([0., 0., 0., 2., 2.000001, 3.]),
-                                       constrained_ages))
+        constrained_ages = constrain_ages_topo(ts, post_mn, eps, nodes_to_date)
+        self.assertTrue(
+            np.array_equal(
+                np.array([0.0, 0.0, 0.0, 2.0, 2.000001, 3.0]), constrained_ages
+            )
+        )
+
+    def test_constrain_ages_topo_unary_nodes_unordered(self):
+        ts = utility_functions.single_tree_ts_with_unary()
+        post_mn = np.array([0.0, 0.0, 0.0, 2.0, 1.0, 0.5, 5.0, 1.0])
+        eps = 1e-6
+        constrained_ages = constrain_ages_topo(ts, post_mn, eps)
+        self.assertTrue(
+            np.allclose(
+                np.array([0.0, 0.0, 0.0, 2.0, 2.000001, 2.000002, 5.0, 5.000001]),
+                constrained_ages,
+            )
+        )
+
+    def test_constrain_ages_topo_part_dangling(self):
+        ts = utility_functions.two_tree_ts_n2_part_dangling()
+        post_mn = np.array([1.0, 0.0, 0.0, 0.1, 0.05])
+        eps = 1e-6
+        constrained_ages = constrain_ages_topo(ts, post_mn, eps)
+        self.assertTrue(
+            np.allclose(np.array([1.0, 0.0, 0.0, 1.000001, 1.000002]), constrained_ages)
+        )
+
+    def test_constrain_ages_topo_sample_as_parent(self):
+        ts = utility_functions.single_tree_ts_n3_sample_as_parent()
+        post_mn = np.array([0.0, 0.0, 0.0, 3.0, 1.0])
+        eps = 1e-6
+        constrained_ages = constrain_ages_topo(ts, post_mn, eps)
+        self.assertTrue(
+            np.allclose(np.array([0.0, 0.0, 0.0, 3.0, 3.000001]), constrained_ages)
+        )
+
+    def test_two_tree_ts_n3_non_contemporaneous(self):
+        ts = utility_functions.two_tree_ts_n3_non_contemporaneous()
+        post_mn = np.array([0.0, 0.0, 3.0, 4.0, 0.1, 4.1])
+        eps = 1e-6
+        constrained_ages = constrain_ages_topo(ts, post_mn, eps)
+        self.assertTrue(
+            np.allclose(np.array([0.0, 0.0, 3.0, 4.0, 4.000001, 4.1]), constrained_ages)
+        )

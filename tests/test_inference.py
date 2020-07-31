@@ -30,7 +30,7 @@ import msprime
 import tsinfer
 
 import tsdate
-from tests import utility_functions
+import utility_functions
 from tsdate.base import LOG, LIN
 
 

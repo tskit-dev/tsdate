@@ -591,7 +591,7 @@ def two_tree_ts_n2_part_dangling():
     0       0           0.5
     1       1           0
     2       1           0
-    3       1           1
+    3       0           1
     4       0           2
     """)
     edges = io.StringIO("""\

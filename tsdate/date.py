@@ -383,7 +383,7 @@ class LogLikelihoods(Likelihoods):
         assert len(input_array) == self.tri_size
         res = list()
         i_start = self.row_indices[0][0]
-        for cur_index, i in enumerate(self.row_indices[0][1:]):
+        for i in self.row_indices[0][1:]:
             res.append(self.logsumexp(input_array[i_start:i]))
             i_start = i
         res.append(self.logsumexp(input_array[i:]))
@@ -397,7 +397,7 @@ class LogLikelihoods(Likelihoods):
         assert len(input_array) == self.tri_size
         res = list()
         i_start = self.col_indices[0]
-        for cur_index, i in enumerate(self.col_indices[1:]):
+        for i in self.col_indices[1:]:
             res.append(self.logsumexp(input_array[i_start:i]))
             i_start = i
         res.append(self.logsumexp(input_array[i:]))
@@ -752,8 +752,7 @@ def posterior_mean_var(ts, timepoints, posterior, *, fixed_node_set=None):
     return mn_post, vr_post
 
 
-def constrain_ages_topo(ts, post_mn, timepoints, eps, nodes_to_date=None,
-                        progress=False):
+def constrain_ages_topo(ts, post_mn, eps, nodes_to_date=None, progress=False):
     """
     If predicted node times violate topology, restrict node ages so that they
     must be older than all their children.
@@ -765,15 +764,21 @@ def constrain_ages_topo(ts, post_mn, timepoints, eps, nodes_to_date=None,
 
     tables = ts.tables
     parents = tables.edges.parent
-    nd_children = tables.edges.child
-    for nd in tqdm(sorted(nodes_to_date), desc="Constrain Ages",
-                   disable=not progress):
-        children = nd_children[parents == nd]
-        time = new_mn_post[children]
-        if np.any(new_mn_post[nd] <= time):
-            # closest_time = (np.abs(grid - max(time))).argmin()
-            # new_mn_post[nd] = grid[closest_time] + eps
-            new_mn_post[nd] = np.max(time) + eps
+    nd_children = tables.edges.child[np.argsort(parents)]
+    parents = sorted(parents)
+    parents_unique = np.unique(parents, return_index=True)
+    parent_indices = parents_unique[1][np.isin(parents_unique[0], nodes_to_date)]
+    for index, nd in tqdm(
+        enumerate(sorted(nodes_to_date)), desc="Constrain Ages", disable=not progress
+    ):
+        if index + 1 != len(nodes_to_date):
+            children_index = np.arange(parent_indices[index], parent_indices[index + 1])
+        else:
+            children_index = np.arange(parent_indices[index], ts.num_edges)
+        children = nd_children[children_index]
+        time = np.max(new_mn_post[children])
+        if new_mn_post[nd] <= time:
+            new_mn_post[nd] = time + eps
     return new_mn_post
 
 
@@ -816,7 +821,7 @@ def date(
     dates, _, timepoints, eps, nds = get_dates(
         tree_sequence, Ne, mutation_rate, recombination_rate, priors, progress=progress,
         **kwargs)
-    constrained = constrain_ages_topo(tree_sequence, dates, timepoints, eps, nds,
+    constrained = constrain_ages_topo(tree_sequence, dates, eps, nds,
                                       progress)
     tables = tree_sequence.dump_tables()
     tables.nodes.time = constrained * 2 * Ne
