@@ -141,8 +141,9 @@ class TestEndToEnd(unittest.TestCase):
                 # added
                 pass
             elif isinstance(t1, tskit.NodeTable):
+                # New tree sequence will have node times in metadata
                 for column_name in t1.column_names:
-                    if column_name != 'time':
+                    if column_name not in ["time", "metadata", "metadata_offset"]:
                         col_t1 = getattr(t1, column_name)
                         col_t2 = getattr(t2, column_name)
                         self.assertTrue(np.array_equal(col_t1, col_t2))

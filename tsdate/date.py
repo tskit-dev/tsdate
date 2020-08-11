@@ -24,6 +24,7 @@ Infer the age of nodes conditional on a tree sequence topology.
 """
 from collections import defaultdict
 import itertools
+import json
 import multiprocessing
 import operator
 import functools
@@ -32,6 +33,7 @@ import logging
 import numba
 import numpy as np
 import scipy.stats
+import tskit
 from tqdm import tqdm
 
 from . import base, util, prior
@@ -737,19 +739,39 @@ def posterior_mean_var(ts, timepoints, posterior, *, fixed_node_set=None):
     of their exact time in the tree sequence, and zero variance (as long as they are
     identified by the fixed_node_set
     If fixed_node_set is None, we attempt to date all the non-sample nodes
+    Also assigns the estimated mean and variance of each node as metadata in the tree
+    sequence.
     """
     mn_post = np.full(ts.num_nodes, np.nan)  # Fill with NaNs so we detect when there's
     vr_post = np.full(ts.num_nodes, np.nan)  # been an error
+    tables = ts.dump_tables()
 
+    if fixed_node_set is None:
+        fixed_node_set = ts.samples()
     fixed_nodes = np.array(list(fixed_node_set))
-    mn_post[fixed_nodes] = ts.tables.nodes.time[fixed_nodes]
+    mn_post[fixed_nodes] = tables.nodes.time[fixed_nodes]
     vr_post[fixed_nodes] = 0
+
+    metadata_array = tskit.unpack_bytes(ts.tables.nodes.metadata,
+                                        ts.tables.nodes.metadata_offset)
 
     for row, node_id in zip(posterior.grid_data, posterior.nonfixed_nodes):
         mn_post[node_id] = np.sum(row * timepoints) / np.sum(row)
         vr_post[node_id] = (np.sum(row * timepoints ** 2) / np.sum(row) -
                             mn_post[node_id] ** 2)
-    return mn_post, vr_post
+        metadata_array[node_id] = json.dumps({"mn": mn_post[node_id],
+                                              "vr": vr_post[node_id]}).encode()
+    md, md_offset = tskit.pack_bytes(metadata_array)
+    tables.nodes.set_columns(
+            flags=tables.nodes.flags,
+            time=tables.nodes.time,
+            population=tables.nodes.population,
+            individual=tables.nodes.individual,
+            metadata=md,
+            metadata_offset=md_offset,
+        )
+    ts = tables.tree_sequence()
+    return ts, mn_post, vr_post
 
 
 def constrain_ages_topo(ts, post_mn, eps, nodes_to_date=None, progress=False):
@@ -818,7 +840,7 @@ def date(
     :return: A tree sequence with inferred node times in units of generations.
     :rtype: tskit.TreeSequence
     """
-    dates, _, timepoints, eps, nds = get_dates(
+    tree_sequence, dates, _, timepoints, eps, nds = get_dates(
         tree_sequence, Ne, mutation_rate, recombination_rate, priors, progress=progress,
         **kwargs)
     constrained = constrain_ages_topo(tree_sequence, dates, eps, nds,
@@ -884,8 +906,8 @@ def get_dates(
     posterior = None
     if method == 'inside_outside':
         posterior = dynamic_prog.outside_pass(normalize=outside_normalize)
-        mn_post, _ = posterior_mean_var(tree_sequence, priors.timepoints, posterior,
-                                        fixed_node_set=fixed_nodes)
+        tree_sequence, mn_post, _ = posterior_mean_var(
+                tree_sequence, priors.timepoints, posterior, fixed_node_set=fixed_nodes)
     elif method == 'maximization':
         if theta is not None:
             mn_post = dynamic_prog.outside_maximization(eps=eps)
@@ -895,4 +917,5 @@ def get_dates(
         raise ValueError(
             "estimation method must be either 'inside_outside' or 'maximization'")
 
-    return mn_post, posterior, priors.timepoints, eps, priors.nonfixed_nodes
+    return (tree_sequence, mn_post, posterior, priors.timepoints, eps,
+            priors.nonfixed_nodes)
