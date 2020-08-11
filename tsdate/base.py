@@ -31,6 +31,10 @@ FLOAT_DTYPE = np.float64
 LIN = "linear"
 LOG = "logarithmic"
 
+# Bit 20 is set in node flags when they are samples not at time zero in the sampledata
+# file
+NODE_IS_HISTORIC_SAMPLE = 1 << 20
+
 
 class NodeGridValues:
     """

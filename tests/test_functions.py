@@ -27,6 +27,7 @@ import unittest
 import collections
 import json
 
+import math
 import numpy as np
 import scipy
 import msprime
@@ -40,6 +41,7 @@ from tsdate.prior import (SpansBySamples, PriorParams, ConditionalCoalescentTime
 from tsdate.date import (Likelihoods, LogLikelihoods, LogLikelihoodsStreaming,
                          InOutAlgorithms, posterior_mean_var, constrain_ages_topo,
                          get_dates, date)
+from tsdate.util import nodes_time
 
 import utility_functions
 
@@ -1191,7 +1193,7 @@ class TestOutsideEdgesOrdering(unittest.TestCase):
     def test_simulated_inferred_outside_traversal(self):
         ts = msprime.simulate(500, Ne=10000, length=5e4, mutation_rate=1e-8,
                               recombination_rate=1e-8, random_seed=12)
-        sample_data = tsinfer.SampleData.from_tree_sequence(ts, use_times=False)
+        sample_data = tsinfer.SampleData.from_tree_sequence(ts, use_sites_time=False)
         inferred_ts = tsinfer.infer(sample_data)
         self.edges_ordering(inferred_ts, "outside_pass")
         self.edges_ordering(inferred_ts, "outside_maximization")
@@ -1203,13 +1205,14 @@ class TestMaximization(unittest.TestCase):
     """
     def run_outside_maximization(self, ts, prior_distr="lognorm"):
         priors = tsdate.build_prior_grid(ts, prior_distribution=prior_distr)
+        Ne = 0.5
         theta = 1
         eps = 1e-6
         lls = Likelihoods(ts, priors.timepoints, theta, eps=eps)
         lls.precalculate_mutation_likelihoods()
         algo = InOutAlgorithms(priors, lls)
         algo.inside_pass()
-        return lls, algo, algo.outside_maximization()
+        return lls, algo, algo.outside_maximization(Ne, eps=eps)
 
     def test_one_tree_n2(self):
         ts = utility_functions.single_tree_ts_n2()
@@ -1305,7 +1308,8 @@ class TestPosteriorMeanVar(unittest.TestCase):
         grid = np.array([0, 1.2, 2])
         for distr in ('gamma', 'lognorm'):
             posterior, algo = TestTotalFunctionalValueTree().find_posterior(ts, distr)
-            ts_node_metadata, mn_post, vr_post = posterior_mean_var(ts, grid, posterior)
+            ts_node_metadata, mn_post, vr_post = posterior_mean_var(
+                    ts, grid, posterior, 0.5)
             self.assertTrue(np.array_equal(mn_post,
                                            [0, 0, np.sum(grid * posterior[2]) /
                                                np.sum(posterior[2])]))
@@ -1314,7 +1318,7 @@ class TestPosteriorMeanVar(unittest.TestCase):
         ts = utility_functions.single_tree_ts_n2()
         grid = np.array([0, 1.2, 2])
         posterior, algo = TestTotalFunctionalValueTree().find_posterior(ts, "lognorm")
-        ts_node_metadata, mn_post, vr_post = posterior_mean_var(ts, grid, posterior)
+        ts_node_metadata, mn_post, vr_post = posterior_mean_var(ts, grid, posterior, 0.5)
         self.assertTrue(json.loads(
             ts_node_metadata.node(2).metadata)["mn"] == mn_post[2])
         self.assertTrue(json.loads(
@@ -1335,7 +1339,7 @@ class TestPosteriorMeanVar(unittest.TestCase):
                                        mn_post[larger_ts.num_samples:]))
         self.assertTrue(np.all(
             dated_ts.tables.nodes.time[larger_ts.num_samples:] >=
-            20000 * mn_post[larger_ts.num_samples:]))
+            mn_post[larger_ts.num_samples:]))
 
 
 class TestConstrainAgesTopo(unittest.TestCase):
@@ -1415,15 +1419,15 @@ class TestPreprocessTs(unittest.TestCase):
     Test preprocess_ts works as expected
     """
 
-    def verify(self, ts, minimum_gap=None, trim_telomeres=None):
+    def verify(self, ts, minimum_gap=None, remove_telomeres=None):
         with self.assertLogs("tsdate.util", level="INFO") as logs:
-            if minimum_gap is not None and trim_telomeres is not None:
+            if minimum_gap is not None and remove_telomeres is not None:
                 ts = tsdate.preprocess_ts(ts, minimum_gap=minimum_gap,
-                                          trim_telomeres=trim_telomeres)
-            elif minimum_gap is not None and trim_telomeres is None:
+                                          remove_telomeres=remove_telomeres)
+            elif minimum_gap is not None and remove_telomeres is None:
                 ts = tsdate.preprocess_ts(ts, minimum_gap=minimum_gap)
-            elif trim_telomeres is not None and minimum_gap is None:
-                ts = tsdate.preprocess_ts(ts, trim_telomeres=trim_telomeres)
+            elif remove_telomeres is not None and minimum_gap is None:
+                ts = tsdate.preprocess_ts(ts, remove_telomeres=remove_telomeres)
             else:
                 ts = tsdate.preprocess_ts(ts)
         messages = [record.msg for record in logs.records]
@@ -1434,35 +1438,233 @@ class TestPreprocessTs(unittest.TestCase):
         ts = utility_functions.two_tree_ts()
         self.assertRaises(ValueError, tsdate.preprocess_ts, ts)
 
+    def test_invariant_sites(self):
+        ts = utility_functions.site_no_mutations()
+        self.assertTrue(tsdate.preprocess_ts(ts).num_sites == ts.num_sites)
+
     def test_no_intervals(self):
         ts = utility_functions.two_tree_mutation_ts()
-        self.assertTrue(ts == self.verify(ts, trim_telomeres=False))
+        self.assertTrue(ts == self.verify(ts, remove_telomeres=False))
         self.assertTrue(ts == self.verify(ts, minimum_gap=0.05))
 
     def test_delete_interval(self):
-        ts = utility_functions.ts_w_data_desert(40, 60)
-        trimmed = self.verify(ts, minimum_gap=20, trim_telomeres=False)
+        ts = utility_functions.ts_w_data_desert(40, 60, 100)
+        trimmed = self.verify(ts, minimum_gap=20, remove_telomeres=False)
         lefts = trimmed.tables.edges.left
         rights = trimmed.tables.edges.right
         self.assertTrue(
-                not np.any(np.logical_and(lefts > 39, lefts < 61)))
+                not np.any(np.logical_and(lefts > 41, lefts < 59)))
         self.assertTrue(
-                not np.any(np.logical_and(rights > 39, rights < 61)))
+                not np.any(np.logical_and(rights > 41, rights < 59)))
 
-    def test_trim_telomeres(self):
-        ts = utility_functions.ts_w_data_desert(0, 5)
-        trimmed = self.verify(ts, minimum_gap=ts.get_sequence_length())
-        lefts = trimmed.tables.edges.left
-        rights = trimmed.tables.edges.right
+    def test_remove_telomeres(self):
+        ts = utility_functions.ts_w_data_desert(0, 5, 100)
+        removed = self.verify(ts, minimum_gap=ts.get_sequence_length())
+        lefts = removed.tables.edges.left
+        rights = removed.tables.edges.right
         self.assertTrue(
                 not np.any(np.logical_and(lefts > 0, lefts < 4)))
         self.assertTrue(
                 not np.any(np.logical_and(rights > 0, rights < 4)))
-        ts = utility_functions.ts_w_data_desert(95, 100)
-        trimmed = self.verify(ts, minimum_gap=ts.get_sequence_length())
-        lefts = trimmed.tables.edges.left
-        rights = trimmed.tables.edges.right
+        ts = utility_functions.ts_w_data_desert(95, 100, 100)
+        removed = self.verify(ts, minimum_gap=ts.get_sequence_length())
+        lefts = removed.tables.edges.left
+        rights = removed.tables.edges.right
         self.assertTrue(
                 not np.any(np.logical_and(lefts > 96, lefts < 100)))
         self.assertTrue(
                 not np.any(np.logical_and(rights > 96, rights < 100)))
+
+
+class TestNodeTimes(unittest.TestCase):
+    """
+    Test node_times works as expected.
+    """
+
+    def test_node_times(self):
+        larger_ts = msprime.simulate(
+                10, mutation_rate=1, recombination_rate=1, length=20)
+        dated = date(larger_ts, 10000)
+        node_ages = nodes_time(dated)
+        self.assertTrue(np.all(dated.tables.nodes.time[:] >= node_ages))
+
+    def test_fails_unconstrained(self):
+        ts = utility_functions.two_tree_mutation_ts()
+        self.assertRaises(ValueError, nodes_time, ts, unconstrained=True)
+
+
+class TestSiteTimes(unittest.TestCase):
+    """
+    Test sites_time works as expected
+    """
+
+    def test_no_sites(self):
+        ts = utility_functions.two_tree_ts()
+        self.assertRaises(ValueError, tsdate.sites_time_from_ts, ts)
+
+    def test_mutation_age_param(self):
+        ts = utility_functions.two_tree_mutation_ts()
+        self.assertRaises(
+                ValueError, tsdate.sites_time_from_ts, ts, mutation_age="sibling")
+
+    def test_sites_time_insideoutside(self):
+        ts = utility_functions.two_tree_mutation_ts()
+        dated = tsdate.date(ts, 1)
+        _, mn_post, _, _, eps, _ = get_dates(ts, 1)
+        self.assertTrue(np.array_equal(
+            mn_post[ts.tables.mutations.node],
+            tsdate.sites_time_from_ts(dated, unconstrained=True)))
+        self.assertTrue(np.array_equal(
+            dated.tables.nodes.time[ts.tables.mutations.node],
+            tsdate.sites_time_from_ts(dated, unconstrained=False)))
+
+    def test_sites_time_maximization(self):
+        ts = utility_functions.two_tree_mutation_ts()
+        dated = tsdate.date(ts, Ne=1, mutation_rate=1, method="maximization")
+        self.assertTrue(np.array_equal(
+            dated.tables.nodes.time[ts.tables.mutations.node],
+            tsdate.sites_time_from_ts(dated, unconstrained=False)))
+
+    def test_sites_time_mutation_age(self):
+        ts = utility_functions.two_tree_mutation_ts()
+        dated = tsdate.date(ts, Ne=1, mutation_rate=1)
+        sites_time_child = tsdate.sites_time_from_ts(dated, mutation_age="child")
+        dated_nodes_time = nodes_time(dated)
+        self.assertTrue(np.array_equal(
+            dated_nodes_time[ts.tables.mutations.node], sites_time_child))
+
+        sites_time_parent = tsdate.sites_time_from_ts(dated, mutation_age="parent")
+        parent_sites_check = np.zeros(dated.num_sites)
+        for tree in dated.trees():
+            for site in tree.sites():
+                for mut in site.mutations:
+                    parent_sites_check[site.id] = dated_nodes_time[tree.parent(mut.node)]
+        self.assertTrue(np.array_equal(parent_sites_check, sites_time_parent))
+
+        sites_time_arithmetic = tsdate.sites_time_from_ts(
+                dated, mutation_age="arithmetic")
+        arithmetic_sites_check = np.zeros(dated.num_sites)
+        for tree in dated.trees():
+            for site in tree.sites():
+                for mut in site.mutations:
+                    arithmetic_sites_check[site.id] = (
+                        dated_nodes_time[mut.node] +
+                        dated_nodes_time[tree.parent(mut.node)]) / 2
+        self.assertTrue(np.array_equal(
+            arithmetic_sites_check, sites_time_arithmetic))
+
+        sites_time_geometric = tsdate.sites_time_from_ts(dated, mutation_age="geometric")
+        geometric_sites_check = np.zeros(dated.num_sites)
+        for tree in dated.trees():
+            for site in tree.sites():
+                for mut in site.mutations:
+                    geometric_sites_check[site.id] = np.sqrt(
+                        dated_nodes_time[mut.node] *
+                        dated_nodes_time[tree.parent(mut.node)])
+        self.assertTrue(np.array_equal(
+            geometric_sites_check, sites_time_geometric))
+
+    def test_sites_time_multiallelic(self):
+        ts = utility_functions.single_tree_ts_2mutations_multiallelic_n3()
+        sites_time = tsdate.sites_time_from_ts(ts, unconstrained=False)
+        self.assertTrue(np.array_equal(
+            [np.max(ts.tables.nodes.time[ts.tables.mutations.node])], sites_time))
+        sites_time = tsdate.sites_time_from_ts(
+                ts, unconstrained=False, ignore_multiallelic=False)
+        self.assertTrue(math.isnan(sites_time[0]))
+
+    def test_sites_time_singletons(self):
+        ts = utility_functions.single_tree_ts_2mutations_singletons_n3()
+        sites_time = tsdate.sites_time_from_ts(ts, unconstrained=False)
+        self.assertTrue(np.array_equal(sites_time, [1e-6]))
+
+    def test_sites_time_multiple_mutations(self):
+        ts = utility_functions.single_tree_ts_2mutations_n3()
+        sites_time = tsdate.sites_time_from_ts(ts, unconstrained=False)
+        self.assertTrue(np.array_equal(sites_time, [1]))
+
+    def test_sites_time_simulated(self):
+        larger_ts = msprime.simulate(
+                10, mutation_rate=1, recombination_rate=1, length=20)
+        _, mn_post, _, _, eps, _ = get_dates(larger_ts, 10000)
+        dated = date(larger_ts, 10000)
+        self.assertTrue(
+                np.array_equal(mn_post[larger_ts.tables.mutations.node],
+                               tsdate.sites_time_from_ts(dated, unconstrained=True)))
+        self.assertTrue(np.array_equal(
+            dated.tables.nodes.time[larger_ts.tables.mutations.node],
+            tsdate.sites_time_from_ts(dated, unconstrained=False)))
+
+
+class TestSampleDataTimes(unittest.TestCase):
+    """
+    Test add_sampledata_times
+    """
+
+    def test_historic_samples(self):
+        samples = [msprime.Sample(population=0, time=0) for i in range(10)]
+        ancients = [msprime.Sample(population=0, time=1000) for i in range(10)]
+        samps = samples + ancients
+        ts = msprime.simulate(samples=samps, mutation_rate=1e-8,
+                              recombination_rate=1e-8, Ne=10000, length=1e4)
+        samples = tsinfer.formats.SampleData.from_tree_sequence(
+                ts, use_individuals_time=True)
+        ancient_samples = np.where(
+                ts.tables.nodes.time[:][ts.samples()] != 0)[0].astype('int32')
+        ancient_samples_times = ts.tables.nodes.time[ancient_samples]
+        inferred = tsinfer.infer(samples)
+        dated = date(inferred, 10000, 1e-8)
+        sites_time = tsdate.sites_time_from_ts(dated)
+        dated_samples = tsdate.add_sampledata_times(samples, sites_time)
+        for variant in ts.variants(samples=ancient_samples):
+            if np.any(variant.genotypes == 1):
+                ancient_bound = np.max(ancient_samples_times[variant.genotypes == 1])
+                self.assertTrue(
+                        dated_samples.sites_time[variant.site.id] >= ancient_bound)
+
+    def test_sampledata(self):
+        samples = [msprime.Sample(population=0, time=0) for i in range(10)]
+        ancients = [msprime.Sample(population=0, time=1000) for i in range(10)]
+        samps = samples + ancients
+        ts = msprime.simulate(samples=samps, mutation_rate=1e-8,
+                              recombination_rate=1e-8, Ne=10000, length=1e4)
+        samples = tsinfer.formats.SampleData.from_tree_sequence(
+                ts, use_sites_time=False)
+        inferred = tsinfer.infer(samples)
+        dated = date(inferred, 10000, 1e-8)
+        sites_time = tsdate.sites_time_from_ts(dated)
+        sites_bound = samples.min_site_times(individuals_only=True)
+        check_sites_time = np.maximum(sites_time, sites_bound)
+        copy = tsdate.add_sampledata_times(samples, sites_time)
+        assert np.array_equal(copy.sites_time[:], check_sites_time)
+
+
+class TestHistoricalExample(unittest.TestCase):
+    def historical_samples_example(self):
+        samples = [
+            msprime.Sample(population=0, time=0),
+            msprime.Sample(0, 0),
+            msprime.Sample(0, 0),
+            msprime.Sample(0, 1.0),
+        ]
+        return msprime.simulate(samples=samples, mutation_rate=1, length=1e2)
+
+    def test_historical_samples(self):
+        ts = self.historical_samples_example()
+        samples = tsinfer.SampleData.from_tree_sequence(ts, use_sites_time=False)
+        modern_samples = samples.subset(np.where(samples.individuals_time[:] == 0)[0])
+        inferred_ts = tsinfer.infer(modern_samples, simplify=True)
+        dated_ts = tsdate.date(inferred_ts, Ne=1, mutation_rate=1)
+        site_times = tsdate.sites_time_from_ts(dated_ts)
+        dated_samples = tsdate.add_sampledata_times(samples, site_times)
+        ancestors = tsinfer.generate_ancestors(dated_samples)
+        ancestors_w_proxy = ancestors.insert_proxy_samples(
+                dated_samples, allow_mutation=True)
+        ancestors_ts = tsinfer.match_ancestors(dated_samples, ancestors_w_proxy)
+        reinferred_ts = tsinfer.match_samples(
+                dated_samples, ancestors_ts, force_sample_times=True)
+        self.assertTrue(reinferred_ts.num_samples == ts.num_samples)
+        self.assertTrue(reinferred_ts.num_sites == ts.num_sites)
+        self.assertTrue(np.array_equal(
+            reinferred_ts.tables.nodes.time[reinferred_ts.samples()],
+            ts.tables.nodes.time[ts.samples()]))

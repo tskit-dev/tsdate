@@ -100,7 +100,72 @@ large sections of the tree which do not have any variable sites using
 
 .. _troubleshooting:
 
+*******************************************************************
+Inferring and Dating Tree Sequences with Historic (Ancient) Samples
+*******************************************************************
 
+``tsdate`` and ``tsinfer`` can be used together to infer tree sequences from both
+modern and historic samples. The following recipe shows how this is accomplished
+with a few lines of Python. The only requirement is a tsinfer.SampleData file with
+modern and historic samples (the latter are specified using the `individuals_time`
+array in a tsinfer.SampleData file).
+
+.. code-block:: python
+
+   import msprime
+   import tsdate
+   import tsinfer
+   import tskit
+
+   import numpy as np
+
+
+   def make_historical_samples():
+       samples = [
+           msprime.Sample(population=0, time=0),
+           msprime.Sample(0, 0),
+           msprime.Sample(0, 0),
+           msprime.Sample(0, 0),
+           msprime.Sample(0, 1.0),
+           msprime.Sample(0, 1.0)
+       ]
+       sim = msprime.simulate(samples=samples, mutation_rate=1, length=100)
+       # Get the SampleData file from the simulated tree sequence
+       # Retain the individuals times and ignore the sites times.
+       samples = tsinfer.SampleData.from_tree_sequence(
+         sim, use_sites_time=False, use_individuals_time=True)
+       return samples
+
+   def infer_historic_ts(samples, Ne=1, mutation_rate=1):
+      """
+      Input is tsinfer.SampleData file with modern and historic samples.
+      """
+      modern_samples = samples.subset(np.where(samples.individuals_time[:] == 0)[0])
+      inferred_ts = tsinfer.infer(modern_samples) # Infer tree seq from modern samples
+      # Removes unary nodes (currently required in tsdate), keeps historic-only sites
+      inferred_ts = inferred_ts.simplify(filter_sites=False) 
+      dated_ts = tsdate.date(inferred_ts, Ne=Ne, mutation_rate=mutation_rate) # Date tree seq
+      sites_time = tsdate.sites_time_from_ts(dated_ts)  # Get tsdate site age estimates
+      dated_samples = tsdate.add_sampledata_times(
+         samples, sites_time) # Get SampleData file with time estimates assigned to sites
+      ancestors = tsinfer.generate_ancestors(dated_samples)
+      ancestors_w_proxy = ancestors.insert_proxy_samples(
+         dated_samples, allow_mutation=True)
+      ancestors_ts = tsinfer.match_ancestors(dated_samples, ancestors_w_proxy)
+      return tsinfer.match_samples(
+         dated_samples, ancestors_ts, force_sample_times=True) 
+
+   samples = make_historical_samples()
+   inferred_ts = infer_historic_ts(samples)
+   
+We simulate a tree sequence with six sample chromosomes, four modern and
+two historic. We then infer and date a tree sequence using only the modern
+samples. Next, we find derived alleles which are carried by the historic samples and use
+the age of the historic samples to constrain the ages of these alleles. Finally, we
+reinfer the tree sequence, using the date estimates from tsdate and the historic 
+constraints rather than the frequency of the alleles to order mutations in ``tsinfer``.
+Historic samples are added to the ancestors tree sequence as `*proxy nodes*, in addition
+to being used as samples <https://tsinfer.readthedocs.io/en/latest/api.html?highlight=proxy#tsinfer.AncestorData.insert_proxy_samples>`_.
 
 ++++++++++++++++++++++++++++++
 Command Line Interface Example

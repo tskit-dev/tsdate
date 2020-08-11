@@ -152,6 +152,36 @@ def single_tree_ts_mutation_n3():
                            mutations=mutations, strict=False)
 
 
+def site_no_mutations():
+    r"""
+    Simple case where we have n = 3 and one tree.
+    The single mutation has no derived alleles.
+            4
+           / \
+          3   x
+         / \   \
+       [0] [1] [2]
+    """
+    nodes = io.StringIO("""\
+    id      is_sample   time
+    0       1           0
+    1       1           0
+    2       1           0
+    3       0           1
+    4       0           2
+    """)
+    edges = io.StringIO("""\
+    left    right   parent  child
+    0       1       3       0,1
+    0       1       4       2,3
+    """)
+    sites = io.StringIO("""\
+    position    ancestral_state
+    0.5         0
+    """)
+    return tskit.load_text(nodes=nodes, edges=edges, sites=sites, strict=False)
+
+
 def single_tree_all_samples_one_mutation_n3():
     r"""
     Simple case where we have n = 3 and one tree.
@@ -605,14 +635,122 @@ def two_tree_ts_n2_part_dangling():
     return tskit.load_text(nodes=nodes, edges=edges, strict=False)
 
 
-def ts_w_data_desert(gap_start, gap_end):
+def single_tree_ts_2mutations_multiallelic_n3():
+    r"""
+    Simple case where we have n = 3 and one tree.
+    Site is multiallelic.
+            4
+           x \
+          3   x
+         / \   \
+       [0] [1] [2]
+    """
+    nodes = io.StringIO("""\
+    id      is_sample   time
+    0       1           0
+    1       1           0
+    2       1           0
+    3       0           1
+    4       0           2
+    """)
+    edges = io.StringIO("""\
+    left    right   parent  child
+    0       1       3       0,1
+    0       1       4       2,3
+    """)
+    sites = io.StringIO("""\
+    position    ancestral_state
+    0.5         0
+    """)
+    mutations = io.StringIO("""\
+    site    node    derived_state
+    0       2       1
+    0       3       2
+    """)
+    return tskit.load_text(nodes=nodes, edges=edges, sites=sites,
+                           mutations=mutations, strict=False)
+
+
+def single_tree_ts_2mutations_singletons_n3():
+    r"""
+    Simple case where we have n = 3 and one tree.
+    Site has two singleton mutations.
+            4
+           / \
+          3   x
+         / x   \
+       [0] [1] [2]
+    """
+    nodes = io.StringIO("""\
+    id      is_sample   time
+    0       1           0
+    1       1           0
+    2       1           0
+    3       0           1
+    4       0           2
+    """)
+    edges = io.StringIO("""\
+    left    right   parent  child
+    0       1       3       0,1
+    0       1       4       2,3
+    """)
+    sites = io.StringIO("""\
+    position    ancestral_state
+    0.5         0
+    """)
+    mutations = io.StringIO("""\
+    site    node    derived_state
+    0       1       1
+    0       2       1
+    """)
+    return tskit.load_text(nodes=nodes, edges=edges, sites=sites,
+                           mutations=mutations, strict=False)
+
+
+def single_tree_ts_2mutations_n3():
+    r"""
+    Simple case where we have n = 3 and one tree.
+    Site has two mutations with different times.
+            4
+           x \
+          3   \
+         / x   \
+       [0] [1] [2]
+    """
+    nodes = io.StringIO("""\
+    id      is_sample   time
+    0       1           0
+    1       1           0
+    2       1           0
+    3       0           1
+    4       0           2
+    """)
+    edges = io.StringIO("""\
+    left    right   parent  child
+    0       1       3       0,1
+    0       1       4       2,3
+    """)
+    sites = io.StringIO("""\
+    position    ancestral_state
+    0.5         0
+    """)
+    mutations = io.StringIO("""\
+    site    node    derived_state
+    0       1       1
+    0       3       1
+    """)
+    return tskit.load_text(nodes=nodes, edges=edges, sites=sites,
+                           mutations=mutations, strict=False)
+
+
+def ts_w_data_desert(gap_start, gap_end, length):
     """
     Inside/Outside algorithm has been observed to give overflow/underflow when
     attempting to date tree sequences with large regions without data. Test
     that preprocess_ts removes regions of a specified size that have no data.
     """
     ts = msprime.simulate(
-            100, mutation_rate=10, recombination_rate=1, length=10)
+            100, mutation_rate=10, recombination_rate=1, length=length)
     tables = ts.dump_tables()
     sites = tables.sites.position[:]
     tables.delete_sites(np.where(np.logical_and(sites > gap_start, sites < gap_end))[0])
