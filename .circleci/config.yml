@@ -30,10 +30,6 @@ jobs:
           command: |
               python setup.py build_ext --inplace      
       - run:
-          name: Install tsinfer dev version - currently required for "use_times" param
-          command: |
-              python3 -m pip install git+https://github.com/tskit-dev/tsinfer.git --user
-      - run:
           name: install dependencies
           command: |
               pip install -r requirements.txt --user
@@ -41,6 +37,11 @@ jobs:
           name: Lint Python
           command: |
               flake8 --max-line-length 89 tsdate setup.py tests
+      - run:
+          name: Install tsinfer dev version - currently required for "use_times" param
+          command: |
+              python3 -m pip install git+https://github.com/tskit-dev/tsinfer.git --user
+
       - save_cache:
           key: tsdate-{{ checksum "data/prior_1000df.bak" }} 
           paths:

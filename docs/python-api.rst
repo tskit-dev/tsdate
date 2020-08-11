@@ -20,3 +20,11 @@ Specifying Prior and Time Discretisation Options
 ++++++++++++++++++++++++++++++++++++++++++++++++
 
 .. autofunction:: tsdate.build_prior_grid
+
+
+****************************
+Preprocessing Tree Sequences
+****************************
+
+.. autofunction:: tsdate.preprocess_ts
+

@@ -23,6 +23,7 @@
 A collection of utilities to edit and construct tree sequences for testing purposes
 """
 
+import msprime
 import numpy as np
 import tskit
 import io
@@ -602,6 +603,21 @@ def two_tree_ts_n2_part_dangling():
     0       1       4       2,3
     """)
     return tskit.load_text(nodes=nodes, edges=edges, strict=False)
+
+
+def ts_w_data_desert(gap_start, gap_end):
+    """
+    Inside/Outside algorithm has been observed to give overflow/underflow when
+    attempting to date tree sequences with large regions without data. Test
+    that preprocess_ts removes regions of a specified size that have no data.
+    """
+    ts = msprime.simulate(
+            100, mutation_rate=10, recombination_rate=1, length=10)
+    tables = ts.dump_tables()
+    sites = tables.sites.position[:]
+    tables.delete_sites(np.where(np.logical_and(sites > gap_start, sites < gap_end))[0])
+    deleted_ts = tables.tree_sequence()
+    return deleted_ts
 
 
 def truncate_ts_samples(ts, average_span, random_seed, min_span=5):

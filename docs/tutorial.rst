@@ -83,10 +83,23 @@ One of the most important parameters to consider is whether ``tsdate`` should us
 inside-outside or the maximization algorithms to perform inference. A detailed
 description of the algorithms will be presented in our preprint, but from the users
 perspective, the inside-outside approach performs better empirically but has issues with
-numeric stability, while the maximization approach is slightly less accurate
+numerical stability, while the maximization approach is slightly less accurate
 empirically, but is numerically stable.
 
 .. _command_line_interface:
+
+++++++++++++++++++++++
+Troubleshooting tsdate
+++++++++++++++++++++++
+
+If numerical stability issues are encountered when attempting to date
+tree sequences using the Inside-Outside algorithm, it may be necessary to remove 
+large sections of the tree which do not have any variable sites using 
+:meth:`.tsdate.preprocess_ts` method.
+
+.. _troubleshooting:
+
+
 
 ++++++++++++++++++++++++++++++
 Command Line Interface Example
