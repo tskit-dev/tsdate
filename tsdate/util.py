@@ -24,8 +24,13 @@ Utility functions for tsdate. Many of these can be removed when tskit is updated
 a more recent version which has the functionality built-in
 """
 
+import json
 import numpy as np
 import logging
+
+import tskit
+
+from . import base
 
 logger = logging.getLogger(__name__)
 
@@ -118,3 +123,48 @@ def preprocess_ts(tree_sequence, minimum_gap=1000000, trim_telomeres=True):
     else:
         logger.info("No gaps to trim")
         return tree_sequence
+
+def get_site_times(tree_sequence, unconstrained=True, constrain_historic=True):
+    """
+    Returns the estimated time of the oldest mutation associated with each site.
+    If multiple mutations are present at a site, use only the oldest mutation's node
+    time. 
+    If constrain_historic is True, ensure ancient individuals 
+
+    :param TreeSequence tree_sequence: The input :class`tskit.TreeSequence`.
+    :param bool unconstrained: Should all material before the first site and after the
+    last site be trimmed, regardless of the length. Default: "True"
+    :param bool constrain_historic: Should all material before the first site and after the
+    last site be trimmed, regardless of the length. Default: "True"
+    :rtype tskit.TreeSequence
+
+    """
+    # Add assert that tree sequence has been dated
+    sites_time = np.zeros(tree_sequence.num_sites)
+    node_ages = tree_sequence.tables.nodes.time[:]
+    if unconstrained:
+        metadata = tree_sequence.tables.nodes.metadata[:]
+        metadata_offset = tree_sequence.tables.nodes.metadata_offset[:]
+        for index, met in enumerate(tskit.unpack_bytes(metadata, metadata_offset)):
+            if len(met.decode()) > 0:
+                node_ages[index] = json.loads(met.decode())["mn"]        
+
+    for site in tree_sequence.sites():
+        for mutation in site.mutations: 
+            if sites_time[site.id] < node_ages[mutation.node]:
+                sites_time[site.id] = node_ages[mutation.node]
+    if np.any(np.bitwise_and(tree_sequence.tables.nodes.flags,
+        base.NODE_IS_HISTORIC_SAMPLE)):
+        individuals_metadata = tskit.unpack_bytes(output_ts.tables.individuals.metadata,
+                output_ts.tables.individuals.metadata_offset)
+        samples_times = np.zeroes(tree_sequence.num_samples)
+        for historic_node in np.where(np.bitwise_and(tree_sequence.tables.nodes.flags, base.NODE_IS_HISTORIC_SAMPLE))[0]:
+            samples_times[historic_node] = json.loads(individuals_metadata[historic_node].decode())["sample_data_time"]
+        ancients = np.where(samples_times != 0)[0]
+        ancient_samples_times = samples_times[ancients]
+        for variant in tree_sequence.variants(samples=ancients):
+            if np.any(variant.genotypes == 1):
+                ancient_bound = np.max(ancient_samples_times[variant.genotypes == 1])
+                if ancient_bound > sites_time[variant.site.id]:
+                    sites_time[variant.site.id] = ancient_bound
+    return sites_time

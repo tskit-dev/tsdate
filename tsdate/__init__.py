@@ -23,6 +23,6 @@
 
 from .date import date # NOQA
 from .prior import build_grid as build_prior_grid # NOQA
-from .util import preprocess_ts # NOQA
+from .util import preprocess_ts, get_site_times # NOQA
 from .provenance import __version__ # NOQA
 from .cache import * # NOQA
