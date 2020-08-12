@@ -36,7 +36,7 @@ import scipy.stats
 import tskit
 from tqdm import tqdm
 
-from . import base, util, prior
+from . import base, util, prior, provenance
 
 FORMAT_NAME = "tsdate"
 
@@ -848,7 +848,10 @@ def date(
     tables = tree_sequence.dump_tables()
     tables.nodes.time = constrained * 2 * Ne
     tables.sort()
-    return tables.tree_sequence()
+    ts = tables.tree_sequence()
+    return provenance.record_provenance(
+            ts, "date", Ne=Ne, mutation_rate=mutation_rate,
+            recombination_rate=recombination_rate, progress=progress, **kwargs)
 
 
 def get_dates(

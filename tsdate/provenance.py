@@ -23,6 +23,7 @@
 Versions of important dependencies and environment.
 """
 import platform
+import json
 
 import tskit
 
@@ -62,11 +63,15 @@ def get_environment():
     return env
 
 
-def get_provenance_dict(parameters):
+def get_provenance_dict(command=None, **kwargs):
     """
-    Returns a dictionary encoding an execution of tszip conforming to the
+    Returns a dictionary encoding an execution of tsdate conforming to the
     tskit provenance schema.
     """
+    if command is None:
+        raise ValueError("Command must be provided")
+    parameters = dict(kwargs)
+    parameters["command"] = command
     document = {
         "schema_version": "1.0.0",
         "software": {
@@ -77,3 +82,14 @@ def get_provenance_dict(parameters):
         "environment": get_environment(),
     }
     return document
+
+
+def record_provenance(tree_sequence, command=None, **kwargs):
+    """
+    Records the provenance information for this file using the
+    tskit provenances schema.
+    """
+    record = get_provenance_dict(command=command, **kwargs)
+    tables = tree_sequence.dump_tables()
+    tables.provenances.add_row(record=json.dumps(record))
+    return tables.tree_sequence()
