@@ -35,6 +35,7 @@ LOG = "logarithmic"
 # file
 NODE_IS_HISTORIC_SAMPLE = 1 << 20
 
+
 class NodeGridValues:
     """
     A class to store grid values for node ids. For some nodes (fixed ones), only a single
