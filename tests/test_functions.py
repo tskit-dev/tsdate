@@ -1466,3 +1466,9 @@ class TestPreprocessTs(unittest.TestCase):
                 not np.any(np.logical_and(lefts > 96, lefts < 100)))
         self.assertTrue(
                 not np.any(np.logical_and(rights > 96, rights < 100)))
+
+class TestGetSiteTimes(unittest.TestCase):
+    """
+    Test get_site_times works as expected
+    """
+
