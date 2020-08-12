@@ -69,7 +69,8 @@ object, the *estimated* effective population size, and *estimated* mutation rate
  Specifying a Prior
 +++++++++++++++++++
 
-The above example shows the basic use of ``tsdate``, using default parameters. The software has parameters the user can access through the :meth:`tsdate.build_prior_grid()`
+The above example shows the basic use of ``tsdate``, using default parameters. The 
+software has parameters the user can access through the :meth:`tsdate.build_prior_grid()`
 function which may affect the runtime and accuracy of the algorithm.
 
 
@@ -95,7 +96,7 @@ Troubleshooting tsdate
 If numerical stability issues are encountered when attempting to date
 tree sequences using the Inside-Outside algorithm, it may be necessary to remove 
 large sections of the tree which do not have any variable sites using 
-:meth:`.tsdate.preprocess_ts` method.
+:meth:`tsdate.preprocess_ts()` method.
 
 .. _troubleshooting:
 

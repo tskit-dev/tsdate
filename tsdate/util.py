@@ -30,7 +30,7 @@ import logging
 
 import tskit
 
-from . import base
+from . import base, provenance
 
 logger = logging.getLogger(__name__)
 
@@ -70,16 +70,17 @@ def preprocess_ts(tree_sequence, minimum_gap=1000000, trim_telomeres=True):
     Function to remove gaps without sites from tree sequence.
     Large regions without data can cause overflow/underflow errors in the
     inside-outside algorithm and poor performance more generally.
-    Records of the processing are recorded as provenance in the resulting tree
+    Removed regions are recorded in the provenance of the resulting tree
     sequence.
 
     :param TreeSequence tree_sequence: The input :class`tskit.TreeSequence`
-    to be trimmed.
+        to be trimmed.
     :param float minimum_gap: The minimum gap between sites to trim from the tree
-    sequence. Default: "1000000"
+        sequence. Default: "1000000"
     :param bool trim_telomeres: Should all material before the first site and after the
-    last site be trimmed, regardless of the length. Default: "True"
-    :rtype tskit.TreeSequence
+        last site be trimmed, regardless of the length. Default: "True"
+    :return: A tree sequence with gaps removed.
+    :rtype: tskit.TreeSequence
     """
     logger.info("Beginning preprocessing")
     logger.info("Minimum_gap: {} and trim_telomeres: {}".format(
@@ -119,7 +120,9 @@ def preprocess_ts(tree_sequence, minimum_gap=1000000, trim_telomeres=True):
         tree_sequence_trimmed = tree_sequence.delete_intervals(delete_intervals)
         tree_sequence_trimmed = tree_sequence_trimmed.simplify(filter_sites=False)
         assert tree_sequence.num_sites == tree_sequence_trimmed.num_sites
-        return tree_sequence_trimmed
+        return provenance.record_provenance(
+                tree_sequence_trimmed, "preprocess_ts", minimum_gap=minimum_gap,
+                trim_telomeres=trim_telomeres, delete_intervals=delete_intervals)
     else:
         logger.info("No gaps to trim")
         return tree_sequence
