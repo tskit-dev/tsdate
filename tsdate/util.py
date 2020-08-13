@@ -167,10 +167,8 @@ def get_site_times(tree_sequence, unconstrained=True, constrain_historic=True):
         metadata = tree_sequence.tables.nodes.metadata[:]
         metadata_offset = tree_sequence.tables.nodes.metadata_offset[:]
         for index, met in enumerate(tskit.unpack_bytes(metadata, metadata_offset)):
-            try:
+            if index not in tree_sequence.samples():
                 node_ages[index] = json.loads(met.decode())["mn"]
-            except json.decoder.JSONDecodeError:
-                continue
 
     for site in tree_sequence.sites():
         for mutation in site.mutations:
