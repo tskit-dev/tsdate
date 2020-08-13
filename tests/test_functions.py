@@ -1305,7 +1305,8 @@ class TestPosteriorMeanVar(unittest.TestCase):
         grid = np.array([0, 1.2, 2])
         for distr in ('gamma', 'lognorm'):
             posterior, algo = TestTotalFunctionalValueTree().find_posterior(ts, distr)
-            ts_node_metadata, mn_post, vr_post = posterior_mean_var(ts, grid, posterior)
+            ts_node_metadata, mn_post, vr_post = posterior_mean_var(
+                    ts, grid, posterior, 0.5)
             self.assertTrue(np.array_equal(mn_post,
                                            [0, 0, np.sum(grid * posterior[2]) /
                                                np.sum(posterior[2])]))
@@ -1314,7 +1315,7 @@ class TestPosteriorMeanVar(unittest.TestCase):
         ts = utility_functions.single_tree_ts_n2()
         grid = np.array([0, 1.2, 2])
         posterior, algo = TestTotalFunctionalValueTree().find_posterior(ts, "lognorm")
-        ts_node_metadata, mn_post, vr_post = posterior_mean_var(ts, grid, posterior)
+        ts_node_metadata, mn_post, vr_post = posterior_mean_var(ts, grid, posterior, 0.5)
         self.assertTrue(json.loads(
             ts_node_metadata.node(2).metadata)["mn"] == mn_post[2])
         self.assertTrue(json.loads(
@@ -1335,7 +1336,7 @@ class TestPosteriorMeanVar(unittest.TestCase):
                                        mn_post[larger_ts.num_samples:]))
         self.assertTrue(np.all(
             dated_ts.tables.nodes.time[larger_ts.num_samples:] >=
-            20000 * mn_post[larger_ts.num_samples:]))
+            mn_post[larger_ts.num_samples:]))
 
 
 class TestConstrainAgesTopo(unittest.TestCase):
@@ -1467,8 +1468,72 @@ class TestPreprocessTs(unittest.TestCase):
         self.assertTrue(
                 not np.any(np.logical_and(rights > 96, rights < 100)))
 
+
 class TestGetSiteTimes(unittest.TestCase):
     """
     Test get_site_times works as expected
     """
 
+    def test_no_sites(self):
+        ts = utility_functions.two_tree_ts()
+        self.assertRaises(ValueError, tsdate.get_site_times, ts)
+
+    def test_fails_undated(self):
+        ts = utility_functions.two_tree_mutation_ts()
+        self.assertRaises(ValueError, tsdate.get_site_times, ts)
+
+    def test_site_times_insideoutside(self):
+        ts = utility_functions.two_tree_mutation_ts()
+        dated = tsdate.date(ts, 1)
+        _, mn_post, _, _, eps, _ = get_dates(ts, 1)
+        self.assertTrue(np.array_equal(
+            mn_post[ts.tables.mutations.node], tsdate.get_site_times(dated)))
+        self.assertTrue(np.array_equal(
+            dated.tables.nodes.time[ts.tables.mutations.node],
+            tsdate.get_site_times(dated, unconstrained=False)))
+
+    def test_site_times_maximization(self):
+        ts = utility_functions.two_tree_mutation_ts()
+        dated = tsdate.date(ts, Ne=1, mutation_rate=1, method="maximization")
+        self.assertTrue(np.array_equal(
+            dated.tables.nodes.time[ts.tables.mutations.node],
+            tsdate.get_site_times(dated)))
+
+    def test_site_times_simulated(self):
+        larger_ts = msprime.simulate(
+                10, mutation_rate=1, recombination_rate=1, length=20)
+        _, mn_post, _, _, eps, _ = get_dates(larger_ts, 10000)
+        dated = date(larger_ts, 10000)
+        self.assertTrue(
+                np.array_equal(mn_post[larger_ts.tables.mutations.node],
+                               tsdate.get_site_times(dated)))
+        self.assertTrue(np.array_equal(
+            dated.tables.nodes.time[larger_ts.tables.mutations.node],
+            tsdate.get_site_times(dated, unconstrained=False)))
+
+    def test_historic_samples(self):
+        samples = [msprime.Sample(population=0, time=0) for i in range(10)]
+        ancients = [msprime.Sample(population=0, time=1000) for i in range(10)]
+        samps = samples + ancients
+        ts = msprime.simulate(samples=samps, mutation_rate=1e-8,
+                              recombination_rate=1e-8, Ne=10000, length=1e4)
+        samples = tsinfer.formats.SampleData.from_tree_sequence(ts)
+        copy = samples.copy()
+        times = copy.individuals_time[:]
+        ancient_samples = np.where(
+                ts.tables.nodes.time[:][ts.samples()] != 0)[0].astype('int32')
+        ancient_samples_times = ts.tables.nodes.time[ancient_samples]
+        times[ancient_samples] = ancient_samples_times
+        copy.individuals_time[:] = times
+        copy.finalise()
+        inferred = tsinfer.infer(copy)
+        dated = date(inferred, 10000, 1e-8)
+        sites_time = tsdate.get_site_times(dated)
+        for variant in ts.variants(samples=ancient_samples):
+            if np.any(variant.genotypes == 1):
+                ancient_bound = np.max(ancient_samples_times[variant.genotypes == 1])
+                self.assertTrue(sites_time[variant.site.id] >= ancient_bound)
+        self.assertTrue(np.array_equal(
+            dated.tables.nodes.time[dated.tables.mutations.node],
+            tsdate.get_site_times(
+                dated, unconstrained=False, constrain_historic=False)))

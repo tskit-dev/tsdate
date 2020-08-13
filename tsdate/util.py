@@ -129,48 +129,68 @@ def preprocess_ts(tree_sequence, minimum_gap=1000000, trim_telomeres=True):
 
 
 def get_site_times(tree_sequence, unconstrained=True, constrain_historic=True):
-    # NEED TO FINISH THIS
     """
     Returns the estimated time of the oldest mutation associated with each site.
-    If multiple mutations are present at a site, use only the oldest mutation's node
+    If multiple mutations are present at a site, use the oldest mutation's node
     time.
-    If constrain_historic is True, ensure ancient individuals
+    If constrain_historic is True, ensure that the estimated age of sites where any
+    ancient individuals carries the derived allele is at least as old as the oldest
+    ancient individual.
 
     :param TreeSequence tree_sequence: The input :class`tskit.TreeSequence`.
-    :param bool unconstrained: Should all material before the first site and after the
-    last site be trimmed, regardless of the length. Default: "True"
+    :param bool unconstrained: Use node ages which are unconstrained by site topology.
+        Only applies when the inside-outside algorithm is used. Default: "True"
     :param bool constrain_historic:
-    Default: "True"
-    :rtype tskit.TreeSequence
+        Default: "True"
+    :return: An array of length tree_sequence.num_sites giving the estimated site time
+        of each site.
+    :rtype numpy.array
 
     """
-    # Add assert that tree sequence has been dated
+    if tree_sequence.num_sites < 1:
+        raise ValueError("Invalid tree sequence: no sites present")
+#    dated = False
+#    for provenance in tree_sequence.provenances():
+#        record = json.loads(provenance.record)
+#        try:
+#            if "date" in record["parameters"]["command"]:
+#                dated = True
+#        except:
+#            continue
+#    if not dated:
+#        raise ValueError("Tree sequence must be dated.")
+    # Epsilon value to date sites with > 1 mutation where all mutations are singletons
+    eps = 1e-6
     sites_time = np.zeros(tree_sequence.num_sites)
     node_ages = tree_sequence.tables.nodes.time[:]
     if unconstrained:
         metadata = tree_sequence.tables.nodes.metadata[:]
         metadata_offset = tree_sequence.tables.nodes.metadata_offset[:]
         for index, met in enumerate(tskit.unpack_bytes(metadata, metadata_offset)):
-            if len(met.decode()) > 0:
+            try:
                 node_ages[index] = json.loads(met.decode())["mn"]
+            except json.decoder.JSONDecodeError:
+                continue
 
     for site in tree_sequence.sites():
         for mutation in site.mutations:
             if sites_time[site.id] < node_ages[mutation.node]:
                 sites_time[site.id] = node_ages[mutation.node]
+        if len(site.mutations) > 1 and sites_time[site.id] == 0:
+            sites_time[site.id] = eps
     if np.any(np.bitwise_and(tree_sequence.tables.nodes.flags,
-                             base.NODE_IS_HISTORIC_SAMPLE)):
+                             base.NODE_IS_HISTORIC_SAMPLE)) and constrain_historic:
         individuals_metadata = tskit.unpack_bytes(
                 tree_sequence.tables.individuals.metadata,
                 tree_sequence.tables.individuals.metadata_offset)
-        samples_times = np.zeroes(tree_sequence.num_samples)
+        samples_times = np.zeros(tree_sequence.num_samples)
         for historic_node in np.where(np.bitwise_and(
                 tree_sequence.tables.nodes.flags, base.NODE_IS_HISTORIC_SAMPLE))[0]:
             samples_times[historic_node] = json.loads(
                     individuals_metadata[historic_node].decode())["sample_data_time"]
         ancients = np.where(samples_times != 0)[0]
         ancient_samples_times = samples_times[ancients]
-        for variant in tree_sequence.variants(samples=ancients):
+        for variant in tree_sequence.variants(samples=ancients.astype('int32')):
             if np.any(variant.genotypes == 1):
                 ancient_bound = np.max(ancient_samples_times[variant.genotypes == 1])
                 if ancient_bound > sites_time[variant.site.id]:
