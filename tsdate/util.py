@@ -161,7 +161,8 @@ def get_site_times(tree_sequence, unconstrained=True, constrain_historic=True):
 #        raise ValueError("Tree sequence must be dated.")
     # Epsilon value to date sites with > 1 mutation where all mutations are singletons
     eps = 1e-6
-    sites_time = np.zeros(tree_sequence.num_sites)
+    sites_time = np.empty(tree_sequence.num_sites)
+    sites_time[:] = eps
     node_ages = tree_sequence.tables.nodes.time[:]
     if unconstrained:
         metadata = tree_sequence.tables.nodes.metadata[:]
@@ -174,8 +175,8 @@ def get_site_times(tree_sequence, unconstrained=True, constrain_historic=True):
         for mutation in site.mutations:
             if sites_time[site.id] < node_ages[mutation.node]:
                 sites_time[site.id] = node_ages[mutation.node]
-        if len(site.mutations) > 1 and sites_time[site.id] == 0:
-            sites_time[site.id] = eps
+    #    if len(site.mutations) > 1 and sites_time[site.id] == 0:
+    #        sites_time[site.id] = eps
     if np.any(np.bitwise_and(tree_sequence.tables.nodes.flags,
                              base.NODE_IS_HISTORIC_SAMPLE)) and constrain_historic:
         individuals_metadata = tskit.unpack_bytes(
