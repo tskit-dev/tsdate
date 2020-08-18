@@ -730,7 +730,7 @@ class InOutAlgorithms:
             maximized_node_times[child] = np.argmax(self.lik.combine(
                 result[:youngest_par_index + 1], inside_val))
 
-        return self.lik.timepoints[np.array(maximized_node_times).astype('int')] * 2 * Ne
+        return self.lik.timepoints[np.array(maximized_node_times).astype('int')] * 2 * self.Ne
 
 
 def posterior_mean_var(ts, timepoints, posterior, Ne, *, fixed_node_set=None):
