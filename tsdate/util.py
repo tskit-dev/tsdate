@@ -128,19 +128,22 @@ def preprocess_ts(tree_sequence, minimum_gap=1000000, trim_telomeres=True):
         return tree_sequence
 
 
-def get_site_times(tree_sequence, unconstrained=True, constrain_historic=True):
+def get_site_times(tree_sequence, unconstrained=True, constrain_historic=True, mutation_age=False):
     """
-    Returns the estimated time of the oldest mutation associated with each site.
+    Returns the estimated time of the node of oldest mutation associated with each site.
     If multiple mutations are present at a site, use the oldest mutation's node
     time.
-    If constrain_historic is True, ensure that the estimated age of sites where any
-    ancient individuals carries the derived allele is at least as old as the oldest
-    ancient individual.
+    If constrain_historic is True, check that the site age is at least as old as the
+    oldest historic sample carrying a derived allele at that site.
 
     :param TreeSequence tree_sequence: The input :class`tskit.TreeSequence`.
     :param bool unconstrained: Use node ages which are unconstrained by site topology.
         Only applies when the inside-outside algorithm is used. Default: "True"
-    :param bool constrain_historic:
+    :param bool constrain_historic: If true, ensure that the estimated age of sites
+        where any historic sample
+        Default: "True"
+    :param bool mutation_age: If true, return the age of the oldest mutation associated
+        with each site.
         Default: "True"
     :return: An array of length tree_sequence.num_sites giving the estimated site time
         of each site.
@@ -162,7 +165,7 @@ def get_site_times(tree_sequence, unconstrained=True, constrain_historic=True):
     # Epsilon value to date sites with > 1 mutation where all mutations are singletons
     eps = 1e-6
     sites_time = np.empty(tree_sequence.num_sites)
-    sites_time[:] = eps
+    sites_time[:] = -np.inf 
     node_ages = tree_sequence.tables.nodes.time[:]
     if unconstrained:
         metadata = tree_sequence.tables.nodes.metadata[:]
@@ -171,12 +174,18 @@ def get_site_times(tree_sequence, unconstrained=True, constrain_historic=True):
             if index not in tree_sequence.samples():
                 node_ages[index] = json.loads(met.decode())["mn"]
 
-    for site in tree_sequence.sites():
-        for mutation in site.mutations:
-            if sites_time[site.id] < node_ages[mutation.node]:
-                sites_time[site.id] = node_ages[mutation.node]
-    #    if len(site.mutations) > 1 and sites_time[site.id] == 0:
-    #        sites_time[site.id] = eps
+    for tree in tree_sequence.trees():
+        for site in tree.sites():
+            for mutation in site.mutations:
+                if mutation_age:
+                    parent_node = tree.parent(mutation.node)
+                    age = (node_ages[mutation.node] + node_ages[parent_node]) / 2
+                else:
+                    age = node_ages[mutation.node]
+                if sites_time[site.id] < age:
+                    sites_time[site.id] = age
+            if len(site.mutations) > 1 and sites_time[site.id] == 0:
+                sites_time[site.id] = eps
     if np.any(np.bitwise_and(tree_sequence.tables.nodes.flags,
                              base.NODE_IS_HISTORIC_SAMPLE)) and constrain_historic:
         individuals_metadata = tskit.unpack_bytes(
