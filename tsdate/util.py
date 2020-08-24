@@ -143,6 +143,10 @@ def get_site_times(tree_sequence, unconstrained=False, constrain_historic=True,
     :param bool constrain_historic: If true, ensure that the estimated age of sites
         where any historic sample
         Default: "True"
+    :param tsinfer.formats.SampleData samples: A tsinfer SampleData object to
+        add site times to. If both a SampleData file is provided and constrain_historic
+        is True, use any historic individuals in this SampleData file to constrain site
+        times.
     :param bool mutation_age: If true, return the age of the oldest mutation associated
         with each site.
         Default: "True"
