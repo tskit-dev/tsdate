@@ -677,7 +677,7 @@ class InOutAlgorithms:
         self.outside = outside
         return posterior
 
-    def outside_maximization(self, Ne, *, eps=1e-6, progress=None):
+    def outside_maximization(self, Ne, eps, *, progress=None):
         if progress is None:
             progress = self.progress
         if not hasattr(self, "inside"):
@@ -730,7 +730,8 @@ class InOutAlgorithms:
             maximized_node_times[child] = np.argmax(self.lik.combine(
                 result[:youngest_par_index + 1], inside_val))
 
-        return self.lik.timepoints[np.array(maximized_node_times).astype('int')] * 2 * Ne
+        return (self.lik.timepoints[np.array(maximized_node_times).astype('int')] * 2
+                * Ne)
 
 
 def posterior_mean_var(ts, timepoints, posterior, Ne, *, fixed_node_set=None):
@@ -914,7 +915,7 @@ def get_dates(
                 fixed_node_set=fixed_nodes)
     elif method == 'maximization':
         if theta is not None:
-            mn_post = dynamic_prog.outside_maximization(Ne=Ne, eps=eps)
+            mn_post = dynamic_prog.outside_maximization(Ne, eps)
         else:
             raise ValueError("Outside maximization method requires mutation rate")
     else:

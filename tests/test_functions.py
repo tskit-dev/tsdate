@@ -1203,13 +1203,14 @@ class TestMaximization(unittest.TestCase):
     """
     def run_outside_maximization(self, ts, prior_distr="lognorm"):
         priors = tsdate.build_prior_grid(ts, prior_distribution=prior_distr)
+        Ne = 0.5
         theta = 1
         eps = 1e-6
         lls = Likelihoods(ts, priors.timepoints, theta, eps=eps)
         lls.precalculate_mutation_likelihoods()
         algo = InOutAlgorithms(priors, lls)
         algo.inside_pass()
-        return lls, algo, algo.outside_maximization()
+        return lls, algo, algo.outside_maximization(Ne, eps)
 
     def test_one_tree_n2(self):
         ts = utility_functions.single_tree_ts_n2()
@@ -1478,16 +1479,17 @@ class TestGetSiteTimes(unittest.TestCase):
         ts = utility_functions.two_tree_ts()
         self.assertRaises(ValueError, tsdate.get_site_times, ts)
 
-    def test_fails_undated(self):
+    def test_fails_unconstrained(self):
         ts = utility_functions.two_tree_mutation_ts()
-        self.assertRaises(ValueError, tsdate.get_site_times, ts)
+        self.assertRaises(ValueError, tsdate.get_site_times, ts, unconstrained=True)
 
     def test_site_times_insideoutside(self):
         ts = utility_functions.two_tree_mutation_ts()
         dated = tsdate.date(ts, 1)
         _, mn_post, _, _, eps, _ = get_dates(ts, 1)
         self.assertTrue(np.array_equal(
-            mn_post[ts.tables.mutations.node], tsdate.get_site_times(dated)))
+            mn_post[ts.tables.mutations.node],
+            tsdate.get_site_times(dated, unconstrained=True)))
         self.assertTrue(np.array_equal(
             dated.tables.nodes.time[ts.tables.mutations.node],
             tsdate.get_site_times(dated, unconstrained=False)))
@@ -1506,10 +1508,10 @@ class TestGetSiteTimes(unittest.TestCase):
         dated = date(larger_ts, 10000)
         self.assertTrue(
                 np.array_equal(mn_post[larger_ts.tables.mutations.node],
-                               tsdate.get_site_times(dated)))
+                               tsdate.get_site_times(dated, unconstrained=True)))
         self.assertTrue(np.array_equal(
             dated.tables.nodes.time[larger_ts.tables.mutations.node],
-            tsdate.get_site_times(dated, unconstrained=False)))
+            tsdate.get_site_times(dated)))
 
     def test_historic_samples(self):
         samples = [msprime.Sample(population=0, time=0) for i in range(10)]
@@ -1537,3 +1539,16 @@ class TestGetSiteTimes(unittest.TestCase):
             dated.tables.nodes.time[dated.tables.mutations.node],
             tsdate.get_site_times(
                 dated, unconstrained=False, constrain_historic=False)))
+
+    def test_sampledata(self):
+        samples = [msprime.Sample(population=0, time=0) for i in range(10)]
+        ancients = [msprime.Sample(population=0, time=1000) for i in range(10)]
+        samps = samples + ancients
+        ts = msprime.simulate(samples=samps, mutation_rate=1e-8,
+                              recombination_rate=1e-8, Ne=10000, length=1e4)
+        samples = tsinfer.formats.SampleData.from_tree_sequence(ts, use_times=False)
+        inferred = tsinfer.infer(samples)
+        dated = date(inferred, 10000, 1e-8)
+        copy = tsdate.get_site_times(dated, samples=samples)
+        assert (np.array_equal(copy.sites_time[:],
+                tsdate.get_site_times(dated, constrain_historic=True)))

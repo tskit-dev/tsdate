@@ -128,7 +128,8 @@ def preprocess_ts(tree_sequence, minimum_gap=1000000, trim_telomeres=True):
         return tree_sequence
 
 
-def get_site_times(tree_sequence, unconstrained=True, constrain_historic=True, mutation_age=False):
+def get_site_times(tree_sequence, unconstrained=False, constrain_historic=True,
+                   samples=None, mutation_age=False):
     """
     Returns the estimated time of the node of oldest mutation associated with each site.
     If multiple mutations are present at a site, use the oldest mutation's node
@@ -152,27 +153,21 @@ def get_site_times(tree_sequence, unconstrained=True, constrain_historic=True, m
     """
     if tree_sequence.num_sites < 1:
         raise ValueError("Invalid tree sequence: no sites present")
-#    dated = False
-#    for provenance in tree_sequence.provenances():
-#        record = json.loads(provenance.record)
-#        try:
-#            if "date" in record["parameters"]["command"]:
-#                dated = True
-#        except:
-#            continue
-#    if not dated:
-#        raise ValueError("Tree sequence must be dated.")
     # Epsilon value to date sites with > 1 mutation where all mutations are singletons
     eps = 1e-6
     sites_time = np.empty(tree_sequence.num_sites)
-    sites_time[:] = -np.inf 
+    sites_time[:] = -np.inf
     node_ages = tree_sequence.tables.nodes.time[:]
     if unconstrained:
         metadata = tree_sequence.tables.nodes.metadata[:]
         metadata_offset = tree_sequence.tables.nodes.metadata_offset[:]
         for index, met in enumerate(tskit.unpack_bytes(metadata, metadata_offset)):
             if index not in tree_sequence.samples():
-                node_ages[index] = json.loads(met.decode())["mn"]
+                try:
+                    node_ages[index] = json.loads(met.decode())["mn"]
+                except json.decoder.JSONDecodeError:
+                    raise ValueError(
+                            "Tree Sequence must be dated to use unconstrained=True")
 
     for tree in tree_sequence.trees():
         for site in tree.sites():
@@ -186,8 +181,21 @@ def get_site_times(tree_sequence, unconstrained=True, constrain_historic=True, m
                     sites_time[site.id] = age
             if len(site.mutations) > 1 and sites_time[site.id] == 0:
                 sites_time[site.id] = eps
-    if np.any(np.bitwise_and(tree_sequence.tables.nodes.flags,
-                             base.NODE_IS_HISTORIC_SAMPLE)) and constrain_historic:
+    if samples is not None and constrain_historic:
+        assert samples.num_sites == tree_sequence.num_sites
+        assert np.array_equal(samples.sites_position[:],
+                              tree_sequence.tables.sites.position)
+        samples_time = samples.individuals_time[:][samples.samples_individual[:]]
+        ancient_samples = np.where(samples_time != 0)[0]
+        ancient_samples_times = samples_time[samples_time != 0]
+        for var in samples.variants():
+            ancient_genos = var.genotypes[ancient_samples]
+            if np.any(ancient_genos == 1):
+                ancient_bound = np.max(ancient_samples_times[ancient_genos == 1])
+                if ancient_bound > sites_time[var.site.id]:
+                    sites_time[var.site.id] = ancient_bound
+    elif np.any(np.bitwise_and(tree_sequence.tables.nodes.flags,
+                               base.NODE_IS_HISTORIC_SAMPLE)) and constrain_historic:
         individuals_metadata = tskit.unpack_bytes(
                 tree_sequence.tables.individuals.metadata,
                 tree_sequence.tables.individuals.metadata_offset)
@@ -203,4 +211,11 @@ def get_site_times(tree_sequence, unconstrained=True, constrain_historic=True, m
                 ancient_bound = np.max(ancient_samples_times[variant.genotypes == 1])
                 if ancient_bound > sites_time[variant.site.id]:
                     sites_time[variant.site.id] = ancient_bound
-    return sites_time
+
+    if samples is not None:
+        copy = samples.copy()
+        copy.sites_time[:] = sites_time
+        copy.finalise()
+        return copy
+    else:
+        return sites_time
