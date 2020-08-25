@@ -759,7 +759,7 @@ def posterior_mean_var(ts, timepoints, posterior, Ne, *, fixed_node_set=None):
     if fixed_node_set is None:
         fixed_node_set = ts.samples()
     fixed_nodes = np.array(list(fixed_node_set))
-    mn_post[fixed_nodes] = tables.nodes.time[fixed_nodes]
+    mn_post[fixed_nodes] = tables.nodes.time[fixed_nodes] * 2 * Ne
     vr_post[fixed_nodes] = 0
 
     metadata_array = tskit.unpack_bytes(ts.tables.nodes.metadata,
@@ -775,7 +775,7 @@ def posterior_mean_var(ts, timepoints, posterior, Ne, *, fixed_node_set=None):
     # Set metadata and convert node times back to unscaled time
     tables.nodes.set_columns(
             flags=tables.nodes.flags,
-            time=tables.nodes.time * 2 * Ne,
+            time=tables.nodes.time,
             population=tables.nodes.population,
             individual=tables.nodes.individual,
             metadata=md,
@@ -928,11 +928,14 @@ def get_dates(
         posterior = dynamic_prog.outside_pass(
                 normalize=outside_normalize,
                 ignore_oldest_root=ignore_oldest_root)
-        ts, mn_post, _ = posterior_mean_var(tree_sequence, priors.timepoints, posterior,
-                                            Ne, fixed_node_set=fixed_nodes)
+        tree_sequence, mn_post, _ = posterior_mean_var(tree_sequence, priors.timepoints,
+                                                       posterior, Ne,
+                                                       fixed_node_set=fixed_nodes)
     elif method == 'maximization':
         if theta is not None:
             mn_post = dynamic_prog.outside_maximization(Ne, eps)
+            mn_post[tree_sequence.samples()] = (tree_sequence.tables.nodes.time[
+                tree_sequence.samples()] * 2 * Ne)
         else:
             raise ValueError("Outside maximization method requires mutation rate")
     else:
