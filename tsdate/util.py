@@ -65,7 +65,7 @@ def reduce_to_contemporaneous(ts):
         filter_sites=False, record_provenance=False, filter_individuals=False)
 
 
-def preprocess_ts(tree_sequence, minimum_gap=1000000, trim_telomeres=True):
+def preprocess_ts(tree_sequence, minimum_gap=1000000, remove_telomeres=True):
     """
     Function to remove gaps without sites from tree sequence.
     Large regions without data can cause overflow/underflow errors in the
@@ -74,35 +74,35 @@ def preprocess_ts(tree_sequence, minimum_gap=1000000, trim_telomeres=True):
     sequence.
 
     :param TreeSequence tree_sequence: The input :class`tskit.TreeSequence`
-        to be trimmed.
-    :param float minimum_gap: The minimum gap between sites to trim from the tree
+        to be preprocessed.
+    :param float minimum_gap: The minimum gap between sites to remove from the tree
         sequence. Default: "1000000"
-    :param bool trim_telomeres: Should all material before the first site and after the
-        last site be trimmed, regardless of the length. Default: "True"
+    :param bool remove_telomeres: Should all material before the first site and after the
+        last site be removed, regardless of the length. Default: "True"
     :return: A tree sequence with gaps removed.
     :rtype: tskit.TreeSequence
     """
     logger.info("Beginning preprocessing")
-    logger.info("Minimum_gap: {} and trim_telomeres: {}".format(
-        minimum_gap, trim_telomeres))
+    logger.info("Minimum_gap: {} and remove_telomeres: {}".format(
+        minimum_gap, remove_telomeres))
     if tree_sequence.num_sites < 1:
         raise ValueError(
                 "Invalid tree sequence: no sites present")
 
     sites = tree_sequence.tables.sites.position[:]
     delete_intervals = []
-    if trim_telomeres:
+    if remove_telomeres:
         first_site = sites[0] - 1
         if first_site > 0:
             delete_intervals.append([0, first_site])
-            logger.info("TRIMMING TELOMERE: Snip topology "
+            logger.info("REMOVING TELOMERE: Snip topology "
                         "from 0 to first site at {}.".format(
                             first_site))
         last_site = sites[-1] + 1
         sequence_length = tree_sequence.get_sequence_length()
         if last_site < sequence_length:
             delete_intervals.append([last_site, sequence_length])
-            logger.info("TRIMMING TELOMERE: Snip topology "
+            logger.info("REMOVING TELOMERE: Snip topology "
                         "from {} to end of sequence at {}.".format(
                             last_site, sequence_length))
     gaps = sites[1:] - sites[:-1]
@@ -117,18 +117,19 @@ def preprocess_ts(tree_sequence, minimum_gap=1000000, trim_telomeres=True):
             delete_intervals.append([gap_start, gap_end])
     delete_intervals = sorted(delete_intervals, key=lambda x: x[0])
     if len(delete_intervals) > 0:
-        tree_sequence_trimmed = tree_sequence.delete_intervals(delete_intervals)
-        tree_sequence_trimmed = tree_sequence_trimmed.simplify(filter_sites=False)
-        assert tree_sequence.num_sites == tree_sequence_trimmed.num_sites
+        tree_sequence_processed = tree_sequence.delete_intervals(delete_intervals,
+                                                                 simplify=False)
+        tree_sequence_processed = tree_sequence_processed.simplify(filter_sites=False)
+        assert tree_sequence.num_sites == tree_sequence_processed.num_sites
         return provenance.record_provenance(
-                tree_sequence_trimmed, "preprocess_ts", minimum_gap=minimum_gap,
-                trim_telomeres=trim_telomeres, delete_intervals=delete_intervals)
+                tree_sequence_processed, "preprocess_ts", minimum_gap=minimum_gap,
+                remove_telomeres=remove_telomeres, delete_intervals=delete_intervals)
     else:
-        logger.info("No gaps to trim")
+        logger.info("No gaps to remove")
         return tree_sequence
 
 
-def get_site_times(tree_sequence, unconstrained=False, constrain_historic=True,
+def get_sites_time(tree_sequence, unconstrained=False, constrain_historic=True,
                    samples=None, mutation_age=False):
     """
     Returns the estimated time of the node of oldest mutation associated with each site.
@@ -189,7 +190,9 @@ def get_site_times(tree_sequence, unconstrained=False, constrain_historic=True,
         assert samples.num_sites == tree_sequence.num_sites
         assert np.array_equal(samples.sites_position[:],
                               tree_sequence.tables.sites.position)
-        samples_time = samples.individuals_time[:][samples.samples_individual[:]]
+        samples_individual = samples.samples_individual[:]
+        assert np.all(samples_individual >= 0)
+        samples_time = samples.individuals_time[:][samples_individual]
         ancient_samples = np.where(samples_time != 0)[0]
         ancient_samples_times = samples_time[samples_time != 0]
         for var in samples.variants():

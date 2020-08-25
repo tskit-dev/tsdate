@@ -1417,15 +1417,15 @@ class TestPreprocessTs(unittest.TestCase):
     Test preprocess_ts works as expected
     """
 
-    def verify(self, ts, minimum_gap=None, trim_telomeres=None):
+    def verify(self, ts, minimum_gap=None, remove_telomeres=None):
         with self.assertLogs("tsdate.util", level="INFO") as logs:
-            if minimum_gap is not None and trim_telomeres is not None:
+            if minimum_gap is not None and remove_telomeres is not None:
                 ts = tsdate.preprocess_ts(ts, minimum_gap=minimum_gap,
-                                          trim_telomeres=trim_telomeres)
-            elif minimum_gap is not None and trim_telomeres is None:
+                                          remove_telomeres=remove_telomeres)
+            elif minimum_gap is not None and remove_telomeres is None:
                 ts = tsdate.preprocess_ts(ts, minimum_gap=minimum_gap)
-            elif trim_telomeres is not None and minimum_gap is None:
-                ts = tsdate.preprocess_ts(ts, trim_telomeres=trim_telomeres)
+            elif remove_telomeres is not None and minimum_gap is None:
+                ts = tsdate.preprocess_ts(ts, remove_telomeres=remove_telomeres)
             else:
                 ts = tsdate.preprocess_ts(ts)
         messages = [record.msg for record in logs.records]
@@ -1436,14 +1436,18 @@ class TestPreprocessTs(unittest.TestCase):
         ts = utility_functions.two_tree_ts()
         self.assertRaises(ValueError, tsdate.preprocess_ts, ts)
 
+    def test_invariant_sites(self):
+        ts = utility_functions.site_no_mutations()
+        self.assertTrue(tsdate.preprocess_ts(ts).num_sites == ts.num_sites)
+
     def test_no_intervals(self):
         ts = utility_functions.two_tree_mutation_ts()
-        self.assertTrue(ts == self.verify(ts, trim_telomeres=False))
+        self.assertTrue(ts == self.verify(ts, remove_telomeres=False))
         self.assertTrue(ts == self.verify(ts, minimum_gap=0.05))
 
     def test_delete_interval(self):
         ts = utility_functions.ts_w_data_desert(40, 60)
-        trimmed = self.verify(ts, minimum_gap=20, trim_telomeres=False)
+        trimmed = self.verify(ts, minimum_gap=20, remove_telomeres=False)
         lefts = trimmed.tables.edges.left
         rights = trimmed.tables.edges.right
         self.assertTrue(
@@ -1451,37 +1455,37 @@ class TestPreprocessTs(unittest.TestCase):
         self.assertTrue(
                 not np.any(np.logical_and(rights > 39, rights < 61)))
 
-    def test_trim_telomeres(self):
+    def test_remove_telomeres(self):
         ts = utility_functions.ts_w_data_desert(0, 5)
-        trimmed = self.verify(ts, minimum_gap=ts.get_sequence_length())
-        lefts = trimmed.tables.edges.left
-        rights = trimmed.tables.edges.right
+        removed = self.verify(ts, minimum_gap=ts.get_sequence_length())
+        lefts = removed.tables.edges.left
+        rights = removed.tables.edges.right
         self.assertTrue(
                 not np.any(np.logical_and(lefts > 0, lefts < 4)))
         self.assertTrue(
                 not np.any(np.logical_and(rights > 0, rights < 4)))
         ts = utility_functions.ts_w_data_desert(95, 100)
-        trimmed = self.verify(ts, minimum_gap=ts.get_sequence_length())
-        lefts = trimmed.tables.edges.left
-        rights = trimmed.tables.edges.right
+        removed = self.verify(ts, minimum_gap=ts.get_sequence_length())
+        lefts = removed.tables.edges.left
+        rights = removed.tables.edges.right
         self.assertTrue(
                 not np.any(np.logical_and(lefts > 96, lefts < 100)))
         self.assertTrue(
                 not np.any(np.logical_and(rights > 96, rights < 100)))
 
 
-class TestGetSiteTimes(unittest.TestCase):
+class TestGetSitesTime(unittest.TestCase):
     """
-    Test get_site_times works as expected
+    Test get_sites_time works as expected
     """
 
     def test_no_sites(self):
         ts = utility_functions.two_tree_ts()
-        self.assertRaises(ValueError, tsdate.get_site_times, ts)
+        self.assertRaises(ValueError, tsdate.get_sites_time, ts)
 
     def test_fails_unconstrained(self):
         ts = utility_functions.two_tree_mutation_ts()
-        self.assertRaises(ValueError, tsdate.get_site_times, ts, unconstrained=True)
+        self.assertRaises(ValueError, tsdate.get_sites_time, ts, unconstrained=True)
 
     def test_site_times_insideoutside(self):
         ts = utility_functions.two_tree_mutation_ts()
@@ -1489,17 +1493,17 @@ class TestGetSiteTimes(unittest.TestCase):
         _, mn_post, _, _, eps, _ = get_dates(ts, 1)
         self.assertTrue(np.array_equal(
             mn_post[ts.tables.mutations.node],
-            tsdate.get_site_times(dated, unconstrained=True)))
+            tsdate.get_sites_time(dated, unconstrained=True)))
         self.assertTrue(np.array_equal(
             dated.tables.nodes.time[ts.tables.mutations.node],
-            tsdate.get_site_times(dated, unconstrained=False)))
+            tsdate.get_sites_time(dated, unconstrained=False)))
 
     def test_site_times_maximization(self):
         ts = utility_functions.two_tree_mutation_ts()
         dated = tsdate.date(ts, Ne=1, mutation_rate=1, method="maximization")
         self.assertTrue(np.array_equal(
             dated.tables.nodes.time[ts.tables.mutations.node],
-            tsdate.get_site_times(dated)))
+            tsdate.get_sites_time(dated)))
 
     def test_site_times_simulated(self):
         larger_ts = msprime.simulate(
@@ -1508,10 +1512,10 @@ class TestGetSiteTimes(unittest.TestCase):
         dated = date(larger_ts, 10000)
         self.assertTrue(
                 np.array_equal(mn_post[larger_ts.tables.mutations.node],
-                               tsdate.get_site_times(dated, unconstrained=True)))
+                               tsdate.get_sites_time(dated, unconstrained=True)))
         self.assertTrue(np.array_equal(
             dated.tables.nodes.time[larger_ts.tables.mutations.node],
-            tsdate.get_site_times(dated)))
+            tsdate.get_sites_time(dated)))
 
     def test_historic_samples(self):
         samples = [msprime.Sample(population=0, time=0) for i in range(10)]
@@ -1530,14 +1534,14 @@ class TestGetSiteTimes(unittest.TestCase):
         copy.finalise()
         inferred = tsinfer.infer(copy)
         dated = date(inferred, 10000, 1e-8)
-        sites_time = tsdate.get_site_times(dated)
+        sites_time = tsdate.get_sites_time(dated)
         for variant in ts.variants(samples=ancient_samples):
             if np.any(variant.genotypes == 1):
                 ancient_bound = np.max(ancient_samples_times[variant.genotypes == 1])
                 self.assertTrue(sites_time[variant.site.id] >= ancient_bound)
         self.assertTrue(np.array_equal(
             dated.tables.nodes.time[dated.tables.mutations.node],
-            tsdate.get_site_times(
+            tsdate.get_sites_time(
                 dated, unconstrained=False, constrain_historic=False)))
 
     def test_sampledata(self):
@@ -1549,6 +1553,6 @@ class TestGetSiteTimes(unittest.TestCase):
         samples = tsinfer.formats.SampleData.from_tree_sequence(ts, use_times=False)
         inferred = tsinfer.infer(samples)
         dated = date(inferred, 10000, 1e-8)
-        copy = tsdate.get_site_times(dated, samples=samples)
+        copy = tsdate.get_sites_time(dated, samples=samples)
         assert (np.array_equal(copy.sites_time[:],
-                tsdate.get_site_times(dated, constrain_historic=True)))
+                tsdate.get_sites_time(dated, constrain_historic=True)))
