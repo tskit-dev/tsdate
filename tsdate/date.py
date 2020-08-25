@@ -218,7 +218,7 @@ class Likelihoods:
         if child_time == 0:
             timediff = self.timediff
         else:
-            timediff = self.timepoints - child_time 
+            timediff = self.timepoints - child_time
             timediff[timediff < 0] = 0
         # Temporary hack - we should really take a more precise likelihood
         return self._lik(mutations_on_edge, util.edge_span(edge), timediff,
@@ -772,9 +772,10 @@ def posterior_mean_var(ts, timepoints, posterior, Ne, *, fixed_node_set=None):
         metadata_array[node_id] = json.dumps({"mn": mn_post[node_id],
                                               "vr": vr_post[node_id]}).encode()
     md, md_offset = tskit.pack_bytes(metadata_array)
+    # Set metadata and convert node times back to unscaled time
     tables.nodes.set_columns(
             flags=tables.nodes.flags,
-            time=tables.nodes.time,
+            time=tables.nodes.time * 2 * Ne,
             population=tables.nodes.population,
             individual=tables.nodes.individual,
             metadata=md,
@@ -853,6 +854,7 @@ def date(
     tree_sequence, dates, _, timepoints, eps, nds = get_dates(
         tree_sequence, Ne, mutation_rate, recombination_rate, priors, progress=progress,
         **kwargs)
+
     constrained = constrain_ages_topo(tree_sequence, dates, eps, nds,
                                       progress)
     tables = tree_sequence.dump_tables()
@@ -878,10 +880,11 @@ def get_dates(
     :return: tuple(mn_post, posterior, timepoints, eps, nodes_to_date)
     """
     # Stuff yet to be implemented. These can be deleted once fixed
-    #for sample in tree_sequence.samples():
+    # for sample in tree_sequence.samples():
     #    if tree_sequence.node(sample).time != 0:
     #        raise NotImplementedError(
     #            "Samples must all be at time 0")
+    # Convert age of all nodes to scaled coalescent time
     fixed_nodes = set(tree_sequence.samples())
     tables = tree_sequence.dump_tables()
     times = tables.nodes.time[:] / (2 * Ne)
