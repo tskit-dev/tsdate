@@ -926,7 +926,7 @@ def get_dates(
                 normalize=outside_normalize,
                 ignore_oldest_root=ignore_oldest_root)
         ts, mn_post, _ = posterior_mean_var(tree_sequence, priors.timepoints, posterior,
-                                        fixed_node_set=fixed_nodes)
+                                            Ne, fixed_node_set=fixed_nodes)
     elif method == 'maximization':
         if theta is not None:
             mn_post = dynamic_prog.outside_maximization(Ne, eps)
