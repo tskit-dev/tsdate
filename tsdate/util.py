@@ -130,7 +130,7 @@ def preprocess_ts(tree_sequence, minimum_gap=1000000, remove_telomeres=True):
 
 
 def get_sites_time(tree_sequence, unconstrained=False, constrain_historic=True,
-                   samples=None, mutation_age=False):
+                   samples=None, mutation_age=None):
     """
     Returns the estimated time of the node of oldest mutation associated with each site.
     If multiple mutations are present at a site, use the oldest mutation's node
@@ -148,9 +148,10 @@ def get_sites_time(tree_sequence, unconstrained=False, constrain_historic=True,
         add site times to. If both a SampleData file is provided and constrain_historic
         is True, use any historic individuals in this SampleData file to constrain site
         times.
-    :param bool mutation_age: If true, return the age of the oldest mutation associated
-        with each site.
-        Default: "True"
+    :param bool mutation_age: If "arithmetic", return the age of the oldest mutation
+        associated with each site, calculated using the arithmetic mean of the parent
+        and child nodes of the mutation. If "geometric", use the geometric mean.
+        Default: "None"
     :return: An array of length tree_sequence.num_sites giving the estimated site time
         of each site.
     :rtype numpy.array
@@ -177,9 +178,12 @@ def get_sites_time(tree_sequence, unconstrained=False, constrain_historic=True,
     for tree in tree_sequence.trees():
         for site in tree.sites():
             for mutation in site.mutations:
-                if mutation_age:
+                if mutation_age == "arithmetic":
                     parent_node = tree.parent(mutation.node)
                     age = (node_ages[mutation.node] + node_ages[parent_node]) / 2
+                elif mutation_age == "geometric":
+                    parent_node = tree.parent(mutation.node)
+                    age = np.sqrt(node_ages[mutation.node] * node_ages[parent_node])
                 else:
                     age = node_ages[mutation.node]
                 if sites_time[site.id] < age:
