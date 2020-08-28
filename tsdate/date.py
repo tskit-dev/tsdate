@@ -882,6 +882,7 @@ def get_dates(
     # Convert age of all nodes to scaled coalescent time
     fixed_nodes = set(tree_sequence.samples())
     tables = tree_sequence.dump_tables()
+    times = tables.nodes.time[:]
     times[tree_sequence.samples()] = tables.nodes.time[:][tree_sequence.samples()] / (2 * Ne)
     tables.nodes.time = times
     tree_sequence = tables.tree_sequence()
