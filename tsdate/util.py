@@ -148,9 +148,10 @@ def get_sites_time(tree_sequence, unconstrained=False, constrain_historic=True,
         add site times to. If both a SampleData file is provided and constrain_historic
         is True, use any historic individuals in this SampleData file to constrain site
         times.
-    :param bool mutation_age: If "arithmetic", return the age of the oldest mutation
-        associated with each site, calculated using the arithmetic mean of the parent
-        and child nodes of the mutation. If "geometric", use the geometric mean.
+    :param bool mutation_age: If None, return the age of the child node of the oldest
+        mutation associated with a site. If "arithmetic", return the age of the oldest
+        mutation associated with each site, calculated using the arithmetic mean of the
+        parent and child nodes of the mutation. If "geometric", use the geometric mean.
         Default: "None"
     :return: An array of length tree_sequence.num_sites giving the estimated site time
         of each site.
