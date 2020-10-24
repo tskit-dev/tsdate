@@ -114,8 +114,10 @@ def preprocess_ts(tree_sequence, minimum_gap=1000000, trim_telomeres=True):
             delete_intervals.append([gap_start, gap_end])
     delete_intervals = sorted(delete_intervals, key=lambda x: x[0])
     if len(delete_intervals) > 0:
-        tree_sequence_trimmed = tree_sequence.delete_intervals(delete_intervals)
-        tree_sequence_trimmed = tree_sequence_trimmed.simplify(filter_sites=False)
+        tree_sequence_trimmed = tree_sequence.delete_intervals(delete_intervals,
+                                                               simplify=False)
+        tree_sequence_trimmed = tree_sequence_trimmed.simplify(filter_sites=False,
+                                                               keep_unary=True)
         assert tree_sequence.num_sites == tree_sequence_trimmed.num_sites
         return provenance.record_provenance(
                 tree_sequence_trimmed, "preprocess_ts", minimum_gap=minimum_gap,
