@@ -677,7 +677,7 @@ class InOutAlgorithms:
         self.outside = outside
         return posterior
 
-    def outside_maximization(self, *, eps=1e-6, progress=None):
+    def outside_maximization(self, Ne, *, eps, progress=None):
         if progress is None:
             progress = self.progress
         if not hasattr(self, "inside"):
@@ -730,17 +730,18 @@ class InOutAlgorithms:
             maximized_node_times[child] = np.argmax(self.lik.combine(
                 result[:youngest_par_index + 1], inside_val))
 
-        return self.lik.timepoints[np.array(maximized_node_times).astype('int')]
+        return (self.lik.timepoints[np.array(maximized_node_times).astype('int')] * 2
+                * Ne)
 
 
-def posterior_mean_var(ts, timepoints, posterior, *, fixed_node_set=None):
+def posterior_mean_var(ts, timepoints, posterior, Ne, *, fixed_node_set=None):
     """
     Mean and variance of node age in scaled time. Fixed nodes will be given a mean
     of their exact time in the tree sequence, and zero variance (as long as they are
     identified by the fixed_node_set
     If fixed_node_set is None, we attempt to date all the non-sample nodes
-    Also assigns the estimated mean and variance of each node as metadata in the tree
-    sequence.
+    Also assigns the estimated mean and variance of the age of each node, in unscaled
+    time, as metadata in the tree sequence.
     """
     mn_post = np.full(ts.num_nodes, np.nan)  # Fill with NaNs so we detect when there's
     vr_post = np.full(ts.num_nodes, np.nan)  # been an error
@@ -754,11 +755,11 @@ def posterior_mean_var(ts, timepoints, posterior, *, fixed_node_set=None):
 
     metadata_array = tskit.unpack_bytes(ts.tables.nodes.metadata,
                                         ts.tables.nodes.metadata_offset)
-
+    timepoints = timepoints * 2 * Ne
     for row, node_id in zip(posterior.grid_data, posterior.nonfixed_nodes):
         mn_post[node_id] = np.sum(row * timepoints) / np.sum(row)
-        vr_post[node_id] = (np.sum(row * timepoints ** 2) / np.sum(row) -
-                            mn_post[node_id] ** 2)
+        vr_post[node_id] = np.sum(((
+            mn_post[node_id] - (timepoints)) ** 2) * (row / np.sum(row)))
         metadata_array[node_id] = json.dumps({"mn": mn_post[node_id],
                                               "vr": vr_post[node_id]}).encode()
     md, md_offset = tskit.pack_bytes(metadata_array)
@@ -846,7 +847,7 @@ def date(
     constrained = constrain_ages_topo(tree_sequence, dates, eps, nds,
                                       progress)
     tables = tree_sequence.dump_tables()
-    tables.nodes.time = constrained * 2 * Ne
+    tables.nodes.time = constrained
     tables.sort()
     ts = tables.tree_sequence()
     return provenance.record_provenance(
@@ -910,10 +911,11 @@ def get_dates(
     if method == 'inside_outside':
         posterior = dynamic_prog.outside_pass(normalize=outside_normalize)
         tree_sequence, mn_post, _ = posterior_mean_var(
-                tree_sequence, priors.timepoints, posterior, fixed_node_set=fixed_nodes)
+                tree_sequence, priors.timepoints, posterior, Ne,
+                fixed_node_set=fixed_nodes)
     elif method == 'maximization':
         if theta is not None:
-            mn_post = dynamic_prog.outside_maximization(eps=eps)
+            mn_post = dynamic_prog.outside_maximization(Ne, eps=eps)
         else:
             raise ValueError("Outside maximization method requires mutation rate")
     else:

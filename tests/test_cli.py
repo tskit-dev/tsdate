@@ -22,6 +22,7 @@
 """
 Test cases for the command line interface for tsdate.
 """
+import json
 import tempfile
 import pathlib
 import unittest
@@ -135,32 +136,36 @@ class TestEndToEnd(unittest.TestCase):
     """
 
     def ts_equal(self, ts1, ts2, times_equal=False):
-        for (_, t1), (_, t2) in zip(ts1.tables, ts2.tables):
-            if isinstance(t1, tskit.ProvenanceTable):
-                # TO DO - should check that the provenance has had the "tsdate" method
-                # added
-                pass
-            elif isinstance(t1, tskit.NodeTable):
-                # New tree sequence will have node times in metadata
-                for column_name in t1.column_names:
-                    if column_name not in ["time", "metadata", "metadata_offset"]:
-                        col_t1 = getattr(t1, column_name)
-                        col_t2 = getattr(t2, column_name)
-                        self.assertTrue(np.array_equal(col_t1, col_t2))
-            elif isinstance(t1, tskit.EdgeTable):
-                # Edges may have been re-ordered, since sortedness requirements specify
-                # they are sorted by parent time, and the relative order of
-                # (unconnected) parent nodes might have changed due to time inference
-                self.assertEquals(set(t1), set(t2))
-            else:
-                self.assertEquals(t1, t2)
+        self.assertEqual(ts1.sequence_length, ts2.sequence_length)
+        t1 = ts1.tables
+        t2 = ts2.tables
+        self.assertEqual(t1.sites, t2.sites)
+        self.assertEqual(t1.mutations, t2.mutations)
+        # Edges may have been re-ordered, since sortedness requirements specify
+        # they are sorted by parent time, and the relative order of
+        # (unconnected) parent nodes might have changed due to time inference
+        self.assertEquals(set(t1.edges), set(t2.edges))
         if not times_equal:
             # The dated and undated tree sequences should not have the same node times
             self.assertTrue(not np.array_equal(
                 ts1.tables.nodes.time, ts2.tables.nodes.time))
+            # New tree sequence will have node times in metadata
+            for column_name in t1.nodes.column_names:
+                if column_name not in ["time", "metadata", "metadata_offset"]:
+                    col_t1 = getattr(t1.nodes, column_name)
+                    col_t2 = getattr(t2.nodes, column_name)
+                    self.assertTrue(np.array_equal(col_t1, col_t2))
+            # Assert that last provenance shows tree sequence was dated
+            self.assertEqual(len(t1.provenances), len(t2.provenances) - 1)
+            for index, (prov1, prov2) in enumerate(zip(t1.provenances, t2.provenances)):
+                self.assertEqual(prov1, prov2)
+                if index == len(t1.provenances) - 1:
+                    break
+            self.assertEqual(
+                    json.loads(t2.provenances[-1].record)["software"]["name"], "tsdate")
+
         else:
-            # The dated and undated tree sequences should have the same node times
-            self.assertTrue(np.array_equal(ts1.tables.nodes.time, ts2.tables.nodes.time))
+            self.assertEqual(t1.nodes, t2.nodes)
 
     def verify(self, input_ts, cmd):
         with tempfile.TemporaryDirectory() as tmpdir:

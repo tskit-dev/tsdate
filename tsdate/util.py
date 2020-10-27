@@ -24,8 +24,11 @@ Utility functions for tsdate. Many of these can be removed when tskit is updated
 a more recent version which has the functionality built-in
 """
 
+import json
 import numpy as np
 import logging
+
+import tskit
 
 from . import provenance
 
@@ -62,7 +65,7 @@ def reduce_to_contemporaneous(ts):
         filter_sites=False, record_provenance=False, filter_individuals=False)
 
 
-def preprocess_ts(tree_sequence, minimum_gap=1000000, trim_telomeres=True):
+def preprocess_ts(tree_sequence, minimum_gap=1000000, remove_telomeres=True):
     """
     Function to remove gaps without sites from tree sequence.
     Large regions without data can cause overflow/underflow errors in the
@@ -71,35 +74,35 @@ def preprocess_ts(tree_sequence, minimum_gap=1000000, trim_telomeres=True):
     sequence.
 
     :param TreeSequence tree_sequence: The input :class`tskit.TreeSequence`
-        to be trimmed.
-    :param float minimum_gap: The minimum gap between sites to trim from the tree
+        to be preprocessed.
+    :param float minimum_gap: The minimum gap between sites to remove from the tree
         sequence. Default: "1000000"
-    :param bool trim_telomeres: Should all material before the first site and after the
-        last site be trimmed, regardless of the length. Default: "True"
+    :param bool remove_telomeres: Should all material before the first site and after the
+        last site be removed, regardless of the length. Default: "True"
     :return: A tree sequence with gaps removed.
     :rtype: tskit.TreeSequence
     """
     logger.info("Beginning preprocessing")
-    logger.info("Minimum_gap: {} and trim_telomeres: {}".format(
-        minimum_gap, trim_telomeres))
+    logger.info("Minimum_gap: {} and remove_telomeres: {}".format(
+        minimum_gap, remove_telomeres))
     if tree_sequence.num_sites < 1:
         raise ValueError(
                 "Invalid tree sequence: no sites present")
 
     sites = tree_sequence.tables.sites.position[:]
     delete_intervals = []
-    if trim_telomeres:
+    if remove_telomeres:
         first_site = sites[0] - 1
         if first_site > 0:
             delete_intervals.append([0, first_site])
-            logger.info("TRIMMING TELOMERE: Snip topology "
+            logger.info("REMOVING TELOMERE: Snip topology "
                         "from 0 to first site at {}.".format(
                             first_site))
         last_site = sites[-1] + 1
         sequence_length = tree_sequence.get_sequence_length()
         if last_site < sequence_length:
             delete_intervals.append([last_site, sequence_length])
-            logger.info("TRIMMING TELOMERE: Snip topology "
+            logger.info("REMOVING TELOMERE: Snip topology "
                         "from {} to end of sequence at {}.".format(
                             last_site, sequence_length))
     gaps = sites[1:] - sites[:-1]
@@ -121,7 +124,112 @@ def preprocess_ts(tree_sequence, minimum_gap=1000000, trim_telomeres=True):
         assert tree_sequence.num_sites == tree_sequence_trimmed.num_sites
         return provenance.record_provenance(
                 tree_sequence_trimmed, "preprocess_ts", minimum_gap=minimum_gap,
-                trim_telomeres=trim_telomeres, delete_intervals=delete_intervals)
+                remove_telomeres=remove_telomeres, delete_intervals=delete_intervals)
     else:
-        logger.info("No gaps to trim")
+        logger.info("No gaps to remove")
         return tree_sequence
+
+
+def nodes_time(tree_sequence, unconstrained=True):
+    nodes_age = tree_sequence.tables.nodes.time[:]
+    if unconstrained:
+        metadata = tree_sequence.tables.nodes.metadata[:]
+        metadata_offset = tree_sequence.tables.nodes.metadata_offset[:]
+        for index, met in enumerate(tskit.unpack_bytes(metadata, metadata_offset)):
+            if index not in tree_sequence.samples():
+                try:
+                    nodes_age[index] = json.loads(met.decode())["mn"]
+                except (KeyError, json.decoder.JSONDecodeError):
+                    raise ValueError("Tree Sequence must be tsdated with the "
+                                     "Inside-Outside Method. Use unconstrained=False "
+                                     "if not.")
+    return nodes_age
+
+
+def sites_time_from_ts(tree_sequence, *, unconstrained=True, mutation_age="child",
+                       ignore_multiallelic=True, eps=1e-6):
+    """
+    Returns the estimated time of the oldest mutation at each site.
+
+    :param TreeSequence tree_sequence: The input :class`tskit.TreeSequence`.
+    :param bool unconstrained: Use node ages which are unconstrained by site topology.
+        Only applies when the inside-outside algorithm is used.
+        Default: "True"
+    :param str mutation_age: Defines how mutation times are calculated. Options are
+        "child", "parent", "arithmetic" or "geometric". If "child", mutation ages are
+        defined by the time of the mutation's child node.
+        If "parent", mutation ages are the time of the mutation's parent node.
+        If "arithmetic", mutation times are calculated using the arithmetic mean of
+        the parent and child nodes of the mutation. If "geometric", use the geometric
+        mean of the parent and child nodes of the mutation.
+        Default: "child"
+    :param bool ignore_multiallelic: If True, return the age of oldest mutation
+        asscoated with any allele at multiallelic sites. If False, return
+        tskit.UNKNOWN_TIME at multiallelic sites.
+        Default: True
+    :param float eps: Time value assigned to sites with > 1 mutation where the age of
+        oldest mutation is 0. For example, this value would be assigned to sites where
+        all mutations are singletons and the mutation_age parameter is assigned to
+        "child" or "geometric".
+        Default: 1e-6
+    :return: An array of length tree_sequence.num_sites with the estimated time of each
+        site.
+    :rtype numpy.array
+
+    """
+    if tree_sequence.num_sites < 1:
+        raise ValueError("Invalid tree sequence: no sites present")
+    if mutation_age not in ["arithmetic", "geometric", "child", "parent"]:
+        raise ValueError(
+            "mutation_age parameter must be 'arithmetic', 'geometric', 'child', or\
+            'parent'")
+    sites_time = np.empty(tree_sequence.num_sites)
+    sites_time[:] = -np.inf
+    nodes_age = nodes_time(tree_sequence, unconstrained=unconstrained)
+
+    for tree in tree_sequence.trees():
+        for site in tree.sites():
+            alleles = set([site.ancestral_state])
+            for mutation in site.mutations:
+                alleles.add(mutation.derived_state)
+                if mutation_age == "child":
+                    age = nodes_age[mutation.node]
+                else:
+                    parent_age = nodes_age[tree.parent(mutation.node)]
+                    if mutation_age == "parent":
+                        age = parent_age
+                    elif mutation_age == "arithmetic":
+                        age = (nodes_age[mutation.node] + parent_age) / 2
+                    elif mutation_age == "geometric":
+                        age = np.sqrt(nodes_age[mutation.node] * parent_age)
+                if sites_time[site.id] < age:
+                    sites_time[site.id] = age
+            if len(site.mutations) > 1 and sites_time[site.id] == 0:
+                sites_time[site.id] = eps
+            if ignore_multiallelic is False:
+                if len(alleles) > 2:
+                    sites_time[site.id] = tskit.UNKNOWN_TIME
+    return sites_time
+
+
+def add_sampledata_times(samples, sites_time):
+    """
+    Return a tsinfer.SampleData file with estimated times associated with sites.
+    Ensures that each site's time is at least as old as the oldest historic sample
+    carrying a derived allele at that site.
+
+    :param tsinfer.formats.SampleData samples: A tsinfer SampleData object to
+        add site times to. Any historic individuals in this SampleData file are used to
+        constrain site times.
+    :return A tsinfer.SampleData file
+    :rtype tsinfer.SampleData
+    """
+    assert samples.num_sites == len(sites_time)
+    # Get constraints from ancients
+    sites_bound = samples.min_site_times(individuals_only=True)
+    # Use maximum of constraints and estimated site times
+    sites_time = np.maximum(sites_time, sites_bound)
+    copy = samples.copy()
+    copy.sites_time[:] = sites_time
+    copy.finalise()
+    return copy
