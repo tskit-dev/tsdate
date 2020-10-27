@@ -1419,7 +1419,7 @@ class TestPreprocessTs(unittest.TestCase):
     Test preprocess_ts works as expected
     """
 
-    def verify(self, ts, minimum_gap=None, remove_telomeres=None):
+    def verify(self, ts, minimum_gap=None, remove_telomeres=None, **kwargs):
         with self.assertLogs("tsdate.util", level="INFO") as logs:
             if minimum_gap is not None and remove_telomeres is not None:
                 ts = tsdate.preprocess_ts(ts, minimum_gap=minimum_gap,
@@ -1429,7 +1429,7 @@ class TestPreprocessTs(unittest.TestCase):
             elif remove_telomeres is not None and minimum_gap is None:
                 ts = tsdate.preprocess_ts(ts, remove_telomeres=remove_telomeres)
             else:
-                ts = tsdate.preprocess_ts(ts)
+                ts = tsdate.preprocess_ts(ts, **kwargs)
         messages = [record.msg for record in logs.records]
         self.assertIn("Beginning preprocessing", messages)
         return ts
@@ -1474,6 +1474,15 @@ class TestPreprocessTs(unittest.TestCase):
                 not np.any(np.logical_and(lefts > 96, lefts < 100)))
         self.assertTrue(
                 not np.any(np.logical_and(rights > 96, rights < 100)))
+
+    def test_filter_sites_warning(self):
+        # Test that passing kwargs to simplify works as expected
+        ts = utility_functions.two_sites_one_w_no_mutations()
+        self.assertRaises(Warning, self.verify(ts))
+        removed = self.verify(ts)
+        self.assertTrue(removed.num_sites == 1)
+        removed_nofilter = self.verify(ts, {"filter_sites": False})
+        self.assertTrue(removed.num_sites == 2)
 
 
 class TestNodeTimes(unittest.TestCase):
