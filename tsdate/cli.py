@@ -146,7 +146,8 @@ def run_preprocess(args):
         ts = tskit.load(args.tree_sequence)
     except tskit.FileFormatError as ffe:
         exit("Error loading '{}: {}".format(args.tree_sequence, ffe))
-    snipped_ts = tsdate.preprocess_ts(ts, args.minimum_gap, args.trim_telomeres)
+    snipped_ts = tsdate.preprocess_ts(ts, minimum_gap=args.minimum_gap,
+                                      remove_telomeres=args.trim_telomeres)
     snipped_ts.dump(args.output)
 
 

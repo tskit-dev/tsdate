@@ -26,6 +26,7 @@ Test cases for the python API for tsdate.
 import unittest
 import collections
 import json
+import warnings
 
 import math
 import numpy as np
@@ -1439,13 +1440,22 @@ class TestPreprocessTs(unittest.TestCase):
         self.assertRaises(ValueError, tsdate.preprocess_ts, ts)
 
     def test_invariant_sites(self):
+        # Test that passing kwargs to simplify works as expected
         ts = utility_functions.site_no_mutations()
-        self.assertTrue(tsdate.preprocess_ts(ts).num_sites == ts.num_sites)
+        with warnings.catch_warnings(record=True) as w:
+            removed = self.verify(ts)
+            self.assertTrue(removed.num_sites == 0)
+            self.assertTrue(len(w) == 1)
+        self.assertTrue(
+                tsdate.preprocess_ts(
+                    ts, **{"filter_sites": False}).num_sites == ts.num_sites)
 
     def test_no_intervals(self):
         ts = utility_functions.two_tree_mutation_ts()
-        self.assertTrue(ts == self.verify(ts, remove_telomeres=False))
-        self.assertTrue(ts == self.verify(ts, minimum_gap=0.05))
+        self.assertTrue(
+                ts.tables.edges == self.verify(ts, remove_telomeres=False).tables.edges)
+        self.assertTrue(
+                ts.tables.edges == self.verify(ts, minimum_gap=0.05).tables.edges)
 
     def test_delete_interval(self):
         ts = utility_functions.ts_w_data_desert(40, 60, 100)
@@ -1474,15 +1484,6 @@ class TestPreprocessTs(unittest.TestCase):
                 not np.any(np.logical_and(lefts > 96, lefts < 100)))
         self.assertTrue(
                 not np.any(np.logical_and(rights > 96, rights < 100)))
-
-    def test_filter_sites_warning(self):
-        # Test that passing kwargs to simplify works as expected
-        ts = utility_functions.two_sites_one_w_no_mutations()
-        self.assertRaises(Warning, self.verify(ts))
-        removed = self.verify(ts)
-        self.assertTrue(removed.num_sites == 1)
-        removed_nofilter = self.verify(ts, {"filter_sites": False})
-        self.assertTrue(removed.num_sites == 2)
 
 
 class TestNodeTimes(unittest.TestCase):

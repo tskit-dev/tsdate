@@ -27,6 +27,7 @@ a more recent version which has the functionality built-in
 import json
 import numpy as np
 import logging
+import warnings
 
 import tskit
 
@@ -69,7 +70,7 @@ def preprocess_ts(tree_sequence, *, minimum_gap=1000000, remove_telomeres=True,
                   **kwargs):
     """
     Function to prepare tree sequences for dating by removing gaps without sites and
-    simplifying the tree sequence. Large regions without data can cause 
+    simplifying the tree sequence. Large regions without data can cause
     overflow/underflow errors in the inside-outside algorithm and poor performance more
     generally. Removed regions are recorded in the provenance of the resulting tree
     sequence.
@@ -80,8 +81,8 @@ def preprocess_ts(tree_sequence, *, minimum_gap=1000000, remove_telomeres=True,
         sequence. Default: "1000000"
     :param bool remove_telomeres: Should all material before the first site and after the
         last site be removed, regardless of the length. Default: "True"
-    :param dict **kwargs: All further keyword arguments are passed to the 
-        ``tskit.simplify`` command.
+    :param **kwargs: All further keyword arguments are passed to the ``tskit.simplify``
+        command.
 
     :return: A tree sequence with gaps removed.
     :rtype: tskit.TreeSequence
@@ -124,16 +125,18 @@ def preprocess_ts(tree_sequence, *, minimum_gap=1000000, remove_telomeres=True,
         tree_sequence_trimmed = tree_sequence.delete_intervals(delete_intervals,
                                                                simplify=False)
         tree_sequence_trimmed = tree_sequence_trimmed.simplify(**kwargs)
-        if tree_sequence.num_sites == tree_sequence_trimmed.num_sites:
-            raise Warning("Different number of sites after preprocessing. "
-                          "Try using **{'filter_sites:' False} to avoid this")
-        return provenance.record_provenance(
+        tree_sequence_trimmed = provenance.record_provenance(
                 tree_sequence_trimmed, "preprocess_ts", minimum_gap=minimum_gap,
                 remove_telomeres=remove_telomeres, delete_intervals=delete_intervals)
     else:
         logger.info("No gaps to remove")
-        tree_sequence = tree_sequence.simplify(**kwargs)
-        return tree_sequence
+        tree_sequence_trimmed = tree_sequence.simplify(**kwargs)
+    if tree_sequence.num_sites != tree_sequence_trimmed.num_sites:
+        warnings.warn("Different number of sites after preprocessing. "
+                      "Try using **{'filter_sites:' False} to avoid this",
+                      RuntimeWarning)
+
+    return tree_sequence_trimmed
 
 
 def nodes_time(tree_sequence, unconstrained=True):
