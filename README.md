@@ -1,4 +1,4 @@
-# tsdate <img align="right" width="145" height="90" src="https://github.com/awohns/tsdate/docs/_static/tsdate_logo.svg?raw=true">
+# tsdate <img align="right" width="145" height="90" src="https://github.com/awohns/tsdate/docs/_static/tsdate_logo.svg">
 
 [![CircleCI](https://circleci.com/gh/awohns/tsdate.svg?style=svg)](https://circleci.com/gh/awohns/tsdate)
 [![codecov](https://codecov.io/gh/awohns/tsdate/branch/master/graph/badge.svg)](https://codecov.io/gh/awohns/tsdate)
