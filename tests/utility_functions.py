@@ -292,6 +292,7 @@ def polytomy_tree_ts():
 def single_tree_ts_internal_n3():
     r"""
     Simple case where we have n = 3 and one tree.
+    Node 3 is an internal sample.
             4
            / \
           3   \
@@ -480,11 +481,11 @@ def two_tree_mutation_ts():
 
 def two_tree_two_mrcas():
     r"""
-    Simple case where we have n = 4, 2 trees.
+    Simple case where we have n = 4, 2 trees, one mutation.
              6             |
             / \            |            7
            /   \           |           / \
-          /     \          |          /   \
+          /     \          |          /   x
          /       \         |         /     \
         /         \        |        /       \
        4           5       |       4         5
@@ -498,7 +499,7 @@ def two_tree_two_mrcas():
     1       1           0
     2       1           0
     3       1           0
-    4       1           1
+    4       0           1
     5       0           1
     6       0           3
     7       0           2
@@ -512,7 +513,17 @@ def two_tree_two_mrcas():
     0.3     1       7       4
     0.3     1       7       5
     """)
-    return tskit.load_text(nodes=nodes, edges=edges, strict=False)
+    sites = io.StringIO("""\
+    position    ancestral_state
+    0.5         0
+    """)
+    mutations = io.StringIO("""\
+    site    node    derived_state
+    0       5       1
+    """)
+
+    return tskit.load_text(nodes=nodes, edges=edges, sites=sites,
+                           mutations=mutations, strict=False)
 
 
 def loopy_tree():

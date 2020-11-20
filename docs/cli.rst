@@ -4,7 +4,8 @@
 Command line interface
 ======================
 
-``tsdate`` provides a Command Line Interface as a simple interface with the :ref:`Python API <sec_python_api>`.
+``tsdate`` provides a Command Line Interface to access the basic functionality of the
+:ref:`Python API <sec_python_api>`.
 
 
 .. code-block:: bash
@@ -17,7 +18,7 @@ or
 
     $ python3 -m tsdate
 
-The second means of using the CLI is useful when multiple versions of Python are 
+The second command is useful when multiple versions of Python are 
 installed or if the :command:`tsdate` executable is not installed on your path.
 
 ++++++++++++++++

@@ -79,28 +79,32 @@ def tsdate_cli_parser():
     parser.add_argument('-m', '--mutation-rate', type=float, default=None,
                         help="The estimated mutation rate per unit of genome per \
                         generation. If provided, the dating algorithm will use a \
-                        mutation rate clock to help estimate node dates.")
+                        mutation rate clock to help estimate node dates. Default: None")
     parser.add_argument('-r', '--recombination-rate', type=float,
                         default=None, help="The estimated recombination rate per unit \
                         of genome per generation. If provided, the dating algorithm \
                         will  use a recombination rate clock to help estimate node \
-                        dates.")
+                        dates. Default: None")
     parser.add_argument('-e', '--epsilon', type=float, default=1e-6,
                         help="Specify minimum distance separating time points. Also \
-                        specifies the error factor in time difference calculations.")
+                        specifies the error factor in time difference calculations. \
+                        Default: 1e-6")
     parser.add_argument('-t', '--num-threads', type=int, default=None,
                         help="The number of threads to use. A simpler unthreaded \
-                        algorithm is used unless this is >= 1 (default: None).")
+                        algorithm is used unless this is >= 1. Default: None")
     parser.add_argument('--probability-space', type=str, default='logarithmic',
                         help="Should the internal algorithm save probabilities in \
                         'logarithmic' (slower, less liable to to overflow) or 'linear' \
-                        space (faster, may overflow).")
+                        space (faster, may overflow). Default: 'logarithmic'")
     parser.add_argument('--method', type=str, default='inside_outside',
                         help="Specify which estimation method to use: can be \
                         'inside_outside' (empirically better, theoretically \
                         problematic) or 'maximization' (worse empirically, especially \
                         with a gamma approximated prior, but theoretically robust). \
-                        Default: 'inside_outside.'")
+                        Default: 'inside_outside'")
+    parser.add_argument('--ignore-oldest', action='store_true',
+                        help="Ignore the oldest node in the tree sequence, which is \
+                        often of low quality when using empirical data.")
     parser.add_argument('-p', '--progress', action='store_true',
                         help="Show progress bar.")
     parser.add_argument('-v', '--verbosity', type=int, default=0,
@@ -137,7 +141,7 @@ def run_date(args):
         recombination_rate=args.recombination_rate,
         probability_space=args.probability_space, method=args.method,
         eps=args.epsilon, num_threads=args.num_threads,
-        progress=args.progress)
+        ignore_oldest_root=args.ignore_oldest, progress=args.progress)
     dated_ts.dump(args.output)
 
 
