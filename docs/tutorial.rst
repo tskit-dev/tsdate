@@ -61,7 +61,9 @@ sequence:
 	dated_ts = tsdate.date(inferred_ts, Ne=10000, mutation_rate=1e-8)
 
 All we need to run ``tsdate`` (with its default parameters) is the inferred tree sequence
-object, the *estimated* effective population size, and *estimated* mutation rate.
+object, the *estimated* effective population size, and *estimated* mutation rate. Here we
+have provided a human mutation rate per base pair per generation, so the nodes dates in the
+resulting tree sequence should be interpreted as generations.
 
 .. _sec_tutorial_specify_prior:
 
