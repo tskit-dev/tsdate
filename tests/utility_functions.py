@@ -432,6 +432,40 @@ def single_tree_ts_with_unary():
     return tskit.load_text(nodes=nodes, edges=edges, strict=False)
 
 
+def two_tree_ts_with_unary_n3():
+    r"""
+    Simple case where we have n = 3 and node 5 is an internal, unary node in the first
+    tree. In the second tree, node t is the root, but still unary.
+             6        .      5
+           /   \      .      |
+          4     5     .      4
+          |     |     .     /  \
+          3     |     .    3    \
+         / \    |     .   / \    \
+       [0] [1] [2]    . [0]  [1] [2]
+    """
+    nodes = io.StringIO("""\
+    id      is_sample   time
+    0       1           0
+    1       1           0
+    2       1           0
+    3       0           1
+    4       0           2
+    5       0           3
+    6       0           4
+    """)
+    edges = io.StringIO("""\
+    left    right   parent  child
+    0       2       3       0,1
+    0       1       5       2
+    0       2       4       3
+    0       1       6       4,5
+    1       2       4       2
+    1       2       5       4
+    """)
+    return tskit.load_text(nodes=nodes, edges=edges, strict=False)
+
+
 def two_tree_mutation_ts():
     r"""
     Simple case where we have n = 3, 2 trees, three mutations.

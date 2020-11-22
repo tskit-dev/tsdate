@@ -36,13 +36,9 @@ from . import provenance
 logger = logging.getLogger(__name__)
 
 
-def tree_num_children(tree, node):
-    return len(tree.children(node))
-
-
 def get_single_root(tree):
     # TODO - use new 'root_threshold=2' to avoid having to check isolated nodes
-    topological_roots = [r for r in tree.roots if tree_num_children(tree, r) != 0]
+    topological_roots = [r for r in tree.roots if tree.num_children(r) != 0]
     if len(topological_roots) > 1:
         raise ValueError(
             "Invalid tree sequence: tree {} has >1 root".format(tree.index))

@@ -183,6 +183,20 @@ class TestNodeTipWeights(unittest.TestCase):
         self.assertEqual(span_data.lookup_weight(4, n, 3), 0.25)
         self.assertEqual(span_data.lookup_weight(3, n, 2), 1.0)
 
+    @unittest.skip("Unary node is internal then the oldest node")
+    def test_tree_with_unary_nodes_oldest(self):
+        ts = utility_functions.two_tree_ts_with_unary_n3()
+        n = ts.num_samples
+        span_data = self.verify_weights(ts)
+        self.assertEqual(span_data.lookup_weight(9, n, 4), 0.5)
+        self.assertEqual(span_data.lookup_weight(8, n, 4), 1.0)
+        self.assertEqual(span_data.lookup_weight(7, n, 1), 0.5)
+        self.assertEqual(span_data.lookup_weight(7, n, 4), 0.5)
+        self.assertEqual(span_data.lookup_weight(6, n, 2), 0.5)
+        self.assertEqual(span_data.lookup_weight(6, n, 4), 0.5)
+        self.assertEqual(span_data.lookup_weight(5, n, 2), 0.5)
+        self.assertEqual(span_data.lookup_weight(4, n, 2), 1.0)
+
     def test_polytomy_tree(self):
         ts = utility_functions.polytomy_tree_ts()
         span_data = self.verify_weights(ts)
