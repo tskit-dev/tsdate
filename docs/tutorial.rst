@@ -145,7 +145,7 @@ array in a tsinfer.SampleData file).
       modern_samples = samples.subset(np.where(samples.individuals_time[:] == 0)[0])
       inferred_ts = tsinfer.infer(modern_samples) # Infer tree seq from modern samples
       # Removes unary nodes (currently required in tsdate), keeps historic-only sites
-      inferred_ts = tsdate.preprocess_ts(inferred_ts, **{"filter_sites": False})
+      inferred_ts = tsdate.preprocess_ts(inferred_ts, filter_sites=False)
       dated_ts = tsdate.date(inferred_ts, Ne=Ne, mutation_rate=mutation_rate) # Date tree seq
       sites_time = tsdate.sites_time_from_ts(dated_ts)  # Get tsdate site age estimates
       dated_samples = tsdate.add_sampledata_times(
