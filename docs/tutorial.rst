@@ -91,6 +91,33 @@ empirically, but is numerically stable.
 
 .. _command_line_interface:
 
+++++++++++++++++++++++++++++++
+Command Line Interface Example
+++++++++++++++++++++++++++++++
+
+``tsdate`` also offers a convenient :ref:`command line interface (CLI) <sec_cli>` for 
+accessing the core functionality of the algorithm. 
+
+For a simple example of CLI, we'll first save the inferred tree sequence we created in
+:ref:`the section above <sec_tutorial_tsdate>` as a file.
+
+.. code-block:: python
+
+    import tskit
+
+    inferred_ts.dump("inferred_ts.trees")
+
+Now we use the CLI to again date the inferred tree sequence and output the resulting
+dated tree sequence to ``dated_ts.trees`` file:
+
+::
+
+    $ tsdate date inferred_ts.trees dated_ts.trees 10000 1e-8 --progress
+
+The first two arguments are the input and output tree sequence file names, the third is the estimated effective population size, and the fourth is the estimated mutation rate. We also add the ``--progress`` option to keep track of ``tsdate``'s progress.
+
+.. _troubleshooting:
+
 ++++++++++++++++++++++
 Troubleshooting tsdate
 ++++++++++++++++++++++
@@ -100,7 +127,7 @@ tree sequences using the Inside-Outside algorithm, it may be necessary to remove
 large sections of the tree which do not have any variable sites using 
 :meth:`tsdate.preprocess_ts()` method.
 
-.. _troubleshooting:
+.. _historical_samples:
 
 *********************************************************************
 Inferring and Dating Tree Sequences with Historical (Ancient) Samples
@@ -145,7 +172,7 @@ modern and historical samples (the latter are specified using the
       modern_samples = samples.subset(np.where(samples.individuals_time[:] == 0)[0])
       inferred_ts = tsinfer.infer(modern_samples) # Infer tree seq from modern samples
       # Removes unary nodes (currently required in tsdate), keeps historical-only sites
-      inferred_ts = tsdate.preprocess_ts(inferred_ts, filter_sites: False)
+      inferred_ts = tsdate.preprocess_ts(inferred_ts, filter_sites=False)
       dated_ts = tsdate.date(inferred_ts, Ne=Ne, mutation_rate=mutation_rate) # Date tree seq
       sites_time = tsdate.sites_time_from_ts(dated_ts)  # Get tsdate site age estimates
       dated_samples = tsdate.add_sampledata_times(
@@ -168,28 +195,3 @@ we reinfer the tree sequence, using the date estimates from tsdate and the histo
 constraints rather than the frequency of the alleles to order mutations in ``tsinfer``.
 Historical samples are added to the ancestors tree sequence as `proxy nodes, in addition
 to being used as samples <https://tsinfer.readthedocs.io/en/latest/api.html?highlight=proxy#tsinfer.AncestorData.insert_proxy_samples>`_.
-
-++++++++++++++++++++++++++++++
-Command Line Interface Example
-++++++++++++++++++++++++++++++
-
-``tsdate`` also offers a convenient :ref:`command line interface (CLI) <sec_cli>` for 
-accessing the core functionality of the algorithm. 
-
-For a simple example of CLI, we'll first save the inferred tree sequence we created in
-:ref:`the section above <sec_tutorial_tsdate>` as a file.
-
-.. code-block:: python
-
-    import tskit
-
-    inferred_ts.dump("inferred_ts.trees")
-
-Now we use the CLI to again date the inferred tree sequence and output the resulting
-dated tree sequence to ``dated_ts.trees`` file:
-
-::
-
-    $ tsdate date inferred_ts.trees dated_ts.trees 10000 1e-8 --progress
-
-The first two arguments are the input and output tree sequence file names, the third is the estimated effective population size, and the fourth is the estimated mutation rate. We also add the ``--progress`` option to keep track of ``tsdate``'s progress.
