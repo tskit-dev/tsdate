@@ -890,8 +890,8 @@ def single_tree_ts_2mutations_n3():
     0       1           0
     1       1           0
     2       1           0
-    3       0           1
-    4       0           2
+    3       0           10
+    4       0           20
     """
     )
     edges = io.StringIO(
