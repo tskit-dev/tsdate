@@ -158,7 +158,7 @@ class Likelihoods:
             raise RuntimeError("Cannot calculate mutation likelihoods with no theta set")
         if unique_method == 0:
             self.unfixed_likelihood_cache = {
-                (muts, util.edge_span(e)): None for muts, e in
+                (muts, e.span): None for muts, e in
                 zip(self.mut_edges, self.ts.edges())
                 if e.child not in self.fixednodes}
         else:
@@ -217,7 +217,7 @@ class Likelihoods:
         child_time = self.ts.node(edge.child).time
         assert child_time == 0
         # Temporary hack - we should really take a more precise likelihood
-        return self._lik(mutations_on_edge, util.edge_span(edge), self.timediff,
+        return self._lik(mutations_on_edge, edge.span, self.timediff,
                          self.theta, normalize=self.normalize)
 
     def get_mut_lik_lower_tri(self, edge):
@@ -235,7 +235,7 @@ class Likelihoods:
             "Must call `precalculate_mutation_likelihoods()` before getting likelihoods"
 
         mutations_on_edge = self.mut_edges[edge.id]
-        return self.unfixed_likelihood_cache[mutations_on_edge, util.edge_span(edge)]
+        return self.unfixed_likelihood_cache[mutations_on_edge, edge.span]
 
     def get_mut_lik_upper_tri(self, edge):
         """
@@ -582,7 +582,7 @@ class InOutAlgorithms:
                 continue  # there is no hidden state for this parent - it's fixed
             val = self.priors[parent].copy()
             for edge in edges:
-                spanfrac = util.edge_span(edge) / self.spans[edge.child]
+                spanfrac = edge.span / self.spans[edge.child]
                 # Calculate vals for each edge
                 if edge.child in self.fixednodes:
                     # NB: geometric scaling works exactly when all nodes fixed in graph
@@ -652,7 +652,7 @@ class InOutAlgorithms:
                         "Fixed nodes cannot currently be parents in the TS")
                 # Geometric scaling works exactly for all nodes fixed in graph
                 # but is an approximation when times are unknown.
-                spanfrac = util.edge_span(edge) / self.spans[child]
+                spanfrac = edge.span / self.spans[child]
                 try:
                     inside_div_gi = self.lik.reduce(
                         self.inside[edge.parent], self.g_i[edge.id], div_0_null=True)
@@ -718,7 +718,7 @@ class InOutAlgorithms:
                     ll_mut = poisson(
                         mut_edges[edge.id],
                         (parent_time - self.lik.timepoints[:youngest_par_index + 1] +
-                            eps) * self.lik.theta / 2 * util.edge_span(edge))
+                            eps) * self.lik.theta / 2 * edge.span)
                     result = self.lik.reduce(ll_mut, np.max(ll_mut))
                 else:
                     cur_parent_index = maximized_node_times[edge.parent]
@@ -728,7 +728,7 @@ class InOutAlgorithms:
                     ll_mut = poisson(
                         mut_edges[edge.id],
                         (parent_time - self.lik.timepoints[:youngest_par_index + 1] +
-                            eps) * self.lik.theta / 2 * util.edge_span(edge))
+                            eps) * self.lik.theta / 2 * edge.span)
                     result[:youngest_par_index + 1] = self.lik.combine(
                         self.lik.reduce(ll_mut[:youngest_par_index + 1],
                                         np.max(ll_mut[:youngest_par_index + 1])),
