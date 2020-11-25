@@ -5,20 +5,14 @@
 # http://www.sphinx-doc.org/en/master/config
 
 
-from unittest.mock import MagicMock
 import os
 import sys
 import pkg_resources
 
-class Mock(MagicMock):
-    @classmethod
-    def __getattr__(cls, name):
-        return MagicMock()
 
-MOCK_MODULES = [
+autodoc_mock_imports = [
     'numpy', 'tskit', 'tqdm', 'appdirs', 'numba', 'scipy', 'scipy.stats', 'scipy.special'
 ]
-sys.modules.update((mod_name, Mock()) for mod_name in MOCK_MODULES)
 
 # -- Path setup --------------------------------------------------------------
 
@@ -93,7 +87,7 @@ html_logo = "_static/tsdate_logo.svg"
 
 # Example configuration for intersphinx: refer to the Python standard library.
 intersphinx_mapping = {
-    'https://docs.python.org/': None,
+    'https://docs.python.org/3': None,
     'https://docs.scipy.org/doc/numpy/': None,
     'https://tsdate.readthedocs.io/en/stable/': None,
 }
