@@ -62,7 +62,7 @@ extensions = [
 ]
 
 # Github repo
-issues_github_path = "awohns/tsdate"
+issues_github_path = "tskit-dev/tsdate"
 
 # Add any paths that contain templates here, relative to this directory.
 templates_path = ['_templates']
