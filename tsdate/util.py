@@ -36,10 +36,6 @@ from . import provenance
 logger = logging.getLogger(__name__)
 
 
-def edge_span(edge):
-    return edge.right - edge.left
-
-
 def tree_num_children(tree, node):
     return len(tree.children(node))
 
