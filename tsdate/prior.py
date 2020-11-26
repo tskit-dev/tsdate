@@ -491,7 +491,7 @@ class SpansBySamples:
                     .format(node, stored_pos[node]))
             if node in self.sample_node_set:
                 return True
-            if util.tree_num_children(prev_tree, node) > 1:
+            if prev_tree.num_children(node) > 1:
                 # This is a coalescent node
                 self._spans[node][num_fixed_at_0_treenodes][n_fixed_at_0] += coverage
             else:
@@ -501,7 +501,7 @@ class SpansBySamples:
                 unary_nodes_above = 0
                 top_node = prev_tree.parent(node)
                 try:  # Find coalescent node above
-                    while util.tree_num_children(prev_tree, top_node) == 1:
+                    while prev_tree.num_children(top_node) == 1:
                         unary_nodes_above += 1
                         top_node = prev_tree.parent(top_node)
                 except ValueError:  # Happens if we have hit the root
@@ -691,7 +691,7 @@ class SpansBySamples:
                     # node is either the root or (more likely) not in
                     # this tree
                 assert tree.num_samples(node) > 0  # No dangling nodes allowed
-                assert util.tree_num_children(tree, node) == 1
+                assert tree.num_children(node) == 1
                 n = node
                 done = False
                 while not done:
@@ -711,7 +711,7 @@ class SpansBySamples:
                                     "Node {} has no fixed descendants".format(n))
                             local_weight = v / self.node_spans[n]
                             self._spans[node][n_tips][k] += tree.span * local_weight / 2
-                    assert util.tree_num_children(tree, node) == 1
+                    assert tree.num_children(node) == 1
                     total_tips = n_tips_per_tree[tree_id]
                     desc_tips = tree.num_samples(node)
                     self._spans[node][total_tips][desc_tips] += tree.span / 2
@@ -734,7 +734,7 @@ class SpansBySamples:
                 tree = next(tree_iter)
             for node in unassigned_nodes:
                 if tree.is_internal(node):
-                    assert util.tree_num_children(tree, node) == 1
+                    assert tree.num_children(node) == 1
                     total_tips = n_tips_per_tree[tree_id]
                     # above, we set the maximum
                     self._spans[node][max_samples][max_samples] += tree.span / 2
