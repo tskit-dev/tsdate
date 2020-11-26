@@ -1663,6 +1663,14 @@ class TestSampleDataTimes(unittest.TestCase):
     Test add_sampledata_times
     """
 
+    def test_wrong_number_of_sites(self):
+        ts = utility_functions.single_tree_ts_2mutations_n3()
+        sites_time = tsdate.sites_time_from_ts(ts, unconstrained=False)
+        sites_time = np.append(sites_time, [10])
+        samples = tsinfer.formats.SampleData.from_tree_sequence(
+                ts, use_sites_time=False)
+        self.assertRaises(ValueError, tsdate.add_sampledata_times, samples, sites_time)
+
     def test_historic_samples(self):
         samples = [msprime.Sample(population=0, time=0) for i in range(10)]
         ancients = [msprime.Sample(population=0, time=1000) for i in range(10)]

@@ -225,7 +225,9 @@ def add_sampledata_times(samples, sites_time):
     :return: A tsinfer.SampleData file
     :rtype: tsinfer.SampleData
     """
-    assert samples.num_sites == len(sites_time)
+    if samples.num_sites != len(sites_time):
+        raise ValueError(
+            "sites_time should contain the same number of sites as the SampleData file")
     # Get constraints from ancients
     sites_bound = samples.min_site_times(individuals_only=True)
     # Use maximum of constraints and estimated site times
