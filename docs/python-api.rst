@@ -28,9 +28,9 @@ Preprocessing Tree Sequences
 
 .. autofunction:: tsdate.preprocess_ts
 
-************************************************************
-Functions for Inferring Tree Sequences with Historic Samples
-************************************************************
+*************************************************************
+Functions for Inferring Tree Sequences with Historical Samples
+*************************************************************
 
 .. autofunction:: tsdate.sites_time_from_ts
 .. autofunction:: tsdate.add_sampledata_times
