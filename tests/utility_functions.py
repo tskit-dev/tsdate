@@ -22,11 +22,11 @@
 """
 A collection of utilities to edit and construct tree sequences for testing purposes
 """
+import io
 
 import msprime
 import numpy as np
 import tskit
-import io
 
 
 def add_grand_mrca(ts):
@@ -38,7 +38,8 @@ def add_grand_mrca(ts):
     new_node_number = tables.nodes.add_row(time=grand_mrca)
     for tree in ts.trees():
         tables.edges.add_row(
-            tree.interval[0], tree.interval[1], new_node_number, tree.root)
+            tree.interval[0], tree.interval[1], new_node_number, tree.root
+        )
     tables.sort()
     return tables.tree_sequence()
 
@@ -50,17 +51,21 @@ def single_tree_ts_n2():
         / \
       [0] [1]
     """
-    nodes = io.StringIO("""\
+    nodes = io.StringIO(
+        """\
     id      is_sample   time
     0       1           0
     1       1           0
     2       0           1
-    """)
-    edges = io.StringIO("""\
+    """
+    )
+    edges = io.StringIO(
+        """\
     left    right   parent  child
     0       1       2       0,1
-    """)
-    return(tskit.load_text(nodes=nodes, edges=edges, strict=False))
+    """
+    )
+    return tskit.load_text(nodes=nodes, edges=edges, strict=False)
 
 
 def single_tree_ts_n3():
@@ -72,19 +77,23 @@ def single_tree_ts_n3():
          / \   \
        [0] [1] [2]
     """
-    nodes = io.StringIO("""\
+    nodes = io.StringIO(
+        """\
     id      is_sample   time
     0       1           0
     1       1           0
     2       1           0
     3       0           1
     4       0           2
-    """)
-    edges = io.StringIO("""\
+    """
+    )
+    edges = io.StringIO(
+        """\
     left    right   parent  child
     0       1       3       0,1
     0       1       4       2,3
-    """)
+    """
+    )
     return tskit.load_text(nodes=nodes, edges=edges, strict=False)
 
 
@@ -99,7 +108,8 @@ def single_tree_ts_n4():
          / \   \   \
        [0] [1] [2] [3]
     """
-    nodes = io.StringIO("""\
+    nodes = io.StringIO(
+        """\
     id      is_sample   time
     0       1           0
     1       1           0
@@ -108,13 +118,16 @@ def single_tree_ts_n4():
     4       0           1
     5       0           2
     6       0           3
-    """)
-    edges = io.StringIO("""\
+    """
+    )
+    edges = io.StringIO(
+        """\
     left    right   parent  child
     0       1       4       0,1
     0       1       5       2,4
     0       1       6       3,5
-    """)
+    """
+    )
     return tskit.load_text(nodes=nodes, edges=edges, strict=False)
 
 
@@ -127,29 +140,38 @@ def single_tree_ts_mutation_n3():
          / \   \
        [0] [1] [2]
     """
-    nodes = io.StringIO("""\
+    nodes = io.StringIO(
+        """\
     id      is_sample   time
     0       1           0
     1       1           0
     2       1           0
     3       0           1
     4       0           2
-    """)
-    edges = io.StringIO("""\
+    """
+    )
+    edges = io.StringIO(
+        """\
     left    right   parent  child
     0       1       3       0,1
     0       1       4       2,3
-    """)
-    sites = io.StringIO("""\
+    """
+    )
+    sites = io.StringIO(
+        """\
     position    ancestral_state
     0.5         0
-    """)
-    mutations = io.StringIO("""\
+    """
+    )
+    mutations = io.StringIO(
+        """\
     site    node    derived_state
     0       2       1
-    """)
-    return tskit.load_text(nodes=nodes, edges=edges, sites=sites,
-                           mutations=mutations, strict=False)
+    """
+    )
+    return tskit.load_text(
+        nodes=nodes, edges=edges, sites=sites, mutations=mutations, strict=False
+    )
 
 
 def site_no_mutations():
@@ -162,23 +184,29 @@ def site_no_mutations():
          / \   \
        [0] [1] [2]
     """
-    nodes = io.StringIO("""\
+    nodes = io.StringIO(
+        """\
     id      is_sample   time
     0       1           0
     1       1           0
     2       1           0
     3       0           1
     4       0           2
-    """)
-    edges = io.StringIO("""\
+    """
+    )
+    edges = io.StringIO(
+        """\
     left    right   parent  child
     0       1       3       0,1
     0       1       4       2,3
-    """)
-    sites = io.StringIO("""\
+    """
+    )
+    sites = io.StringIO(
+        """\
     position    ancestral_state
     0.5         0
-    """)
+    """
+    )
     return tskit.load_text(nodes=nodes, edges=edges, sites=sites, strict=False)
 
 
@@ -191,29 +219,38 @@ def single_tree_all_samples_one_mutation_n3():
          / \   \
        [0] [1] [2]
     """
-    nodes = io.StringIO("""\
+    nodes = io.StringIO(
+        """\
     id      is_sample   time
     0       1           0
     1       1           0
     2       1           0
     3       1           1
     4       1           2
-    """)
-    edges = io.StringIO("""\
+    """
+    )
+    edges = io.StringIO(
+        """\
     left    right   parent  child
     0       1       3       0,1
     0       1       4       2,3
-    """)
-    sites = io.StringIO("""\
+    """
+    )
+    sites = io.StringIO(
+        """\
     position    ancestral_state
     0.5         0
-    """)
-    mutations = io.StringIO("""\
+    """
+    )
+    mutations = io.StringIO(
+        """\
     site    node    derived_state
     0       2       1
-    """)
-    return tskit.load_text(nodes=nodes, edges=edges, sites=sites,
-                           mutations=mutations, strict=False)
+    """
+    )
+    return tskit.load_text(
+        nodes=nodes, edges=edges, sites=sites, mutations=mutations, strict=False
+    )
 
 
 def gils_example_tree():
@@ -230,20 +267,25 @@ def gils_example_tree():
       *     \       \
     [0]     [1]     [2]
     """
-    nodes = io.StringIO("""\
+    nodes = io.StringIO(
+        """\
     id      is_sample   time
     0       1           0
     1       1           0
     2       1           0
     3       0           1
     4       0           2
-    """)
-    edges = io.StringIO("""\
+    """
+    )
+    edges = io.StringIO(
+        """\
     left    right   parent  child
     0       1       3       0,1
     0       1       4       2,3
-    """)
-    sites = io.StringIO("""\
+    """
+    )
+    sites = io.StringIO(
+        """\
     position    ancestral_state
     0.1         0
     0.2         0
@@ -252,8 +294,10 @@ def gils_example_tree():
     0.5         0
     0.6         0
     0.7         0
-    """)
-    mutations = io.StringIO("""\
+    """
+    )
+    mutations = io.StringIO(
+        """\
     site    node    derived_state
     0       0       1
     1       0       1
@@ -262,9 +306,11 @@ def gils_example_tree():
     4       2       1
     5       2       1
     6       2       1
-    """)
-    return tskit.load_text(nodes=nodes, edges=edges, sites=sites,
-                           mutations=mutations, strict=False)
+    """
+    )
+    return tskit.load_text(
+        nodes=nodes, edges=edges, sites=sites, mutations=mutations, strict=False
+    )
 
 
 def polytomy_tree_ts():
@@ -275,17 +321,21 @@ def polytomy_tree_ts():
         / | \
       [0][1][2]
     """
-    nodes = io.StringIO("""\
+    nodes = io.StringIO(
+        """\
     id      is_sample   time
     0       1           0
     1       1           0
     2       1           0
     3       0           1
-    """)
-    edges = io.StringIO("""\
+    """
+    )
+    edges = io.StringIO(
+        """\
     left    right   parent  child
     0       1       3       0,1,2
-    """)
+    """
+    )
     return tskit.load_text(nodes=nodes, edges=edges, strict=False)
 
 
@@ -299,19 +349,23 @@ def single_tree_ts_internal_n3():
          / \   \
        [0] [1] [2]
     """
-    nodes = io.StringIO("""\
+    nodes = io.StringIO(
+        """\
     id      is_sample   time
     0       1           0
     1       1           0
     2       1           0
     3       1           1
     4       0           2
-    """)
-    edges = io.StringIO("""\
+    """
+    )
+    edges = io.StringIO(
+        """\
     left    right   parent  child
     0       1       3       0,1
     0       1       4       2,3
-    """)
+    """
+    )
     return tskit.load_text(nodes=nodes, edges=edges, strict=False)
 
 
@@ -326,7 +380,8 @@ def two_tree_ts():
          / \   \   .  |   |  \
        [0] [1] [2] . [0] [1] [2]
     """
-    nodes = io.StringIO("""\
+    nodes = io.StringIO(
+        """\
     id      is_sample   time
     0       1           0
     1       1           0
@@ -334,15 +389,18 @@ def two_tree_ts():
     3       0           1
     4       0           2
     5       0           3
-    """)
-    edges = io.StringIO("""\
+    """
+    )
+    edges = io.StringIO(
+        """\
     left    right   parent  child
     0       0.2     3       0,1
     0       1       4       2
     0       0.2     4       3
     0.2     1       4       1
     0.2     1       5       0,4
-    """)
+    """
+    )
     return tskit.load_text(nodes=nodes, edges=edges, strict=False)
 
 
@@ -358,7 +416,8 @@ def two_tree_ts_extra_length():
          / \   \   .  |   |  \
        [0] [1] [2] . [0] [1] [2]
     """
-    nodes = io.StringIO("""\
+    nodes = io.StringIO(
+        """\
     id      is_sample   time
     0       1           0
     1       1           0
@@ -366,15 +425,18 @@ def two_tree_ts_extra_length():
     3       0           1
     4       0           2
     5       0           3
-    """)
-    edges = io.StringIO("""\
+    """
+    )
+    edges = io.StringIO(
+        """\
     left    right   parent  child
     0       0.2     3       0,1
     0       1.5     4       2
     0       0.2     4       3
     0.2     1.5     4       1
     0.2     1.5     5       0,4
-    """)
+    """
+    )
     return tskit.load_text(nodes=nodes, edges=edges, strict=False)
 
 
@@ -410,7 +472,8 @@ def single_tree_ts_with_unary():
          / \    |
        [0] [1] [2]
     """
-    nodes = io.StringIO("""\
+    nodes = io.StringIO(
+        """\
     id      is_sample   time
     0       1           0
     1       1           0
@@ -420,15 +483,18 @@ def single_tree_ts_with_unary():
     5       0           3
     6       0           2
     7       0           4
-    """)
-    edges = io.StringIO("""\
+    """
+    )
+    edges = io.StringIO(
+        """\
     left    right   parent  child
     0       1       3       0,1
     0       1       6       2
     0       1       4       3
     0       1       5       4
     0       1       7       5,6
-    """)
+    """
+    )
     return tskit.load_text(nodes=nodes, edges=edges, strict=False)
 
 
@@ -444,7 +510,8 @@ def two_tree_ts_with_unary_n3():
          / \    |     .   / \    \
        [0] [1] [2]    . [0]  [1] [2]
     """
-    nodes = io.StringIO("""\
+    nodes = io.StringIO(
+        """\
     id      is_sample   time
     0       1           0
     1       1           0
@@ -453,8 +520,10 @@ def two_tree_ts_with_unary_n3():
     4       0           2
     5       0           3
     6       0           4
-    """)
-    edges = io.StringIO("""\
+    """
+    )
+    edges = io.StringIO(
+        """\
     left    right   parent  child
     0       2       3       0,1
     0       1       5       2
@@ -462,7 +531,8 @@ def two_tree_ts_with_unary_n3():
     0       1       6       4,5
     1       2       4       2
     1       2       5       4
-    """)
+    """
+    )
     return tskit.load_text(nodes=nodes, edges=edges, strict=False)
 
 
@@ -480,7 +550,8 @@ def two_tree_mutation_ts():
       / \      |   .   |   |   |
     [0] [1]   [2]  .  [0] [1] [2]
     """
-    nodes = io.StringIO("""\
+    nodes = io.StringIO(
+        """\
     id      is_sample   time
     0       1           0
     1       1           0
@@ -488,29 +559,37 @@ def two_tree_mutation_ts():
     3       0           1
     4       0           2
     5       0           3
-    """)
-    edges = io.StringIO("""\
+    """
+    )
+    edges = io.StringIO(
+        """\
     left    right   parent  child
     0       0.2     3       0,1
     0       1       4       2
     0       0.2     4       3
     0.2     1       4       1
     0.2     1       5       0,4
-    """)
-    sites = io.StringIO("""\
+    """
+    )
+    sites = io.StringIO(
+        """\
     position    ancestral_state
     0.1         0
     0.15         0
     0.8         0
-    """)
-    mutations = io.StringIO("""\
+    """
+    )
+    mutations = io.StringIO(
+        """\
     site    node    derived_state
     0       3       1
     1       3       1
     2       0       1
-    """)
-    return tskit.load_text(nodes=nodes, edges=edges, sites=sites,
-                           mutations=mutations, strict=False)
+    """
+    )
+    return tskit.load_text(
+        nodes=nodes, edges=edges, sites=sites, mutations=mutations, strict=False
+    )
 
 
 def two_tree_two_mrcas():
@@ -527,7 +606,8 @@ def two_tree_two_mrcas():
      /   \       /   \     |     /   \     /   \
    [0]   [1]   [2]   [3]   |   [0]   [1] [2]   [3]
     """
-    nodes = io.StringIO("""\
+    nodes = io.StringIO(
+        """\
     id      is_sample   time
     0       1           0
     1       1           0
@@ -537,8 +617,10 @@ def two_tree_two_mrcas():
     5       0           1
     6       0           3
     7       0           2
-    """)
-    edges = io.StringIO("""\
+    """
+    )
+    edges = io.StringIO(
+        """\
     left    right   parent  child
     0       1       4       0,1
     0       1       5       2,3
@@ -546,18 +628,24 @@ def two_tree_two_mrcas():
     0       0.3     6       5
     0.3     1       7       4
     0.3     1       7       5
-    """)
-    sites = io.StringIO("""\
+    """
+    )
+    sites = io.StringIO(
+        """\
     position    ancestral_state
     0.5         0
-    """)
-    mutations = io.StringIO("""\
+    """
+    )
+    mutations = io.StringIO(
+        """\
     site    node    derived_state
     0       5       1
-    """)
+    """
+    )
 
-    return tskit.load_text(nodes=nodes, edges=edges, sites=sites,
-                           mutations=mutations, strict=False)
+    return tskit.load_text(
+        nodes=nodes, edges=edges, sites=sites, mutations=mutations, strict=False
+    )
 
 
 def loopy_tree():
@@ -577,7 +665,8 @@ def loopy_tree():
    |    / \    |   .  |    / \    |
   [0] [1] [2] [3]  . [0] [1] [2] [3]
     """
-    nodes = io.StringIO("""\
+    nodes = io.StringIO(
+        """\
     id      is_sample   time
     0       1           0
     1       1           0
@@ -587,8 +676,10 @@ def loopy_tree():
     5       0           2
     6       0           3
     7       0           4
-    """)
-    edges = io.StringIO("""\
+    """
+    )
+    edges = io.StringIO(
+        """\
     left    right   parent  child
     0       1       4       0,1
     0       0.2     5       2,4
@@ -597,7 +688,8 @@ def loopy_tree():
     0.2     1       6       4
     0.2     1       7       2
     0.2     1       7       6
-    """)
+    """
+    )
     return tskit.load_text(nodes=nodes, edges=edges, strict=False)
 
 
@@ -610,19 +702,23 @@ def single_tree_ts_n3_sample_as_parent():
          / \   \
        [0] [1] [2]
     """
-    nodes = io.StringIO("""\
+    nodes = io.StringIO(
+        """\
     id      is_sample   time
     0       1           0
     1       1           0
     2       1           0
     3       1           1
     4       0           2
-    """)
-    edges = io.StringIO("""\
+    """
+    )
+    edges = io.StringIO(
+        """\
     left    right   parent  child
     0       1       3       0,1
     0       1       4       2,3
-    """)
+    """
+    )
     return tskit.load_text(nodes=nodes, edges=edges, strict=False)
 
 
@@ -635,19 +731,23 @@ def single_tree_ts_n2_dangling():
          / \   \
         0  [1] [2]
     """
-    nodes = io.StringIO("""\
+    nodes = io.StringIO(
+        """\
     id      is_sample   time
     0       0           0
     1       1           0
     2       1           0
     3       0           1
     4       0           2
-    """)
-    edges = io.StringIO("""\
+    """
+    )
+    edges = io.StringIO(
+        """\
     left    right   parent  child
     0       1       3       0,1
     0       1       4       2,3
-    """)
+    """
+    )
     return tskit.load_text(nodes=nodes, edges=edges, strict=False)
 
 
@@ -662,21 +762,25 @@ def two_tree_ts_n2_part_dangling():
              \   \             \   \
              [1] [2]           [1] [2]
     """
-    nodes = io.StringIO("""\
+    nodes = io.StringIO(
+        """\
     id      is_sample   time
     0       0           0.5
     1       1           0
     2       1           0
     3       0           1
     4       0           2
-    """)
-    edges = io.StringIO("""\
+    """
+    )
+    edges = io.StringIO(
+        """\
     left    right   parent  child
     0       1       3       0
     0       0.5     3       1
     0.5     1       0       1
     0       1       4       2,3
-    """)
+    """
+    )
     return tskit.load_text(nodes=nodes, edges=edges, strict=False)
 
 
@@ -690,30 +794,39 @@ def single_tree_ts_2mutations_multiallelic_n3():
          / \   \
        [0] [1] [2]
     """
-    nodes = io.StringIO("""\
+    nodes = io.StringIO(
+        """\
     id      is_sample   time
     0       1           0
     1       1           0
     2       1           0
     3       0           1
     4       0           2
-    """)
-    edges = io.StringIO("""\
+    """
+    )
+    edges = io.StringIO(
+        """\
     left    right   parent  child
     0       1       3       0,1
     0       1       4       2,3
-    """)
-    sites = io.StringIO("""\
+    """
+    )
+    sites = io.StringIO(
+        """\
     position    ancestral_state
     0.5         0
-    """)
-    mutations = io.StringIO("""\
+    """
+    )
+    mutations = io.StringIO(
+        """\
     site    node    derived_state
     0       2       1
     0       3       2
-    """)
-    return tskit.load_text(nodes=nodes, edges=edges, sites=sites,
-                           mutations=mutations, strict=False)
+    """
+    )
+    return tskit.load_text(
+        nodes=nodes, edges=edges, sites=sites, mutations=mutations, strict=False
+    )
 
 
 def single_tree_ts_2mutations_singletons_n3():
@@ -726,30 +839,39 @@ def single_tree_ts_2mutations_singletons_n3():
          / x   \
        [0] [1] [2]
     """
-    nodes = io.StringIO("""\
+    nodes = io.StringIO(
+        """\
     id      is_sample   time
     0       1           0
     1       1           0
     2       1           0
     3       0           1
     4       0           2
-    """)
-    edges = io.StringIO("""\
+    """
+    )
+    edges = io.StringIO(
+        """\
     left    right   parent  child
     0       1       3       0,1
     0       1       4       2,3
-    """)
-    sites = io.StringIO("""\
+    """
+    )
+    sites = io.StringIO(
+        """\
     position    ancestral_state
     0.5         0
-    """)
-    mutations = io.StringIO("""\
+    """
+    )
+    mutations = io.StringIO(
+        """\
     site    node    derived_state
     0       1       1
     0       2       1
-    """)
-    return tskit.load_text(nodes=nodes, edges=edges, sites=sites,
-                           mutations=mutations, strict=False)
+    """
+    )
+    return tskit.load_text(
+        nodes=nodes, edges=edges, sites=sites, mutations=mutations, strict=False
+    )
 
 
 def single_tree_ts_2mutations_n3():
@@ -762,30 +884,39 @@ def single_tree_ts_2mutations_n3():
          / x   \
        [0] [1] [2]
     """
-    nodes = io.StringIO("""\
+    nodes = io.StringIO(
+        """\
     id      is_sample   time
     0       1           0
     1       1           0
     2       1           0
     3       0           1
     4       0           2
-    """)
-    edges = io.StringIO("""\
+    """
+    )
+    edges = io.StringIO(
+        """\
     left    right   parent  child
     0       1       3       0,1
     0       1       4       2,3
-    """)
-    sites = io.StringIO("""\
+    """
+    )
+    sites = io.StringIO(
+        """\
     position    ancestral_state
     0.5         0
-    """)
-    mutations = io.StringIO("""\
+    """
+    )
+    mutations = io.StringIO(
+        """\
     site    node    derived_state
     0       3       1
     0       1       0
-    """)
-    return tskit.load_text(nodes=nodes, edges=edges, sites=sites,
-                           mutations=mutations, strict=False)
+    """
+    )
+    return tskit.load_text(
+        nodes=nodes, edges=edges, sites=sites, mutations=mutations, strict=False
+    )
 
 
 def ts_w_data_desert(gap_start, gap_end, length):
@@ -794,8 +925,7 @@ def ts_w_data_desert(gap_start, gap_end, length):
     attempting to date tree sequences with large regions without data. Test
     that preprocess_ts removes regions of a specified size that have no data.
     """
-    ts = msprime.simulate(
-            100, mutation_rate=10, recombination_rate=1, length=length)
+    ts = msprime.simulate(100, mutation_rate=10, recombination_rate=1, length=length)
     tables = ts.dump_tables()
     sites = tables.sites.position[:]
     tables.delete_sites(np.where(np.logical_and(sites > gap_start, sites < gap_end))[0])
@@ -821,8 +951,8 @@ def truncate_ts_samples(ts, average_span, random_seed, min_span=5):
     span = np.random.poisson(average_span, ts.num_samples)
     span = np.maximum(span, min_span)
     span = np.minimum(span, ts.sequence_length)
-    start = np.random.uniform(0, ts.sequence_length-span)
-    to_slice = {id: (a, b) for id, a, b in zip(ts.samples(), start, start + span)}
+    start = np.random.uniform(0, ts.sequence_length - span)
+    to_slice = {id_: (a, b) for id_, a, b in zip(ts.samples(), start, start + span)}
 
     tables = ts.dump_tables()
     tables.edges.clear()
@@ -838,16 +968,18 @@ def truncate_ts_samples(ts, average_span, random_seed, min_span=5):
         tables.edges.add_row(left, right, e.parent, e.child)
     # Remove mutations above isolated nodes
     mutations = tables.mutations
-    keep_mutations = np.ones((mutations.num_rows, ), dtype=bool)
+    keep_mutations = np.ones((mutations.num_rows,), dtype=bool)
     positions = tables.sites.position[:]
     for i, m in enumerate(mutations):
         if m.node in to_slice:
-            if not(to_slice[m.node][0] <= positions[m.site] < to_slice[m.node][1]):
+            if not (to_slice[m.node][0] <= positions[m.site] < to_slice[m.node][1]):
                 keep_mutations[i] = False
     new_ds, new_ds_offset = tskit.tables.keep_with_offset(
-        keep_mutations, mutations.derived_state, mutations.derived_state_offset)
+        keep_mutations, mutations.derived_state, mutations.derived_state_offset
+    )
     new_md, new_md_offset = tskit.tables.keep_with_offset(
-        keep_mutations, mutations.metadata, mutations.metadata_offset)
+        keep_mutations, mutations.metadata, mutations.metadata_offset
+    )
     mutations_map = np.append(np.cumsum(keep_mutations) - 1, [-1])
     mutations_map = mutations_map.astype(mutations.parent.dtype)
     # parent -1 always maps to parent -1
@@ -858,9 +990,11 @@ def truncate_ts_samples(ts, average_span, random_seed, min_span=5):
         derived_state_offset=new_ds_offset,
         parent=mutations_map[mutations.parent[keep_mutations]],
         metadata=new_md,
-        metadata_offset=new_md_offset)
+        metadata_offset=new_md_offset,
+    )
     return tables.tree_sequence().simplify(
         filter_populations=False,
         filter_individuals=False,
         filter_sites=False,
-        keep_unary=True)
+        keep_unary=True,
+    )

@@ -56,8 +56,14 @@ class NodeGridValues:
     :vartype fill_value: numpy.scalar
     """
 
-    def __init__(self, num_nodes, nonfixed_nodes, timepoints,
-                 fill_value=np.nan, dtype=FLOAT_DTYPE):
+    def __init__(
+        self,
+        num_nodes,
+        nonfixed_nodes,
+        timepoints,
+        fill_value=np.nan,
+        dtype=FLOAT_DTYPE,
+    ):
         """
         :param numpy.ndarray grid: The input numpy.ndarray.
         """
@@ -65,7 +71,8 @@ class NodeGridValues:
             raise ValueError("nonfixed_nodes must be a 1D numpy array")
         if np.any((nonfixed_nodes < 0) | (nonfixed_nodes >= num_nodes)):
             raise ValueError(
-                "All non fixed node ids must be between zero and the total node number")
+                "All non fixed node ids must be between zero and the total node number"
+            )
         grid_size = len(timepoints) if type(timepoints) is np.ndarray else timepoints
         self.timepoints = timepoints
         # Make timepoints immutable so no risk of overwritting them with copy
@@ -73,14 +80,19 @@ class NodeGridValues:
         self.num_nodes = num_nodes
         self.nonfixed_nodes = nonfixed_nodes
         self.num_nonfixed = len(nonfixed_nodes)
-        self.grid_data = np.full((self.num_nonfixed, grid_size), fill_value, dtype=dtype)
-        self.fixed_data = np.full(num_nodes - self.num_nonfixed, fill_value, dtype=dtype)
+        self.grid_data = np.full(
+            (self.num_nonfixed, grid_size), fill_value, dtype=dtype
+        )
+        self.fixed_data = np.full(
+            num_nodes - self.num_nonfixed, fill_value, dtype=dtype
+        )
         self.row_lookup = np.empty(num_nodes, dtype=np.int64)
         # non-fixed nodes get a positive value, indicating lookup in the grid_data array
         self.row_lookup[nonfixed_nodes] = np.arange(self.num_nonfixed)
         # fixed nodes get a negative value from -1, indicating lookup in the scalar array
-        self.row_lookup[np.logical_not(np.isin(np.arange(num_nodes), nonfixed_nodes))] =\
-            -np.arange(num_nodes - self.num_nonfixed) - 1
+        self.row_lookup[
+            np.logical_not(np.isin(np.arange(num_nodes), nonfixed_nodes))
+        ] = (-np.arange(num_nodes - self.num_nonfixed) - 1)
         self.probability_space = LIN
 
     def force_probability_space(self, probability_space):
@@ -88,7 +100,12 @@ class NodeGridValues:
         probability_space can be "logarithmic" or "linear": this function will force
         the current probability space to the desired type
         """
-        descr = self.probability_space, " probabilities into", probability_space, "space"
+        descr = (
+            self.probability_space,
+            " probabilities into",
+            probability_space,
+            "space",
+        )
         if probability_space == LIN:
             if self.probability_space == LIN:
                 pass
@@ -102,7 +119,7 @@ class NodeGridValues:
             if self.probability_space == LOG:
                 pass
             elif self.probability_space == LIN:
-                with np.errstate(divide='ignore'):
+                with np.errstate(divide="ignore"):
                     self.grid_data = np.log(self.grid_data)
                     self.fixed_data = np.log(self.fixed_data)
                 self.probability_space = LOG
@@ -138,7 +155,8 @@ class NodeGridValues:
             self.grid_data[index, :] = value
 
     def clone_with_new_data(
-            self, grid_data=np.nan, fixed_data=None, probability_space=None):
+        self, grid_data=np.nan, fixed_data=None, probability_space=None
+    ):
         """
         Take the row indices etc from an existing NodeGridValues object and make a new
         similar one but with different data. If grid_data is a single number, fill the
@@ -149,15 +167,19 @@ class NodeGridValues:
         grid_data for the fixed data values. If fixed_data is None and grid_data is an
         array, set the fixed data to np.nan
         """
+
         def fill_fixed(orig, fixed_data):
             if type(fixed_data) is np.ndarray:
                 if orig.fixed_data.shape != fixed_data.shape:
                     raise ValueError(
-                        "The fixed data array must be the same shape as the original")
+                        "The fixed data array must be the same shape as the original"
+                    )
                 return fixed_data
             else:
                 return np.full(
-                    orig.fixed_data.shape, fixed_data, dtype=orig.fixed_data.dtype)
+                    orig.fixed_data.shape, fixed_data, dtype=orig.fixed_data.dtype
+                )
+
         new_obj = NodeGridValues.__new__(NodeGridValues)
         new_obj.num_nodes = self.num_nodes
         new_obj.nonfixed_nodes = self.nonfixed_nodes
@@ -167,19 +189,24 @@ class NodeGridValues:
         if type(grid_data) is np.ndarray:
             if self.grid_data.shape != grid_data.shape:
                 raise ValueError(
-                    "The grid data array must be the same shape as the original")
+                    "The grid data array must be the same shape as the original"
+                )
             new_obj.grid_data = grid_data
             new_obj.fixed_data = fill_fixed(
-                self, np.nan if fixed_data is None else fixed_data)
+                self, np.nan if fixed_data is None else fixed_data
+            )
         else:
             if grid_data == 0:  # Fast allocation
                 new_obj.grid_data = np.zeros(
-                    self.grid_data.shape, dtype=self.grid_data.dtype)
+                    self.grid_data.shape, dtype=self.grid_data.dtype
+                )
             else:
                 new_obj.grid_data = np.full(
-                    self.grid_data.shape, grid_data, dtype=self.grid_data.dtype)
+                    self.grid_data.shape, grid_data, dtype=self.grid_data.dtype
+                )
             new_obj.fixed_data = fill_fixed(
-                self, grid_data if fixed_data is None else fixed_data)
+                self, grid_data if fixed_data is None else fixed_data
+            )
         if probability_space is None:
             new_obj.probability_space = self.probability_space
         else:

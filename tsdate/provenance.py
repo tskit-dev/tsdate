@@ -22,19 +22,21 @@
 """
 Versions of important dependencies and environment.
 """
-import platform
 import json
+import platform
 
 import tskit
 
 __version__ = "undefined"
 try:
     from . import _version
+
     __version__ = _version.version
 except ImportError:  # pragma: nocover
     try:
         from setuptools_scm import get_version
-        __version__ = get_version(root='..', relative_to=__file__)
+
+        __version__ = get_version(root="..", relative_to=__file__)
     except ImportError:
         pass
 
@@ -54,11 +56,9 @@ def get_environment():
         "python": {
             "implementation": platform.python_implementation(),
             "version": platform.python_version(),
-        }
+        },
     }
-    libs = {
-        "tskit": {"version": tskit.__version__}
-    }
+    libs = {"tskit": {"version": tskit.__version__}}
     env["libraries"] = libs
     return env
 
@@ -74,10 +74,7 @@ def get_provenance_dict(command=None, **kwargs):
     parameters["command"] = command
     document = {
         "schema_version": "1.0.0",
-        "software": {
-            "name": "tsdate",
-            "version": __version__
-        },
+        "software": {"name": "tsdate", "version": __version__},
         "parameters": parameters,
         "environment": get_environment(),
     }

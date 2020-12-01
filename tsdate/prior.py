@@ -22,20 +22,24 @@
 """
 Routines and classes for creating priors and timeslices for use in tsdate
 """
-import os
-from collections import defaultdict, namedtuple
 import logging
+import os
+from collections import defaultdict
+from collections import namedtuple
 
 import numpy as np
 import scipy.stats
+import tskit
 from scipy.special import comb
 from tqdm import tqdm
-import tskit
 
-from . import cache, base, util, provenance
+from . import base
+from . import cache
+from . import provenance
+from . import util
 
 
-PriorParams_base = namedtuple("PriorParams", 'alpha, beta, mean, var')
+PriorParams_base = namedtuple("PriorParams", "alpha, beta, mean, var")
 
 
 class PriorParams(PriorParams_base):
@@ -62,12 +66,12 @@ def gamma_approx(mean, variance):
     return (mean ** 2) / variance, mean / variance
 
 
-class ConditionalCoalescentTimes():
+class ConditionalCoalescentTimes:
     """
     Make and store conditional coalescent priors for different numbers of total samples
     """
 
-    def __init__(self, precalc_approximation_n, prior_distr='lognorm', progress=False):
+    def __init__(self, precalc_approximation_n, prior_distr="lognorm", progress=False):
         """
         :param bool precalc_approximation_n: the size of tree used for
             approximate prior (larger numbers give a better approximation).
@@ -87,14 +91,15 @@ class ConditionalCoalescentTimes():
             else:
                 # Calc and store
                 self.approx_priors = self.precalculate_priors_for_approximation(
-                    precalc_approximation_n)
+                    precalc_approximation_n
+                )
         else:
             self.approx_priors = None
 
         self.prior_distr = prior_distr
-        if prior_distr == 'lognorm':
+        if prior_distr == "lognorm":
             self.func_approx = lognorm_approx
-        elif prior_distr == 'gamma':
+        elif prior_distr == "gamma":
             self.func_approx = gamma_approx
         else:
             raise ValueError("prior distribution must be lognorm or gamma")
@@ -132,7 +137,8 @@ class ConditionalCoalescentTimes():
         if self.approximate and self.approx_priors is None:
             raise RuntimeError(
                 "You cannot add an approximate prior unless you initialize"
-                " the ConditionalCoalescentTimes object with a non-zero number")
+                " the ConditionalCoalescentTimes object with a non-zero number"
+            )
 
         # alpha/beta and mean/var are simply transformations of one another
         # for the gamma, mean = alpha / beta and var = alpha / (beta **2)
@@ -142,7 +148,8 @@ class ConditionalCoalescentTimes():
         # they are stored separately to obviate need to move between them
         # We should only use prior[2] upwards
         priors = np.full(
-            (total_tips + 1, len(PriorParams._fields)), np.nan, dtype=base.FLOAT_DTYPE)
+            (total_tips + 1, len(PriorParams._fields)), np.nan, dtype=base.FLOAT_DTYPE
+        )
 
         if self.approximate:
             get_tau_var = self.tau_var_lookup
@@ -154,28 +161,33 @@ class ConditionalCoalescentTimes():
         # priors.loc[1] is distribution of times of a "coalescence node" ending
         # in a single sample - equivalent to the time of the sample itself, so
         # it should have var = 0 and mean = sample.time
-        if self.prior_distr == 'lognorm':
+        if self.prior_distr == "lognorm":
             # For a lognormal, alpha = -inf and beta = 0 sets mean == var == 0
             priors[1] = PriorParams(alpha=-np.inf, beta=0, mean=0, var=0)
-        elif self.prior_distr == 'gamma':
+        elif self.prior_distr == "gamma":
             # For a gamma, alpha = 0 and beta = 1 sets mean (a/b) == var (a / b^2) == 0
             priors[1] = PriorParams(alpha=0, beta=1, mean=0, var=0)
         for var, tips in zip(variances, all_tips):
             # NB: it should be possible to vectorize this in numpy
             expectation = self.tau_expect(tips, total_tips)
             alpha, beta = self.func_approx(expectation, var)
-            priors[tips] = PriorParams(alpha=alpha, beta=beta, mean=expectation, var=var)
+            priors[tips] = PriorParams(
+                alpha=alpha, beta=beta, mean=expectation, var=var
+            )
         self.prior_store[total_tips] = priors
 
     def precalculate_priors_for_approximation(self, precalc_approximation_n):
         n = precalc_approximation_n
         logging.warning(
-             "Initialising your tsdate installation by creating a user cache of "
-             "conditional coalescent prior values for {} tips".format(n))
+            "Initialising your tsdate installation by creating a user cache of "
+            "conditional coalescent prior values for {} tips".format(n)
+        )
         logging.info(
             "Creating prior lookup table for a total tree of n={} tips"
-            " in `{}`, this may take some time for large n"
-            .format(n, self.get_precalc_cache(n)))
+            " in `{}`, this may take some time for large n".format(
+                n, self.get_precalc_cache(n)
+            )
+        )
         # The first value should be zero tips, we don't want the 1 tip value
         prior_lookup_table = np.zeros((n, 2))
         all_tips = np.arange(2, n + 1)
@@ -189,15 +201,17 @@ class ConditionalCoalescentTimes():
             os.remove(self.get_precalc_cache(self.n_approx))
         else:
             logging.debug(
-                "Precalculated priors in `{}` not yet created, so cannot be cleared"
-                .format(self.get_precalc_cache(self.n_approx)))
+                "Precalculated priors in `{}` not yet created, so cannot be"
+                " cleared".format(self.get_precalc_cache(self.n_approx))
+            )
 
     @staticmethod
     def get_precalc_cache(precalc_approximation_n):
         cache_dir = cache.get_cache_dir()
         return os.path.join(
-            cache_dir, "prior_{}df_{}.txt".format(precalc_approximation_n,
-                                                  provenance.__version__))
+            cache_dir,
+            f"prior_{precalc_approximation_n}df_{provenance.__version__}.txt",
+        )
 
     @staticmethod
     def m_prob(m, i, n):
@@ -205,8 +219,9 @@ class ConditionalCoalescentTimes():
         Corollary 2 in Wiuf and Donnelly (1999). Probability of one
         ancestor to entire sample at time tau
         """
-        return (comb(n - m - 1, i - 2, exact=True) *
-                comb(m, 2, exact=True)) / comb(n, i + 1, exact=True)
+        return (comb(n - m - 1, i - 2, exact=True) * comb(m, 2, exact=True)) / comb(
+            n, i + 1, exact=True
+        )
 
     @staticmethod
     def tau_expect(i, n):
@@ -236,12 +251,12 @@ class ConditionalCoalescentTimes():
         else:
             tau_square_sum = 0
             for m in range(2, n - i + 2):
-                tau_square_sum += (
-                    ConditionalCoalescentTimes.m_prob(m, i, n) *
-                    ConditionalCoalescentTimes.tau_squared_conditional(m, n))
+                tau_square_sum += ConditionalCoalescentTimes.m_prob(
+                    m, i, n
+                ) * ConditionalCoalescentTimes.tau_squared_conditional(m, n)
             return np.abs(
-                (ConditionalCoalescentTimes.tau_expect(i, n) ** 2) -
-                (tau_square_sum))
+                (ConditionalCoalescentTimes.tau_expect(i, n) ** 2) - (tau_square_sum)
+            )
 
     # The following are not static as they may need to access self.approx_priors for this
     # instance
@@ -250,21 +265,29 @@ class ConditionalCoalescentTimes():
         Lookup tau_var if approximate is True
         """
         interpolated_priors = np.interp(
-            all_tips / total_tips, self.approx_priors[:, 0], self.approx_priors[:, 1])
+            all_tips / total_tips, self.approx_priors[:, 0], self.approx_priors[:, 1]
+        )
 
         # insertion_point = np.searchsorted(all_tips / self.total_tips,
         #    self.approx_priors[:, 0])
         # interpolated_priors = self.approx_priors[insertion_point, 1]
 
         # The final MRCA we calculate exactly
-        interpolated_priors[all_tips == total_tips] = \
-            self.tau_var(total_tips, total_tips)
+        interpolated_priors[all_tips == total_tips] = self.tau_var(
+            total_tips, total_tips
+        )
         return interpolated_priors
 
     def tau_var_exact(self, total_tips, all_tips):
         # TODO, vectorize this properly
-        return [self.tau_var(tips, total_tips) for tips in tqdm(
-            all_tips, desc="Calculating Node Age Variances", disable=not self.progress)]
+        return [
+            self.tau_var(tips, total_tips)
+            for tips in tqdm(
+                all_tips,
+                desc="Calculating Node Age Variances",
+                disable=not self.progress,
+            )
+        ]
 
     def get_mixture_prior_params(self, spans_by_samples):
         """
@@ -284,23 +307,24 @@ class ConditionalCoalescentTimes():
         :rtype:  numpy.ndarray
         """
 
-        mean_column = PriorParams.field_index('mean')
-        var_column = PriorParams.field_index('var')
+        mean_column = PriorParams.field_index("mean")
+        var_column = PriorParams.field_index("var")
         param_cols = np.array(
-            [i for i, f in enumerate(PriorParams._fields) if f not in ('mean', 'var')])
+            [i for i, f in enumerate(PriorParams._fields) if f not in ("mean", "var")]
+        )
 
         def mixture_expect_and_var(mixture):
             expectation = 0
             first = secnd = 0
             for N, tip_dict in mixture.items():
                 # assert 1 not in tip_dict.descendant_tips
-                mean = self[N][tip_dict['descendant_tips'], mean_column]
-                var = self[N][tip_dict['descendant_tips'], var_column]
+                mean = self[N][tip_dict["descendant_tips"], mean_column]
+                var = self[N][tip_dict["descendant_tips"], var_column]
                 # Mixture expectation
-                expectation += np.sum(mean * tip_dict['weight'])
+                expectation += np.sum(mean * tip_dict["weight"])
                 # Mixture variance
-                first += np.sum(var * tip_dict['weight'])
-                secnd += np.sum(mean ** 2 * tip_dict['weight'])
+                first += np.sum(var * tip_dict["weight"])
+                secnd += np.sum(mean ** 2 * tip_dict["weight"])
             mean = expectation
             var = first + secnd - (expectation ** 2)
             return mean, var
@@ -309,27 +333,29 @@ class ConditionalCoalescentTimes():
         # allocate space for params for all nodes, even though we only use nodes_to_date
         num_nodes, num_params = spans_by_samples.ts.num_nodes, len(param_cols)
         priors = np.full((num_nodes + 1, num_params), np.nan, dtype=base.FLOAT_DTYPE)
-        for node in tqdm(spans_by_samples.nodes_to_date,
-                         total=len(spans_by_samples.nodes_to_date),
-                         disable=not self.progress, desc="Find Mixture Priors"):
+        for node in tqdm(
+            spans_by_samples.nodes_to_date,
+            total=len(spans_by_samples.nodes_to_date),
+            disable=not self.progress,
+            desc="Find Mixture Priors",
+        ):
             mixture = spans_by_samples.get_weights(node)
             if len(mixture) == 1:
                 # The norm: this node spans trees that all have the same set of samples
                 total_tips, weight_arr = next(iter(mixture.items()))
                 if weight_arr.shape[0] == 1:
-                    d_tips = weight_arr['descendant_tips'][0]
+                    d_tips = weight_arr["descendant_tips"][0]
                     # This node is not a mixture - can use the standard coalescent prior
                     priors[node] = self[total_tips][d_tips, param_cols]
                 elif weight_arr.shape[0] <= 5:
                     # Making mixture priors is a little expensive. We can help by caching
                     # in those cases where we have only a few mixtures
                     # (arbitrarily set here as <= 5 mixtures)
-                    mixture_hash = (
-                        total_tips,
-                        weight_arr.tostring())
+                    mixture_hash = (total_tips, weight_arr.tostring())
                     if mixture_hash not in seen_mixtures:
-                        priors[node] = seen_mixtures[mixture_hash] = \
-                            self.func_approx(*mixture_expect_and_var(mixture))
+                        priors[node] = seen_mixtures[mixture_hash] = self.func_approx(
+                            *mixture_expect_and_var(mixture)
+                        )
                     else:
                         priors[node] = seen_mixtures[mixture_hash]
                 else:
@@ -393,15 +419,21 @@ class SpansBySamples:
         self.sample_node_set = set(self.ts.samples())
         if np.any(self.ts.tables.nodes.time[self.ts.samples()] != 0):
             raise ValueError(
-                "The SpansBySamples class needs a tree seq with all samples at time 0")
+                "The SpansBySamples class needs a tree seq with all samples at time 0"
+            )
         self.progress = progress
 
         # We will store the spans in here, and normalize them at the end
         self._spans = defaultdict(
-            lambda: defaultdict(lambda: defaultdict(base.FLOAT_DTYPE)))
+            lambda: defaultdict(lambda: defaultdict(base.FLOAT_DTYPE))
+        )
 
         with tqdm(total=3, desc="TipCount", disable=not self.progress) as progressbar:
-            node_spans, trees_with_undated, total_fixed_at_0_per_tree = self.first_pass()
+            (
+                node_spans,
+                trees_with_undated,
+                total_fixed_at_0_per_tree,
+            ) = self.first_pass()
             progressbar.update()
 
             # A set of the total_num_tips in different trees (used for missing data)
@@ -420,22 +452,28 @@ class SpansBySamples:
         progressbar.close()
 
     def __repr__(self):
-        repr = []
+        ret = []
         for n in range(self.ts.num_nodes):
             items = []
             for tot_tips, weights in self.get_weights(n).items():
-                items.append("[{}] / {} ".format(
-                    ", ".join(["{}: {}".format(a, b) for a, b in weights]), tot_tips))
-            repr.append("Node {: >3}: ".format(n) + '{' + ", ".join(items) + '}')
-        return "\n".join(repr)
+                items.append(
+                    "[{}] / {} ".format(
+                        ", ".join([f"{a}: {b}" for a, b in weights]), tot_tips
+                    )
+                )
+            ret.append(f"Node {n: >3}: " + "{" + ", ".join(items) + "}")
+        return "\n".join(ret)
 
     def nodes_remaining_to_date(self):
         """
         Return a set of the node IDs that we want to date, but which haven't had a
         set of spans allocated which could be used to date the node.
         """
-        return {n for n in range(self.ts.num_nodes) if not(
-            n in self._spans or n in self.sample_node_set)}
+        return {
+            n
+            for n in range(self.ts.num_nodes)
+            if not (n in self._spans or n in self.sample_node_set)
+        }
 
     def nodes_remain_to_date(self):
         """
@@ -487,8 +525,10 @@ class SpansBySamples:
                 coverage = 0
                 logging.warning(
                     "Node {} is dangling (no descendant samples) at pos {}: "
-                    "this node will have no weight in this region"
-                    .format(node, stored_pos[node]))
+                    "this node will have no weight in this region".format(
+                        node, stored_pos[node]
+                    )
+                )
             if node in self.sample_node_set:
                 return True
             if prev_tree.num_children(node) > 1:
@@ -508,18 +548,23 @@ class SpansBySamples:
                     assert top_node == tskit.NULL
                     logging.debug(
                         "Unary node `{}` exists above highest coalescence in tree {}."
-                        " Skipping for now".format(node, prev_tree.index))
+                        " Skipping for now".format(node, prev_tree.index)
+                    )
                     return None
                 # Weights are exponential fractions: if no unary nodes above, we have
                 # weight = 1/2 from parent. If one unary node above, 1/4 from parent, etc
-                wt = 2**(unary_nodes_above+1)  # 1/wt from abpve
-                iwt = wt/(wt - 1.0)            # 1/iwt from below
+                wt = 2 ** (unary_nodes_above + 1)  # 1/wt from abpve
+                iwt = wt / (wt - 1.0)  # 1/iwt from below
                 top_node_tips = prev_tree.num_tracked_samples(top_node)
-                self._spans[node][num_fixed_at_0_treenodes][top_node_tips] += coverage/wt
+                self._spans[node][num_fixed_at_0_treenodes][top_node_tips] += (
+                    coverage / wt
+                )
                 # The rest from the node below
                 #  NB: coalescent node below should have same num_tracked_samples as this
                 # TODO - assumes no internal unary sample nodes at 0 (impossible)
-                self._spans[node][num_fixed_at_0_treenodes][n_fixed_at_0] += coverage/iwt
+                self._spans[node][num_fixed_at_0_treenodes][n_fixed_at_0] += (
+                    coverage / iwt
+                )
             return True
 
         # We iterate over edge_diffs to calculate, as nodes change their descendant tips,
@@ -547,9 +592,11 @@ class SpansBySamples:
         # Iterate over trees and remaining edge diffs
         focal_tips = list(self.sample_node_set)
         for prev_tree in tqdm(
-                self.ts.trees(tracked_samples=focal_tips),
-                desc="Find Node Spans", total=self.ts.num_trees,
-                disable=not self.progress):
+            self.ts.trees(tracked_samples=focal_tips),
+            desc="Find Node Spans",
+            total=self.ts.num_trees,
+            disable=not self.progress,
+        ):
             util.get_single_root(prev_tree)  # Check only one root
             try:
                 # Get the edge diffs from the prev tree to the new tree
@@ -657,14 +704,16 @@ class SpansBySamples:
                         stored_pos[node] = np.nan
                     else:
                         stored_pos[node] = prev_tree.interval[1]
-                num_fixed_at_0_treenodes += (len(fixed_at_0_nodes_in) -
-                                             len(fixed_at_0_nodes_out))
-            n_tips_per_tree[prev_tree.index+1] = num_fixed_at_0_treenodes
+                num_fixed_at_0_treenodes += len(fixed_at_0_nodes_in) - len(
+                    fixed_at_0_nodes_out
+                )
+            n_tips_per_tree[prev_tree.index + 1] = num_fixed_at_0_treenodes
 
         if self.has_unary:
             logging.warning(
                 "The input tree sequence has unary nodes: tsdate currently works "
-                "better if these are removed using `simplify(keep_unary=False)`")
+                "better if these are removed using `simplify(keep_unary=False)`"
+            )
         return node_spans, trees_with_undated, n_tips_per_tree
 
     def second_pass(self, trees_with_undated, n_tips_per_tree):
@@ -676,13 +725,15 @@ class SpansBySamples:
         we can simply assign this the coalescent maximum
         """
         logging.debug(
-            "Assigning priors to skipped unary nodes, via linked nodes with new priors")
+            "Assigning priors to skipped unary nodes, via linked nodes with new priors"
+        )
         unassigned_nodes = self.nodes_remaining_to_date()
         # Simple algorithm does this treewise
         tree_iter = self.ts.trees()
         tree = next(tree_iter)
-        for tree_id in tqdm(trees_with_undated, desc="2nd pass",
-                            disable=not self.progress):
+        for tree_id in tqdm(
+            trees_with_undated, desc="2nd pass", disable=not self.progress
+        ):
             while tree.index != tree_id:
                 tree = next(tree_iter)
             for node in unassigned_nodes:
@@ -703,12 +754,12 @@ class SpansBySamples:
                 else:
                     logging.debug(
                         "Assigning prior to unary node {}: connected to node {} which"
-                        " has a prior in tree {}".format(node, n, tree_id))
+                        " has a prior in tree {}".format(node, n, tree_id)
+                    )
                     for n_tips, weights in self._spans[n].items():
                         for k, v in weights.items():
                             if k <= 0:
-                                raise ValueError(
-                                    "Node {} has no fixed descendants".format(n))
+                                raise ValueError(f"Node {n} has no fixed descendants")
                             local_weight = v / self.node_spans[n]
                             self._spans[node][n_tips][k] += tree.span * local_weight / 2
                     assert tree.num_children(node) == 1
@@ -723,13 +774,15 @@ class SpansBySamples:
         nodes in the tree, so we can simply give them the max depth
         """
         logging.debug(
-            "Assigning priors to remaining (unconnected) unary nodes using max depth")
+            "Assigning priors to remaining (unconnected) unary nodes using max depth"
+        )
         max_samples = self.ts.num_samples
         unassigned_nodes = self.nodes_remaining_to_date()
         tree_iter = self.ts.trees()
         tree = next(tree_iter)
-        for tree_id in tqdm(trees_with_undated, desc="3rd pass",
-                            disable=not self.progress):
+        for tree_id in tqdm(
+            trees_with_undated, desc="3rd pass", disable=not self.progress
+        ):
             while tree.index != tree_id:
                 tree = next(tree_iter)
             for node in unassigned_nodes:
@@ -749,16 +802,21 @@ class SpansBySamples:
         shortcut to by setting normalized_node_span_data. Also provide the
         nodes_to_date value.
         """
-        assert not hasattr(self, 'normalized_node_span_data'), "Already finalized"
-        weight_dtype = np.dtype({
-            'names': ('descendant_tips', 'weight'),
-            'formats': (np.uint64, base.FLOAT_DTYPE)})
+        assert not hasattr(self, "normalized_node_span_data"), "Already finalized"
+        weight_dtype = np.dtype(
+            {
+                "names": ("descendant_tips", "weight"),
+                "formats": (np.uint64, base.FLOAT_DTYPE),
+            }
+        )
 
         if self.nodes_remain_to_date():
             logging.warning(
                 "When finalising node spans, found the following nodes not in any tree;"
-                " you should probably simplify your tree sequence: {}"
-                .format(self.nodes_remaining_to_date()))
+                " you should probably simplify your tree sequence: {}".format(
+                    self.nodes_remaining_to_date()
+                )
+            )
 
         for node, weights_by_total_tips in self._spans.items():
             self._spans[node] = {}  # Overwrite, so we don't leave the old data around
@@ -766,7 +824,7 @@ class SpansBySamples:
                 wt = np.array([(k, v) for k, v in weights.items()], dtype=weight_dtype)
                 with np.errstate(invalid="ignore"):
                     # Allow self.node_spans[node]=0 -> nan
-                    wt['weight'] /= self.node_spans[node]
+                    wt["weight"] /= self.node_spans[node]
                 self._spans[node][num_samples] = wt
         # Assign into the instance, for further reference
         self.normalized_node_span_data = self._spans
@@ -807,8 +865,8 @@ class SpansBySamples:
 
     def lookup_weight(self, node, total_tips, descendant_tips):
         # Only used for testing
-        which = self.get_weights(node)[total_tips]['descendant_tips'] == descendant_tips
-        return self.get_weights(node)[total_tips]['weight'][which]
+        which = self.get_weights(node)[total_tips]["descendant_tips"] == descendant_tips
+        return self.get_weights(node)[total_tips]["weight"][which]
 
 
 def create_timepoints(base_priors, prior_distr, n_points=21):
@@ -829,29 +887,36 @@ def create_timepoints(base_priors, prior_distr, n_points=21):
     # We can't include the top end point, as this leads to NaNs
     percentiles = np.linspace(0, 1, n_points + 1)[1:-1]
     # percentiles = np.append(percentiles, 0.999999)
-    param_cols = np.where([f not in ('mean', 'var') for f in PriorParams._fields])[0]
+    param_cols = np.where([f not in ("mean", "var") for f in PriorParams._fields])[0]
     """
     get the set of times from gamma percent point function at the given
     percentiles specifies the value of the RV such that the prob of the var
     being less than or equal to that value equals the given probability
     """
-    if prior_distr == 'lognorm':
+    if prior_distr == "lognorm":
+
         def lognorm_ppf(percentiles, alpha, beta):
-            return scipy.stats.lognorm.ppf(percentiles, s=np.sqrt(beta),
-                                           scale=np.exp(alpha))
+            return scipy.stats.lognorm.ppf(
+                percentiles, s=np.sqrt(beta), scale=np.exp(alpha)
+            )
+
         ppf = lognorm_ppf
 
         def lognorm_cdf(t_set, alpha, beta):
             return scipy.stats.lognorm.cdf(t_set, s=np.sqrt(beta), scale=np.exp(alpha))
+
         cdf = lognorm_cdf
 
-    elif prior_distr == 'gamma':
+    elif prior_distr == "gamma":
+
         def gamma_ppf(percentiles, alpha, beta):
             return scipy.stats.gamma.ppf(percentiles, alpha, scale=1 / beta)
+
         ppf = gamma_ppf
 
         def gamma_cdf(t_set, alpha, beta):
             return scipy.stats.gamma.cdf(t_set, alpha, scale=1 / beta)
+
         cdf = gamma_cdf
     else:
         raise ValueError("prior distribution must be lognorm or gamma")
@@ -872,9 +937,9 @@ def create_timepoints(base_priors, prior_distr, n_points=21):
             wd = np.where(tmp > max_sep)
 
             if len(wd[0]) > 0:
-                t_set = np.concatenate([
-                    t_set,
-                    ppf(percentiles[wd], *prior_params[i, param_cols])])
+                t_set = np.concatenate(
+                    [t_set, ppf(percentiles[wd], *prior_params[i, param_cols])]
+                )
 
     t_set = sorted(t_set)
     return np.insert(t_set, 0, 0)
@@ -889,14 +954,14 @@ def fill_priors(node_parameters, timepoints, ts, *, prior_distr, progress=False)
 
     TODO - what if there is an internal fixed node? Should we truncate
     """
-    if prior_distr == 'lognorm':
+    if prior_distr == "lognorm":
         cdf_func = scipy.stats.lognorm.cdf
-        main_param = np.sqrt(node_parameters[:, PriorParams.field_index('beta')])
-        scale_param = np.exp(node_parameters[:, PriorParams.field_index('alpha')])
-    elif prior_distr == 'gamma':
+        main_param = np.sqrt(node_parameters[:, PriorParams.field_index("beta")])
+        scale_param = np.exp(node_parameters[:, PriorParams.field_index("alpha")])
+    elif prior_distr == "gamma":
         cdf_func = scipy.stats.gamma.cdf
-        main_param = node_parameters[:, PriorParams.field_index('alpha')]
-        scale_param = 1 / node_parameters[:, PriorParams.field_index('beta')]
+        main_param = node_parameters[:, PriorParams.field_index("alpha")]
+        scale_param = 1 / node_parameters[:, PriorParams.field_index("beta")]
     else:
         raise ValueError("prior distribution must be lognorm or gamma")
 
@@ -906,12 +971,14 @@ def fill_priors(node_parameters, timepoints, ts, *, prior_distr, progress=False)
     prior_times = base.NodeGridValues(
         ts.num_nodes,
         datable_nodes[np.argsort(ts.tables.nodes.time[datable_nodes])].astype(np.int32),
-        timepoints)
+        timepoints,
+    )
 
     # TO DO - this can probably be done in an single numpy step rather than a for loop
-    for node in tqdm(datable_nodes, desc="Assign Prior to Each Node",
-                     disable=not progress):
-        with np.errstate(divide='ignore', invalid='ignore'):
+    for node in tqdm(
+        datable_nodes, desc="Assign Prior to Each Node", disable=not progress
+    ):
+        with np.errstate(divide="ignore", invalid="ignore"):
             prior_node = cdf_func(timepoints, main_param[node], scale=scale_param[node])
         # force age to be less than max value
         prior_node = np.divide(prior_node, np.max(prior_node))
@@ -922,9 +989,16 @@ def fill_priors(node_parameters, timepoints, ts, *, prior_distr, progress=False)
     return prior_times
 
 
-def build_grid(tree_sequence, timepoints=20, *, approximate_priors=False,
-               approx_prior_size=None, prior_distribution="lognorm", eps=1e-6,
-               progress=False):
+def build_grid(
+    tree_sequence,
+    timepoints=20,
+    *,
+    approximate_priors=False,
+    approx_prior_size=None,
+    prior_distribution="lognorm",
+    eps=1e-6,
+    progress=False,
+):
     """
     Using the conditional coalescent, calculate the prior distribution for the age of
     each node given the number of contemporaneous samples below it, and the discretised
@@ -956,13 +1030,16 @@ def build_grid(tree_sequence, timepoints=20, *, approximate_priors=False,
             approx_prior_size = 1000
     else:
         if approx_prior_size is not None:
-            raise ValueError("Can't set approx_prior_size if approximate_prior is False")
+            raise ValueError(
+                "Can't set approx_prior_size if approximate_prior is False"
+            )
 
     contmpr_ts, node_map = util.reduce_to_contemporaneous(tree_sequence)
     span_data = SpansBySamples(contmpr_ts, progress=progress)
 
-    base_priors = ConditionalCoalescentTimes(approx_prior_size, prior_distribution,
-                                             progress=progress)
+    base_priors = ConditionalCoalescentTimes(
+        approx_prior_size, prior_distribution, progress=progress
+    )
 
     base_priors.add(contmpr_ts.num_samples, approximate_priors)
     for total_fixed in span_data.total_fixed_at_0_counts:
@@ -976,7 +1053,7 @@ def build_grid(tree_sequence, timepoints=20, *, approximate_priors=False,
         timepoints = create_timepoints(base_priors, prior_distribution, timepoints + 1)
     elif isinstance(timepoints, np.ndarray):
         try:
-            timepoints = np.sort(timepoints.astype(base.FLOAT_DTYPE, casting='safe'))
+            timepoints = np.sort(timepoints.astype(base.FLOAT_DTYPE, casting="safe"))
         except TypeError:
             raise TypeError("Timepoints array cannot be converted to float dtype")
         if len(timepoints) < 2:
@@ -992,6 +1069,11 @@ def build_grid(tree_sequence, timepoints=20, *, approximate_priors=False,
     # Map the nodes in the prior params back to the node ids in the original ts
     prior_params = prior_params_contmpr[node_map, :]
     # Set all fixed nodes (i.e. samples) to have 0 variance
-    priors = fill_priors(prior_params, timepoints, tree_sequence,
-                         prior_distr=prior_distribution, progress=progress)
+    priors = fill_priors(
+        prior_params,
+        timepoints,
+        tree_sequence,
+        prior_distr=prior_distribution,
+        progress=progress,
+    )
     return priors

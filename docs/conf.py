@@ -3,15 +3,21 @@
 # This file only contains a selection of the most common options. For a full
 # list see the documentation:
 # http://www.sphinx-doc.org/en/master/config
-
-
 import os
 import sys
+
 import pkg_resources
 
 
 autodoc_mock_imports = [
-    'numpy', 'tskit', 'tqdm', 'appdirs', 'numba', 'scipy', 'scipy.stats', 'scipy.special'
+    "numpy",
+    "tskit",
+    "tqdm",
+    "appdirs",
+    "numba",
+    "scipy",
+    "scipy.stats",
+    "scipy.special",
 ]
 
 # -- Path setup --------------------------------------------------------------
@@ -21,21 +27,22 @@ autodoc_mock_imports = [
 # documentation root, use os.path.abspath to make it absolute, like shown here.
 #
 
-sys.path.insert(0, os.path.abspath('..'))
+sys.path.insert(0, os.path.abspath(".."))
 
 # The master document
-master_doc = 'index'
+master_doc = "index"
 
 # -- Project information -----------------------------------------------------
 
-project = 'tsdate'
-copyright = '2020, University of Oxford'
-author = 'Anthony Wilder Wohns and Yan Wong'
+project = "tsdate"
+copyright = "2020, University of Oxford"  # NOQA: A001
+author = "Anthony Wilder Wohns and Yan Wong"
 
 # The full version, including alpha/beta/rc tags
 try:
     from setuptools_scm import get_version
-    release = get_version(root='..', relative_to=__file__)
+
+    release = get_version(root="..", relative_to=__file__)
     version = release[:3]
 except pkg_resources.DistributionNotFound:
     release = "0.0.0"
@@ -48,23 +55,23 @@ except pkg_resources.DistributionNotFound:
 # extensions coming with Sphinx (named 'sphinx.ext.*') or your custom
 # ones.
 extensions = [
-    'sphinx.ext.autodoc',
-    'sphinx.ext.intersphinx',
-    'sphinxarg.ext',
-    'sphinx_issues',
-    'recommonmark'
+    "sphinx.ext.autodoc",
+    "sphinx.ext.intersphinx",
+    "sphinxarg.ext",
+    "sphinx_issues",
+    "recommonmark",
 ]
 
 # Github repo
 issues_github_path = "tskit-dev/tsdate"
 
 # Add any paths that contain templates here, relative to this directory.
-templates_path = ['_templates']
+templates_path = ["_templates"]
 
 # List of patterns, relative to source directory, that match files and
 # directories to ignore when looking for source files.
 # This pattern also affects html_static_path and html_extra_path.
-exclude_patterns = ['_build', 'Thumbs.db', '.DS_Store']
+exclude_patterns = ["_build", "Thumbs.db", ".DS_Store"]
 
 
 # -- Options for HTML output -------------------------------------------------
@@ -72,7 +79,7 @@ exclude_patterns = ['_build', 'Thumbs.db', '.DS_Store']
 # The theme to use for HTML and HTML Help pages.  See the documentation for
 # a list of builtin themes.
 #
-html_theme = "sphinx_rtd_theme" 
+html_theme = "sphinx_rtd_theme"
 
 # Add any paths that contain custom static files (such as style sheets) here,
 # relative to this directory. They are copied after the builtin static files,
@@ -87,7 +94,7 @@ html_logo = "_static/tsdate_logo_pale.svg"
 
 # Example configuration for intersphinx: refer to the Python standard library.
 intersphinx_mapping = {
-    'https://docs.python.org/3': None,
-    'https://docs.scipy.org/doc/numpy/': None,
-    'https://tsdate.readthedocs.io/en/stable/': None,
+    "https://docs.python.org/3": None,
+    "https://docs.scipy.org/doc/numpy/": None,
+    "https://tsdate.readthedocs.io/en/stable/": None,
 }
