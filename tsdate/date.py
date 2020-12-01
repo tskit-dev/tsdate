@@ -923,6 +923,7 @@ def constrain_ages_topo(ts, post_mn, eps, nodes_to_date=None, progress=False):
     parents = sorted(parents)
     parents_unique = np.unique(parents, return_index=True)
     parent_indices = parents_unique[1][np.isin(parents_unique[0], nodes_to_date)]
+    topology_constrained = False
     for index, nd in tqdm(
         enumerate(sorted(nodes_to_date)), desc="Constrain Ages", disable=not progress
     ):
@@ -933,7 +934,10 @@ def constrain_ages_topo(ts, post_mn, eps, nodes_to_date=None, progress=False):
         children = nd_children[children_index]
         time = np.max(new_mn_post[children])
         if new_mn_post[nd] <= time:
+            topology_constrained = True
             new_mn_post[nd] = time + eps
+    if topology_constrained is True:
+        logging.info(">= 1 node time changed due to topological constraints")
     return new_mn_post
 
 
