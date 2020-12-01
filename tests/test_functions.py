@@ -25,7 +25,6 @@ Test cases for the python API for tsdate.
 """
 import collections
 import json
-import math
 import unittest
 import warnings
 
@@ -51,7 +50,7 @@ from tsdate.prior import fill_priors
 from tsdate.prior import gamma_approx
 from tsdate.prior import PriorParams
 from tsdate.prior import SpansBySamples
-from tsdate.util import nodes_time
+from tsdate.util import nodes_time_unconstrained
 
 
 class TestBasicFunctions(unittest.TestCase):
@@ -1706,12 +1705,12 @@ class TestNodeTimes(unittest.TestCase):
             10, mutation_rate=1, recombination_rate=1, length=20
         )
         dated = date(larger_ts, 10000)
-        node_ages = nodes_time(dated)
+        node_ages = nodes_time_unconstrained(dated)
         self.assertTrue(np.all(dated.tables.nodes.time[:] >= node_ages))
 
     def test_fails_unconstrained(self):
         ts = utility_functions.two_tree_mutation_ts()
-        self.assertRaises(ValueError, nodes_time, ts, unconstrained=True)
+        self.assertRaises(ValueError, nodes_time_unconstrained, ts)
 
 
 class TestSiteTimes(unittest.TestCase):
@@ -1723,10 +1722,10 @@ class TestSiteTimes(unittest.TestCase):
         ts = utility_functions.two_tree_ts()
         self.assertRaises(ValueError, tsdate.sites_time_from_ts, ts)
 
-    def test_mutation_age_param(self):
+    def test_node_selection_param(self):
         ts = utility_functions.two_tree_mutation_ts()
         self.assertRaises(
-            ValueError, tsdate.sites_time_from_ts, ts, mutation_age="sibling"
+            ValueError, tsdate.sites_time_from_ts, ts, node_selection="sibling"
         )
 
     def test_sites_time_insideoutside(self):
@@ -1736,13 +1735,13 @@ class TestSiteTimes(unittest.TestCase):
         self.assertTrue(
             np.array_equal(
                 mn_post[ts.tables.mutations.node],
-                tsdate.sites_time_from_ts(dated, unconstrained=True),
+                tsdate.sites_time_from_ts(dated, unconstrained=True, min_time=0),
             )
         )
         self.assertTrue(
             np.array_equal(
                 dated.tables.nodes.time[ts.tables.mutations.node],
-                tsdate.sites_time_from_ts(dated, unconstrained=False),
+                tsdate.sites_time_from_ts(dated, unconstrained=False, min_time=0),
             )
         )
 
@@ -1752,20 +1751,24 @@ class TestSiteTimes(unittest.TestCase):
         self.assertTrue(
             np.array_equal(
                 dated.tables.nodes.time[ts.tables.mutations.node],
-                tsdate.sites_time_from_ts(dated, unconstrained=False),
+                tsdate.sites_time_from_ts(dated, unconstrained=False, min_time=0),
             )
         )
 
-    def test_sites_time_mutation_age(self):
+    def test_sites_time_node_selection(self):
         ts = utility_functions.two_tree_mutation_ts()
         dated = tsdate.date(ts, Ne=1, mutation_rate=1)
-        sites_time_child = tsdate.sites_time_from_ts(dated, mutation_age="child")
-        dated_nodes_time = nodes_time(dated)
+        sites_time_child = tsdate.sites_time_from_ts(
+            dated, node_selection="child", min_time=0
+        )
+        dated_nodes_time = nodes_time_unconstrained(dated)
         self.assertTrue(
             np.array_equal(dated_nodes_time[ts.tables.mutations.node], sites_time_child)
         )
 
-        sites_time_parent = tsdate.sites_time_from_ts(dated, mutation_age="parent")
+        sites_time_parent = tsdate.sites_time_from_ts(
+            dated, node_selection="parent", min_time=0
+        )
         parent_sites_check = np.zeros(dated.num_sites)
         for tree in dated.trees():
             for site in tree.sites():
@@ -1776,7 +1779,7 @@ class TestSiteTimes(unittest.TestCase):
         self.assertTrue(np.array_equal(parent_sites_check, sites_time_parent))
 
         sites_time_arithmetic = tsdate.sites_time_from_ts(
-            dated, mutation_age="arithmetic"
+            dated, node_selection="arithmetic", min_time=0
         )
         arithmetic_sites_check = np.zeros(dated.num_sites)
         for tree in dated.trees():
@@ -1789,7 +1792,7 @@ class TestSiteTimes(unittest.TestCase):
         self.assertTrue(np.array_equal(arithmetic_sites_check, sites_time_arithmetic))
 
         sites_time_geometric = tsdate.sites_time_from_ts(
-            dated, mutation_age="geometric"
+            dated, node_selection="geometric", min_time=0
         )
         geometric_sites_check = np.zeros(dated.num_sites)
         for tree in dated.trees():
@@ -1801,45 +1804,52 @@ class TestSiteTimes(unittest.TestCase):
                     )
         self.assertTrue(np.array_equal(geometric_sites_check, sites_time_geometric))
 
-    def test_sites_time_multiallelic(self):
-        ts = utility_functions.single_tree_ts_2mutations_multiallelic_n3()
-        sites_time = tsdate.sites_time_from_ts(ts, unconstrained=False)
-        self.assertTrue(
-            np.array_equal(
-                [np.max(ts.tables.nodes.time[ts.tables.mutations.node])], sites_time
-            )
-        )
-        sites_time = tsdate.sites_time_from_ts(
-            ts, unconstrained=False, ignore_multiallelic=False
-        )
-        self.assertTrue(math.isnan(sites_time[0]))
-
     def test_sites_time_singletons(self):
+        """Singletons should be allocated min_time"""
         ts = utility_functions.single_tree_ts_2mutations_singletons_n3()
+        sites_time = tsdate.sites_time_from_ts(ts, unconstrained=False, min_time=0)
+        self.assertTrue(np.array_equal(sites_time, [0]))
         sites_time = tsdate.sites_time_from_ts(ts, unconstrained=False)
-        self.assertTrue(np.array_equal(sites_time, [1e-6]))
+        self.assertTrue(np.array_equal(sites_time, [1]))
+
+    def test_sites_time_nonvariable(self):
+        ts = utility_functions.single_tree_ts_2mutations_singletons_n3()
+        tables = ts.dump_tables()
+        tables.mutations.clear()
+        ts = tables.tree_sequence()
+        sites_time = tsdate.sites_time_from_ts(ts, unconstrained=False)
+        self.assertTrue(np.all(np.isnan(sites_time)))
+
+    def test_sites_time_root_mutation(self):
+        ts = utility_functions.single_tree_ts_2mutations_singletons_n3()
+        tables = ts.dump_tables()
+        tables.mutations.clear()
+        tables.mutations.add_row(site=0, derived_state="1", node=ts.first().root)
+        ts = tables.tree_sequence()
+        sites_time = tsdate.sites_time_from_ts(ts, unconstrained=False)
+        self.assertEqual(sites_time[0], ts.node(ts.first().root).time)
 
     def test_sites_time_multiple_mutations(self):
         ts = utility_functions.single_tree_ts_2mutations_n3()
         sites_time = tsdate.sites_time_from_ts(ts, unconstrained=False)
-        self.assertTrue(np.array_equal(sites_time, [1]))
+        self.assertTrue(np.array_equal(sites_time, [10]))
 
     def test_sites_time_simulated(self):
         larger_ts = msprime.simulate(
             10, mutation_rate=1, recombination_rate=1, length=20
         )
-        _, mn_post, _, _, eps, _ = get_dates(larger_ts, 10000)
+        _, mn_post, _, _, _, _ = get_dates(larger_ts, 10000)
         dated = date(larger_ts, 10000)
         self.assertTrue(
             np.array_equal(
                 mn_post[larger_ts.tables.mutations.node],
-                tsdate.sites_time_from_ts(dated, unconstrained=True),
+                tsdate.sites_time_from_ts(dated, unconstrained=True, min_time=0),
             )
         )
         self.assertTrue(
             np.array_equal(
                 dated.tables.nodes.time[larger_ts.tables.mutations.node],
-                tsdate.sites_time_from_ts(dated, unconstrained=False),
+                tsdate.sites_time_from_ts(dated, unconstrained=False, min_time=0),
             )
         )
 

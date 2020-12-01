@@ -144,93 +144,117 @@ def preprocess_ts(
     return tree_sequence_trimmed
 
 
-def nodes_time(tree_sequence, unconstrained=True):
-    nodes_age = tree_sequence.tables.nodes.time[:]
-    if unconstrained:
-        metadata = tree_sequence.tables.nodes.metadata[:]
-        metadata_offset = tree_sequence.tables.nodes.metadata_offset[:]
-        for index, met in enumerate(tskit.unpack_bytes(metadata, metadata_offset)):
-            if index not in tree_sequence.samples():
-                try:
-                    nodes_age[index] = json.loads(met.decode())["mn"]
-                except (KeyError, json.decoder.JSONDecodeError):
-                    raise ValueError(
-                        "Tree Sequence must be tsdated with the "
-                        "Inside-Outside Method. Use unconstrained=False "
-                        "if not."
-                    )
-    return nodes_age
+def nodes_time_unconstrained(tree_sequence):
+    """
+    Return the unconstrained node times for every node in a tree sequence that has
+    been dated using ``tsdate`` with the inside-outside algorithm (these times are
+    stored in the node metadata). Will produce an error if the tree sequence does
+    not contain this information.
+    """
+    nodes_time = tree_sequence.tables.nodes.time.copy()
+    metadata = tree_sequence.tables.nodes.metadata
+    metadata_offset = tree_sequence.tables.nodes.metadata_offset
+    for index, met in enumerate(tskit.unpack_bytes(metadata, metadata_offset)):
+        if index not in tree_sequence.samples():
+            try:
+                nodes_time[index] = json.loads(met.decode())["mn"]
+            except (KeyError, json.decoder.JSONDecodeError):
+                raise ValueError(
+                    "Tree Sequence must be tsdated with the Inside-Outside Method."
+                )
+    return nodes_time
 
 
 def sites_time_from_ts(
-    tree_sequence,
-    *,
-    unconstrained=True,
-    mutation_age="child",
-    ignore_multiallelic=True,
-    eps=1e-6,
+    tree_sequence, *, unconstrained=True, node_selection="child", min_time=1
 ):
     """
-    Returns the estimated time of the oldest mutation at each site.
+    Returns an estimated "time" for each site. This is the estimated age of the oldest
+    MRCA which possesses a derived variant at that site, and is useful for performing
+    (re)inference of a tree sequence. It is calculated from the ages of nodes, with the
+    appropriate nodes identified by the position of mutations in the trees.
+
+    If node times in the tree sequence have been estimated by ``tsdate`` using the
+    inside-outside algorithm, then as well as a time in the tree sequence, nodes will
+    store additional time estimates that have not been explictly constrained by the
+    tree topology. By default, this function tries to use these "unconstrained" times,
+    although this is likely to fail (with a warning) on tree sequences that have not
+    been processed by ``tsdate``: in this case the standard node times can be used by
+    setting ``unconstrained=False``.
+
+    The concept of a site time is meaningless for non-variable sites, and
+    so the returned time for these sites is ``np.nan`` (note that this is not exactly
+    the same as tskit.UNKNOWN_TIME, which marks sites that could have a meaningful time
+    but whose time estimate is unknown).
 
     :param TreeSequence tree_sequence: The input :class`tskit.TreeSequence`.
-    :param bool unconstrained: Use node ages which are unconstrained by site topology.
-        Only applies when the inside-outside algorithm is used.
-        Default: "True"
-    :param str mutation_age: Defines how mutation times are calculated. Options are
-        "child", "parent", "arithmetic" or "geometric". If "child", mutation ages are
-        defined by the time of the mutation's child node.
-        If "parent", mutation ages are the time of the mutation's parent node.
-        If "arithmetic", mutation times are calculated using the arithmetic mean of
-        the parent and child nodes of the mutation. If "geometric", use the geometric
-        mean of the parent and child nodes of the mutation.
-        Default: "child"
-    :param bool ignore_multiallelic: If True, return the age of oldest mutation
-        asscoated with any allele at multiallelic sites. If False, return
-        tskit.UNKNOWN_TIME at multiallelic sites.
-        Default: True
-    :param float eps: Time value assigned to sites with > 1 mutation where the age of
-        oldest mutation is 0. For example, this value would be assigned to sites where
-        all mutations are singletons and the mutation_age parameter is assigned to
-        "child" or "geometric".
-        Default: 1e-6
+    :param bool unconstrained: Use estimated node times which have not been constrained
+        by tree topology. If ``True`` (default), this requires a tree sequence which has
+        been dated using the ``tsdate`` inside-outside algorithm. If this is not the
+        case, specify ``False`` to use the standard tree sequence node times.
+    :param str node_selection: Defines how site times are calculated from the age of
+        the upper and lower nodes that bound each mutation at the site. Options are
+        "child", "parent", "arithmetic" or "geometric", with the following meanings
+
+        * ``'child'`` (default): the site time is the age of the oldest node
+          *below* each mutation at the site
+        * ``'parent'``: the site time is the age of the oldest node *above* each
+          mutation at the site
+        * ``'arithmetic'``: the arithmetic mean of the ages of the node above and the
+          node below each mutation is calculated; the site time is the oldest
+          of these means.
+        * ``'geometric'``: the geometric mean of the ages of the node above and the
+          node below each mutation is calculated; the site time is the oldest
+          of these means
+
+    :param float min_time: A site time of zero implies that no MRCA in the past
+        possessed the derived variant, so the variant cannot be used for inferring
+        relationships between the samples. To allow all variants to be potentially
+        available for inference, if a site time would otherwise be calculated as zero
+        (for example, where the ``mutation_age`` parameter is "child" or "geometric"
+        and all mutations at a site are associated with leaf nodes), a minimum site
+        greater than 0 is recommended. By default this is set to 1, which is generally
+        reasonable for times measured in generations or years, although it is also
+        fine to set this to a small epsilon value.
 
     :return: Array of length tree_sequence.num_sites with estimated time of each site
     :rtype: numpy.array
     """
     if tree_sequence.num_sites < 1:
         raise ValueError("Invalid tree sequence: no sites present")
-    if mutation_age not in ["arithmetic", "geometric", "child", "parent"]:
+    if node_selection not in ["arithmetic", "geometric", "child", "parent"]:
         raise ValueError(
-            "mutation_age parameter must be 'arithmetic', 'geometric', 'child', or\
-            'parent'"
+            "The node_selection parameter must be "
+            "'child', 'parent', 'arithmetic', or 'geometric'"
         )
-    sites_time = np.empty(tree_sequence.num_sites)
-    sites_time[:] = -np.inf
-    nodes_age = nodes_time(tree_sequence, unconstrained=unconstrained)
+    if unconstrained:
+        try:
+            nodes_time = nodes_time_unconstrained(tree_sequence)
+        except ValueError as e:
+            e.args += "Try calling sites_time_from_ts() with unconstrained=False."
+            raise
+    else:
+        nodes_time = tree_sequence.tables.nodes.time
+    sites_time = np.full(tree_sequence.num_sites, np.nan)
 
     for tree in tree_sequence.trees():
         for site in tree.sites():
-            alleles = {site.ancestral_state}
             for mutation in site.mutations:
-                alleles.add(mutation.derived_state)
-                if mutation_age == "child":
-                    age = nodes_age[mutation.node]
+                parent_node = tree.parent(mutation.node)
+                if node_selection == "child" or parent_node == tskit.NULL:
+                    age = nodes_time[mutation.node]
                 else:
-                    parent_age = nodes_age[tree.parent(mutation.node)]
-                    if mutation_age == "parent":
+                    parent_age = nodes_time[parent_node]
+                    if node_selection == "parent":
                         age = parent_age
-                    elif mutation_age == "arithmetic":
-                        age = (nodes_age[mutation.node] + parent_age) / 2
-                    elif mutation_age == "geometric":
-                        age = np.sqrt(nodes_age[mutation.node] * parent_age)
-                if sites_time[site.id] < age:
+                    elif node_selection == "arithmetic":
+                        age = (nodes_time[mutation.node] + parent_age) / 2
+                    elif node_selection == "geometric":
+                        age = np.sqrt(nodes_time[mutation.node] * parent_age)
+                if np.isnan(sites_time[site.id]) or sites_time[site.id] < age:
                     sites_time[site.id] = age
-            if len(site.mutations) > 1 and sites_time[site.id] == 0:
-                sites_time[site.id] = eps
-            if ignore_multiallelic is False:
-                if len(alleles) > 2:
-                    sites_time[site.id] = tskit.UNKNOWN_TIME
+            if sites_time[site.id] < min_time:
+                sites_time[site.id] = min_time
     return sites_time
 
 
