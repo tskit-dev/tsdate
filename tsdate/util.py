@@ -23,12 +23,11 @@
 Utility functions for tsdate. Many of these can be removed when tskit is updated to
 a more recent version which has the functionality built-in
 """
-
 import json
-import numpy as np
 import logging
 import warnings
 
+import numpy as np
 import tskit
 
 from . import provenance
@@ -40,8 +39,7 @@ def get_single_root(tree):
     # TODO - use new 'root_threshold=2' to avoid having to check isolated nodes
     topological_roots = [r for r in tree.roots if tree.num_children(r) != 0]
     if len(topological_roots) > 1:
-        raise ValueError(
-            "Invalid tree sequence: tree {} has >1 root".format(tree.index))
+        raise ValueError(f"Invalid tree sequence: tree {tree.index} has >1 root")
     if len(topological_roots) == 0:
         return None  # Empty tree
     return topological_roots[0]
@@ -54,12 +52,19 @@ def reduce_to_contemporaneous(ts):
     samples = ts.samples()
     contmpr_samples = samples[ts.tables.nodes.time[samples] == 0]
     return ts.simplify(
-        contmpr_samples, map_nodes=True, keep_unary=True, filter_populations=False,
-        filter_sites=False, record_provenance=False, filter_individuals=False)
+        contmpr_samples,
+        map_nodes=True,
+        keep_unary=True,
+        filter_populations=False,
+        filter_sites=False,
+        record_provenance=False,
+        filter_individuals=False,
+    )
 
 
-def preprocess_ts(tree_sequence, *, minimum_gap=1000000, remove_telomeres=True,
-                  **kwargs):
+def preprocess_ts(
+    tree_sequence, *, minimum_gap=1000000, remove_telomeres=True, **kwargs
+):
     """
     Function to prepare tree sequences for dating by removing gaps without sites and
     simplifying the tree sequence. Large regions without data can cause
@@ -80,11 +85,9 @@ def preprocess_ts(tree_sequence, *, minimum_gap=1000000, remove_telomeres=True,
     :rtype: tskit.TreeSequence
     """
     logger.info("Beginning preprocessing")
-    logger.info("Minimum_gap: {} and remove_telomeres: {}".format(
-        minimum_gap, remove_telomeres))
+    logger.info(f"Minimum_gap: {minimum_gap} and remove_telomeres: {remove_telomeres}")
     if tree_sequence.num_sites < 1:
-        raise ValueError(
-                "Invalid tree sequence: no sites present")
+        raise ValueError("Invalid tree sequence: no sites present")
 
     sites = tree_sequence.tables.sites.position[:]
     delete_intervals = []
@@ -92,41 +95,51 @@ def preprocess_ts(tree_sequence, *, minimum_gap=1000000, remove_telomeres=True,
         first_site = sites[0] - 1
         if first_site > 0:
             delete_intervals.append([0, first_site])
-            logger.info("REMOVING TELOMERE: Snip topology "
-                        "from 0 to first site at {}.".format(
-                            first_site))
+            logger.info(
+                "REMOVING TELOMERE: Snip topology "
+                "from 0 to first site at {}.".format(first_site)
+            )
         last_site = sites[-1] + 1
         sequence_length = tree_sequence.get_sequence_length()
         if last_site < sequence_length:
             delete_intervals.append([last_site, sequence_length])
-            logger.info("REMOVING TELOMERE: Snip topology "
-                        "from {} to end of sequence at {}.".format(
-                            last_site, sequence_length))
+            logger.info(
+                "REMOVING TELOMERE: Snip topology "
+                "from {} to end of sequence at {}.".format(last_site, sequence_length)
+            )
     gaps = sites[1:] - sites[:-1]
     threshold_gaps = np.where(gaps >= minimum_gap)[0]
     for gap in threshold_gaps:
         gap_start = sites[gap] + 1
         gap_end = sites[gap + 1] - 1
         if gap_end > gap_start:
-            logger.info("Gap Size is {}. Snip topology "
-                        "from {} to {}.".format(
-                            gap_end - gap_start, gap_start, gap_end))
+            logger.info(
+                "Gap Size is {}. Snip topology "
+                "from {} to {}.".format(gap_end - gap_start, gap_start, gap_end)
+            )
             delete_intervals.append([gap_start, gap_end])
     delete_intervals = sorted(delete_intervals, key=lambda x: x[0])
     if len(delete_intervals) > 0:
-        tree_sequence_trimmed = tree_sequence.delete_intervals(delete_intervals,
-                                                               simplify=False)
+        tree_sequence_trimmed = tree_sequence.delete_intervals(
+            delete_intervals, simplify=False
+        )
         tree_sequence_trimmed = tree_sequence_trimmed.simplify(**kwargs)
         tree_sequence_trimmed = provenance.record_provenance(
-                tree_sequence_trimmed, "preprocess_ts", minimum_gap=minimum_gap,
-                remove_telomeres=remove_telomeres, delete_intervals=delete_intervals)
+            tree_sequence_trimmed,
+            "preprocess_ts",
+            minimum_gap=minimum_gap,
+            remove_telomeres=remove_telomeres,
+            delete_intervals=delete_intervals,
+        )
     else:
         logger.info("No gaps to remove")
         tree_sequence_trimmed = tree_sequence.simplify(**kwargs)
     if tree_sequence.num_sites != tree_sequence_trimmed.num_sites:
-        warnings.warn("Different number of sites after preprocessing. "
-                      "Try using **{'filter_sites:' False} to avoid this",
-                      RuntimeWarning)
+        warnings.warn(
+            "Different number of sites after preprocessing. "
+            "Try using **{'filter_sites:' False} to avoid this",
+            RuntimeWarning,
+        )
 
     return tree_sequence_trimmed
 
@@ -141,14 +154,22 @@ def nodes_time(tree_sequence, unconstrained=True):
                 try:
                     nodes_age[index] = json.loads(met.decode())["mn"]
                 except (KeyError, json.decoder.JSONDecodeError):
-                    raise ValueError("Tree Sequence must be tsdated with the "
-                                     "Inside-Outside Method. Use unconstrained=False "
-                                     "if not.")
+                    raise ValueError(
+                        "Tree Sequence must be tsdated with the "
+                        "Inside-Outside Method. Use unconstrained=False "
+                        "if not."
+                    )
     return nodes_age
 
 
-def sites_time_from_ts(tree_sequence, *, unconstrained=True, mutation_age="child",
-                       ignore_multiallelic=True, eps=1e-6):
+def sites_time_from_ts(
+    tree_sequence,
+    *,
+    unconstrained=True,
+    mutation_age="child",
+    ignore_multiallelic=True,
+    eps=1e-6,
+):
     """
     Returns the estimated time of the oldest mutation at each site.
 
@@ -182,14 +203,15 @@ def sites_time_from_ts(tree_sequence, *, unconstrained=True, mutation_age="child
     if mutation_age not in ["arithmetic", "geometric", "child", "parent"]:
         raise ValueError(
             "mutation_age parameter must be 'arithmetic', 'geometric', 'child', or\
-            'parent'")
+            'parent'"
+        )
     sites_time = np.empty(tree_sequence.num_sites)
     sites_time[:] = -np.inf
     nodes_age = nodes_time(tree_sequence, unconstrained=unconstrained)
 
     for tree in tree_sequence.trees():
         for site in tree.sites():
-            alleles = set([site.ancestral_state])
+            alleles = {site.ancestral_state}
             for mutation in site.mutations:
                 alleles.add(mutation.derived_state)
                 if mutation_age == "child":
@@ -227,7 +249,8 @@ def add_sampledata_times(samples, sites_time):
     """
     if samples.num_sites != len(sites_time):
         raise ValueError(
-            "sites_time should contain the same number of sites as the SampleData file")
+            "sites_time should contain the same number of sites as the SampleData file"
+        )
     # Get constraints from ancients
     sites_bound = samples.min_site_times(individuals_only=True)
     # Use maximum of constraints and estimated site times

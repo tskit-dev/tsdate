@@ -9,3 +9,4 @@ scipy
 codecov
 numba
 appdirs
+pre-commit

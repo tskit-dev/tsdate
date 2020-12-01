@@ -1,6 +1,6 @@
 from setuptools import setup
 
-with open("README.md", "r") as fh:
+with open("README.md") as fh:
     long_description = fh.read()
 
 setup(
@@ -12,24 +12,24 @@ setup(
     packages=["tsdate"],
     long_description_content_type="text/markdown",
     url="http://pypi.python.org/pypi/tsdate",
-    python_requires='>=3.4',
+    python_requires=">=3.4",
     entry_points={
-        'console_scripts': [
-            'tsdate=tsdate.__main__:main',
+        "console_scripts": [
+            "tsdate=tsdate.__main__:main",
         ]
     },
-    setup_requires=['setuptools_scm'],
+    setup_requires=["setuptools_scm"],
     install_requires=[
         "numpy",
         "tskit>=0.2.3",
         "scipy>1.2.3",
         "numba>=0.46.0",
         "tqdm",
-        "appdirs"
+        "appdirs",
     ],
     project_urls={
-        'Source': 'https://github.com/awohns/tsdate',
-        'Bug Reports': 'https://github.com/awohns/tsdate/issues',
+        "Source": "https://github.com/awohns/tsdate",
+        "Bug Reports": "https://github.com/awohns/tsdate/issues",
     },
     classifiers=[
         "Programming Language :: Python :: 3.5",

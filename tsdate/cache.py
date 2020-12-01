@@ -19,14 +19,12 @@
 # LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
-
 """
 Handle cache for precalculated prior
 """
-
+import logging
 import os
 import pathlib
-import logging
 
 import appdirs
 
@@ -34,11 +32,13 @@ import appdirs
 __version__ = "undefined"
 try:
     from . import _version
+
     __version__ = _version.version
 except ImportError:
     try:
         from setuptools_scm import get_version
-        __version__ = get_version(root='..', relative_to=__file__)
+
+        __version__ = get_version(root="..", relative_to=__file__)
     except ImportError:
         pass
 
