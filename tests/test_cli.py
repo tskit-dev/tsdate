@@ -25,18 +25,18 @@ Test cases for the command line interface for tsdate.
 import json
 import pathlib
 import tempfile
-import unittest
 from unittest import mock
 
 import msprime
 import numpy as np
+import pytest
 import tskit
 
 import tsdate
 import tsdate.cli as cli
 
 
-class TestTsdateArgParser(unittest.TestCase):
+class TestTsdateArgParser:
     """
     Tests for the tsdate argument parser.
     """
@@ -48,34 +48,34 @@ class TestTsdateArgParser(unittest.TestCase):
         with mock.patch("tsdate.cli.setup_logging"):
             parser = cli.tsdate_cli_parser()
             args = parser.parse_args(["date", self.infile, self.output, "1"])
-        self.assertEqual(args.tree_sequence, self.infile)
-        self.assertEqual(args.output, self.output)
-        self.assertEqual(args.Ne, 1)
-        self.assertEqual(args.mutation_rate, None)
-        self.assertEqual(args.recombination_rate, None)
-        self.assertEqual(args.epsilon, 1e-6)
-        self.assertEqual(args.num_threads, None)
-        self.assertEqual(args.probability_space, "logarithmic")
-        self.assertEqual(args.method, "inside_outside")
-        self.assertFalse(args.progress)
+        assert args.tree_sequence == self.infile
+        assert args.output == self.output
+        assert args.Ne == 1
+        assert args.mutation_rate is None
+        assert args.recombination_rate is None
+        assert args.epsilon == 1e-6
+        assert args.num_threads is None
+        assert args.probability_space == "logarithmic"
+        assert args.method == "inside_outside"
+        assert not args.progress
 
     def test_mutation_rate(self):
         parser = cli.tsdate_cli_parser()
         args = parser.parse_args(
             ["date", self.infile, self.output, "10000", "-m", "1e10"]
         )
-        self.assertEqual(args.mutation_rate, 1e10)
+        assert args.mutation_rate == 1e10
         args = parser.parse_args(
             ["date", self.infile, self.output, "10000", "--mutation-rate", "1e10"]
         )
-        self.assertEqual(args.mutation_rate, 1e10)
+        assert args.mutation_rate == 1e10
 
     def test_recombination_rate(self):
         parser = cli.tsdate_cli_parser()
         args = parser.parse_args(
             ["date", self.infile, self.output, "10000", "-r", "1e-100"]
         )
-        self.assertEqual(args.recombination_rate, 1e-100)
+        assert args.recombination_rate == 1e-100
         args = parser.parse_args(
             [
                 "date",
@@ -86,36 +86,36 @@ class TestTsdateArgParser(unittest.TestCase):
                 "1e-100",
             ]
         )
-        self.assertEqual(args.recombination_rate, 1e-100)
+        assert args.recombination_rate == 1e-100
 
     def test_epsilon(self):
         parser = cli.tsdate_cli_parser()
         args = parser.parse_args(
             ["date", self.infile, self.output, "10000", "-e", "123"]
         )
-        self.assertEqual(args.epsilon, 123)
+        assert args.epsilon == 123
         args = parser.parse_args(
             ["date", self.infile, self.output, "10000", "--epsilon", "321"]
         )
-        self.assertEqual(args.epsilon, 321)
+        assert args.epsilon == 321
 
     def test_num_threads(self):
         parser = cli.tsdate_cli_parser()
         args = parser.parse_args(
             ["date", self.infile, self.output, "10000", "--num-threads", "1"]
         )
-        self.assertEqual(args.num_threads, 1)
+        assert args.num_threads == 1
         args = parser.parse_args(
             ["date", self.infile, self.output, "10000", "--num-threads", "2"]
         )
-        self.assertEqual(args.num_threads, 2)
+        assert args.num_threads == 2
 
     def test_probability_space(self):
         parser = cli.tsdate_cli_parser()
         args = parser.parse_args(
             ["date", self.infile, self.output, "10000", "--probability-space", "linear"]
         )
-        self.assertEqual(args.probability_space, "linear")
+        assert args.probability_space == "linear"
         args = parser.parse_args(
             [
                 "date",
@@ -126,74 +126,70 @@ class TestTsdateArgParser(unittest.TestCase):
                 "logarithmic",
             ]
         )
-        self.assertEqual(args.probability_space, "logarithmic")
+        assert args.probability_space == "logarithmic"
 
     def test_method(self):
         parser = cli.tsdate_cli_parser()
         args = parser.parse_args(
             ["date", self.infile, self.output, "10000", "--method", "inside_outside"]
         )
-        self.assertEqual(args.method, "inside_outside")
+        assert args.method == "inside_outside"
         args = parser.parse_args(
             ["date", self.infile, self.output, "10000", "--method", "maximization"]
         )
-        self.assertEqual(args.method, "maximization")
+        assert args.method == "maximization"
 
     def test_progress(self):
         parser = cli.tsdate_cli_parser()
         args = parser.parse_args(
             ["date", self.infile, self.output, "10000", "--progress"]
         )
-        self.assertTrue(args.progress)
+        assert args.progress
 
     def test_default_values_preprocess(self):
         with mock.patch("tsdate.cli.setup_logging"):
             parser = cli.tsdate_cli_parser()
             args = parser.parse_args(["preprocess", self.infile, self.output])
-        self.assertEqual(args.tree_sequence, self.infile)
-        self.assertEqual(args.output, self.output)
-        self.assertEqual(args.minimum_gap, 1000000)
-        self.assertTrue(args.trim_telomeres)
+        assert args.tree_sequence == self.infile
+        assert args.output == self.output
+        assert args.minimum_gap == 1000000
+        assert args.trim_telomeres
 
 
-class TestEndToEnd(unittest.TestCase):
+class TestEndToEnd:
     """
     Class to test input to CLI outputs dated tree sequences.
     """
 
     def ts_equal(self, ts1, ts2, times_equal=False):
-        self.assertEqual(ts1.sequence_length, ts2.sequence_length)
+        assert ts1.sequence_length == ts2.sequence_length
         t1 = ts1.tables
         t2 = ts2.tables
-        self.assertEqual(t1.sites, t2.sites)
-        self.assertEqual(t1.mutations, t2.mutations)
+        assert t1.sites == t2.sites
+        assert t1.mutations == t2.mutations
         # Edges may have been re-ordered, since sortedness requirements specify
         # they are sorted by parent time, and the relative order of
         # (unconnected) parent nodes might have changed due to time inference
-        self.assertEquals(set(t1.edges), set(t2.edges))
+        assert set(t1.edges) == set(t2.edges)
         if not times_equal:
             # The dated and undated tree sequences should not have the same node times
-            self.assertTrue(
-                not np.array_equal(ts1.tables.nodes.time, ts2.tables.nodes.time)
-            )
+            assert not np.array_equal(ts1.tables.nodes.time, ts2.tables.nodes.time)
             # New tree sequence will have node times in metadata
             for column_name in t1.nodes.column_names:
                 if column_name not in ["time", "metadata", "metadata_offset"]:
                     col_t1 = getattr(t1.nodes, column_name)
                     col_t2 = getattr(t2.nodes, column_name)
-                    self.assertTrue(np.array_equal(col_t1, col_t2))
+                    assert np.array_equal(col_t1, col_t2)
             # Assert that last provenance shows tree sequence was dated
-            self.assertEqual(len(t1.provenances), len(t2.provenances) - 1)
+            assert len(t1.provenances) == len(t2.provenances) - 1
             for index, (prov1, prov2) in enumerate(zip(t1.provenances, t2.provenances)):
-                self.assertEqual(prov1, prov2)
+                assert prov1 == prov2
                 if index == len(t1.provenances) - 1:
                     break
-            self.assertEqual(
-                json.loads(t2.provenances[-1].record)["software"]["name"], "tsdate"
-            )
+            assert json.loads(t2.provenances[-1].record)["software"]["name"] == "tsdate"
 
         else:
-            self.assertEqual(t1.nodes, t2.nodes)
+            assert t1.nodes == t2.nodes
 
     def verify(self, input_ts, cmd):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -203,7 +199,7 @@ class TestEndToEnd(unittest.TestCase):
             full_cmd = "date " + str(input_filename) + f" {output_filename} " + cmd
             cli.tsdate_main(full_cmd.split())
             output_ts = tskit.load(output_filename)
-        self.assertEqual(input_ts.num_samples, output_ts.num_samples)
+        assert input_ts.num_samples == output_ts.num_samples
         self.ts_equal(input_ts, output_ts)
 
     def compare_python_api(self, input_ts, cmd, Ne, mutation_rate, method):
@@ -218,9 +214,7 @@ class TestEndToEnd(unittest.TestCase):
             input_ts, Ne=Ne, mutation_rate=mutation_rate, method=method
         )
         print(dated_ts.tables.nodes.time, output_ts.tables.nodes.time)
-        self.assertTrue(
-            np.array_equal(dated_ts.tables.nodes.time, output_ts.tables.nodes.time)
-        )
+        assert np.array_equal(dated_ts.tables.nodes.time, output_ts.tables.nodes.time)
 
     def test_ts(self):
         input_ts = msprime.simulate(10, random_seed=1)
@@ -235,7 +229,8 @@ class TestEndToEnd(unittest.TestCase):
     def test_recombination_rate(self):
         input_ts = msprime.simulate(10, random_seed=1)
         cmd = "1 --recombination-rate 1e-8"
-        self.assertRaises(NotImplementedError, self.verify, input_ts, cmd)
+        with pytest.raises(NotImplementedError):
+            self.verify(input_ts, cmd)
 
     def test_epsilon(self):
         input_ts = msprime.simulate(10, random_seed=1)
@@ -259,7 +254,8 @@ class TestEndToEnd(unittest.TestCase):
         cmd = "1 --method inside_outside"
         self.verify(input_ts, cmd)
         cmd = "1 --method maximization"
-        self.assertRaises(ValueError, self.verify, input_ts, cmd)
+        with pytest.raises(ValueError):
+            self.verify(input_ts, cmd)
 
     def test_compare_python_api(self):
         input_ts = msprime.simulate(

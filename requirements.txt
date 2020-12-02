@@ -1,6 +1,5 @@
 tskit>=0.3.0
 flake8
-nose
 numpy
 tqdm
 daiquiri
@@ -10,3 +9,6 @@ codecov
 numba
 appdirs
 pre-commit
+pytest
+pytest-xdist
+pytest-cov

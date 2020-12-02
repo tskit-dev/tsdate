@@ -54,5 +54,5 @@ jobs:
       - run:
           name: Run Python tests
           command: |
-              nosetests --with-coverage
+              python -m pytest --cov=tsdate  --cov-report=xml --cov-branch -n8 tests
               python3 -m codecov 
