@@ -955,7 +955,9 @@ def date(
     Take a tree sequence with arbitrary node times and recalculate node times using
     the `tsdate` algorithm. If a mutation_rate is given, the mutation clock is used. The
     recombination clock is unsupported at this time. If neither a mutation_rate nor a
-    recombination_rate is given, a topology-only clock is used.
+    recombination_rate is given, a topology-only clock is used. Times associated with
+    mutations and non-sample nodes in the input tree sequence are not used in inference
+    and will be removed.
 
     :param TreeSequence tree_sequence: The input :class:`tskit.TreeSequence`, treated as
         undated.
@@ -1000,6 +1002,8 @@ def date(
     constrained = constrain_ages_topo(tree_sequence, dates, eps, nds, progress)
     tables = tree_sequence.dump_tables()
     tables.nodes.time = constrained
+    # Remove any times associated with mutations
+    tables.mutations.time = np.full(tree_sequence.num_mutations, tskit.UNKNOWN_TIME)
     tables.sort()
     ts = tables.tree_sequence()
     return provenance.record_provenance(

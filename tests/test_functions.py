@@ -1103,7 +1103,9 @@ class TestOutsideAlgorithm:
             algo.outside_pass()
 
     def test_normalize_outside(self):
-        ts = msprime.simulate(50, Ne=10000, mutation_rate=1e-8, recombination_rate=1e-8)
+        ts = msprime.simulate(
+            50, Ne=10000, mutation_rate=1e-8, recombination_rate=1e-8, random_seed=12
+        )
         normalize = self.run_outside_algorithm(ts, normalize=True)
         no_normalize = self.run_outside_algorithm(ts, normalize=False)
         assert np.allclose(
@@ -1463,7 +1465,7 @@ class TestPosteriorMeanVar:
 
     def test_node_metadata_simulated_tree(self):
         larger_ts = msprime.simulate(
-            10, mutation_rate=1, recombination_rate=1, length=20
+            10, mutation_rate=1, recombination_rate=1, length=20, random_seed=12
         )
         _, mn_post, _, _, eps, _ = get_dates(larger_ts, 10000)
         dated_ts = date(larger_ts, 10000)
@@ -1618,7 +1620,7 @@ class TestNodeTimes:
 
     def test_node_times(self):
         larger_ts = msprime.simulate(
-            10, mutation_rate=1, recombination_rate=1, length=20
+            10, mutation_rate=1, recombination_rate=1, length=20, random_seed=12
         )
         dated = date(larger_ts, 10000)
         node_ages = nodes_time_unconstrained(dated)
@@ -1747,7 +1749,7 @@ class TestSiteTimes:
 
     def test_sites_time_simulated(self):
         larger_ts = msprime.simulate(
-            10, mutation_rate=1, recombination_rate=1, length=20
+            10, mutation_rate=1, recombination_rate=1, length=20, random_seed=12
         )
         _, mn_post, _, _, _, _ = get_dates(larger_ts, 10000)
         dated = date(larger_ts, 10000)
@@ -1786,6 +1788,7 @@ class TestSampleDataTimes:
             recombination_rate=1e-8,
             Ne=10000,
             length=1e4,
+            random_seed=12,
         )
         samples = tsinfer.formats.SampleData.from_tree_sequence(
             ts, use_individuals_time=True
@@ -1813,6 +1816,7 @@ class TestSampleDataTimes:
             recombination_rate=1e-8,
             Ne=10000,
             length=1e4,
+            random_seed=12,
         )
         samples = tsinfer.formats.SampleData.from_tree_sequence(
             ts, use_sites_time=False
@@ -1834,7 +1838,9 @@ class TestHistoricalExample:
             msprime.Sample(0, 0),
             msprime.Sample(0, 1.0),
         ]
-        return msprime.simulate(samples=samples, mutation_rate=1, length=1e2)
+        return msprime.simulate(
+            samples=samples, mutation_rate=1, length=1e2, random_seed=12
+        )
 
     def test_historical_samples(self):
         ts = self.historical_samples_example()

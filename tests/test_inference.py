@@ -30,6 +30,7 @@ import msprime
 import numpy as np
 import pytest
 import tsinfer
+import tskit
 import utility_functions
 
 import tsdate
@@ -216,9 +217,15 @@ class TestSimulated:
             msprime.Sample(population=0, time=0),
             msprime.Sample(population=0, time=1.0),
         ]
-        ts = msprime.simulate(samples=samples, Ne=1, mutation_rate=2)
+        ts = msprime.simulate(samples=samples, Ne=1, mutation_rate=2, random_seed=12)
         with pytest.raises(NotImplementedError):
             tsdate.date(ts, 1, 2)
+
+    def test_no_mutation_times(self):
+        ts = msprime.simulate(20, Ne=1, mutation_rate=1, random_seed=12)
+        assert np.all(ts.tables.mutations.time > 0)
+        dated = tsdate.date(ts, 1, 1)
+        assert np.all(dated.tables.mutations.time == tskit.UNKNOWN_TIME)
 
     @pytest.mark.skip("YAN to fix")
     def test_truncated_ts(self):
