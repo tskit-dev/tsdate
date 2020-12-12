@@ -225,6 +225,7 @@ class TestSimulated:
         with pytest.raises(NotImplementedError):
             tsdate.date(ts, 1, 2)
 
+    @pytest.mark.skip("Add when msprime 1.0 is released")
     def test_no_mutation_times(self):
         ts = msprime.simulate(20, Ne=1, mutation_rate=1, random_seed=12)
         assert np.all(ts.tables.mutations.time > 0)
