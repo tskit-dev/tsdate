@@ -98,18 +98,23 @@ class TestSimulated:
         t1 = ts1.tables
         t2 = ts2.tables
         assert t1.sites == t2.sites
-        assert t1.mutations == t2.mutations
         # Edges may have been re-ordered, since sortedness requirements specify
         # they are sorted by parent time, and the relative order of
         # (unconnected) parent nodes might have changed due to time inference
         assert set(t1.edges) == set(t2.edges)
         # The dated and undated tree sequences should not have the same node times
         assert not np.array_equal(ts1.tables.nodes.time, ts2.tables.nodes.time)
-        # New tree sequence will have node times in metadata
+        # New tree sequence will have node times in metadata and all mutation times
+        # set to tskit.UNKNOWN_TIME
         for column_name in t1.nodes.column_names:
             if column_name not in ["time", "metadata", "metadata_offset"]:
                 col_t1 = getattr(t1.nodes, column_name)
                 col_t2 = getattr(t2.nodes, column_name)
+                assert np.array_equal(col_t1, col_t2)
+        for column_name in t1.mutations.column_names:
+            if column_name not in ["time"]:
+                col_t1 = getattr(t1.mutations, column_name)
+                col_t2 = getattr(t2.mutations, column_name)
                 assert np.array_equal(col_t1, col_t2)
         # Assert that last provenance shows tree sequence was dated
         assert len(t1.provenances) == len(t2.provenances) - 1
@@ -216,9 +221,16 @@ class TestSimulated:
             msprime.Sample(population=0, time=0),
             msprime.Sample(population=0, time=1.0),
         ]
-        ts = msprime.simulate(samples=samples, Ne=1, mutation_rate=2)
+        ts = msprime.simulate(samples=samples, Ne=1, mutation_rate=2, random_seed=12)
         with pytest.raises(NotImplementedError):
             tsdate.date(ts, 1, 2)
+
+    @pytest.mark.skip("Add when msprime 1.0 is released")
+    def test_no_mutation_times(self):
+        ts = msprime.simulate(20, Ne=1, mutation_rate=1, random_seed=12)
+        assert np.all(ts.tables.mutations.time > 0)
+        dated = tsdate.date(ts, 1, 1)
+        assert np.all(np.isnan(dated.tables.mutations.time))
 
     @pytest.mark.skip("YAN to fix")
     def test_truncated_ts(self):
