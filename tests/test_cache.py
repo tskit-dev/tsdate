@@ -25,8 +25,7 @@ class TestSetCacheDir(unittest.TestCase):
         # Force approx prior with a tiny n
         fn = ConditionalCoalescentTimes.get_precalc_cache(10)
         if os.path.isfile(fn):
-            # The file already exists. We delete before testing
-            os.remove(fn)
+            raise AssertionError(f"The file {fn} already exists. Delete before testing")
         with self.assertLogs(level="WARNING") as log:
             priors_approx10 = ConditionalCoalescentTimes(10)
             assert len(log.output) == 1
