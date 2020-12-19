@@ -1,4 +1,5 @@
 tskit>=0.3.4
+tsinfer>=0.2.0
 flake8
 numpy
 tqdm
