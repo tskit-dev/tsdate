@@ -925,7 +925,7 @@ def ts_w_data_desert(gap_start, gap_end, length):
     attempting to date tree sequences with large regions without data. Test
     that preprocess_ts removes regions of a specified size that have no data.
     """
-    ts = msprime.simulate(100, mutation_rate=10, recombination_rate=1, length=length)
+    ts = msprime.simulate(100, mutation_rate=10, recombination_rate=1, length=length, random_seed=10)
     tables = ts.dump_tables()
     sites = tables.sites.position[:]
     tables.delete_sites(np.where(np.logical_and(sites > gap_start, sites < gap_end))[0])
