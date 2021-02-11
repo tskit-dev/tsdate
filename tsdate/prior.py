@@ -885,8 +885,8 @@ def create_timepoints(base_priors, prior_distr, n_points=21):
     prior_params = base_priors.prior_with_max_total_tips()
     # Percentages - current day samples should be at time 0, so we omit this
     # We can't include the top end point, as this leads to NaNs
-    percentiles = np.linspace(0, 1, n_points + 1)[1:-1]
-    # percentiles = np.append(percentiles, 0.999999)
+    step = 1 / n_points
+    percentiles = np.arange(step / 2, 1, step)
     param_cols = np.where([f not in ("mean", "var") for f in PriorParams._fields])[0]
     """
     get the set of times from gamma percent point function at the given
