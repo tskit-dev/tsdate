@@ -52,9 +52,7 @@ def get_cache_dir():
     precalculated data.
     """
     cache_dir = pathlib.Path(appdirs.user_cache_dir("tsdate", "tsdate"))
-    try:
-        os.makedirs(cache_dir)
+    if not os.path.exists(cache_dir):
         logger.info(f"Set cache_dir to {cache_dir}")
-    except OSError:
-        print(f"{cache_dir} already exists")
+        os.makedirs(cache_dir)
     return cache_dir
