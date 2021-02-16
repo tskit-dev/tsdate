@@ -1,0 +1,138 @@
+name: Build and test wheels
+
+on:
+  push:
+    branches:
+      - main
+      - test
+    tags:
+      - '*'
+  release:
+    types: [published]
+
+jobs:
+  manylinux:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+        with:
+            submodules: true
+
+      - name: Set up Python 3.8
+        uses: actions/setup-python@v2
+        with:
+          python-version: 3.8
+
+      - name: Build sdist
+        shell: bash
+        run: |
+          python setup.py sdist
+
+      - name: Upload sdist
+        uses: actions/upload-artifact@v2
+        with:
+          name: sdist
+          path: dist
+
+      - name: Build wheels in docker
+        shell: bash
+        run: |
+          docker run --rm -v `pwd`:/project -w /project quay.io/pypa/manylinux2010_x86_64 bash .github/workflows/docker/buildwheel.sh
+
+      - name: Upload Wheels
+        uses: actions/upload-artifact@v2
+        with:
+          name: wheels
+          path: dist
+
+  OSX-test:
+    needs: ['manylinux']
+    runs-on: macos-latest
+    strategy:
+      matrix:
+        python: [3.6, 3.7, 3.8]
+    steps:
+      - name: Download wheels
+        uses: actions/download-artifact@v2
+        with:
+          name: wheels
+      - name: Set up Python ${{ matrix.python }}
+        uses: actions/setup-python@v2
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install wheel and test
+        run: |
+          python -VV
+          # Install the local wheel
+          pip install tsdate --only-binary tsdate -f .
+          python -c "import tsdate"
+
+  windows-test:
+    needs: ['manylinux']
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        python: [3.6, 3.7, 3.8] #Not 3.9 here as no wheel for llvmlite
+        wordsize: [64]
+    steps:
+      - name: Download wheels
+        uses: actions/download-artifact@v2
+        with:
+          name: wheels
+      - name: Set up Python ${{ matrix.python }}
+        uses: actions/setup-python@v2
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install wheel and test
+        run: |
+          python -VV
+          pip install wheel
+          # Install the local wheel
+          pip install tsdate --only-binary tsdate -f .
+          python -c "import tsdate"
+
+  manylinux-test:
+    runs-on: ubuntu-latest
+    needs: ['manylinux']
+    strategy:
+      matrix:
+        python: [3.6, 3.7, 3.8] #Not 3.9 here as no wheel for llvmlite
+    steps:
+      - name: Download wheels
+        uses: actions/download-artifact@v2
+        with:
+          name: wheels
+      - name: Set up Python
+        uses: actions/setup-python@v2
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install wheel and test
+        run: |
+          python -VV
+          # Install the local wheel
+          pip install tsdate --only-binary tsdate -f .
+          python -c "import tsdate"
+
+
+  PyPI_Upload:
+    runs-on: ubuntu-latest
+    needs: ['windows-test', 'OSX-test', 'manylinux-test']
+    steps:
+      - name: Download all
+        uses: actions/download-artifact@v2
+      - name: Move to dist
+        run: |
+          mkdir dist
+          cp */*.{whl,gz} dist/.
+      - name: Publish distribution to Test PyPI
+        if: github.event_name == 'push' && startsWith(github.event.ref, 'refs/tags')
+        uses: pypa/gh-action-pypi-publish@master
+        with:
+          password: ${{ secrets.test_pypi_password }}
+          repository_url: https://test.pypi.org/legacy/
+      - name: Publish distribution to PRODUCTION PyPI
+        if: github.event_name == 'release'
+        uses: pypa/gh-action-pypi-publish@master
+        with:
+          password: ${{ secrets.pypi_password }}
