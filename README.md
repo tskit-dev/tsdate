@@ -11,4 +11,3 @@ The method is designed to operate on the output of [tsinfer](https://tsinfer.rea
 
 Please refer to the [documentation](https://tsdate.readthedocs.io/en/latest/) for information on installing and using the software.
 
-Note: This documentation is currently under development. Please wait to use ``tsdate`` in your published work until the release of our preprint.
