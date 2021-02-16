@@ -1,5 +1,24 @@
 --------------------
-[0.1.1] - 2020-02-28
+[0.1.3] - 2021-02-15
+--------------------
+
+**Features**
+
+- Two new methods, ``tsdate.sites_time_from_ts`` and ``tsdate.add_sampledata_times``, 
+  support inference of tree sequences from non-contemporaneous samples.
+- New tutorial on inferring tree sequences from modern and historic/ancient samples 
+  explains how to use these functions in conjunction with ``tsinfer``.
+- ``tsdate.preprocess_ts`` supports dating inferred tree sequences which include large, 
+  uninformative stretches (i.e. centromeres and telomeres). Simply run this function 
+  on the tree sequence before dating it.
+- ``ignore_outside`` is a new parameter in the outside pass which tells ``tsdate`` to 
+  ignore edges from oldest root (these edges are often of low quality in ``tsinfer``
+  inferred tree sequences)
+- Development environment is now equivalent to other ``tskit-dev`` projects
+
+
+--------------------
+[0.1.2] - 2020-02-28
 --------------------
 
 - Improve user experience with more progress bars and logging.
