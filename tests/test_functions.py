@@ -44,7 +44,6 @@ from tsdate.date import get_dates
 from tsdate.date import InOutAlgorithms
 from tsdate.date import Likelihoods
 from tsdate.date import LogLikelihoods
-from tsdate.date import LogLikelihoodsStreaming
 from tsdate.date import posterior_mean_var
 from tsdate.prior import ConditionalCoalescentTimes
 from tsdate.prior import fill_priors
@@ -737,11 +736,28 @@ class TestLikelihoodClass:
         with pytest.raises(RuntimeError):
             lik.precalculate_mutation_likelihoods()
 
+    @staticmethod
+    def naive_logsumexp(X):
+        r = 0
+        for x in X:
+            r += np.exp(x)
+        return np.log(r)
+
     def test_logsumexp(self):
         lls = np.array([0.1, 0.2, 0.5])
         ll_sum = np.sum(lls)
         log_lls = np.log(lls)
-        assert LogLikelihoods.logsumexp(log_lls) == np.log(ll_sum)
+        assert np.allclose(LogLikelihoods.logsumexp(log_lls), np.log(ll_sum))
+
+    def test_zeros_logsumexp(self):
+        lls = np.log(np.concatenate([np.zeros(100), np.random.rand(1000)]))
+        assert np.allclose(LogLikelihoods.logsumexp(lls), self.naive_logsumexp(lls))
+
+    def test_logsumexp_underflow(self):
+        # underflow in the naive case, but not in the LogLikelihoods implementation
+        lls = [-1000, -1001]
+        assert self.naive_logsumexp(lls) == -np.inf
+        assert LogLikelihoods.logsumexp(lls) != -np.inf
 
     def test_log_tri_functions(self):
         ts = utility_functions.two_tree_mutation_ts()
@@ -776,12 +792,6 @@ class TestLikelihoodClass:
                         loglik.rowsum_upper_tri(upper_tri_log)[::-1],
                         np.log(cumul_pois),
                     )
-
-    def test_logsumexp_streaming(self):
-        lls = np.array([0.1, 0.2, 0.5])
-        ll_sum = np.sum(lls)
-        log_lls = np.log(lls)
-        assert np.allclose(LogLikelihoodsStreaming.logsumexp(log_lls), np.log(ll_sum))
 
 
 class TestNodeGridValuesClass:
