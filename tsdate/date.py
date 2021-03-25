@@ -401,13 +401,25 @@ class LogLikelihoods(Likelihoods):
     identity_constant = 0.0
     null_constant = -np.inf
 
+    """
+    Uses an alternative to logsumexp, useful for large grid sizes, see
+    http://www.nowozin.net/sebastian/blog/streaming-log-sum-exp-computation.html
+    """
+
     @staticmethod
     @numba.jit(nopython=True)
     def logsumexp(X):
+        alpha = -np.Inf
         r = 0.0
         for x in X:
-            r += np.exp(x)
-        return np.log(r)
+            if x != -np.Inf:
+                if x <= alpha:
+                    r += np.exp(x - alpha)
+                else:
+                    r *= np.exp(alpha - x)
+                    r += 1.0
+                    alpha = x
+        return np.log(r) + alpha
 
     @staticmethod
     def _lik(muts, span, dt, theta, normalize=True):
@@ -508,29 +520,6 @@ class LogLikelihoods(Likelihoods):
 
     def scale_geometric(self, fraction, value):
         return fraction * value
-
-
-class LogLikelihoodsStreaming(LogLikelihoods):
-    """
-    Identical to the LogLikelihoods class but uses an alternative to logsumexp,
-    useful for large grid sizes, see
-    http://www.nowozin.net/sebastian/blog/streaming-log-sum-exp-computation.html
-    """
-
-    @staticmethod
-    @numba.jit(nopython=True)
-    def logsumexp(X):
-        alpha = -np.Inf
-        r = 0.0
-        for x in X:
-            if x != -np.Inf:
-                if x <= alpha:
-                    r += np.exp(x - alpha)
-                else:
-                    r *= np.exp(alpha - x)
-                    r += 1.0
-                    alpha = x
-        return np.log(r) + alpha
 
 
 class InOutAlgorithms:
