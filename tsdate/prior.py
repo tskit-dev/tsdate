@@ -351,7 +351,7 @@ class ConditionalCoalescentTimes:
                     # Making mixture priors is a little expensive. We can help by caching
                     # in those cases where we have only a few mixtures
                     # (arbitrarily set here as <= 5 mixtures)
-                    mixture_hash = (total_tips, weight_arr.tostring())
+                    mixture_hash = (total_tips, weight_arr.tobytes())
                     if mixture_hash not in seen_mixtures:
                         priors[node] = seen_mixtures[mixture_hash] = self.func_approx(
                             *mixture_expect_and_var(mixture)
