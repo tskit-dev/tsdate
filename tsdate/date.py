@@ -584,13 +584,18 @@ class InOutAlgorithms:
         Return an itertools.groupby object of edges grouped by child in descending order
         of the time of the child.
         """
-        wtype = np.dtype([("Childage", "f4"), ("Childnode", "f4")])
+        wtype = np.dtype(
+            [
+                ("child_age", self.ts.tables.nodes.time.dtype),
+                ("child_node", self.ts.tables.edges.child.dtype),
+            ]
+        )
         w = np.empty(self.ts.num_edges, dtype=wtype)
-        w["Childage"] = self.ts.tables.nodes.time[self.ts.tables.edges.child[:]]
-        w["Childnode"] = self.ts.tables.edges.child[:]
+        w["child_age"] = self.ts.tables.nodes.time[self.ts.tables.edges.child]
+        w["child_node"] = self.ts.tables.edges.child
         sorted_child_parent = (
             self.ts.edge(i)
-            for i in reversed(np.argsort(w, order=("Childage", "Childnode")))
+            for i in reversed(np.argsort(w, order=("child_age", "child_node")))
         )
         return itertools.groupby(sorted_child_parent, operator.attrgetter("child"))
 
@@ -599,17 +604,21 @@ class InOutAlgorithms:
         Return an itertools.groupby object of edges grouped by child in descending order
         of the time of the child, then by descending order of age of child
         """
-        wtype = np.dtype([("Childage", "f4"), ("Childnode", "f4"), ("Parentage", "f4")])
-        w = np.empty(
-            len(self.ts.tables.nodes.time[self.ts.tables.edges.child[:]]), dtype=wtype
+        wtype = np.dtype(
+            [
+                ("child_age", self.ts.tables.nodes.time.dtype),
+                ("child_node", self.ts.tables.edges.child.dtype),
+                ("parent_age", self.ts.tables.nodes.time.dtype),
+            ]
         )
-        w["Childage"] = self.ts.tables.nodes.time[self.ts.tables.edges.child[:]]
-        w["Childnode"] = self.ts.tables.edges.child[:]
-        w["Parentage"] = -self.ts.tables.nodes.time[self.ts.tables.edges.parent[:]]
+        w = np.empty(self.ts.num_edges, dtype=wtype)
+        w["child_age"] = self.ts.tables.nodes.time[self.ts.tables.edges.child]
+        w["child_node"] = self.ts.tables.edges.child
+        w["parent_age"] = -self.ts.tables.nodes.time[self.ts.tables.edges.parent]
         sorted_child_parent = (
             self.ts.edge(i)
             for i in reversed(
-                np.argsort(w, order=("Childage", "Childnode", "Parentage"))
+                np.argsort(w, order=("child_age", "child_node", "parent_age"))
             )
         )
         return itertools.groupby(sorted_child_parent, operator.attrgetter("child"))
