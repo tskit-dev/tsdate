@@ -585,9 +585,7 @@ class InOutAlgorithms:
         of the time of the child.
         """
         wtype = np.dtype([("Childage", "f4"), ("Childnode", "f4")])
-        w = np.empty(
-            len(self.ts.tables.nodes.time[self.ts.tables.edges.child[:]]), dtype=wtype
-        )
+        w = np.empty(self.ts.num_edges, dtype=wtype)
         w["Childage"] = self.ts.tables.nodes.time[self.ts.tables.edges.child[:]]
         w["Childnode"] = self.ts.tables.edges.child[:]
         sorted_child_parent = (
