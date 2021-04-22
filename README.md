@@ -11,3 +11,8 @@ The method is designed to operate on the output of [tsinfer](https://tsinfer.rea
 
 Please refer to the [documentation](https://tsdate.readthedocs.io/en/latest/) for information on installing and using the software.
 
+The algorithm is described [in this BioRxiv preprint](https://www.biorxiv.org/content/10.1101/2021.02.16.431497v2). We also provide evaluations of the accuracy and computational requirements of the method using both simulated and real data. The code to reproduce these results can be found in [another repository](https://github.com/awohns/unified_genealogy_paper).
+
+> Anthony Wilder Wohns, Yan Wong, Ben Jeffery, Ali Akbari, Swapan Mallick, Ron Pinhasi, Nick Patterson, David Reich, Jerome Kelleher, and Gil McVean (2021) _A unified genealogy of modern and ancient genomes_. bioRxiv 2021.02.16.431497; doi: https://doi.org/10.1101/2021.02.16.431497
+
+Please cite this preprint if you use ``tsdate`` in published work.
