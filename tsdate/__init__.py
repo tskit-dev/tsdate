@@ -20,7 +20,7 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 from .cache import *  # NOQA: F401,F403
-from .date import date  # NOQA: F401
+from .core import date  # NOQA: F401
 from .prior import build_grid as build_prior_grid  # NOQA: F401
 from .provenance import __version__  # NOQA: F401
 from .util import add_sampledata_times  # NOQA: F401

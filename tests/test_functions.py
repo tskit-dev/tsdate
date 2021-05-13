@@ -38,13 +38,13 @@ import utility_functions
 
 import tsdate
 from tsdate.base import NodeGridValues
-from tsdate.date import constrain_ages_topo
-from tsdate.date import date
-from tsdate.date import get_dates
-from tsdate.date import InOutAlgorithms
-from tsdate.date import Likelihoods
-from tsdate.date import LogLikelihoods
-from tsdate.date import posterior_mean_var
+from tsdate.core import constrain_ages_topo
+from tsdate.core import date
+from tsdate.core import get_dates
+from tsdate.core import InOutAlgorithms
+from tsdate.core import Likelihoods
+from tsdate.core import LogLikelihoods
+from tsdate.core import posterior_mean_var
 from tsdate.prior import ConditionalCoalescentTimes
 from tsdate.prior import fill_priors
 from tsdate.prior import gamma_approx
