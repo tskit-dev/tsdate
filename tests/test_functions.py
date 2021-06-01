@@ -277,7 +277,7 @@ class TestMakePrior:
     # We only test make_prior() on single trees
     def verify_priors(self, ts, prior_distr):
         # Check prior contains all possible tips
-        priors = ConditionalCoalescentTimes(None, prior_distr=prior_distr)
+        priors = ConditionalCoalescentTimes(None, Ne=0.5, prior_distr=prior_distr)
         priors.add(ts.num_samples)
         priors_df = priors[ts.num_samples]
         assert priors_df.shape[0] == ts.num_samples + 1
@@ -418,7 +418,7 @@ class TestMixturePrior:
 
     def get_mixture_prior_params(self, ts, prior_distr):
         span_data = SpansBySamples(ts)
-        priors = ConditionalCoalescentTimes(None, prior_distr=prior_distr)
+        priors = ConditionalCoalescentTimes(None, Ne=0.5, prior_distr=prior_distr)
         priors.add(ts.num_samples, approximate=False)
         mixture_priors = priors.get_mixture_prior_params(span_data)
         return mixture_priors
@@ -519,11 +519,12 @@ class TestMixturePrior:
 class TestPriorVals:
     def verify_prior_vals(self, ts, prior_distr):
         span_data = SpansBySamples(ts)
-        priors = ConditionalCoalescentTimes(None, prior_distr=prior_distr)
+        Ne = 0.5
+        priors = ConditionalCoalescentTimes(None, Ne=Ne, prior_distr=prior_distr)
         priors.add(ts.num_samples, approximate=False)
         grid = np.linspace(0, 3, 3)
         mixture_priors = priors.get_mixture_prior_params(span_data)
-        prior_vals = fill_priors(mixture_priors, grid, ts, prior_distr=prior_distr)
+        prior_vals = fill_priors(mixture_priors, grid, ts, Ne, prior_distr=prior_distr)
         return prior_vals
 
     def test_one_tree_n2(self):
@@ -624,7 +625,7 @@ class TestLikelihoodClass:
     def test_no_theta_class(self):
         ts = utility_functions.two_tree_mutation_ts()
         grid = np.array([0, 1, 2])
-        lik = Likelihoods(ts, grid, theta=None)
+        lik = Likelihoods(ts, grid, mutation_rate=None)
         with pytest.raises(RuntimeError):
             lik.precalculate_mutation_likelihoods()
 
@@ -632,8 +633,8 @@ class TestLikelihoodClass:
         ts = utility_functions.single_tree_ts_n3()
         grid = np.array([0, 1, 2])
         eps = 0
-        theta = 1
-        lik = Likelihoods(ts, grid, theta, eps)
+        mut_rate = 1
+        lik = Likelihoods(ts, grid, mut_rate, eps)
         for method in (0, 1, 2):
             # TODO: Remove this loop and hard-code one of the methods after perf testing
             lik.precalculate_mutation_likelihoods(unique_method=method)
@@ -642,7 +643,7 @@ class TestLikelihoodClass:
             dt = grid
             num_muts = 0
             n_internal_edges = 0
-            expected_lik_dt = self.poisson(dt * (theta / 2 * span), num_muts)
+            expected_lik_dt = self.poisson(dt * (mut_rate * span), num_muts)
             for edge in ts.edges():
                 if ts.node(edge.child).is_sample():
                     with pytest.raises(AssertionError):
@@ -671,13 +672,13 @@ class TestLikelihoodClass:
         ts = utility_functions.two_tree_mutation_ts()
         grid = np.array([0, 1, 2])
         eps = 0
-        theta = 1
+        mut_rate = 1
         for L, pois in [
             (Likelihoods, self.poisson),
             (LogLikelihoods, self.log_poisson),
         ]:
             for normalize in (True, False):
-                lik = L(ts, grid, theta, eps, normalize=normalize)
+                lik = L(ts, grid, mut_rate, eps, normalize=normalize)
                 dt = grid
                 for num_threads in (None, 1, 2):
                     n_internal_edges = 0
@@ -696,7 +697,9 @@ class TestLikelihoodClass:
                                 self.fail("Unexpected edge")
                             span = edge.right - edge.left
                             expected_lik_dt = pois(
-                                dt * (theta / 2 * span), num_muts, normalize=normalize
+                                dt * (mut_rate * span),
+                                num_muts,
+                                normalize=normalize,
                             )
                             upper_tri = lik.get_mut_lik_upper_tri(edge)
 
@@ -713,8 +716,8 @@ class TestLikelihoodClass:
         ts = utility_functions.two_tree_mutation_ts()
         grid = np.array([0, 1, 2])
         eps = 0
-        theta = 1
-        lik = Likelihoods(ts, grid, theta, eps)
+        mut_rate = 1
+        lik = Likelihoods(ts, grid, mut_rate, eps)
         lik.precalculate_mutation_likelihoods()
         for e in ts.edges():
             if e.child == 3 and e.parent == 4:
@@ -722,7 +725,7 @@ class TestLikelihoodClass:
                 exp_span = 0.2
                 assert e.right - e.left == exp_span
                 assert lik.mut_edges[e.id] == exp_branch_muts
-                pois_lambda = grid * theta / 2 * exp_span
+                pois_lambda = grid * mut_rate * exp_span
                 cumul_pois = np.cumsum(self.poisson(pois_lambda, exp_branch_muts))
                 lower_tri = lik.get_mut_lik_lower_tri(e)
                 assert np.allclose(lik.rowsum_lower_tri(lower_tri), cumul_pois)
@@ -732,7 +735,7 @@ class TestLikelihoodClass:
     def test_no_theta_class_loglikelihood(self):
         ts = utility_functions.two_tree_mutation_ts()
         grid = np.array([0, 1, 2])
-        lik = LogLikelihoods(ts, grid, theta=None)
+        lik = LogLikelihoods(ts, grid, mutation_rate=None)
         with pytest.raises(RuntimeError):
             lik.precalculate_mutation_likelihoods()
 
@@ -755,7 +758,7 @@ class TestLikelihoodClass:
 
     def test_logsumexp_underflow(self):
         # underflow in the naive case, but not in the LogLikelihoods implementation
-        lls = [-1000, -1001]
+        lls = np.array([-1000, -1001])
         assert self.naive_logsumexp(lls) == -np.inf
         assert LogLikelihoods.logsumexp(lls) != -np.inf
 
@@ -763,9 +766,9 @@ class TestLikelihoodClass:
         ts = utility_functions.two_tree_mutation_ts()
         grid = np.array([0, 1, 2])
         eps = 0
-        theta = 1
-        lik = Likelihoods(ts, grid, theta, eps)
-        loglik = LogLikelihoods(ts, grid, theta=theta, eps=eps)
+        mut_rate = 1
+        lik = Likelihoods(ts, grid, mut_rate, eps)
+        loglik = LogLikelihoods(ts, grid, mutation_rate=mut_rate, eps=eps)
         lik.precalculate_mutation_likelihoods()
         loglik.precalculate_mutation_likelihoods()
         for e in ts.edges():
@@ -775,7 +778,7 @@ class TestLikelihoodClass:
                 assert e.right - e.left == exp_span
                 assert lik.mut_edges[e.id] == exp_branch_muts
                 assert loglik.mut_edges[e.id] == exp_branch_muts
-                pois_lambda = grid * theta / 2 * exp_span
+                pois_lambda = grid * mut_rate * exp_span
                 cumul_pois = np.cumsum(self.poisson(pois_lambda, exp_branch_muts))
                 lower_tri = lik.get_mut_lik_lower_tri(e)
                 lower_tri_log = loglik.get_mut_lik_lower_tri(e)
@@ -902,7 +905,8 @@ class TestAlgorithmClass:
         ts = utility_functions.single_tree_ts_n3()
         timepoints1 = np.array([0, 1.2, 2])
         timepoints2 = np.array([0, 1.1, 2])
-        priors = tsdate.build_prior_grid(ts, timepoints1)
+        Ne = 0.5
+        priors = tsdate.build_prior_grid(ts, Ne, timepoints1)
         lls = Likelihoods(ts, timepoints2)
         with pytest.raises(ValueError, match="timepoints"):
             InOutAlgorithms(priors, lls)
@@ -911,7 +915,8 @@ class TestAlgorithmClass:
         ts1 = utility_functions.single_tree_ts_n3()
         ts2 = utility_functions.single_tree_ts_n2_dangling()
         timepoints = np.array([0, 1.2, 2])
-        priors = tsdate.build_prior_grid(ts1, timepoints)
+        Ne = 0.5
+        priors = tsdate.build_prior_grid(ts1, Ne, timepoints)
         lls = Likelihoods(ts2, priors.timepoints)
         with pytest.raises(ValueError, match="fixed"):
             InOutAlgorithms(priors, lls)
@@ -919,15 +924,17 @@ class TestAlgorithmClass:
 
 class TestInsideAlgorithm:
     def run_inside_algorithm(self, ts, prior_distr, normalize=True):
+        Ne = 0.5
         priors = tsdate.build_prior_grid(
             ts,
+            Ne,
             timepoints=np.array([0, 1.2, 2]),
             approximate_priors=False,
             prior_distribution=prior_distr,
         )
-        theta = 1
         eps = 1e-6
-        lls = Likelihoods(ts, priors.timepoints, theta, eps=eps)
+        mut_rate = 0.5
+        lls = Likelihoods(ts, priors.timepoints, mut_rate, eps=eps)
         lls.precalculate_mutation_likelihoods()
         algo = InOutAlgorithms(priors, lls)
         algo.inside_pass(normalize=normalize)
@@ -959,13 +966,15 @@ class TestInsideAlgorithm:
     def test_two_tree_ts(self):
         ts = utility_functions.two_tree_ts()
         algo, priors = self.run_inside_algorithm(ts, "gamma", normalize=False)
+        mut_rate = 0.5
         # priors[3][1] * Ll_(0->3)(1.2 - 0 + eps) ** 2
         node3_t1 = (
-            priors[3][1] * scipy.stats.poisson.pmf(0, (1.2 + 1e-6) * 0.5 * 0.2) ** 2
+            priors[3][1]
+            * scipy.stats.poisson.pmf(0, (1.2 + 1e-6) * mut_rate * 0.2) ** 2
         )
         # priors[3][2] * sum(Ll_(0->3)(2 - t + eps))
         node3_t2 = (
-            priors[3][2] * scipy.stats.poisson.pmf(0, (2 + 1e-6) * 0.5 * 0.2) ** 2
+            priors[3][2] * scipy.stats.poisson.pmf(0, (2 + 1e-6) * mut_rate * 0.2) ** 2
         )
         assert np.allclose(algo.inside[3], np.array([0, node3_t1, node3_t2]))
         """
@@ -973,20 +982,23 @@ class TestInsideAlgorithm:
         (Ll_(3->4)(1.2-1.2+eps) * node3_t1)
         """
         node4_t1 = priors[4][1] * (
-            scipy.stats.poisson.pmf(0, (1.2 + 1e-6) * 0.5 * 1)
-            * scipy.stats.poisson.pmf(0, (1.2 + 1e-6) * 0.5 * 0.8)
-            * (scipy.stats.poisson.pmf(0, (1e-6) * 0.5 * 0.2) * node3_t1)
+            scipy.stats.poisson.pmf(0, (1.2 + 1e-6) * mut_rate * 1)
+            * scipy.stats.poisson.pmf(0, (1.2 + 1e-6) * mut_rate * 0.8)
+            * (scipy.stats.poisson.pmf(0, (1e-6) * mut_rate * 0.2) * node3_t1)
         )
         """
         priors[4][2] * (Ll_(2->4)(2 - 0 + eps) * Ll_(1->4)(2 - 0 + eps) *
         (sum_(t'<2)(Ll_(3->4)(2-t'+eps) * node3_t))
         """
         node4_t2 = priors[4][2] * (
-            scipy.stats.poisson.pmf(0, (2 + 1e-6) * 0.5 * 1)
-            * scipy.stats.poisson.pmf(0, (2 + 1e-6) * 0.5 * 0.8)
+            scipy.stats.poisson.pmf(0, (2 + 1e-6) * mut_rate * 1)
+            * scipy.stats.poisson.pmf(0, (2 + 1e-6) * mut_rate * 0.8)
             * (
-                (scipy.stats.poisson.pmf(0, (0.8 + 1e-6) * 0.5 * 0.2) * node3_t1)
-                + (scipy.stats.poisson.pmf(0, (1e-6 + 1e-6) * 0.5 * 0.2) * node3_t2)
+                (scipy.stats.poisson.pmf(0, (0.8 + 1e-6) * mut_rate * 0.2) * node3_t1)
+                + (
+                    scipy.stats.poisson.pmf(0, (1e-6 + 1e-6) * mut_rate * 0.2)
+                    * node3_t2
+                )
             )
         )
         assert np.allclose(algo.inside[4], np.array([0, node4_t1, node4_t2]))
@@ -997,8 +1009,8 @@ class TestInsideAlgorithm:
         """
         node5_t1 = (
             priors[5][1]
-            * (scipy.stats.poisson.pmf(0, (1e-6) * 0.5 * 0.8) * (node4_t1 ** 0.8))
-            * (scipy.stats.poisson.pmf(0, (1.2 + 1e-6) * 0.5 * 0.8))
+            * (scipy.stats.poisson.pmf(0, (1e-6) * mut_rate * 0.8) * (node4_t1 ** 0.8))
+            * (scipy.stats.poisson.pmf(0, (1.2 + 1e-6) * mut_rate * 0.8))
         )
         """
         prior[5][2] * (sum_(t'<1.2)(Ll_(4->5)(1.2 - 0 + eps) * (node3_t ** 0.8)) *
@@ -1008,15 +1020,15 @@ class TestInsideAlgorithm:
             priors[5][2]
             * (
                 (
-                    scipy.stats.poisson.pmf(0, (0.8 + 1e-6) * 0.5 * 0.8)
+                    scipy.stats.poisson.pmf(0, (0.8 + 1e-6) * mut_rate * 0.8)
                     * (node4_t1 ** 0.8)
                 )
                 + (
-                    scipy.stats.poisson.pmf(0, (1e-6 + 1e-6) * 0.5 * 0.8)
+                    scipy.stats.poisson.pmf(0, (1e-6 + 1e-6) * mut_rate * 0.8)
                     * (node4_t2 ** 0.8)
                 )
             )
-            * (scipy.stats.poisson.pmf(0, (2 + 1e-6) * 0.5 * 0.8))
+            * (scipy.stats.poisson.pmf(0, (2 + 1e-6) * mut_rate * 0.8))
         )
         assert np.allclose(algo.inside[5], np.array([0, node5_t1, node5_t2]))
 
@@ -1044,10 +1056,11 @@ class TestInsideAlgorithm:
         ts = utility_functions.single_tree_ts_n2_dangling()
         print(ts.draw_text())
         print("Samples:", ts.samples())
-        priors = tsdate.build_prior_grid(ts, timepoints=np.array([0, 1.2, 2]))
-        theta = 1
+        Ne = 0.5
+        priors = tsdate.build_prior_grid(ts, Ne, timepoints=np.array([0, 1.2, 2]))
+        mut_rate = 1
         eps = 1e-6
-        lls = Likelihoods(ts, priors.timepoints, theta, eps)
+        lls = Likelihoods(ts, priors.timepoints, mut_rate, eps)
         algo = InOutAlgorithms(priors, lls)
         with pytest.raises(ValueError, match="dangling"):
             algo.inside_pass()
@@ -1058,14 +1071,15 @@ class TestOutsideAlgorithm:
         self, ts, prior_distr="lognorm", normalize=False, ignore_oldest_root=False
     ):
         span_data = SpansBySamples(ts)
-        priors = ConditionalCoalescentTimes(None, prior_distr)
+        Ne = 0.5
+        priors = ConditionalCoalescentTimes(None, Ne, prior_distr)
         priors.add(ts.num_samples, approximate=False)
         grid = np.array([0, 1.2, 2])
         mixture_priors = priors.get_mixture_prior_params(span_data)
-        prior_vals = fill_priors(mixture_priors, grid, ts, prior_distr=prior_distr)
-        theta = 1
+        prior_vals = fill_priors(mixture_priors, grid, ts, Ne, prior_distr=prior_distr)
+        mut_rate = 1
         eps = 1e-6
-        lls = Likelihoods(ts, grid, theta, eps=eps)
+        lls = Likelihoods(ts, grid, mut_rate, eps=eps)
         lls.precalculate_mutation_likelihoods()
         algo = InOutAlgorithms(prior_vals, lls)
         algo.inside_pass()
@@ -1104,9 +1118,10 @@ class TestOutsideAlgorithm:
 
     def test_outside_before_inside_fails(self):
         ts = utility_functions.single_tree_ts_n2()
-        priors = tsdate.build_prior_grid(ts)
-        theta = 1
-        lls = Likelihoods(ts, priors.timepoints, theta)
+        Ne = 0.5
+        priors = tsdate.build_prior_grid(ts, Ne)
+        mut_rate = 1
+        lls = Likelihoods(ts, priors.timepoints, mut_rate)
         lls.precalculate_mutation_likelihoods()
         algo = InOutAlgorithms(priors, lls)
         with pytest.raises(RuntimeError):
@@ -1157,13 +1172,14 @@ class TestTotalFunctionalValueTree:
     def find_posterior(self, ts, prior_distr):
         grid = np.array([0, 1.2, 2])
         span_data = SpansBySamples(ts)
-        priors = ConditionalCoalescentTimes(None, prior_distr=prior_distr)
+        Ne = 0.5
+        priors = ConditionalCoalescentTimes(None, Ne=Ne, prior_distr=prior_distr)
         priors.add(ts.num_samples, approximate=False)
         mixture_priors = priors.get_mixture_prior_params(span_data)
-        prior_vals = fill_priors(mixture_priors, grid, ts, prior_distr=prior_distr)
-        theta = 1
+        prior_vals = fill_priors(mixture_priors, grid, ts, Ne, prior_distr=prior_distr)
+        mut_rate = 1
         eps = 1e-6
-        lls = Likelihoods(ts, grid, theta, eps=eps)
+        lls = Likelihoods(ts, grid, mut_rate, eps=eps)
         lls.precalculate_mutation_likelihoods()
         algo = InOutAlgorithms(prior_vals, lls)
         algo.inside_pass()
@@ -1219,16 +1235,19 @@ class TestGilTree:
             ts = utility_functions.gils_example_tree()
             span_data = SpansBySamples(ts)
             prior_distr = "lognorm"
-            priors = ConditionalCoalescentTimes(None, prior_distr=prior_distr)
+            Ne = 0.5
+            priors = ConditionalCoalescentTimes(None, Ne, prior_distr=prior_distr)
             priors.add(ts.num_samples, approximate=False)
             grid = np.array([0, 0.1, 0.2, 0.5, 1, 2, 5])
             mixture_prior = priors.get_mixture_prior_params(span_data)
-            prior_vals = fill_priors(mixture_prior, grid, ts, prior_distr=prior_distr)
+            prior_vals = fill_priors(
+                mixture_prior, grid, ts, 1, prior_distr=prior_distr
+            )
             prior_vals.grid_data[0] = [0, 0.5, 0.3, 0.1, 0.05, 0.02, 0.03]
             prior_vals.grid_data[1] = [0, 0.05, 0.1, 0.2, 0.45, 0.1, 0.1]
-            theta = 2
+            mut_rate = 1
             eps = 0.01
-            lls = Likelihoods(ts, grid, theta, eps=eps, normalize=False)
+            lls = Likelihoods(ts, grid, mut_rate, eps=eps, normalize=False)
             lls.precalculate_mutation_likelihoods()
             algo = InOutAlgorithms(prior_vals, lls)
             algo.inside_pass(normalize=False, cache_inside=cache_inside)
@@ -1251,12 +1270,13 @@ class TestOutsideEdgesOrdering:
 
     def edges_ordering(self, ts, fn):
         fixed_nodes = set(ts.samples())
-        priors = tsdate.build_prior_grid(ts)
-        theta = None
+        Ne = 1
+        priors = tsdate.build_prior_grid(ts, Ne)
+        mut_rate = None
         liklhd = LogLikelihoods(
             ts,
             priors.timepoints,
-            theta,
+            mut_rate,
             eps=1e-6,
             fixed_node_set=fixed_nodes,
             progress=False,
@@ -1327,15 +1347,15 @@ class TestMaximization:
     """
 
     def run_outside_maximization(self, ts, prior_distr="lognorm"):
-        priors = tsdate.build_prior_grid(ts, prior_distribution=prior_distr)
         Ne = 0.5
-        theta = 1
+        priors = tsdate.build_prior_grid(ts, Ne, prior_distribution=prior_distr)
+        mut_rate = 1
         eps = 1e-6
-        lls = Likelihoods(ts, priors.timepoints, theta, eps=eps)
+        lls = Likelihoods(ts, priors.timepoints, mut_rate, eps=eps)
         lls.precalculate_mutation_likelihoods()
         algo = InOutAlgorithms(priors, lls)
         algo.inside_pass()
-        return lls, algo, algo.outside_maximization(Ne, eps=eps)
+        return lls, algo, algo.outside_maximization(eps=eps)
 
     def test_one_tree_n2(self):
         ts = utility_functions.single_tree_ts_n2()
@@ -1355,7 +1375,6 @@ class TestMaximization:
                 0,
                 (node_4 - lls.timepoints[: np.argmax(algo.inside[4]) + 1] + 1e-6)
                 * 1
-                / 2
                 * 1,
             )
             result = ll_mut / np.max(ll_mut)
@@ -1374,7 +1393,6 @@ class TestMaximization:
                 0,
                 (node_5 - lls.timepoints[: np.argmax(algo.inside[5]) + 1] + 1e-6)
                 * 1
-                / 2
                 * 0.8,
             )
             result = ll_mut / np.max(ll_mut)
@@ -1386,7 +1404,6 @@ class TestMaximization:
                 0,
                 (node_4 - lls.timepoints[: np.argmax(algo.inside[4]) + 1] + 1e-6)
                 * 1
-                / 2
                 * 0.2,
             )
             result = ll_mut / np.max(ll_mut)
@@ -1407,17 +1424,28 @@ class TestDate:
     def test_date_input(self):
         ts = utility_functions.single_tree_ts_n2()
         with pytest.raises(ValueError):
-            tsdate.date(ts, 1, method="foobar")
+            tsdate.date(ts, Ne=1, method="foobar")
 
     def test_sample_as_parent_fails(self):
         ts = utility_functions.single_tree_ts_n3_sample_as_parent()
         with pytest.raises(NotImplementedError):
-            tsdate.date(ts, 1)
+            tsdate.date(ts, Ne=1)
 
     def test_recombination_not_implemented(self):
         ts = utility_functions.single_tree_ts_n2()
         with pytest.raises(NotImplementedError):
-            tsdate.date(ts, 1, recombination_rate=1e-8)
+            tsdate.date(ts, Ne=1, recombination_rate=1e-8)
+
+    def test_Ne_and_priors(self):
+        ts = utility_functions.single_tree_ts_n2()
+        with pytest.raises(ValueError):
+            priors = tsdate.build_prior_grid(ts, Ne=1)
+            tsdate.date(ts, Ne=1, priors=priors)
+
+    def test_no_Ne_priors(self):
+        ts = utility_functions.single_tree_ts_n2()
+        with pytest.raises(ValueError):
+            tsdate.date(ts, Ne=None, priors=None)
 
 
 class TestBuildPriorGrid:
@@ -1427,6 +1455,7 @@ class TestBuildPriorGrid:
 
     def test_bad_timepoints(self):
         ts = msprime.simulate(2, random_seed=123)
+        Ne = 1
         for bad in [
             -1,
             np.array([1]),
@@ -1435,15 +1464,21 @@ class TestBuildPriorGrid:
             "foobar",
         ]:
             with pytest.raises(ValueError):
-                tsdate.build_prior_grid(ts, timepoints=bad)
+                tsdate.build_prior_grid(ts, Ne, timepoints=bad)
         for bad in [np.array(["hello", "there"])]:
             with pytest.raises(TypeError):
-                tsdate.build_prior_grid(ts, timepoints=bad)
+                tsdate.build_prior_grid(ts, Ne, timepoints=bad)
 
     def test_bad_prior_distr(self):
         ts = msprime.simulate(2, random_seed=12)
+        Ne = 1
         with pytest.raises(ValueError):
-            tsdate.build_prior_grid(ts, prior_distribution="foobar")
+            tsdate.build_prior_grid(ts, Ne, prior_distribution="foobar")
+
+    def test_bad_Ne(self):
+        ts = msprime.simulate(2, random_seed=12)
+        with pytest.raises(ValueError):
+            tsdate.build_prior_grid(ts, Ne=-10)
 
 
 class TestPosteriorMeanVar:
@@ -1456,9 +1491,7 @@ class TestPosteriorMeanVar:
         grid = np.array([0, 1.2, 2])
         for distr in ("gamma", "lognorm"):
             posterior, algo = TestTotalFunctionalValueTree().find_posterior(ts, distr)
-            ts_node_metadata, mn_post, vr_post = posterior_mean_var(
-                ts, grid, posterior, 0.5
-            )
+            ts_node_metadata, mn_post, vr_post = posterior_mean_var(ts, grid, posterior)
             assert np.array_equal(
                 mn_post, [0, 0, np.sum(grid * posterior[2]) / np.sum(posterior[2])]
             )
@@ -1467,9 +1500,7 @@ class TestPosteriorMeanVar:
         ts = utility_functions.single_tree_ts_n2()
         grid = np.array([0, 1.2, 2])
         posterior, algo = TestTotalFunctionalValueTree().find_posterior(ts, "lognorm")
-        ts_node_metadata, mn_post, vr_post = posterior_mean_var(
-            ts, grid, posterior, 0.5
-        )
+        ts_node_metadata, mn_post, vr_post = posterior_mean_var(ts, grid, posterior)
         assert json.loads(ts_node_metadata.node(2).metadata)["mn"] == mn_post[2]
         assert json.loads(ts_node_metadata.node(2).metadata)["vr"] == vr_post[2]
 

@@ -59,8 +59,8 @@ class Likelihoods:
         self,
         ts,
         timepoints,
-        theta=None,
-        rho=None,
+        mutation_rate=None,
+        recombination_rate=None,
         *,
         eps=0,
         fixed_node_set=None,
@@ -72,8 +72,8 @@ class Likelihoods:
         self.fixednodes = (
             set(ts.samples()) if fixed_node_set is None else fixed_node_set
         )
-        self.theta = theta
-        self.rho = rho
+        self.mut_rate = mutation_rate
+        self.rec_rate = recombination_rate
         self.normalize = normalize
         self.grid_size = len(timepoints)
         self.tri_size = self.grid_size * (self.grid_size + 1) / 2
@@ -144,25 +144,25 @@ class Likelihoods:
         return mut_edges
 
     @staticmethod
-    def _lik(muts, span, dt, theta, normalize=True):
+    def _lik(muts, span, dt, mutation_rate, normalize=True):
         """
         The likelihood of an edge given a number of mutations, as set of time deltas (dt)
         and a span. This is a static function to allow parallelization
         """
-        ll = scipy.stats.poisson.pmf(muts, dt * theta / 2 * span)
+        ll = scipy.stats.poisson.pmf(muts, dt * mutation_rate * span)
         if normalize:
             return ll / np.max(ll)
         else:
             return ll
 
     @staticmethod
-    def _lik_wrapper(muts_span, dt, theta, normalize=True):
+    def _lik_wrapper(muts_span, dt, mutation_rate, normalize=True):
         """
         A wrapper to allow this _lik to be called by pool.imap_unordered, returning the
         mutation and span values
         """
         return muts_span, Likelihoods._lik(
-            muts_span[0], muts_span[1], dt, theta, normalize=normalize
+            muts_span[0], muts_span[1], dt, mutation_rate, normalize=normalize
         )
 
     def precalculate_mutation_likelihoods(self, num_threads=None, unique_method=0):
@@ -177,9 +177,9 @@ class Likelihoods:
         with fixed nodes at explicit times (rather than in time slices)
         """
 
-        if self.theta is None:
+        if self.mut_rate is None:
             raise RuntimeError(
-                "Cannot calculate mutation likelihoods with no theta set"
+                "Cannot calculate mutation likelihoods with no mutation_rate set"
             )
         if unique_method == 0:
             self.unfixed_likelihood_cache = {
@@ -204,7 +204,7 @@ class Likelihoods:
             f = functools.partial(  # Set constant values for params for static _lik
                 self._lik_wrapper,
                 dt=self.timediff_lower_tri,
-                theta=self.theta,
+                mutation_rate=self.mut_rate,
                 normalize=self.normalize,
             )
             if num_threads == 1:
@@ -238,7 +238,7 @@ class Likelihoods:
                     muts,
                     span,
                     dt=self.timediff_lower_tri,
-                    theta=self.theta,
+                    mutation_rate=self.mut_rate,
                     normalize=self.normalize,
                 )
 
@@ -253,8 +253,8 @@ class Likelihoods:
             edge.child in self.fixednodes
         ), "Wrongly called fixed node function on non-fixed node"
         assert (
-            self.theta is not None
-        ), "Cannot calculate mutation likelihoods with no theta set"
+            self.mut_rate is not None
+        ), "Cannot calculate mutation likelihoods with no mutation_rate set"
 
         mutations_on_edge = self.mut_edges[edge.id]
         child_time = self.ts.node(edge.child).time
@@ -264,7 +264,7 @@ class Likelihoods:
             mutations_on_edge,
             edge.span,
             self.timediff,
-            self.theta,
+            self.mut_rate,
             normalize=self.normalize,
         )
 
@@ -362,29 +362,29 @@ class Likelihoods:
         )
         # return (
         #     np.power(prev_state, self.n_breaks(edge)) *
-        #     np.exp(-(prev_state * self.rho * edge.span * 2)))
+        #     np.exp(-(prev_state * self.rec_rate * edge.span * 2)))
 
     def get_inside(self, arr, edge):
         liks = self.identity_constant
-        if self.rho is not None:
+        if self.rec_rate is not None:
             liks = self._recombination_lik(edge)
-        if self.theta is not None:
+        if self.mut_rate is not None:
             liks *= self.get_mut_lik_lower_tri(edge)
         return self.rowsum_lower_tri(arr * liks)
 
     def get_outside(self, arr, edge):
         liks = self.identity_constant
-        if self.rho is not None:
+        if self.rec_rate is not None:
             liks = self._recombination_lik(edge)
-        if self.theta is not None:
+        if self.mut_rate is not None:
             liks *= self.get_mut_lik_upper_tri(edge)
         return self.rowsum_upper_tri(arr * liks)
 
     def get_fixed(self, arr, edge):
         liks = self.identity_constant
-        if self.rho is not None:
+        if self.rec_rate is not None:
             liks = self._recombination_lik(edge, fixed=True)
-        if self.theta is not None:
+        if self.mut_rate is not None:
             liks *= self.get_mut_lik_fixed_node(edge)
         return arr * liks
 
@@ -422,24 +422,24 @@ class LogLikelihoods(Likelihoods):
         return np.log(r) + alpha
 
     @staticmethod
-    def _lik(muts, span, dt, theta, normalize=True):
+    def _lik(muts, span, dt, mutation_rate, normalize=True):
         """
         The likelihood of an edge given a number of mutations, as set of time deltas (dt)
         and a span. This is a static function to allow parallelization
         """
-        ll = scipy.stats.poisson.logpmf(muts, dt * theta / 2 * span)
+        ll = scipy.stats.poisson.logpmf(muts, dt * mutation_rate * span)
         if normalize:
             return ll - np.max(ll)
         else:
             return ll
 
     @staticmethod
-    def _lik_wrapper(muts_span, dt, theta, normalize=True):
+    def _lik_wrapper(muts_span, dt, mutation_rate, normalize=True):
         """
         Needs redefining to refer to the LogLikelihoods class
         """
         return muts_span, LogLikelihoods._lik(
-            muts_span[0], muts_span[1], dt, theta, normalize=normalize
+            muts_span[0], muts_span[1], dt, mutation_rate, normalize=normalize
         )
 
     def rowsum_lower_tri(self, input_array):
@@ -478,7 +478,7 @@ class LogLikelihoods(Likelihoods):
         )
         # return (
         #     np.power(prev_state, self.n_breaks(edge)) *
-        #     np.exp(-(prev_state * self.rho * edge.span * 2)))
+        #     np.exp(-(prev_state * self.rec_rate * edge.span * 2)))
 
     def combine(self, loglik_1, loglik_2):
         return loglik_1 + loglik_2
@@ -496,25 +496,25 @@ class LogLikelihoods(Likelihoods):
 
     def get_inside(self, arr, edge):
         log_liks = self.identity_constant
-        if self.rho is not None:
+        if self.rec_rate is not None:
             log_liks = self._recombination_loglik(edge)
-        if self.theta is not None:
+        if self.mut_rate is not None:
             log_liks += self.get_mut_lik_lower_tri(edge)
         return self.rowsum_lower_tri(arr + log_liks)
 
     def get_outside(self, arr, edge):
         log_liks = self.identity_constant
-        if self.rho is not None:
+        if self.rec_rate is not None:
             log_liks = self._recombination_loglik(edge)
-        if self.theta is not None:
+        if self.mut_rate is not None:
             log_liks += self.get_mut_lik_upper_tri(edge)
         return self.rowsum_upper_tri(arr + log_liks)
 
     def get_fixed(self, arr, edge):
         log_liks = self.identity_constant
-        if self.rho is not None:
+        if self.rec_rate is not None:
             log_liks = self._recombination_loglik(edge, fixed=True)
-        if self.theta is not None:
+        if self.mut_rate is not None:
             log_liks += self.get_mut_lik_fixed_node(edge)
         return arr + log_liks
 
@@ -697,7 +697,6 @@ class InOutAlgorithms:
     ):
         """
         Computes the full posterior distribution on nodes.
-        Input is population scaled mutation and recombination rates.
 
         Normalising may be necessary if there is overflow, but means that we cannot
         check the total functional value at each node
@@ -778,7 +777,7 @@ class InOutAlgorithms:
         self.outside = outside
         return posterior
 
-    def outside_maximization(self, Ne, *, eps, progress=None):
+    def outside_maximization(self, *, eps, progress=None):
         if progress is None:
             progress = self.progress
         if not hasattr(self, "inside"):
@@ -820,8 +819,7 @@ class InOutAlgorithms:
                             - self.lik.timepoints[: youngest_par_index + 1]
                             + eps
                         )
-                        * self.lik.theta
-                        / 2
+                        * self.lik.mut_rate
                         * edge.span,
                     )
                     result = self.lik.reduce(ll_mut, np.max(ll_mut))
@@ -837,8 +835,7 @@ class InOutAlgorithms:
                             - self.lik.timepoints[: youngest_par_index + 1]
                             + eps
                         )
-                        * self.lik.theta
-                        / 2
+                        * self.lik.mut_rate
                         * edge.span,
                     )
                     result[: youngest_par_index + 1] = self.lik.combine(
@@ -854,14 +851,12 @@ class InOutAlgorithms:
                 self.lik.combine(result[: youngest_par_index + 1], inside_val)
             )
 
-        return (
-            self.lik.timepoints[np.array(maximized_node_times).astype("int")] * 2 * Ne
-        )
+        return self.lik.timepoints[np.array(maximized_node_times).astype("int")]
 
 
-def posterior_mean_var(ts, timepoints, posterior, Ne, *, fixed_node_set=None):
+def posterior_mean_var(ts, timepoints, posterior, *, fixed_node_set=None):
     """
-    Mean and variance of node age in scaled time. Fixed nodes will be given a mean
+    Mean and variance of node age in unscaled time. Fixed nodes will be given a mean
     of their exact time in the tree sequence, and zero variance (as long as they are
     identified by the fixed_node_set
     If fixed_node_set is None, we attempt to date all the non-sample nodes
@@ -881,7 +876,7 @@ def posterior_mean_var(ts, timepoints, posterior, Ne, *, fixed_node_set=None):
     metadata_array = tskit.unpack_bytes(
         ts.tables.nodes.metadata, ts.tables.nodes.metadata_offset
     )
-    timepoints = timepoints * 2 * Ne
+    timepoints = timepoints
     for row, node_id in zip(posterior.grid_data, posterior.nonfixed_nodes):
         mn_post[node_id] = np.sum(row * timepoints) / np.sum(row)
         vr_post[node_id] = np.sum(
@@ -919,7 +914,6 @@ def constrain_ages_topo(ts, post_mn, eps, nodes_to_date=None, progress=False):
     parents = sorted(parents)
     parents_unique = np.unique(parents, return_index=True)
     parent_indices = parents_unique[1][np.isin(parents_unique[0], nodes_to_date)]
-    topology_constrained = False
     for index, nd in tqdm(
         enumerate(sorted(nodes_to_date)), desc="Constrain Ages", disable=not progress
     ):
@@ -930,16 +924,13 @@ def constrain_ages_topo(ts, post_mn, eps, nodes_to_date=None, progress=False):
         children = nd_children[children_index]
         time = np.max(new_mn_post[children])
         if new_mn_post[nd] <= time:
-            topology_constrained = True
             new_mn_post[nd] = time + eps
-    if topology_constrained is True:
-        logging.info(">= 1 node time changed due to topological constraints")
     return new_mn_post
 
 
 def date(
     tree_sequence,
-    Ne,
+    Ne=None,
     mutation_rate=None,
     recombination_rate=None,
     priors=None,
@@ -1015,7 +1006,7 @@ def date(
 
 def get_dates(
     tree_sequence,
-    Ne,
+    Ne=None,
     mutation_rate=None,
     recombination_rate=None,
     priors=None,
@@ -1049,26 +1040,33 @@ def get_dates(
         approx_priors = True
 
     if priors is None:
+        if Ne is None:
+            raise ValueError(
+                "Must specify Ne if priors are not already build using \
+                        tsdate.build_prior_grid()"
+            )
         priors = prior.build_grid(
-            tree_sequence, eps=eps, progress=progress, approximate_priors=approx_priors
+            tree_sequence,
+            Ne=Ne,
+            eps=eps,
+            progress=progress,
+            approximate_priors=approx_priors,
         )
     else:
         logging.info("Using user-specified priors")
+        if Ne is not None:
+            raise ValueError(
+                "Cannot specify Ne in tsdate.date() or tsdate.get_dates() if \
+                        specifying priors from tsdate.build_prior_grid()"
+            )
         priors = priors
-
-    theta = rho = None
-
-    if mutation_rate is not None:
-        theta = 4 * Ne * mutation_rate
-    if recombination_rate is not None:
-        rho = 4 * Ne * recombination_rate
 
     if probability_space != base.LOG:
         liklhd = Likelihoods(
             tree_sequence,
             priors.timepoints,
-            theta,
-            rho,
+            mutation_rate,
+            recombination_rate,
             eps=eps,
             fixed_node_set=fixed_nodes,
             progress=progress,
@@ -1077,14 +1075,14 @@ def get_dates(
         liklhd = LogLikelihoods(
             tree_sequence,
             priors.timepoints,
-            theta,
-            rho,
+            mutation_rate,
+            recombination_rate,
             eps=eps,
             fixed_node_set=fixed_nodes,
             progress=progress,
         )
 
-    if theta is not None:
+    if mutation_rate is not None:
         liklhd.precalculate_mutation_likelihoods(num_threads=num_threads)
 
     dynamic_prog = InOutAlgorithms(priors, liklhd, progress=progress)
@@ -1096,11 +1094,11 @@ def get_dates(
             normalize=outside_normalize, ignore_oldest_root=ignore_oldest_root
         )
         tree_sequence, mn_post, _ = posterior_mean_var(
-            tree_sequence, priors.timepoints, posterior, Ne, fixed_node_set=fixed_nodes
+            tree_sequence, priors.timepoints, posterior, fixed_node_set=fixed_nodes
         )
     elif method == "maximization":
-        if theta is not None:
-            mn_post = dynamic_prog.outside_maximization(Ne, eps=eps)
+        if mutation_rate is not None:
+            mn_post = dynamic_prog.outside_maximization(eps=eps)
         else:
             raise ValueError("Outside maximization method requires mutation rate")
     else:
