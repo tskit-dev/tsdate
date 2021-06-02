@@ -451,9 +451,9 @@ class LogLikelihoods(Likelihoods):
         res = list()
         i_start = self.row_indices[0][0]
         for i in self.row_indices[0][1:]:
-            res.append(self.logsumexp(numba.typed.List(input_array[i_start:i])))
+            res.append(self.logsumexp(input_array[i_start:i]))
             i_start = i
-        res.append(self.logsumexp(numba.typed.List(input_array[i:])))
+        res.append(self.logsumexp(input_array[i:]))
         return np.array(res)
 
     def rowsum_upper_tri(self, input_array):
@@ -465,9 +465,9 @@ class LogLikelihoods(Likelihoods):
         res = list()
         i_start = self.col_indices[0]
         for i in self.col_indices[1:]:
-            res.append(self.logsumexp(numba.typed.List(input_array[i_start:i])))
+            res.append(self.logsumexp(input_array[i_start:i]))
             i_start = i
-        res.append(self.logsumexp(numba.typed.List(input_array[i:])))
+        res.append(self.logsumexp(input_array[i:]))
         return np.array(res)
 
     def _recombination_loglik(self, edge, fixed=True):
