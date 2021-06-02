@@ -166,13 +166,14 @@ class TestSimulated:
             recombination_rate=1e-8,
             random_seed=11,
         )
-        priors = tsdate.build_prior_grid(ts, timepoints=10, approximate_priors=None)
+        priors = tsdate.build_prior_grid(
+            ts, Ne=10000, timepoints=10, approximate_priors=None
+        )
         dated_ts = tsdate.date(
-            ts, Ne=10000, mutation_rate=1e-8, priors=priors, probability_space=LIN
+            ts, mutation_rate=1e-8, priors=priors, probability_space=LIN
         )
         maximized_ts = tsdate.date(
             ts,
-            Ne=10000,
             mutation_rate=1e-8,
             priors=priors,
             method="maximization",
@@ -206,9 +207,9 @@ class TestSimulated:
                     continue
             tables.edges.add_row(**attr.asdict(row))
         multiroot_ts = tables.tree_sequence()
-        good_priors = tsdate.build_prior_grid(ts)
+        good_priors = tsdate.build_prior_grid(ts, Ne=1)
         with pytest.raises(ValueError):
-            tsdate.build_prior_grid(multiroot_ts)
+            tsdate.build_prior_grid(multiroot_ts, Ne=1)
         with pytest.raises(ValueError):
             tsdate.date(multiroot_ts, 1, 2)
         with pytest.raises(ValueError):

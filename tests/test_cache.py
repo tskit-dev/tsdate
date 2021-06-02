@@ -27,13 +27,13 @@ class TestSetCacheDir(unittest.TestCase):
         if os.path.isfile(fn):
             raise AssertionError(f"The file {fn} already exists. Delete before testing")
         with self.assertLogs(level="WARNING") as log:
-            priors_approx10 = ConditionalCoalescentTimes(10)
+            priors_approx10 = ConditionalCoalescentTimes(10, Ne=1)
             assert len(log.output) == 1
             assert "user cache" in log.output[0]
         priors_approx10.add(10)
         # Check we have created the prior file
         assert os.path.isfile(fn)
-        priors_approxNone = ConditionalCoalescentTimes(None)
+        priors_approxNone = ConditionalCoalescentTimes(None, Ne=1)
         priors_approxNone.add(10)
         assert np.allclose(priors_approx10[10], priors_approxNone[10], equal_nan=True)
         # Test when using a bigger n that we're using the precalculated version

@@ -71,7 +71,9 @@ class ConditionalCoalescentTimes:
     Make and store conditional coalescent priors for different numbers of total samples
     """
 
-    def __init__(self, precalc_approximation_n, prior_distr="lognorm", progress=False):
+    def __init__(
+        self, precalc_approximation_n, Ne, prior_distr="lognorm", progress=False
+    ):
         """
         :param bool precalc_approximation_n: the size of tree used for
             approximate prior (larger numbers give a better approximation).
@@ -79,6 +81,7 @@ class ConditionalCoalescentTimes:
             and therefore do no allow approximate priors to be used
         """
         self.n_approx = precalc_approximation_n
+        self.Ne = Ne
         self.prior_store = {}
         self.progress = progress
 
@@ -121,8 +124,6 @@ class ConditionalCoalescentTimes:
         of ages for nodes with descendant sample tips range from 2..``total_tips``
         given that the total number of tips in the coalescent tree is
         ``total_tips``. The array is indexed by (num_tips / total_tips).
-
-        Note: estimated times are scaled by inputted Ne and are haploid
         """
         if total_tips in self.prior_store:
             return  # Already calculated for this number of total tips
@@ -169,7 +170,8 @@ class ConditionalCoalescentTimes:
             priors[1] = PriorParams(alpha=0, beta=1, mean=0, var=0)
         for var, tips in zip(variances, all_tips):
             # NB: it should be possible to vectorize this in numpy
-            expectation = self.tau_expect(tips, total_tips)
+            var = var * ((2 * self.Ne) ** 2)
+            expectation = self.tau_expect(tips, total_tips) * 2 * self.Ne
             alpha, beta = self.func_approx(expectation, var)
             priors[tips] = PriorParams(
                 alpha=alpha, beta=beta, mean=expectation, var=var
@@ -945,7 +947,7 @@ def create_timepoints(base_priors, prior_distr, n_points=21):
     return np.insert(t_set, 0, 0)
 
 
-def fill_priors(node_parameters, timepoints, ts, *, prior_distr, progress=False):
+def fill_priors(node_parameters, timepoints, ts, Ne, *, prior_distr, progress=False):
     """
     Take the alpha and beta values from the node_parameters array, which contains
     one row for each node in the TS (including fixed nodes)
@@ -991,6 +993,7 @@ def fill_priors(node_parameters, timepoints, ts, *, prior_distr, progress=False)
 
 def build_grid(
     tree_sequence,
+    Ne,
     timepoints=20,
     *,
     approximate_priors=False,
@@ -1005,7 +1008,9 @@ def build_grid(
     time slices at which to evaluate node age.
 
     :param TreeSequence tree_sequence: The input :class:`tskit.TreeSequence`, treated as
-        undated
+        undated.
+    :param float Ne: The estimated (diploid) effective population size: must be
+        specified.
     :param int_or_array_like timepoints: The number of quantiles used to create the
         time slices, or manually-specified time slices as a numpy array. Default: 20
     :param bool approximate_priors: Whether to use a precalculated approximate prior or
@@ -1025,6 +1030,8 @@ def build_grid(
         inference and a discretised time grid
     :rtype:  base.NodeGridValues Object
     """
+    if Ne <= 0:
+        raise ValueError("Parameter 'Ne' must be greater than or equal to 0")
     if approximate_priors:
         if not approx_prior_size:
             approx_prior_size = 1000
@@ -1038,7 +1045,7 @@ def build_grid(
     span_data = SpansBySamples(contmpr_ts, progress=progress)
 
     base_priors = ConditionalCoalescentTimes(
-        approx_prior_size, prior_distribution, progress=progress
+        approx_prior_size, Ne, prior_distribution, progress=progress
     )
 
     base_priors.add(contmpr_ts.num_samples, approximate_priors)
@@ -1073,6 +1080,7 @@ def build_grid(
         prior_params,
         timepoints,
         tree_sequence,
+        Ne,
         prior_distr=prior_distribution,
         progress=progress,
     )
