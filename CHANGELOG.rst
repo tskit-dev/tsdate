@@ -1,4 +1,21 @@
 --------------------
+[0.1.4] - 2021-06-30
+--------------------
+
+**Features**
+
+- The algorithm now operates completely in unscaled time (in units of generations) under
+  the hood, which means that ``tsdate.build_prior_grid`` now requires the parameter
+  ``Ne``.
+- Users now have access to the marginal posterior distributions on node age by running 
+  ``tsdate.get_dates``, though this is undocumented for now.
+
+**Bugfixes**
+
+- A fix to the way likelihoods are added should eliminate numerical errors that are
+  sometimes encountered when dating very large tree sequences.
+
+--------------------
 [0.1.3] - 2021-02-15
 --------------------
 
