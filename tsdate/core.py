@@ -930,8 +930,8 @@ def constrain_ages_topo(ts, post_mn, eps, nodes_to_date=None, progress=False):
 
 def date(
     tree_sequence,
+    mutation_rate,
     Ne=None,
-    mutation_rate=None,
     recombination_rate=None,
     time_units=None,
     priors=None,
@@ -1026,8 +1026,8 @@ def date(
     provenance.record_provenance(
         tables,
         "date",
-        Ne=Ne,
         mutation_rate=mutation_rate,
+        Ne=Ne,
         recombination_rate=recombination_rate,
         progress=progress,
         **kwargs
@@ -1043,8 +1043,8 @@ def date(
 
 def get_dates(
     tree_sequence,
+    mutation_rate,
     Ne=None,
-    mutation_rate=None,
     recombination_rate=None,
     priors=None,
     *,

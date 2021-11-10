@@ -44,31 +44,29 @@ class TestPrebuilt(unittest.TestCase):
     def test_no_Ne(self):
         ts = utility_functions.two_tree_mutation_ts()
         with pytest.raises(ValueError, match="Must specify Ne"):
-            tsdate.date(ts)
+            tsdate.date(ts, mutation_rate=None)
 
     def test_not_needed_Ne(self):
         ts = utility_functions.two_tree_mutation_ts()
         prior = tsdate.build_prior_grid(ts, Ne=1, timepoints=10)
         with pytest.raises(ValueError, match="Cannot specify Ne"):
-            tsdate.date(ts, Ne=1, priors=prior)
+            tsdate.date(ts, Ne=1, mutation_rate=None, priors=prior)
 
     def test_bad_Ne(self):
         ts = utility_functions.two_tree_mutation_ts()
         with pytest.raises(ValueError, match="greater than 0"):
-            tsdate.date(ts, Ne=0)
+            tsdate.date(ts, mutation_rate=None, Ne=0)
         with pytest.raises(ValueError, match="greater than 0"):
-            tsdate.date(ts, Ne=-1)
+            tsdate.date(ts, mutation_rate=None, Ne=-1)
 
     def test_dangling_failure(self):
         ts = utility_functions.single_tree_ts_n2_dangling()
-        with pytest.raises(ValueError, match="dangling"):
-            tsdate.date(ts, Ne=1)
+        with pytest.raises(ValueError, match="simplified"):
+            tsdate.date(ts, mutation_rate=None, Ne=1)
 
-    def test_unary_warning(self):
-        with self.assertLogs(level="WARNING") as log:
-            tsdate.date(utility_functions.single_tree_ts_with_unary(), Ne=1)
-            assert len(log.output) == 1
-            assert "unary nodes" in log.output[0]
+    def test_unary_failure(self):
+        with pytest.raises(ValueError, match="unary"):
+            tsdate.date(utility_functions.single_tree_ts_with_unary(), mutation_rate=None, Ne=1)
 
     def test_fails_with_recombination(self):
         ts = utility_functions.two_tree_mutation_ts()
@@ -76,6 +74,7 @@ class TestPrebuilt(unittest.TestCase):
             with pytest.raises(NotImplementedError):
                 tsdate.date(
                     ts,
+                    mutation_rate=None,
                     Ne=1,
                     recombination_rate=1,
                     probability_space=probability_space,
@@ -91,12 +90,12 @@ class TestPrebuilt(unittest.TestCase):
 
     def test_default_time_units(self):
         ts = utility_functions.two_tree_mutation_ts()
-        ts = tsdate.date(ts, Ne=1)
+        ts = tsdate.date(ts, mutation_rate=None, Ne=1)
         assert ts.time_units == "generations"
 
     def test_default_alternative_time_units(self):
         ts = utility_functions.two_tree_mutation_ts()
-        ts = tsdate.date(ts, Ne=1, time_units="years")
+        ts = tsdate.date(ts, mutation_rate=None, Ne=1, time_units="years")
         assert ts.time_units == "years"
 
     def test_no_posteriors(self):
@@ -114,7 +113,7 @@ class TestPrebuilt(unittest.TestCase):
 
     def test_posteriors(self):
         ts = utility_functions.two_tree_mutation_ts()
-        ts, posteriors = tsdate.date(ts, Ne=1, return_posteriors=True)
+        ts, posteriors = tsdate.date(ts, mutation_rate=None, Ne=1, return_posteriors=True)
         assert len(posteriors) == ts.num_nodes - ts.num_samples + 2
         assert len(posteriors["start_time"]) == len(posteriors["end_time"])
         assert len(posteriors["start_time"]) > 0
@@ -129,9 +128,9 @@ class TestPrebuilt(unittest.TestCase):
         long_ts = utility_functions.two_tree_ts_extra_length()
         keep_ts = long_ts.keep_intervals([[0.0, 1.0]])
         delete_ts = long_ts.delete_intervals([[1.0, 1.5]])
-        dated_ts = tsdate.date(ts, Ne=1)
-        dated_keep_ts = tsdate.date(keep_ts, Ne=1)
-        dated_deleted_ts = tsdate.date(delete_ts, Ne=1)
+        dated_ts = tsdate.date(ts, mutation_rate=None, Ne=1)
+        dated_keep_ts = tsdate.date(keep_ts, mutation_rate=None, Ne=1)
+        dated_deleted_ts = tsdate.date(delete_ts, mutation_rate=None, Ne=1)
         assert np.allclose(
             dated_ts.tables.nodes.time[:], dated_keep_ts.tables.nodes.time[:]
         )
@@ -160,13 +159,13 @@ class TestSimulated:
         # set to tskit.UNKNOWN_TIME
         for column_name in t1.nodes.column_names:
             if column_name not in ["time", "metadata", "metadata_offset"]:
-                col_t1 = getattr(t1.nodes, column_name)
-                col_t2 = getattr(t2.nodes, column_name)
+                col_t1 = t1.nodes.column_names
+                col_t2 = t2.nodes.column_names
                 assert np.array_equal(col_t1, col_t2)
         for column_name in t1.mutations.column_names:
             if column_name not in ["time"]:
-                col_t1 = getattr(t1.mutations, column_name)
-                col_t2 = getattr(t2.mutations, column_name)
+                col_t1 = t1.mutations.column_names
+                col_t2 = t2.mutations.column_names
                 assert np.array_equal(col_t1, col_t2)
         # Assert that last provenance shows tree sequence was dated
         assert len(t1.provenances) == len(t2.provenances) - 1
@@ -242,10 +241,11 @@ class TestSimulated:
             record_full_arg=True,
             random_seed=12,
         )
-        max_dated_ts = tsdate.date(ts, Ne=1, mutation_rate=10, method="maximization")
-        self.ts_equal_except_times(ts, max_dated_ts)
-        io_dated_ts = tsdate.date(ts, Ne=1, mutation_rate=10)
-        self.ts_equal_except_times(ts, io_dated_ts)
+
+        with pytest.raises(ValueError, match="unary"):
+            tsdate.date(ts, Ne=1, mutation_rate=10, method="maximization")
+        with pytest.raises(ValueError, match="unary"):
+            tsdate.date(ts, Ne=1, mutation_rate=10)
 
     def test_fails_multi_root(self):
         ts = msprime.simulate(8, mutation_rate=2, random_seed=2)
@@ -263,9 +263,9 @@ class TestSimulated:
         with pytest.raises(ValueError):
             tsdate.build_prior_grid(multiroot_ts, Ne=1)
         with pytest.raises(ValueError):
-            tsdate.date(multiroot_ts, 1, 2)
+            tsdate.date(multiroot_ts, Ne=1, mutation_rate=2)
         with pytest.raises(ValueError):
-            tsdate.date(multiroot_ts, 1, 2, None, good_priors)
+            tsdate.date(multiroot_ts, Ne=1, mutation_rate=2, priors=good_priors)
 
     def test_non_contemporaneous(self):
         samples = [
@@ -276,12 +276,12 @@ class TestSimulated:
         ]
         ts = msprime.simulate(samples=samples, Ne=1, mutation_rate=2, random_seed=12)
         with pytest.raises(NotImplementedError):
-            tsdate.date(ts, 1, 2)
+            tsdate.date(ts, Ne=1, mutation_rate=2)
 
     def test_no_mutation_times(self):
         ts = msprime.simulate(20, Ne=1, mutation_rate=1, random_seed=12)
         assert np.all(ts.tables.mutations.time > 0)
-        dated = tsdate.date(ts, 1, 1)
+        dated = tsdate.date(ts, Ne=1, mutation_rate=1)
         assert np.all(np.isnan(dated.tables.mutations.time))
 
     @pytest.mark.skip("YAN to fix")
@@ -317,7 +317,7 @@ class TestInferred:
             sample_data = tsinfer.SampleData.from_tree_sequence(
                 ts, use_sites_time=use_times
             )
-            inferred_ts = tsinfer.infer(sample_data)
+            inferred_ts = tsinfer.infer(sample_data).simplify()
             max_dated_ts = tsdate.date(
                 inferred_ts, Ne=1, mutation_rate=5, method="maximization"
             )
@@ -336,7 +336,7 @@ class TestInferred:
             sample_data = tsinfer.SampleData.from_tree_sequence(
                 ts, use_sites_time=use_times
             )
-            inferred_ts = tsinfer.infer(sample_data)
+            inferred_ts = tsinfer.infer(sample_data).simplify()
             max_dated_ts = tsdate.date(
                 inferred_ts, Ne=1, mutation_rate=5, method="maximization"
             )

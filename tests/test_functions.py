@@ -159,11 +159,8 @@ class TestNodeTipWeights(unittest.TestCase):
         ts = utility_functions.two_tree_ts().keep_intervals([(0, 0.2)], simplify=False)
         n = ts.num_samples
         # Here we have no reference in the trees to node 5
-        with self.assertLogs(level="WARNING") as log:
+        with pytest.raises(ValueError, match="nodes not in any tree"):
             SpansBySamples(ts)
-            assert len(log.output) > 0
-            assert "5" in log.output[-1]  # Should mention the node number
-            assert "simplify" in log.output[-1]  # Should advise to simplify
         ts = ts.simplify()
         span_data = self.verify_weights(ts)
         # Root on (deleted) R tree is missing
@@ -175,16 +172,8 @@ class TestNodeTipWeights(unittest.TestCase):
 
     def test_tree_with_unary_nodes(self):
         ts = utility_functions.single_tree_ts_with_unary()
-        n = ts.num_samples
-        span_data = self.verify_weights(ts)
-        assert span_data.lookup_weight(7, n, 3) == 1.0
-        assert span_data.lookup_weight(6, n, 1) == 0.5
-        assert span_data.lookup_weight(6, n, 3) == 0.5
-        assert span_data.lookup_weight(5, n, 2) == 0.5
-        assert span_data.lookup_weight(5, n, 3) == 0.5
-        assert span_data.lookup_weight(4, n, 2) == 0.75
-        assert span_data.lookup_weight(4, n, 3) == 0.25
-        assert span_data.lookup_weight(3, n, 2) == 1.0
+        with pytest.raises(ValueError, match="unary"):
+            self.verify_weights(ts)
 
     @pytest.mark.skip("Unary node is internal then the oldest node")
     def test_tree_with_unary_nodes_oldest(self):
@@ -212,12 +201,10 @@ class TestNodeTipWeights(unittest.TestCase):
         assert ts.num_trees > 1
         self.verify_weights(ts)
 
-    def test_dangling_nodes_warn(self):
+    def test_dangling_nodes_error(self):
         ts = utility_functions.single_tree_ts_n2_dangling()
-        with self.assertLogs(level="WARNING") as log:
+        with pytest.raises(ValueError, match="dangling"):
             self.verify_weights(ts)
-            assert len(log.output) > 0
-            assert "dangling" in log.output[0]
 
     def test_single_tree_n2_delete_intervals(self):
         ts = utility_functions.single_tree_ts_n2()
@@ -465,17 +452,18 @@ class TestMixturePrior:
 
     def test_single_tree_ts_with_unary(self):
         ts = utility_functions.single_tree_ts_with_unary()
-        mixture_priors = self.get_mixture_prior_params(ts, "gamma")
-        # Root is a 3 tip prior
-        assert np.allclose(mixture_priors[7, self.alpha_beta], [1.6, 1.2])
-        # Node 6 should be a 50:50 mixture between 1 and 3 tips
-        assert np.allclose(mixture_priors[6, self.alpha_beta], [0.44444, 0.66666])
-        # Node 5 should be a 50:50 mixture of 2 and 3 tips
-        assert np.allclose(mixture_priors[5, self.alpha_beta], [0.80645, 0.96774])
-        # Node 4 should be a 75:25 mixture of 2 and 3 tips
-        assert np.allclose(mixture_priors[4, self.alpha_beta], [0.62025, 1.06329])
-        # Node 3 is a 2 tip prior
-        assert np.allclose(mixture_priors[3, self.alpha_beta], [1.0, 3.0])
+        with pytest.raises(ValueError, match="unary"):
+            self.get_mixture_prior_params(ts, "gamma")
+        # # Root is a 3 tip prior
+        # assert np.allclose(mixture_priors[7, self.alpha_beta], [1.6, 1.2])
+        # # Node 6 should be a 50:50 mixture between 1 and 3 tips
+        # assert np.allclose(mixture_priors[6, self.alpha_beta], [0.44444, 0.66666])
+        # # Node 5 should be a 50:50 mixture of 2 and 3 tips
+        # assert np.allclose(mixture_priors[5, self.alpha_beta], [0.80645, 0.96774])
+        # # Node 4 should be a 75:25 mixture of 2 and 3 tips
+        # assert np.allclose(mixture_priors[4, self.alpha_beta], [0.62025, 1.06329])
+        # # Node 3 is a 2 tip prior
+        # assert np.allclose(mixture_priors[3, self.alpha_beta], [1.0, 3.0])
 
     def test_two_tree_mutation_ts(self):
         ts = utility_functions.two_tree_mutation_ts()
@@ -559,12 +547,13 @@ class TestPriorVals:
 
     def test_tree_with_unary_nodes(self):
         ts = utility_functions.single_tree_ts_with_unary()
-        prior_vals = self.verify_prior_vals(ts, "gamma")
-        assert np.allclose(prior_vals[7], [0, 1, 0.397385])
-        assert np.allclose(prior_vals[6], [0, 1, 0.113122])
-        assert np.allclose(prior_vals[5], [0, 1, 0.164433])
-        assert np.allclose(prior_vals[4], [0, 1, 0.093389])
-        assert np.allclose(prior_vals[3], [0, 1, 0.011109])
+        with pytest.raises(ValueError, match="unary"):
+            self.verify_prior_vals(ts, "gamma")
+        # assert np.allclose(prior_vals[7], [0, 1, 0.397385])
+        # assert np.allclose(prior_vals[6], [0, 1, 0.113122])
+        # assert np.allclose(prior_vals[5], [0, 1, 0.164433])
+        # assert np.allclose(prior_vals[4], [0, 1, 0.093389])
+        # assert np.allclose(prior_vals[3], [0, 1, 0.011109])
 
     def test_one_tree_n2_intervals(self):
         ts = utility_functions.single_tree_ts_n2()
@@ -1034,12 +1023,13 @@ class TestInsideAlgorithm:
 
     def test_tree_with_unary_nodes(self):
         ts = utility_functions.single_tree_ts_with_unary()
-        algo = self.run_inside_algorithm(ts, "gamma")[0]
-        assert np.allclose(algo.inside[7], np.array([0, 1, 0.25406637]))
-        assert np.allclose(algo.inside[6], np.array([0, 1, 0.07506923]))
-        assert np.allclose(algo.inside[5], np.array([0, 1, 0.13189998]))
-        assert np.allclose(algo.inside[4], np.array([0, 1, 0.07370801]))
-        assert np.allclose(algo.inside[3], np.array([0, 1, 0.01147716]))
+        with pytest.raises(ValueError, match="unary"):
+            self.run_inside_algorithm(ts, "gamma")[0]
+        # assert np.allclose(algo.inside[7], np.array([0, 1, 0.25406637]))
+        # assert np.allclose(algo.inside[6], np.array([0, 1, 0.07506923]))
+        # assert np.allclose(algo.inside[5], np.array([0, 1, 0.13189998]))
+        # assert np.allclose(algo.inside[4], np.array([0, 1, 0.07370801]))
+        # assert np.allclose(algo.inside[3], np.array([0, 1, 0.01147716]))
 
     def test_two_tree_mutation_ts(self):
         ts = utility_functions.two_tree_mutation_ts()
@@ -1057,13 +1047,14 @@ class TestInsideAlgorithm:
         print(ts.draw_text())
         print("Samples:", ts.samples())
         Ne = 0.5
-        priors = tsdate.build_prior_grid(ts, Ne, timepoints=np.array([0, 1.2, 2]))
-        mut_rate = 1
-        eps = 1e-6
-        lls = Likelihoods(ts, priors.timepoints, mut_rate, eps)
-        algo = InOutAlgorithms(priors, lls)
-        with pytest.raises(ValueError, match="dangling"):
-            algo.inside_pass()
+        with pytest.raises(ValueError, match="simplified"):
+            tsdate.build_prior_grid(ts, Ne, timepoints=np.array([0, 1.2, 2]))
+        # mut_rate = 1
+        # eps = 1e-6
+        # lls = Likelihoods(ts, priors.timepoints, mut_rate, eps)
+        # algo = InOutAlgorithms(priors, lls)
+        # with pytest.raises(ValueError, match="dangling"):
+        #     algo.inside_pass()
 
 
 class TestOutsideAlgorithm:
@@ -1222,7 +1213,8 @@ class TestTotalFunctionalValueTree:
     def test_tree_with_unary_nodes(self):
         ts = utility_functions.single_tree_ts_with_unary()
         for distr in ("gamma", "lognorm"):
-            posterior, algo = self.find_posterior(ts, distr)
+            with pytest.raises(ValueError, match="unary"):
+                posterior, algo = self.find_posterior(ts, distr)
 
 
 class TestGilTree:
@@ -1336,7 +1328,7 @@ class TestOutsideEdgesOrdering:
             random_seed=12,
         )
         sample_data = tsinfer.SampleData.from_tree_sequence(ts, use_sites_time=False)
-        inferred_ts = tsinfer.infer(sample_data)
+        inferred_ts = tsinfer.infer(sample_data).simplify()
         self.edges_ordering(inferred_ts, "outside_pass")
         self.edges_ordering(inferred_ts, "outside_maximization")
 
@@ -1424,28 +1416,28 @@ class TestDate:
     def test_date_input(self):
         ts = utility_functions.single_tree_ts_n2()
         with pytest.raises(ValueError):
-            tsdate.date(ts, Ne=1, method="foobar")
+            tsdate.date(ts, mutation_rate=None, Ne=1, method="foobar")
 
     def test_sample_as_parent_fails(self):
         ts = utility_functions.single_tree_ts_n3_sample_as_parent()
         with pytest.raises(NotImplementedError):
-            tsdate.date(ts, Ne=1)
+            tsdate.date(ts, mutation_rate=None, Ne=1)
 
     def test_recombination_not_implemented(self):
         ts = utility_functions.single_tree_ts_n2()
         with pytest.raises(NotImplementedError):
-            tsdate.date(ts, Ne=1, recombination_rate=1e-8)
+            tsdate.date(ts, mutation_rate=None, Ne=1, recombination_rate=1e-8)
 
     def test_Ne_and_priors(self):
         ts = utility_functions.single_tree_ts_n2()
         with pytest.raises(ValueError):
             priors = tsdate.build_prior_grid(ts, Ne=1)
-            tsdate.date(ts, Ne=1, priors=priors)
+            tsdate.date(ts, mutation_rate=None, Ne=1, priors=priors)
 
     def test_no_Ne_priors(self):
         ts = utility_functions.single_tree_ts_n2()
         with pytest.raises(ValueError):
-            tsdate.date(ts, Ne=None, priors=None)
+            tsdate.date(ts, mutation_rate=None, Ne=None, priors=None)
 
 
 class TestBuildPriorGrid:
@@ -1508,8 +1500,8 @@ class TestPosteriorMeanVar:
         larger_ts = msprime.simulate(
             10, mutation_rate=1, recombination_rate=1, length=20, random_seed=12
         )
-        _, mn_post, _, _, eps, _ = get_dates(larger_ts, 10000)
-        dated_ts = date(larger_ts, 10000)
+        _, mn_post, _, _, eps, _ = get_dates(larger_ts, mutation_rate=None, Ne=10000)
+        dated_ts = date(larger_ts, Ne=10000, mutation_rate=None)
         metadata = dated_ts.tables.nodes.metadata
         metadata_offset = dated_ts.tables.nodes.metadata_offset
         unconstrained_mn = [
@@ -1663,7 +1655,7 @@ class TestNodeTimes:
         larger_ts = msprime.simulate(
             10, mutation_rate=1, recombination_rate=1, length=20, random_seed=12
         )
-        dated = date(larger_ts, 10000)
+        dated = date(larger_ts, mutation_rate=None, Ne=10000)
         node_ages = nodes_time_unconstrained(dated)
         assert np.all(dated.tables.nodes.time[:] >= node_ages)
 
@@ -1690,8 +1682,8 @@ class TestSiteTimes:
 
     def test_sites_time_insideoutside(self):
         ts = utility_functions.two_tree_mutation_ts()
-        dated = tsdate.date(ts, 1)
-        _, mn_post, _, _, eps, _ = get_dates(ts, 1)
+        dated = tsdate.date(ts, mutation_rate=None, Ne=1)
+        _, mn_post, _, _, eps, _ = get_dates(ts, mutation_rate=None, Ne=1)
         assert np.array_equal(
             mn_post[ts.tables.mutations.node],
             tsdate.sites_time_from_ts(dated, unconstrained=True, min_time=0),
@@ -1792,8 +1784,8 @@ class TestSiteTimes:
         larger_ts = msprime.simulate(
             10, mutation_rate=1, recombination_rate=1, length=20, random_seed=12
         )
-        _, mn_post, _, _, _, _ = get_dates(larger_ts, 10000)
-        dated = date(larger_ts, 10000)
+        _, mn_post, _, _, _, _ = get_dates(larger_ts, mutation_rate=None, Ne=10000)
+        dated = date(larger_ts, mutation_rate=None, Ne=10000)
         assert np.array_equal(
             mn_post[larger_ts.tables.mutations.node],
             tsdate.sites_time_from_ts(dated, unconstrained=True, min_time=0),
@@ -1819,7 +1811,7 @@ class TestSampleDataTimes:
         with pytest.raises(ValueError):
             tsdate.add_sampledata_times(samples, sites_time)
 
-    def test_historic_samples(self):
+    def test_historical_samples(self):
         samples = [msprime.Sample(population=0, time=0) for i in range(10)]
         ancients = [msprime.Sample(population=0, time=1000) for i in range(10)]
         samps = samples + ancients
@@ -1837,7 +1829,7 @@ class TestSampleDataTimes:
         ancient_samples_times = ts.tables.nodes.time[ancient_samples]
 
         samples = tsinfer.formats.SampleData.from_tree_sequence(ts)
-        inferred = tsinfer.infer(samples)
+        inferred = tsinfer.infer(samples).simplify(filter_sites=False)
         dated = date(inferred, 10000, 1e-8)
         sites_time = tsdate.sites_time_from_ts(dated)
         # Add in the original individual times
@@ -1871,7 +1863,7 @@ class TestSampleDataTimes:
         samples = tsinfer.formats.SampleData.from_tree_sequence(
             ts, use_sites_time=False
         )
-        inferred = tsinfer.infer(samples)
+        inferred = tsinfer.infer(samples).simplify()
         dated = date(inferred, 10000, 1e-8)
         sites_time = tsdate.sites_time_from_ts(dated)
         sites_bound = samples.min_site_times(individuals_only=True)
@@ -1897,7 +1889,7 @@ class TestHistoricalExample:
         modern_samples = tsinfer.SampleData.from_tree_sequence(
             ts.simplify(ts.samples(time=0), filter_sites=False)
         )
-        inferred_ts = tsinfer.infer(modern_samples, simplify=True)
+        inferred_ts = tsinfer.infer(modern_samples).simplify(filter_sites=False)
         dated_ts = tsdate.date(inferred_ts, Ne=1, mutation_rate=1)
         site_times = tsdate.sites_time_from_ts(dated_ts)
         # make a sd file with historical individual times

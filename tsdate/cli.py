@@ -189,8 +189,8 @@ def run_date(args):
         error_exit(f"Error loading '{args.tree_sequence}: {ffe}")
     dated_ts = tsdate.date(
         ts,
+        args.mutation_rate,
         args.Ne,
-        mutation_rate=args.mutation_rate,
         recombination_rate=args.recombination_rate,
         probability_space=args.probability_space,
         method=args.method,
