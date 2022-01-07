@@ -1831,17 +1831,26 @@ class TestSampleDataTimes:
             length=1e4,
             random_seed=12,
         )
-        samples = tsinfer.formats.SampleData.from_tree_sequence(
-            ts, use_individuals_time=True
-        )
         ancient_samples = np.where(ts.tables.nodes.time[:][ts.samples()] != 0)[
             0
         ].astype("int32")
         ancient_samples_times = ts.tables.nodes.time[ancient_samples]
+
+        samples = tsinfer.formats.SampleData.from_tree_sequence(ts)
         inferred = tsinfer.infer(samples)
         dated = date(inferred, 10000, 1e-8)
         sites_time = tsdate.sites_time_from_ts(dated)
-        dated_samples = tsdate.add_sampledata_times(samples, sites_time)
+        # Add in the original individual times
+        ind_dated_sd = samples.copy()
+        ind_dated_sd.individuals_time[
+            :
+        ] = tsinfer.formats.SampleData.from_tree_sequence(
+            ts, use_individuals_time=True, use_sites_time=True
+        ).individuals_time[
+            :
+        ]
+        ind_dated_sd.finalise()
+        dated_samples = tsdate.add_sampledata_times(ind_dated_sd, sites_time)
         for variant in ts.variants(samples=ancient_samples):
             if np.any(variant.genotypes == 1):
                 ancient_bound = np.max(ancient_samples_times[variant.genotypes == 1])
