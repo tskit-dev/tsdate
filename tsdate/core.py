@@ -992,9 +992,8 @@ def date(
     # Remove any times associated with mutations
     tables.mutations.time = np.full(tree_sequence.num_mutations, tskit.UNKNOWN_TIME)
     tables.sort()
-    ts = tables.tree_sequence()
-    return provenance.record_provenance(
-        ts,
+    provenance.record_provenance(
+        tables,
         "date",
         Ne=Ne,
         mutation_rate=mutation_rate,
@@ -1002,6 +1001,7 @@ def date(
         progress=progress,
         **kwargs
     )
+    return tables.tree_sequence()
 
 
 def get_dates(
