@@ -81,12 +81,10 @@ def get_provenance_dict(command=None, **kwargs):
     return document
 
 
-def record_provenance(tree_sequence, command=None, **kwargs):
+def record_provenance(tables, command=None, **kwargs):
     """
-    Records the provenance information for this file using the
+    Adds provenance information to this table collection using the
     tskit provenances schema.
     """
     record = get_provenance_dict(command=command, **kwargs)
-    tables = tree_sequence.dump_tables()
     tables.provenances.add_row(record=json.dumps(record))
-    return tables.tree_sequence()

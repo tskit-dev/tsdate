@@ -89,7 +89,8 @@ def preprocess_ts(
     if tree_sequence.num_sites < 1:
         raise ValueError("Invalid tree sequence: no sites present")
 
-    sites = tree_sequence.tables.sites.position[:]
+    tables = tree_sequence.dump_tables()
+    sites = tables.sites.position[:]
     delete_intervals = []
     if remove_telomeres:
         first_site = sites[0] - 1
@@ -100,7 +101,7 @@ def preprocess_ts(
                 "from 0 to first site at {}.".format(first_site)
             )
         last_site = sites[-1] + 1
-        sequence_length = tree_sequence.get_sequence_length()
+        sequence_length = tables.sequence_length
         if last_site < sequence_length:
             delete_intervals.append([last_site, sequence_length])
             logger.info(
@@ -120,12 +121,10 @@ def preprocess_ts(
             delete_intervals.append([gap_start, gap_end])
     delete_intervals = sorted(delete_intervals, key=lambda x: x[0])
     if len(delete_intervals) > 0:
-        tree_sequence_trimmed = tree_sequence.delete_intervals(
-            delete_intervals, simplify=False
-        )
-        tree_sequence_trimmed = tree_sequence_trimmed.simplify(**kwargs)
-        tree_sequence_trimmed = provenance.record_provenance(
-            tree_sequence_trimmed,
+        tables.delete_intervals(delete_intervals, simplify=False)
+        tables.simplify(**kwargs)
+        provenance.record_provenance(
+            tables,
             "preprocess_ts",
             minimum_gap=minimum_gap,
             remove_telomeres=remove_telomeres,
@@ -133,15 +132,15 @@ def preprocess_ts(
         )
     else:
         logger.info("No gaps to remove")
-        tree_sequence_trimmed = tree_sequence.simplify(**kwargs)
-    if tree_sequence.num_sites != tree_sequence_trimmed.num_sites:
+        tables.simplify(**kwargs)
+    if tree_sequence.num_sites != tables.sites.num_rows:
         warnings.warn(
             "Different number of sites after preprocessing. "
             "Try using **{'filter_sites:' False} to avoid this",
             RuntimeWarning,
         )
 
-    return tree_sequence_trimmed
+    return tables.tree_sequence()
 
 
 def nodes_time_unconstrained(tree_sequence):
