@@ -22,10 +22,10 @@
 """
 Test cases for the python API for tsdate.
 """
+import dataclasses
 import json
 import unittest
 
-import attr
 import msprime
 import numpy as np
 import pytest
@@ -205,7 +205,7 @@ class TestSimulated:
             if row.parent not in tree.roots and row.child not in ts.samples():
                 if not internal_edge_removed:
                     continue
-            tables.edges.add_row(**attr.asdict(row))
+            tables.edges.add_row(**dataclasses.asdict(row))
         multiroot_ts = tables.tree_sequence()
         good_priors = tsdate.build_prior_grid(ts, Ne=1)
         with pytest.raises(ValueError):
