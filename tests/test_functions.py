@@ -1894,11 +1894,19 @@ class TestHistoricalExample:
 
     def test_historical_samples(self):
         ts = self.historical_samples_example()
-        samples = tsinfer.SampleData.from_tree_sequence(ts, use_sites_time=False)
-        modern_samples = samples.subset(np.where(samples.individuals_time[:] == 0)[0])
+        modern_samples = tsinfer.SampleData.from_tree_sequence(
+            ts.simplify(ts.samples(time=0), filter_sites=False)
+        )
         inferred_ts = tsinfer.infer(modern_samples, simplify=True)
         dated_ts = tsdate.date(inferred_ts, Ne=1, mutation_rate=1)
         site_times = tsdate.sites_time_from_ts(dated_ts)
+        # make a sd file with historical individual times
+        samples = tsinfer.SampleData.from_tree_sequence(
+            ts,
+            use_individuals_time=True,
+            # site times will be replaced, but True needed below to avoid timescale clash
+            use_sites_time=True,
+        )
         dated_samples = tsdate.add_sampledata_times(samples, site_times)
         ancestors = tsinfer.generate_ancestors(dated_samples)
         ancestors_w_proxy = ancestors.insert_proxy_samples(
