@@ -22,7 +22,6 @@
 """
 Test cases for the python API for tsdate.
 """
-import dataclasses
 import json
 import unittest
 
@@ -205,7 +204,7 @@ class TestSimulated:
             if row.parent not in tree.roots and row.child not in ts.samples():
                 if not internal_edge_removed:
                     continue
-            tables.edges.add_row(**dataclasses.asdict(row))
+            tables.edges.append(row)
         multiroot_ts = tables.tree_sequence()
         good_priors = tsdate.build_prior_grid(ts, Ne=1)
         with pytest.raises(ValueError):
@@ -226,7 +225,6 @@ class TestSimulated:
         with pytest.raises(NotImplementedError):
             tsdate.date(ts, 1, 2)
 
-    @pytest.mark.skip("Add when msprime 1.0 is released")
     def test_no_mutation_times(self):
         ts = msprime.simulate(20, Ne=1, mutation_rate=1, random_seed=12)
         assert np.all(ts.tables.mutations.time > 0)

@@ -1831,17 +1831,26 @@ class TestSampleDataTimes:
             length=1e4,
             random_seed=12,
         )
-        samples = tsinfer.formats.SampleData.from_tree_sequence(
-            ts, use_individuals_time=True
-        )
         ancient_samples = np.where(ts.tables.nodes.time[:][ts.samples()] != 0)[
             0
         ].astype("int32")
         ancient_samples_times = ts.tables.nodes.time[ancient_samples]
+
+        samples = tsinfer.formats.SampleData.from_tree_sequence(ts)
         inferred = tsinfer.infer(samples)
         dated = date(inferred, 10000, 1e-8)
         sites_time = tsdate.sites_time_from_ts(dated)
-        dated_samples = tsdate.add_sampledata_times(samples, sites_time)
+        # Add in the original individual times
+        ind_dated_sd = samples.copy()
+        ind_dated_sd.individuals_time[
+            :
+        ] = tsinfer.formats.SampleData.from_tree_sequence(
+            ts, use_individuals_time=True, use_sites_time=True
+        ).individuals_time[
+            :
+        ]
+        ind_dated_sd.finalise()
+        dated_samples = tsdate.add_sampledata_times(ind_dated_sd, sites_time)
         for variant in ts.variants(samples=ancient_samples):
             if np.any(variant.genotypes == 1):
                 ancient_bound = np.max(ancient_samples_times[variant.genotypes == 1])
@@ -1885,11 +1894,19 @@ class TestHistoricalExample:
 
     def test_historical_samples(self):
         ts = self.historical_samples_example()
-        samples = tsinfer.SampleData.from_tree_sequence(ts, use_sites_time=False)
-        modern_samples = samples.subset(np.where(samples.individuals_time[:] == 0)[0])
+        modern_samples = tsinfer.SampleData.from_tree_sequence(
+            ts.simplify(ts.samples(time=0), filter_sites=False)
+        )
         inferred_ts = tsinfer.infer(modern_samples, simplify=True)
         dated_ts = tsdate.date(inferred_ts, Ne=1, mutation_rate=1)
         site_times = tsdate.sites_time_from_ts(dated_ts)
+        # make a sd file with historical individual times
+        samples = tsinfer.SampleData.from_tree_sequence(
+            ts,
+            use_individuals_time=True,
+            # site times will be replaced, but True needed below to avoid timescale clash
+            use_sites_time=True,
+        )
         dated_samples = tsdate.add_sampledata_times(samples, site_times)
         ancestors = tsinfer.generate_ancestors(dated_samples)
         ancestors_w_proxy = ancestors.insert_proxy_samples(
