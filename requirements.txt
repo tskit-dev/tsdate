@@ -4,7 +4,7 @@ flake8
 numpy
 tqdm
 daiquiri
-msprime
+msprime>=1.0.0
 scipy
 codecov
 numba==0.53.1
