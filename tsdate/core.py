@@ -933,31 +933,52 @@ def date(
     Ne=None,
     mutation_rate=None,
     recombination_rate=None,
+    time_units=None,
     priors=None,
     *,
+    return_posteriors=None,
     progress=False,
     **kwargs
 ):
     """
-    Take a tree sequence with arbitrary node times and recalculate node times using
-    the `tsdate` algorithm. If a mutation_rate is given, the mutation clock is used. The
-    recombination clock is unsupported at this time. If neither a mutation_rate nor a
+    Take a tree sequence (which could have
+    :data:`uncalibrated <tskit.TIME_UNITS_UNCALIBRATED>` node times) and assign new times
+    to non-sample nodes using the `tsdate` algorithm. If a mutation_rate is given,
+    the mutation clock is used. The recombination clock is unsupported at this time.
+    If neither a mutation_rate nor a
     recombination_rate is given, a topology-only clock is used. Times associated with
     mutations and non-sample nodes in the input tree sequence are not used in inference
     and will be removed.
 
     :param TreeSequence tree_sequence: The input :class:`tskit.TreeSequence`, treated as
-        undated.
-    :param float Ne: The estimated (diploid) effective population size: must be
-        specified.
+        one whose non-sample nodes are undated.
+    :param float Ne: The estimated (diploid) effective population size used to construct
+        the (default) conditional coalescent prior. This is what is used when ``priors``
+        is ``None``: a positive ``Ne`` value is therefore required in this case.
+        Conversely, if ``priors`` is not ``None``, no ``Ne`` value should be given.
     :param float mutation_rate: The estimated mutation rate per unit of genome per
-        generation. If provided, the dating algorithm will use a mutation rate clock to
-        help estimate node dates. Default: None
+        unit time. If provided, the dating algorithm will use a mutation rate clock to
+        help estimate node dates. Default: ``None``
     :param float recombination_rate: The estimated recombination rate per unit of genome
-        per generation. If provided, the dating algorithm will use a recombination rate
-        clock to help estimate node dates. Default: None
+        per unit time. If provided, the dating algorithm will use a recombination rate
+        clock to help estimate node dates. Default: ``None``
+    :param str time_units: The time units used by the ``mutation_rate`` and
+        ``recombination_rate`` values, and stored in the ``time_units`` attribute of the
+        output tree sequence. If the conditional coalescent prior is used,
+        then this is also applies to the value of ``Ne``, which in standard coalescent
+        theory is measured in generations. Therefore if you wish to use mutation and
+        recombination rates measured in (say) years, and are using the conditional
+        coalescent prior, the ``Ne`` value which you provide must be scaled by
+        multiplying by the number of years per generation. If ``None`` (default), assume
+        ``"generations"``.
     :param NodeGridValues priors: NodeGridValue object containing the prior probabilities
-        for each node at a set of discrete time points. Default: None
+        for each node at a set of discrete time points. If ``None`` (default), use the
+        conditional coalescent prior with a standard set of time points as given by
+        :func:`build_prior_grid`.
+    :param bool return_posteriors: If ``True``, instead of returning just a dated tree
+        sequence, return a tuple of ``(dated_ts, posteriors)``. Note that the dictionary
+        returned in ``posteriors`` (described below) is suitable for reading as a pandas
+        ``DataFrame`` object, using ``pd.DataFrame(posteriors)``.
     :param float eps: Specify minimum distance separating time points. Also specifies
         the error factor in time difference calculations. Default: 1e-6
     :param int num_threads: The number of threads to use. A simpler unthreaded algorithm
@@ -965,7 +986,7 @@ def date(
     :param string method: What estimation method to use: can be
         "inside_outside" (empirically better, theoretically problematic) or
         "maximization" (worse empirically, especially with gamma approximated priors,
-        but theoretically robust). Default: "inside_outside"
+        but theoretically robust). If ``None`` (default) use "inside_outside"
     :param string probability_space: Should the internal algorithm save probabilities in
         "logarithmic" (slower, less liable to to overflow) or "linear" space (fast, may
         overflow). Default: "logarithmic"
@@ -974,20 +995,30 @@ def date(
         Ignoring outside root provides greater stability when dating tree sequences
         inferred from real data. Default: False
     :param bool progress: Whether to display a progress bar. Default: False
-    :return: A tree sequence with inferred node times in units of generations.
-    :rtype: tskit.TreeSequence
+    :return: A copy of the input tree sequence but with altered node times, or (if
+        ``return_posteriors`` is True) a tuple of that tree sequence plus a dictionary
+        of posterior probabilities from the "inside_outside" estimation ``method``.
+        Each node whose time was inferred corresponds to an item in this dictionary,
+        with the key being the node ID and the value a 1D array of probabilities of the
+        node being in a given time slice (or ``None`` if the "inside_outside" method
+        was not used). The start and end times of each time slice are given as 1D
+        arrays in the dictionary, under keys named ``"start_time"`` and ``end_time"``.
+    :rtype: tskit.TreeSequence or (tskit.TreeSequence, dict)
     """
-    tree_sequence, dates, _, timepoints, eps, nds = get_dates(
+    if time_units is None:
+        time_units = "generations"
+    tree_sequence, dates, posteriors, timepoints, eps, nds = get_dates(
         tree_sequence,
-        Ne,
-        mutation_rate,
-        recombination_rate,
-        priors,
+        Ne=Ne,
+        mutation_rate=mutation_rate,
+        recombination_rate=recombination_rate,
+        priors=priors,
         progress=progress,
         **kwargs
     )
     constrained = constrain_ages_topo(tree_sequence, dates, eps, nds, progress)
     tables = tree_sequence.dump_tables()
+    tables.time_units = time_units
     tables.nodes.time = constrained
     # Remove any times associated with mutations
     tables.mutations.time = np.full(tree_sequence.num_mutations, tskit.UNKNOWN_TIME)
@@ -1001,7 +1032,13 @@ def date(
         progress=progress,
         **kwargs
     )
-    return tables.tree_sequence()
+    if return_posteriors:
+        pst = {"start_time": timepoints, "end_time": np.append(timepoints[1:], np.inf)}
+        for i, n in enumerate(nds):
+            pst[n] = None if posteriors is None else posteriors.grid_data[i, :]
+        return tables.tree_sequence(), pst
+    else:
+        return tables.tree_sequence()
 
 
 def get_dates(
@@ -1042,7 +1079,7 @@ def get_dates(
     if priors is None:
         if Ne is None:
             raise ValueError(
-                "Must specify Ne if priors are not already build using \
+                "Must specify Ne if priors are not already built using \
                         tsdate.build_prior_grid()"
             )
         priors = prior.build_grid(
