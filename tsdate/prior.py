@@ -1004,13 +1004,14 @@ def build_grid(
 ):
     """
     Using the conditional coalescent, calculate the prior distribution for the age of
-    each node given the number of contemporaneous samples below it, and the discretised
-    time slices at which to evaluate node age.
+    each node, given the number of contemporaneous samples below it, and
+    the discretised time slices at which to evaluate node age.
 
     :param TreeSequence tree_sequence: The input :class:`tskit.TreeSequence`, treated as
         undated.
     :param float Ne: The estimated (diploid) effective population size: must be
-        specified.
+        specified. Using standard (unscaled) values for ``Ne`` results in a prior where
+        times are measures in generations.
     :param int_or_array_like timepoints: The number of quantiles used to create the
         time slices, or manually-specified time slices as a numpy array. Default: 20
     :param bool approximate_priors: Whether to use a precalculated approximate prior or
@@ -1031,7 +1032,7 @@ def build_grid(
     :rtype:  base.NodeGridValues Object
     """
     if Ne <= 0:
-        raise ValueError("Parameter 'Ne' must be greater than or equal to 0")
+        raise ValueError("Parameter 'Ne' must be greater than 0")
     if approximate_priors:
         if not approx_prior_size:
             approx_prior_size = 1000

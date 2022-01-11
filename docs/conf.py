@@ -96,5 +96,5 @@ html_logo = "_static/tsdate_logo_pale.svg"
 intersphinx_mapping = {
     "https://docs.python.org/3": None,
     "https://docs.scipy.org/doc/numpy/": None,
-    "https://tsdate.readthedocs.io/en/stable/": None,
+    "https://tskit.dev/tskit/docs/stable": None,
 }

@@ -41,6 +41,24 @@ class TestPrebuilt(unittest.TestCase):
     Tests for tsdate on prebuilt tree sequences
     """
 
+    def test_no_Ne(self):
+        ts = utility_functions.two_tree_mutation_ts()
+        with pytest.raises(ValueError, match="Must specify Ne"):
+            tsdate.date(ts)
+
+    def test_not_needed_Ne(self):
+        ts = utility_functions.two_tree_mutation_ts()
+        prior = tsdate.build_prior_grid(ts, Ne=1, timepoints=10)
+        with pytest.raises(ValueError, match="Cannot specify Ne"):
+            tsdate.date(ts, Ne=1, priors=prior)
+
+    def test_bad_Ne(self):
+        ts = utility_functions.two_tree_mutation_ts()
+        with pytest.raises(ValueError, match="greater than 0"):
+            tsdate.date(ts, Ne=0)
+        with pytest.raises(ValueError, match="greater than 0"):
+            tsdate.date(ts, Ne=-1)
+
     def test_dangling_failure(self):
         ts = utility_functions.single_tree_ts_n2_dangling()
         with pytest.raises(ValueError, match="dangling"):
@@ -70,6 +88,41 @@ class TestPrebuilt(unittest.TestCase):
                     probability_space=probability_space,
                     mutation_rate=1,
                 )
+
+    def test_default_time_units(self):
+        ts = utility_functions.two_tree_mutation_ts()
+        ts = tsdate.date(ts, Ne=1)
+        assert ts.time_units == "generations"
+
+    def test_default_alternative_time_units(self):
+        ts = utility_functions.two_tree_mutation_ts()
+        ts = tsdate.date(ts, Ne=1, time_units="years")
+        assert ts.time_units == "years"
+
+    def test_no_posteriors(self):
+        ts = utility_functions.two_tree_mutation_ts()
+        ts, posteriors = tsdate.date(
+            ts, Ne=1, return_posteriors=True, method="maximization", mutation_rate=1
+        )
+        assert len(posteriors) == ts.num_nodes - ts.num_samples + 2
+        assert len(posteriors["start_time"]) == len(posteriors["end_time"])
+        assert len(posteriors["start_time"]) > 0
+        for node in ts.nodes():
+            if not node.is_sample:
+                assert node.id in posteriors
+                assert posteriors[node.id] is None
+
+    def test_posteriors(self):
+        ts = utility_functions.two_tree_mutation_ts()
+        ts, posteriors = tsdate.date(ts, Ne=1, return_posteriors=True)
+        assert len(posteriors) == ts.num_nodes - ts.num_samples + 2
+        assert len(posteriors["start_time"]) == len(posteriors["end_time"])
+        assert len(posteriors["start_time"]) > 0
+        for node in ts.nodes():
+            if not node.is_sample:
+                assert node.id in posteriors
+                assert len(posteriors[node.id]) == len(posteriors["start_time"])
+                assert np.isclose(np.sum(posteriors[node.id]), 1)
 
     def test_intervals(self):
         ts = utility_functions.two_tree_ts()
