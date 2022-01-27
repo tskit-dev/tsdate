@@ -621,7 +621,7 @@ class TestLikelihoodClass:
         lik = Likelihoods(ts, grid, mutation_rate=None)
         with pytest.raises(RuntimeError):
             lik.precalculate_mutation_likelihoods()
-     
+
     @pytest.mark.skip
     def test_precalc_lik_lower(self):
         ts = utility_functions.single_tree_ts_n3()
