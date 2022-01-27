@@ -525,9 +525,11 @@ class SpansBySamples:
                 node_spans[node] += coverage
             else:
                 coverage = 0
-                logging.warning(
+                raise ValueError(
                     "Node {} is dangling (no descendant samples) at pos {}: "
-                    "this node will have no weight in this region".format(
+                    "this node will have no weight in this region. Run "
+                    "`simplify(keep_unary=False)` before dating this tree "
+                    "sequence".format(
                         node, stored_pos[node]
                     )
                 )
@@ -712,9 +714,9 @@ class SpansBySamples:
             n_tips_per_tree[prev_tree.index + 1] = num_fixed_at_0_treenodes
 
         if self.has_unary:
-            logging.warning(
-                "The input tree sequence has unary nodes: tsdate currently works "
-                "better if these are removed using `simplify(keep_unary=False)`"
+            raise ValueError(
+                "The input tree sequence has unary nodes: tsdate currently requires "
+                "that these are removed using `simplify(keep_unary=False)`"
             )
         return node_spans, trees_with_undated, n_tips_per_tree
 
@@ -813,9 +815,9 @@ class SpansBySamples:
         )
 
         if self.nodes_remain_to_date():
-            logging.warning(
+            raise ValueError(
                 "When finalising node spans, found the following nodes not in any tree;"
-                " you should probably simplify your tree sequence: {}".format(
+                " you must simplify your tree sequence first: {}".format(
                     self.nodes_remaining_to_date()
                 )
             )
@@ -1043,6 +1045,9 @@ def build_grid(
             )
 
     contmpr_ts, node_map = util.reduce_to_contemporaneous(tree_sequence)
+    if contmpr_ts.num_nodes != tree_sequence.num_nodes:
+        raise ValueError("Passed tree sequence is not simplified and/or contains "
+                         "noncontemporaneous samples")
     span_data = SpansBySamples(contmpr_ts, progress=progress)
 
     base_priors = ConditionalCoalescentTimes(
