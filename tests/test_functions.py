@@ -790,7 +790,6 @@ class TestLikelihoodClass:
                     )
 
 
-@pytest.mark.skip
 class TestNodeGridValuesClass:
     # TODO - needs a few more tests in here
     def test_init(self):
@@ -894,7 +893,6 @@ class TestNodeGridValuesClass:
             )
 
 
-@pytest.mark.skip
 class TestAlgorithmClass:
     def test_nonmatching_prior_vs_lik_timepoints(self):
         ts = utility_functions.single_tree_ts_n3()
@@ -917,7 +915,6 @@ class TestAlgorithmClass:
             InOutAlgorithms(priors, lls)
 
 
-@pytest.mark.skip
 class TestInsideAlgorithm:
     def run_inside_algorithm(self, ts, prior_distr, normalize=True):
         Ne = 0.5
@@ -1064,7 +1061,6 @@ class TestInsideAlgorithm:
         #     algo.inside_pass()
 
 
-@pytest.mark.skip
 class TestOutsideAlgorithm:
     def run_outside_algorithm(
         self, ts, prior_distr="lognorm", normalize=False, ignore_oldest_root=False
@@ -1161,7 +1157,6 @@ class TestOutsideAlgorithm:
         assert ~np.array_equal(use_oldest.outside[4], use_oldest.outside[5])
 
 
-@pytest.mark.skip
 class TestTotalFunctionalValueTree:
     """
     Tests to ensure that we recover the total functional value of the tree.
@@ -1226,7 +1221,6 @@ class TestTotalFunctionalValueTree:
                 posterior, algo = self.find_posterior(ts, distr)
 
 
-@pytest.mark.skip
 class TestGilTree:
     """
     Test results against hardcoded values Gil independently worked out
@@ -1264,7 +1258,6 @@ class TestGilTree:
             )
 
 
-@pytest.mark.skip
 class TestOutsideEdgesOrdering:
     """
     Test that edges_by_child_desc() and edges_by_child_then_parent_desc() order edges
@@ -1344,7 +1337,6 @@ class TestOutsideEdgesOrdering:
         self.edges_ordering(inferred_ts, "outside_maximization")
 
 
-@pytest.mark.skip
 class TestMaximization:
     """
     Test the outside maximization function
@@ -1420,7 +1412,6 @@ class TestMaximization:
             )
 
 
-@pytest.mark.skip
 class TestDate:
     """
     Test inputs to tsdate.date()
@@ -1453,7 +1444,6 @@ class TestDate:
             tsdate.date(ts, mutation_rate=None, Ne=None, priors=None)
 
 
-@pytest.mark.skip
 class TestBuildPriorGrid:
     """
     Test tsdate.build_prior_grid() works as expected
@@ -1487,7 +1477,6 @@ class TestBuildPriorGrid:
             tsdate.build_prior_grid(ts, Ne=-10)
 
 
-@pytest.mark.skip
 class TestPosteriorMeanVar:
     """
     Test posterior_mean_var works as expected
@@ -1531,7 +1520,6 @@ class TestPosteriorMeanVar:
         )
 
 
-@pytest.mark.skip
 class TestConstrainAgesTopo:
     """
     Test constrain_ages_topo works as expected
@@ -1596,7 +1584,6 @@ class TestConstrainAgesTopo:
         )
 
 
-@pytest.mark.skip
 class TestPreprocessTs(unittest.TestCase):
     """
     Test preprocess_ts works as expected
@@ -1663,7 +1650,6 @@ class TestPreprocessTs(unittest.TestCase):
         assert not np.any(np.logical_and(rights > 96, rights < 100))
 
 
-@pytest.mark.skip
 class TestNodeTimes:
     """
     Test node_times works as expected.
@@ -1683,7 +1669,6 @@ class TestNodeTimes:
             nodes_time_unconstrained(ts)
 
 
-@pytest.mark.skip
 class TestSiteTimes:
     """
     Test sites_time works as expected
@@ -1815,7 +1800,6 @@ class TestSiteTimes:
         )
 
 
-@pytest.mark.skip
 class TestSampleDataTimes:
     """
     Test add_sampledata_times
@@ -1892,7 +1876,6 @@ class TestSampleDataTimes:
         assert np.array_equal(copy.sites_time[:], check_sites_time)
 
 
-@pytest.mark.skip
 class TestHistoricalExample:
     def historical_samples_example(self):
         samples = [
