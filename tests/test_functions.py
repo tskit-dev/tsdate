@@ -657,7 +657,6 @@ class TestLikelihoodClass:
                     assert pytest.approx(lower_tri[4], expected_lik_dt[1])
                     assert pytest.approx(lower_tri[5], expected_lik_dt[0])
 
-    @pytest.mark.skip
     def test_precalc_lik_upper_multithread(self):
         ts = utility_functions.two_tree_mutation_ts()
         grid = np.array([0, 1, 2])
