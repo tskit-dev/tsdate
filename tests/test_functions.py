@@ -569,7 +569,6 @@ class TestPriorVals:
         assert np.allclose(prior_vals[2], prior_vals_delete[2])
 
 
-@pytest.mark.skip
 class TestLikelihoodClass:
     def poisson(self, param, x, normalize=True):
         ll = np.exp(-param) * param ** x / scipy.special.factorial(x)
