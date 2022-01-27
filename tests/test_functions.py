@@ -53,7 +53,6 @@ from tsdate.prior import SpansBySamples
 from tsdate.util import nodes_time_unconstrained
 
 
-@pytest.mark.skip
 class TestBasicFunctions:
     """
     Test for some of the basic functions used in tsdate
