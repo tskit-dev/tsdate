@@ -1875,6 +1875,7 @@ class TestSampleDataTimes:
         assert np.array_equal(copy.sites_time[:], check_sites_time)
 
 
+@pytest.mark.skip
 class TestHistoricalExample:
     def historical_samples_example(self):
         samples = [
