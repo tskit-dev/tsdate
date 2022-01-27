@@ -86,7 +86,6 @@ class TestBasicFunctions:
         assert gamma_approx(0.5, 0.1) == (2.5, 5.0)
 
 
-@pytest.mark.skip
 class TestNodeTipWeights(unittest.TestCase):
     def verify_weights(self, ts):
         span_data = SpansBySamples(ts)
@@ -264,7 +263,6 @@ class TestNodeTipWeights(unittest.TestCase):
         raise NotImplementedError(str(span_data))
 
 
-@pytest.mark.skip
 class TestMakePrior:
     # We only test make_prior() on single trees
     def verify_priors(self, ts, prior_distr):
@@ -405,7 +403,6 @@ class TestMakePrior:
         assert np.allclose(priors[3], PriorParams(alpha=1.6, beta=1.2, **prior3mv))
 
 
-@pytest.mark.skip
 class TestMixturePrior:
     alpha_beta = [PriorParams.field_index("alpha"), PriorParams.field_index("beta")]
 
@@ -510,7 +507,6 @@ class TestMixturePrior:
         assert np.all(tests)
 
 
-@pytest.mark.skip
 class TestPriorVals:
     def verify_prior_vals(self, ts, prior_distr):
         span_data = SpansBySamples(ts)
@@ -573,7 +569,6 @@ class TestPriorVals:
         assert np.allclose(prior_vals[2], prior_vals_delete[2])
 
 
-@pytest.mark.skip
 class TestLikelihoodClass:
     def poisson(self, param, x, normalize=True):
         ll = np.exp(-param) * param ** x / scipy.special.factorial(x)
@@ -794,7 +789,6 @@ class TestLikelihoodClass:
                     )
 
 
-@pytest.mark.skip
 class TestNodeGridValuesClass:
     # TODO - needs a few more tests in here
     def test_init(self):
@@ -898,7 +892,6 @@ class TestNodeGridValuesClass:
             )
 
 
-@pytest.mark.skip
 class TestAlgorithmClass:
     def test_nonmatching_prior_vs_lik_timepoints(self):
         ts = utility_functions.single_tree_ts_n3()
@@ -921,7 +914,6 @@ class TestAlgorithmClass:
             InOutAlgorithms(priors, lls)
 
 
-@pytest.mark.skip
 class TestInsideAlgorithm:
     def run_inside_algorithm(self, ts, prior_distr, normalize=True):
         Ne = 0.5
@@ -1068,7 +1060,6 @@ class TestInsideAlgorithm:
         #     algo.inside_pass()
 
 
-@pytest.mark.skip
 class TestOutsideAlgorithm:
     def run_outside_algorithm(
         self, ts, prior_distr="lognorm", normalize=False, ignore_oldest_root=False
@@ -1165,7 +1156,6 @@ class TestOutsideAlgorithm:
         assert ~np.array_equal(use_oldest.outside[4], use_oldest.outside[5])
 
 
-@pytest.mark.skip
 class TestTotalFunctionalValueTree:
     """
     Tests to ensure that we recover the total functional value of the tree.
@@ -1230,7 +1220,6 @@ class TestTotalFunctionalValueTree:
                 posterior, algo = self.find_posterior(ts, distr)
 
 
-@pytest.mark.skip
 class TestGilTree:
     """
     Test results against hardcoded values Gil independently worked out
@@ -1268,7 +1257,6 @@ class TestGilTree:
             )
 
 
-@pytest.mark.skip
 class TestOutsideEdgesOrdering:
     """
     Test that edges_by_child_desc() and edges_by_child_then_parent_desc() order edges
@@ -1348,7 +1336,6 @@ class TestOutsideEdgesOrdering:
         self.edges_ordering(inferred_ts, "outside_maximization")
 
 
-@pytest.mark.skip
 class TestMaximization:
     """
     Test the outside maximization function
@@ -1424,7 +1411,6 @@ class TestMaximization:
             )
 
 
-@pytest.mark.skip
 class TestDate:
     """
     Test inputs to tsdate.date()
@@ -1457,7 +1443,6 @@ class TestDate:
             tsdate.date(ts, mutation_rate=None, Ne=None, priors=None)
 
 
-@pytest.mark.skip
 class TestBuildPriorGrid:
     """
     Test tsdate.build_prior_grid() works as expected
@@ -1491,7 +1476,6 @@ class TestBuildPriorGrid:
             tsdate.build_prior_grid(ts, Ne=-10)
 
 
-@pytest.mark.skip
 class TestPosteriorMeanVar:
     """
     Test posterior_mean_var works as expected
@@ -1535,7 +1519,6 @@ class TestPosteriorMeanVar:
         )
 
 
-@pytest.mark.skip
 class TestConstrainAgesTopo:
     """
     Test constrain_ages_topo works as expected
@@ -1600,7 +1583,6 @@ class TestConstrainAgesTopo:
         )
 
 
-@pytest.mark.skip
 class TestPreprocessTs(unittest.TestCase):
     """
     Test preprocess_ts works as expected
@@ -1667,7 +1649,6 @@ class TestPreprocessTs(unittest.TestCase):
         assert not np.any(np.logical_and(rights > 96, rights < 100))
 
 
-@pytest.mark.skip
 class TestNodeTimes:
     """
     Test node_times works as expected.
@@ -1687,7 +1668,6 @@ class TestNodeTimes:
             nodes_time_unconstrained(ts)
 
 
-@pytest.mark.skip
 class TestSiteTimes:
     """
     Test sites_time works as expected
@@ -1819,7 +1799,6 @@ class TestSiteTimes:
         )
 
 
-@pytest.mark.skip
 class TestSampleDataTimes:
     """
     Test add_sampledata_times
@@ -1896,7 +1875,6 @@ class TestSampleDataTimes:
         assert np.array_equal(copy.sites_time[:], check_sites_time)
 
 
-@pytest.mark.skip
 class TestHistoricalExample:
     def historical_samples_example(self):
         samples = [
