@@ -403,7 +403,6 @@ class TestMakePrior:
         assert np.allclose(priors[3], PriorParams(alpha=1.6, beta=1.2, **prior3mv))
 
 
-@pytest.mark.skip
 class TestMixturePrior:
     alpha_beta = [PriorParams.field_index("alpha"), PriorParams.field_index("beta")]
 
@@ -508,7 +507,6 @@ class TestMixturePrior:
         assert np.all(tests)
 
 
-@pytest.mark.skip
 class TestPriorVals:
     def verify_prior_vals(self, ts, prior_distr):
         span_data = SpansBySamples(ts)
