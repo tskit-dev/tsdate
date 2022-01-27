@@ -86,7 +86,6 @@ class TestBasicFunctions:
         assert gamma_approx(0.5, 0.1) == (2.5, 5.0)
 
 
-@pytest.mark.skip
 class TestNodeTipWeights(unittest.TestCase):
     def verify_weights(self, ts):
         span_data = SpansBySamples(ts)
@@ -264,7 +263,6 @@ class TestNodeTipWeights(unittest.TestCase):
         raise NotImplementedError(str(span_data))
 
 
-@pytest.mark.skip
 class TestMakePrior:
     # We only test make_prior() on single trees
     def verify_priors(self, ts, prior_distr):
