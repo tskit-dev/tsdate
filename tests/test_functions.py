@@ -789,6 +789,7 @@ class TestLikelihoodClass:
                     )
 
 
+@pytest.mark.skip
 class TestNodeGridValuesClass:
     # TODO - needs a few more tests in here
     def test_init(self):
