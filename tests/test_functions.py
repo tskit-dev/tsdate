@@ -1884,6 +1884,7 @@ class TestHistoricalExample:
             samples=samples, mutation_rate=1, length=1e2, random_seed=12
         )
 
+    @pytest.mark.skip("Unary node is internal then the oldest node")
     def test_historical_samples(self):
         ts = self.historical_samples_example()
         modern_samples = tsinfer.SampleData.from_tree_sequence(
