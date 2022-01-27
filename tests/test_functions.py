@@ -155,7 +155,6 @@ class TestNodeTipWeights(unittest.TestCase):
         assert span_data.lookup_weight(4, n, 2) == 0.8
         assert span_data.lookup_weight(3, n, 2) == 1.0  # Internal nd on L tree
 
-    @pytest.mark.skip
     def test_missing_tree(self):
         ts = utility_functions.two_tree_ts().keep_intervals([(0, 0.2)], simplify=False)
         n = ts.num_samples
@@ -171,7 +170,6 @@ class TestNodeTipWeights(unittest.TestCase):
         assert not np.isin(span_data.get_weights(4)[n]["descendant_tips"], 2)
         assert span_data.lookup_weight(3, n, 2) == 1.0  # Internal nd on L tree
 
-    @pytest.mark.skip
     def test_tree_with_unary_nodes(self):
         ts = utility_functions.single_tree_ts_with_unary()
         with pytest.raises(ValueError, match="unary"):
@@ -203,7 +201,6 @@ class TestNodeTipWeights(unittest.TestCase):
         assert ts.num_trees > 1
         self.verify_weights(ts)
 
-    @pytest.mark.skip
     def test_dangling_nodes_error(self):
         ts = utility_functions.single_tree_ts_n2_dangling()
         with pytest.raises(ValueError, match="dangling"):
@@ -1888,7 +1885,6 @@ class TestHistoricalExample:
             samples=samples, mutation_rate=1, length=1e2, random_seed=12
         )
 
-    @pytest.mark.skip("Unary node is internal then the oldest node")
     def test_historical_samples(self):
         ts = self.historical_samples_example()
         modern_samples = tsinfer.SampleData.from_tree_sequence(
