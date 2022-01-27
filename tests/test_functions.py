@@ -596,7 +596,6 @@ class TestLikelihoodClass:
             else:
                 assert mutations_per_edge[e.id] == 0
 
-    @pytest.mark.skip
     def test_create_class(self):
         ts = utility_functions.two_tree_mutation_ts()
         grid = np.array([0, 1, 2])
@@ -622,7 +621,6 @@ class TestLikelihoodClass:
         with pytest.raises(RuntimeError):
             lik.precalculate_mutation_likelihoods()
 
-    @pytest.mark.skip
     def test_precalc_lik_lower(self):
         ts = utility_functions.single_tree_ts_n3()
         grid = np.array([0, 1, 2])
