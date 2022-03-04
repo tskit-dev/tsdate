@@ -26,7 +26,6 @@ Test cases for the python API for tsdate.
 import collections
 import json
 import unittest
-import warnings
 
 import msprime
 import numpy as np
@@ -1612,15 +1611,24 @@ class TestPreprocessTs(unittest.TestCase):
             tsdate.preprocess_ts(ts)
 
     def test_invariant_sites(self):
-        # Test that passing kwargs to simplify works as expected
+        # Test that invariant sites are not removed by default
+        # (and simularly for unused individuals & populations)
         ts = utility_functions.site_no_mutations()
-        with warnings.catch_warnings(record=True) as w:
-            removed = self.verify(ts)
-            assert removed.num_sites == 0
-            assert len(w) == 1
+        assert ts.num_sites != 0
+        assert ts.num_individuals != 0
+        assert ts.num_populations != 0
+        removed = self.verify(ts)
+        assert removed.num_sites == ts.num_sites
+        assert removed.num_individuals == ts.num_individuals
+        assert removed.num_populations == ts.num_populations
+        assert tsdate.preprocess_ts(ts, **{"filter_sites": True}).num_sites == 0
         assert (
-            tsdate.preprocess_ts(ts, **{"filter_sites": False}).num_sites
-            == ts.num_sites
+            tsdate.preprocess_ts(ts, **{"filter_populations": True}).num_populations
+            == 0
+        )
+        assert (
+            tsdate.preprocess_ts(ts, **{"filter_individuals": True}).num_individuals
+            == 0
         )
 
     def test_no_intervals(self):

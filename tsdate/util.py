@@ -25,7 +25,6 @@ a more recent version which has the functionality built-in
 """
 import json
 import logging
-import warnings
 
 import numpy as np
 import tskit
@@ -63,7 +62,14 @@ def reduce_to_contemporaneous(ts):
 
 
 def preprocess_ts(
-    tree_sequence, *, minimum_gap=1000000, remove_telomeres=True, **kwargs
+    tree_sequence,
+    *,
+    minimum_gap=1000000,
+    remove_telomeres=True,
+    filter_populations=False,
+    filter_individuals=False,
+    filter_sites=False,
+    **kwargs,
 ):
     """
     Function to prepare tree sequences for dating by removing gaps without sites and
@@ -78,6 +84,15 @@ def preprocess_ts(
         sequence. Default: "1000000"
     :param bool remove_telomeres: Should all material before the first site and after the
         last site be removed, regardless of the length. Default: "True"
+    :param bool filter_populations: parameter passed to the ``tskit.simplify``
+        command. Unlike calling that command directly, this defaults to ``False``, such
+        that all populations in the tree sequence are kept.
+    :param bool filter_individuals: parameter passed to the ``tskit.simplify``
+        command. Unlike calling that command directly, this defaults to ``False``, such
+        that all individuals in the tree sequence are kept
+    :param bool filter_sites: parameter passed to the ``tskit.simplify``
+        command. Unlike calling that command directly, this defaults to ``False``, such
+        that all sites in the tree sequence are kept
     :param \\**kwargs: All further keyword arguments are passed to the ``tskit.simplify``
         command.
 
@@ -122,7 +137,12 @@ def preprocess_ts(
     delete_intervals = sorted(delete_intervals, key=lambda x: x[0])
     if len(delete_intervals) > 0:
         tables.delete_intervals(delete_intervals, simplify=False)
-        tables.simplify(**kwargs)
+        tables.simplify(
+            filter_populations=filter_populations,
+            filter_individuals=filter_individuals,
+            filter_sites=filter_sites,
+            **kwargs,
+        )
         provenance.record_provenance(
             tables,
             "preprocess_ts",
@@ -132,14 +152,12 @@ def preprocess_ts(
         )
     else:
         logger.info("No gaps to remove")
-        tables.simplify(**kwargs)
-    if tree_sequence.num_sites != tables.sites.num_rows:
-        warnings.warn(
-            "Different number of sites after preprocessing. "
-            "Try using **{'filter_sites:' False} to avoid this",
-            RuntimeWarning,
+        tables.simplify(
+            filter_populations=filter_populations,
+            filter_individuals=filter_individuals,
+            filter_sites=filter_sites,
+            **kwargs,
         )
-
     return tables.tree_sequence()
 
 

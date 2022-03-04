@@ -1,4 +1,14 @@
 --------------------
+[0.1.6] - ****-**-**
+--------------------
+
+**Breaking changes**
+
+- The standalone ``preprocess_ts`` function now defaults to not removing unreferenced
+  individuals, populations, or sites, aiming to change the tree sequence tables as
+  little as possible.
+
+--------------------
 [0.1.5] - 2022-06-07
 --------------------
 
