@@ -69,17 +69,17 @@ class TestBasicFunctions:
         assert ConditionalCoalescentTimes.tau_expect(5, 10) == 0.4
 
     def test_tau_squared_conditional(self):
-        assert pytest.approx(
-            ConditionalCoalescentTimes.tau_squared_conditional(1, 10), 4.3981418
-        )
-        assert pytest.approx(
-            ConditionalCoalescentTimes.tau_squared_conditional(100, 100), 4.87890977e-18
-        )
+        assert ConditionalCoalescentTimes.tau_squared_conditional(
+            1, 10
+        ) == pytest.approx(4.3981418)
+        assert ConditionalCoalescentTimes.tau_squared_conditional(
+            100, 100
+        ) == pytest.approx(4.87890977e-18)
 
     def test_tau_var(self):
         assert ConditionalCoalescentTimes.tau_var(2, 2) == 1
-        assert pytest.approx(ConditionalCoalescentTimes.tau_var(10, 20), 0.0922995960)
-        assert pytest.approx(ConditionalCoalescentTimes.tau_var(50, 50), 1.15946186)
+        assert ConditionalCoalescentTimes.tau_var(10, 20) == pytest.approx(0.0922995960)
+        assert ConditionalCoalescentTimes.tau_var(50, 50) == pytest.approx(1.15946186)
 
     def test_gamma_approx(self):
         assert gamma_approx(2, 1) == (4.0, 2.0)
@@ -98,7 +98,7 @@ class TestNodeTipWeights(unittest.TestCase):
                     nonsample_nodes[n] += tree.span if tree.num_samples(n) > 0 else 0
         assert set(span_data.nodes_to_date) == set(nonsample_nodes.keys())
         for id_, span in nonsample_nodes.items():
-            assert pytest.approx(span, span_data.node_spans[id_])
+            assert span == pytest.approx(span_data.node_spans[id_])
         for focal_node in span_data.nodes_to_date:
             wt = 0
             for _, weights in span_data.get_weights(focal_node).items():
@@ -107,7 +107,7 @@ class TestNodeTipWeights(unittest.TestCase):
                 assert max(weights["descendant_tips"]) <= ts.num_samples
             if not np.isnan(wt):
                 # Dangling nodes will have wt=nan
-                assert pytest.approx(wt, 1.0)
+                assert wt == pytest.approx(1.0)
         return span_data
 
     def test_one_tree_n2(self):
@@ -241,8 +241,8 @@ class TestNodeTipWeights(unittest.TestCase):
         assert span_data.lookup_weight(3, n, 2) == span_data_deleted.lookup_weight(
             3, n, 2
         )
-        assert pytest.approx(span_data_deleted.lookup_weight(4, n, 2)[0], 0.7 / 0.9)
-        assert pytest.approx(span_data_deleted.lookup_weight(4, n, 3)[0], 0.2 / 0.9)
+        assert span_data_deleted.lookup_weight(4, n, 2)[0] == pytest.approx(0.7 / 0.9)
+        assert span_data_deleted.lookup_weight(4, n, 3)[0] == pytest.approx(0.2 / 0.9)
         assert span_data.lookup_weight(5, n, 3) == span_data_deleted.lookup_weight(
             3, n, 2
         )
@@ -648,14 +648,14 @@ class TestLikelihoodClass:
                         lik.get_mut_lik_fixed_node(edge)
                     lower_tri = lik.get_mut_lik_lower_tri(edge)
 
-                    assert pytest.approx(lower_tri[0], expected_lik_dt[0])
+                    assert lower_tri[0] == pytest.approx(expected_lik_dt[0])
 
-                    assert pytest.approx(lower_tri[1], expected_lik_dt[1])
-                    assert pytest.approx(lower_tri[2], expected_lik_dt[0])
+                    assert lower_tri[1] == pytest.approx(expected_lik_dt[1])
+                    assert lower_tri[2] == pytest.approx(expected_lik_dt[0])
 
-                    assert pytest.approx(lower_tri[3], expected_lik_dt[2])
-                    assert pytest.approx(lower_tri[4], expected_lik_dt[1])
-                    assert pytest.approx(lower_tri[5], expected_lik_dt[0])
+                    assert lower_tri[3] == pytest.approx(expected_lik_dt[2])
+                    assert lower_tri[4] == pytest.approx(expected_lik_dt[1])
+                    assert lower_tri[5] == pytest.approx(expected_lik_dt[0])
 
     def test_precalc_lik_upper_multithread(self):
         ts = utility_functions.two_tree_mutation_ts()
@@ -692,14 +692,14 @@ class TestLikelihoodClass:
                             )
                             upper_tri = lik.get_mut_lik_upper_tri(edge)
 
-                            assert pytest.approx(upper_tri[0], expected_lik_dt[0])
-                            assert pytest.approx(upper_tri[1], expected_lik_dt[1])
-                            assert pytest.approx(upper_tri[2], expected_lik_dt[2])
+                            assert upper_tri[0] == pytest.approx(expected_lik_dt[0])
+                            assert upper_tri[1] == pytest.approx(expected_lik_dt[1])
+                            assert upper_tri[2] == pytest.approx(expected_lik_dt[2])
 
-                            assert pytest.approx(upper_tri[3], expected_lik_dt[0])
-                            assert pytest.approx(upper_tri[4], expected_lik_dt[1])
+                            assert upper_tri[3] == pytest.approx(expected_lik_dt[0])
+                            assert upper_tri[4] == pytest.approx(expected_lik_dt[1])
 
-                            assert pytest.approx(upper_tri[5], expected_lik_dt[0])
+                            assert upper_tri[5] == pytest.approx(expected_lik_dt[0])
 
     def test_tri_functions(self):
         ts = utility_functions.two_tree_mutation_ts()
