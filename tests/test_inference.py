@@ -66,7 +66,9 @@ class TestPrebuilt(unittest.TestCase):
 
     def test_unary_failure(self):
         with pytest.raises(ValueError, match="unary"):
-            tsdate.date(utility_functions.single_tree_ts_with_unary(), mutation_rate=None, Ne=1)
+            tsdate.date(
+                utility_functions.single_tree_ts_with_unary(), mutation_rate=None, Ne=1
+            )
 
     def test_fails_with_recombination(self):
         ts = utility_functions.two_tree_mutation_ts()
@@ -113,7 +115,9 @@ class TestPrebuilt(unittest.TestCase):
 
     def test_posteriors(self):
         ts = utility_functions.two_tree_mutation_ts()
-        ts, posteriors = tsdate.date(ts, mutation_rate=None, Ne=1, return_posteriors=True)
+        ts, posteriors = tsdate.date(
+            ts, mutation_rate=None, Ne=1, return_posteriors=True
+        )
         assert len(posteriors) == ts.num_nodes - ts.num_samples + 2
         assert len(posteriors["start_time"]) == len(posteriors["end_time"])
         assert len(posteriors["start_time"]) > 0

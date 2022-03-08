@@ -529,9 +529,7 @@ class SpansBySamples:
                     "Node {} is dangling (no descendant samples) at pos {}: "
                     "this node will have no weight in this region. Run "
                     "`simplify(keep_unary=False)` before dating this tree "
-                    "sequence".format(
-                        node, stored_pos[node]
-                    )
+                    "sequence".format(node, stored_pos[node])
                 )
             if node in self.sample_node_set:
                 return True
@@ -1046,8 +1044,10 @@ def build_grid(
 
     contmpr_ts, node_map = util.reduce_to_contemporaneous(tree_sequence)
     if contmpr_ts.num_nodes != tree_sequence.num_nodes:
-        raise ValueError("Passed tree sequence is not simplified and/or contains "
-                         "noncontemporaneous samples")
+        raise ValueError(
+            "Passed tree sequence is not simplified and/or contains "
+            "noncontemporaneous samples"
+        )
     span_data = SpansBySamples(contmpr_ts, progress=progress)
 
     base_priors = ConditionalCoalescentTimes(
