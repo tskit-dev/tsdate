@@ -1,0 +1,56 @@
+cff-version: 1.2.0
+message: "If you use tsdate in your work, please cite it as below."
+authors:
+- given-names: Anthony Wilder
+  family-names: Wohns
+  orcid: "https://orcid.org/0000-0001-7353-1177"
+- given-names: Yan
+  family-names: Wong
+  orcid: "https://orcid.org/0000-0002-3536-6411"
+- given-names: Ben
+  family-names: Jeffery
+  orcid: "https://orcid.org/0000-0002-1982-6801"
+title: "Tsdate"
+version: 0.1.4
+date-released: 2021-06-30
+url: "https://github.com/tskit-dev/tsdate"
+license: MIT
+preferred-citation:
+  type: article
+  authors:
+  - given-names: Anthony Wilder
+    family-names: Wohns
+    orcid: "https://orcid.org/0000-0001-7353-1177"
+  - given-names: Yan
+    family-names: Wong
+    orcid: "https://orcid.org/0000-0002-3536-6411"
+  - given-names: Ben
+    family-names: Jeffery
+    orcid: "https://orcid.org/0000-0002-1982-6801"
+  - given-names: Ali
+    family-names: Akbari
+    orcid: "https://orcid.org/0000-0002-5000-5876"
+  - given-names: Swapan
+    family-names: Mallick
+    orcid: "https://orcid.org/0000-0002-4531-4439"
+  - given-names: Ron
+    family-names: Pinhasi
+    orcid: "https://orcid.org/0000-0003-1629-8131"
+  - given-names: Nick
+    family-names: Patterson
+    orcid: "https://orcid.org/0000-0003-0302-684X"
+  - given-names: David
+    family-names: Reich
+    orcid: "https://orcid.org/0000-0002-7037-5292"
+  - given-names: Jerome
+    family-names: Kelleher
+    orcid: "https://orcid.org/0000-0002-7894-5253"
+  - given-names: Gil
+    family-names: McVean
+    orcid: "https://orcid.org/0000-0002-5012-4162"
+  doi: "10.1126/science.abi8264"
+  journal: "Science"
+  start: eabi8264
+  title: "A unified genealogy of modern and ancient genomes"
+  volume: 375
+  year: 2022
