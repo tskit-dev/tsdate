@@ -389,7 +389,7 @@ class Likelihoods:
         return arr * liks
 
     def scale_geometric(self, fraction, value):
-        return value ** fraction
+        return value**fraction
 
 
 class LogLikelihoods(Likelihoods):

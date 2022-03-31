@@ -474,15 +474,14 @@ def plot_tsdate_accuracy(
         axes[index, 0].text(
             0.05,
             0.9,
-            "RMSLE: "
-            + "{:.2f}".format(mean_squared_log_error(true_ages, inside_outside)),
+            "RMSLE: " + f"{mean_squared_log_error(true_ages, inside_outside):.2f}",
             transform=axes[index, 0].transAxes,
             size=15,
         )
         axes[index, 1].text(
             0.05,
             0.9,
-            "RMSLE: " + "{:.2f}".format(mean_squared_log_error(true_ages, maximized)),
+            "RMSLE: " + f"{mean_squared_log_error(true_ages, maximized):.2f}",
             transform=axes[index, 1].transAxes,
             size=15,
         )
@@ -490,15 +489,14 @@ def plot_tsdate_accuracy(
             0.05,
             0.8,
             "Pearson's r: "
-            + "{:.2f}".format(scipy.stats.pearsonr(true_ages, inside_outside)[0]),
+            + f"{scipy.stats.pearsonr(true_ages, inside_outside)[0]:.2f}",
             transform=axes[index, 0].transAxes,
             size=15,
         )
         axes[index, 1].text(
             0.05,
             0.8,
-            "Pearson's r: "
-            + "{:.2f}".format(scipy.stats.pearsonr(true_ages, maximized)[0]),
+            "Pearson's r: " + f"{scipy.stats.pearsonr(true_ages, maximized)[0]:.2f}",
             transform=axes[index, 1].transAxes,
             size=15,
         )
@@ -506,7 +504,7 @@ def plot_tsdate_accuracy(
             0.05,
             0.7,
             "Spearman's Rho: "
-            + "{:.2f}".format(scipy.stats.spearmanr(true_ages, inside_outside)[0]),
+            + f"{scipy.stats.spearmanr(true_ages, inside_outside)[0]:.2f}",
             transform=axes[index, 0].transAxes,
             size=15,
         )
@@ -514,21 +512,21 @@ def plot_tsdate_accuracy(
             0.05,
             0.7,
             "Spearman's Rho: "
-            + "{:.2f}".format(scipy.stats.spearmanr(true_ages, maximized)[0]),
+            + f"{scipy.stats.spearmanr(true_ages, maximized)[0]:.2f}",
             transform=axes[index, 1].transAxes,
             size=15,
         )
         axes[index, 0].text(
             0.05,
             0.6,
-            "Bias:" + "{:.2f}".format(np.mean(true_ages) - np.mean(inside_outside)),
+            "Bias:" + f"{np.mean(true_ages) - np.mean(inside_outside):.2f}",
             transform=axes[index, 0].transAxes,
             size=15,
         )
         axes[index, 1].text(
             0.05,
             0.6,
-            "Bias:" + "{:.2f}".format(np.mean(true_ages) - np.mean(maximized)),
+            "Bias:" + f"{np.mean(true_ages) - np.mean(maximized):.2f}",
             transform=axes[index, 1].transAxes,
             size=15,
         )

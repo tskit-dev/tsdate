@@ -12,7 +12,7 @@ setup(
     packages=["tsdate"],
     long_description_content_type="text/markdown",
     url="http://pypi.python.org/pypi/tsdate",
-    python_requires=">=3.4",
+    python_requires=">=3.7",
     entry_points={
         "console_scripts": [
             "tsdate=tsdate.__main__:main",
@@ -32,7 +32,7 @@ setup(
         "Bug Reports": "https://github.com/awohns/tsdate/issues",
     },
     classifiers=[
-        "Programming Language :: Python :: 3.5",
+        "Programming Language :: Python :: 3.7",
         "License :: OSI Approved :: MIT License",
         "Operating System :: MacOS :: MacOS X",
         "Operating System :: POSIX",

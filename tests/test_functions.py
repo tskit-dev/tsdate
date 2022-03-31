@@ -568,7 +568,7 @@ class TestPriorVals:
 
 class TestLikelihoodClass:
     def poisson(self, param, x, normalize=True):
-        ll = np.exp(-param) * param ** x / scipy.special.factorial(x)
+        ll = np.exp(-param) * param**x / scipy.special.factorial(x)
         if normalize:
             return ll / np.max(ll)
         else:
@@ -576,7 +576,7 @@ class TestLikelihoodClass:
 
     def log_poisson(self, param, x, normalize=True):
         with np.errstate(divide="ignore"):
-            ll = np.log(np.exp(-param) * param ** x / scipy.special.factorial(x))
+            ll = np.log(np.exp(-param) * param**x / scipy.special.factorial(x))
         if normalize:
             return ll - np.max(ll)
         else:
@@ -998,7 +998,7 @@ class TestInsideAlgorithm:
         """
         node5_t1 = (
             priors[5][1]
-            * (scipy.stats.poisson.pmf(0, (1e-6) * mut_rate * 0.8) * (node4_t1 ** 0.8))
+            * (scipy.stats.poisson.pmf(0, (1e-6) * mut_rate * 0.8) * (node4_t1**0.8))
             * (scipy.stats.poisson.pmf(0, (1.2 + 1e-6) * mut_rate * 0.8))
         )
         """
@@ -1010,11 +1010,11 @@ class TestInsideAlgorithm:
             * (
                 (
                     scipy.stats.poisson.pmf(0, (0.8 + 1e-6) * mut_rate * 0.8)
-                    * (node4_t1 ** 0.8)
+                    * (node4_t1**0.8)
                 )
                 + (
                     scipy.stats.poisson.pmf(0, (1e-6 + 1e-6) * mut_rate * 0.8)
-                    * (node4_t2 ** 0.8)
+                    * (node4_t2**0.8)
                 )
             )
             * (scipy.stats.poisson.pmf(0, (2 + 1e-6) * mut_rate * 0.8))
