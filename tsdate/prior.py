@@ -53,7 +53,7 @@ def lognorm_approx(mean, var):
     alpha is mean of underlying normal distribution
     beta is variance of underlying normal distribution
     """
-    beta = np.log(var / (mean ** 2) + 1)
+    beta = np.log(var / (mean**2) + 1)
     alpha = np.log(mean) - 0.5 * beta
     return alpha, beta
 
@@ -63,7 +63,7 @@ def gamma_approx(mean, variance):
     Returns alpha and beta of a gamma distribution for a given mean and variance
     """
 
-    return (mean ** 2) / variance, mean / variance
+    return (mean**2) / variance, mean / variance
 
 
 class ConditionalCoalescentTimes:
@@ -248,7 +248,7 @@ class ConditionalCoalescentTimes:
         """
         if i == n:
             value = np.arange(2, n + 1)
-            var = np.sum(1 / ((value ** 2) * ((value - 1) ** 2)))
+            var = np.sum(1 / ((value**2) * ((value - 1) ** 2)))
             return np.abs(4 * var)
         else:
             tau_square_sum = 0
@@ -326,9 +326,9 @@ class ConditionalCoalescentTimes:
                 expectation += np.sum(mean * tip_dict["weight"])
                 # Mixture variance
                 first += np.sum(var * tip_dict["weight"])
-                secnd += np.sum(mean ** 2 * tip_dict["weight"])
+                secnd += np.sum(mean**2 * tip_dict["weight"])
             mean = expectation
-            var = first + secnd - (expectation ** 2)
+            var = first + secnd - (expectation**2)
             return mean, var
 
         seen_mixtures = {}

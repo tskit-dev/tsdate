@@ -38,7 +38,7 @@ def error_exit(message):
     """
     Exit with the specified error message, setting error status.
     """
-    sys.exit("{}: {}".format(sys.argv[0], message))
+    sys.exit(f"{sys.argv[0]}: {message}")
 
 
 def setup_logging(args):
