@@ -1,4 +1,20 @@
 --------------------
+[0.1.5] - 2022-06-07
+--------------------
+
+**Features**
+
+- Added the ``time_units`` parameter to ``tsdate.date``, allowing users to specify
+  the time units of the dated tree sequence. Default is ``"generations"``.
+- Added the ``return_posteriors`` parameter to ``tsdate.date``. If True, the function
+  returns a tuple of ``(dated_ts, posteriors)``.
+- ``mutation_rate`` is now a required argument in ``tsdate.date`` and ``tsdate.get_dates``
+- tsdate returns an error if users attempt to date an unsimplified tree sequence.
+- Updated tsdate citation information to cite the recent Science paper
+- Built wheel on Python 3.10
+
+
+--------------------
 [0.1.4] - 2021-06-30
 --------------------
 
