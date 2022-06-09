@@ -64,8 +64,11 @@ jobs:
       - name: Install wheel and test
         run: |
           python -VV
-          # Install the local wheel
+          pip install wheel
+          # Install the local wheel, after getting deps
           pip install tsdate --only-binary tsdate -f .
+          pip uninstall --yes msprime
+          pip install tsdate --no-index --only-binary tsdate -f .
           python -c "import tsdate"
 
   windows-test:
@@ -88,8 +91,10 @@ jobs:
         run: |
           python -VV
           pip install wheel
-          # Install the local wheel
+          # Install the local wheel, after getting deps
           pip install tsdate --only-binary tsdate -f .
+          pip uninstall --yes msprime
+          pip install tsdate --no-index --only-binary tsdate -f .
           python -c "import tsdate"
 
   manylinux-test:
@@ -110,8 +115,11 @@ jobs:
       - name: Install wheel and test
         run: |
           python -VV
-          # Install the local wheel
+          pip install wheel
+          # Install the local wheel, after getting deps
           pip install tsdate --only-binary tsdate -f .
+          pip uninstall --yes msprime
+          pip install tsdate --no-index --only-binary tsdate -f .
           python -c "import tsdate"
 
 
