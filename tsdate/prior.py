@@ -23,6 +23,7 @@
 """
 Routines and classes for creating priors and timeslices for use in tsdate
 """
+import itertools
 import logging
 import os
 from collections import defaultdict
@@ -426,10 +427,10 @@ class SpansBySamples:
 
         self.ts = tree_sequence
         self.sample_node_set = set(self.ts.samples())
-        if np.any(self.ts.tables.nodes.time[self.ts.samples()] != 0):
-            raise ValueError(
-                "The SpansBySamples class needs a tree seq with all samples at time 0"
-            )
+        # if np.any(self.ts.tables.nodes.time[self.ts.samples()] != 0):
+        #    raise ValueError(
+        #        "The SpansBySamples class needs a tree seq with all samples at time 0"
+        #    )
         self.progress = progress
 
         # We will store the spans in here, and normalize them at the end
@@ -947,29 +948,59 @@ def create_timepoints(base_priors, n_points=21):
     return np.insert(t_set, 0, 0)
 
 
-def fill_priors(node_parameters, timepoints, ts, Ne, *, prior_distr, progress=False):
+def fill_priors(
+    node_parameters,
+    timepoints,
+    ts,
+    Ne,
+    *,
+    prior_distr,
+    nonfixed_sample_var=None,
+    progress=False,
+):
     """
     Take the alpha and beta values from the node_parameters array, which contains
-    one row for each node in the TS (including fixed nodes)
-    and fill out a NodeGridValues object with the prior values from the
-    gamma or lognormal distribution with those parameters.
+    one row for each node in the TS (including fixed nodes, although alpha and beta
+    are ignored for these nodes) and fill out a NodeGridValues object with the prior
+    values from the gamma or lognormal distribution with those parameters.
+
+    For a description of `nonfixed_sample_var`, see the parameter description in
+    the `build_grid` function.
 
     TODO - what if there is an internal fixed node? Should we truncate
     """
     if prior_distr == "lognorm":
         cdf_func = scipy.stats.lognorm.cdf
-        main_param = np.sqrt(node_parameters[:, PriorParams.field_index("beta")])
+        shape_param = np.sqrt(node_parameters[:, PriorParams.field_index("beta")])
         scale_param = np.exp(node_parameters[:, PriorParams.field_index("alpha")])
+
+        def shape_scale_from_mean_var(mean, var):
+            a, b = lognorm_approx(mean, var)
+            return np.sqrt(b), np.exp(a)
+
     elif prior_distr == "gamma":
         cdf_func = scipy.stats.gamma.cdf
-        main_param = node_parameters[:, PriorParams.field_index("alpha")]
-        scale_param = 1 / node_parameters[:, PriorParams.field_index("beta")]
+        shape_param = node_parameters[:, PriorParams.field_index("alpha")]
+        scale_param = 1.0 / node_parameters[:, PriorParams.field_index("beta")]
+
+        def shape_scale_from_mean_var(mean, var):
+            a, b = gamma_approx(mean, var)
+            return a, 1.0 / b
+
     else:
         raise ValueError("prior distribution must be lognorm or gamma")
-
+    samples = ts.samples()
+    if nonfixed_sample_var is None:
+        nonfixed_sample_var = {}
+    for u in nonfixed_sample_var.keys():
+        if u not in samples:
+            raise ValueError(f"Node {u} in 'nonfixed_sample_var' is not a sample")
     datable_nodes = np.ones(ts.num_nodes, dtype=bool)
-    datable_nodes[ts.samples()] = False
+    datable_nodes[samples] = False
+    # Mark all nodes in nonfixed_sample_var as datable
+    datable_nodes[list(nonfixed_sample_var.keys())] = True
     datable_nodes = np.where(datable_nodes)[0]
+
     prior_times = base.NodeGridValues(
         ts.num_nodes,
         datable_nodes[np.argsort(ts.tables.nodes.time[datable_nodes])].astype(np.int32),
@@ -980,8 +1011,16 @@ def fill_priors(node_parameters, timepoints, ts, Ne, *, prior_distr, progress=Fa
     for node in tqdm(
         datable_nodes, desc="Assign Prior to Each Node", disable=not progress
     ):
+        if node in nonfixed_sample_var:
+            shape, scale = shape_scale_from_mean_var(
+                mean=ts.node(node).time,
+                var=nonfixed_sample_var[node],
+            )
+        else:
+            shape = shape_param[node]
+            scale = scale_param[node]
         with np.errstate(divide="ignore", invalid="ignore"):
-            prior_node = cdf_func(timepoints, main_param[node], scale=scale_param[node])
+            prior_node = cdf_func(timepoints, shape, scale=scale)
         # force age to be less than max value
         prior_node = np.divide(prior_node, np.max(prior_node))
         # prior in each epoch
@@ -989,6 +1028,63 @@ def fill_priors(node_parameters, timepoints, ts, Ne, *, prior_distr, progress=Fa
     # normalize so max value is 1
     prior_times.normalize()
     return prior_times
+
+
+def _truncate_priors(ts, priors, progress=False):
+    """
+    Truncate priors for all nonfixed nodes
+    so they conform to the age of fixed nodes in the tree sequence
+    """
+    fixed_nodes = priors.fixed_node_ids()
+    fixed_times = ts.nodes_time[fixed_nodes]
+
+    grid_data = np.copy(priors.grid_data[:])
+    timepoints = priors.timepoints
+    if np.max(fixed_times) >= np.max(timepoints):
+        raise ValueError("Fixed node times cannot be older than the oldest timepoint")
+    if priors.probability_space == "linear":
+        zero_value = 0
+    elif priors.probability_space == "logarithmic":
+        zero_value = -np.inf
+    constrained_min_times = np.zeros_like(ts.nodes_time)
+    # Set the min times of fixed nodes to those in the tree sequence
+    constrained_min_times[fixed_nodes] = fixed_times
+
+    # Traverse through the ARG, ensuring children come before parents.
+    # This can be done by iterating over groups of edges with the same parent
+    edges_parent = ts.edges_parent
+    edges_child = ts.edges_child
+    new_parent_edge_idx = np.where(np.diff(edges_parent) != 0)[0] + 1
+    for edges_start, edges_end in tqdm(
+        zip(
+            itertools.chain([0], new_parent_edge_idx),
+            itertools.chain(new_parent_edge_idx, [len(edges_parent)]),
+        ),
+        desc="Trunc priors",
+        disable=not progress,
+    ):
+        parent = edges_parent[edges_start]
+        child_ids = edges_child[edges_start:edges_end]  # May contain dups
+        oldest_child_time = np.max(constrained_min_times[child_ids])
+        if oldest_child_time > constrained_min_times[parent]:
+            if priors.is_fixed(parent):
+                raise ValueError(
+                    "Invalid fixed times: time for"
+                    + f"fixed node {parent} is younger than some of its descendants"
+                )
+            constrained_min_times[parent] = oldest_child_time
+        if constrained_min_times[parent] > 0 and not priors.is_fixed(parent):
+            nearest_time = np.argmin(np.abs(timepoints - constrained_min_times[parent]))
+            grid_data[priors.row_lookup[parent]][:nearest_time] = zero_value
+
+    rowmax = grid_data[:, 1:].max(axis=1)
+    if priors.probability_space == "linear":
+        grid_data = grid_data / rowmax[:, np.newaxis]
+    elif priors.probability_space == "logarithmic":
+        grid_data = grid_data - rowmax[:, np.newaxis]
+
+    priors.grid_data[:] = grid_data
+    return priors
 
 
 def build_grid(
@@ -999,10 +1095,12 @@ def build_grid(
     approximate_priors=False,
     approx_prior_size=None,
     prior_distribution="lognorm",
+    allow_historical_samples=None,
+    truncate_priors=None,
+    nonfixed_sample_var=None,
     eps=1e-6,
     # Parameters below undocumented
     progress=False,
-    allow_unary=False,
 ):
     """
     Using the conditional coalescent, calculate the prior distribution for the age of
@@ -1022,17 +1120,34 @@ def build_grid(
     :param int approx_prior_size: Number of samples from which to precalculate prior.
         Should only enter value if approximate_priors=True. If approximate_priors=True
         and no value specified, defaults to 1000. Default: None
-    :param string prior_distr: What distribution to use to approximate the conditional
-        coalescent prior. Can be "lognorm" for the lognormal distribution (generally a
-        better fit, but slightly slower to calculate) or "gamma" for the gamma
-        distribution (slightly faster, but a poorer fit for recent nodes). Default:
-        "lognorm"
+    :param string prior_distribution: What distribution to use to approximate the
+        conditional coalescent prior. Can be "lognorm" for the lognormal distribution
+        (generally a better fit, but slightly slower to calculate) or "gamma" for the
+        gamma distribution (slightly faster, but a poorer fit for recent nodes).
+        Default: "lognorm"
+    :param bool allow_historical_samples: should we allow historical samples (i.e. at
+        times > 0). This invalidates the assumptions of the conditional coalescent, but
+        may be acceptable if the historical samples are recent or if there are many
+        contemporaneous samples. Default: ``False``
+    :param bool truncate_priors: If there are historical samples, should we truncate the
+        priors of all nodes which are their ancestors so that the probability of being
+        younger than the oldest descendant sample is zero. As long as historical
+        samples do not have ancestors that have been misassigned in the tree sequence
+        topology, this should give better results. Default: ``True``
+    :param dict nonfixed_sample_var: is a dict mapping sample node IDs to a variance
+        value. Any nodes listed here will be treated as non-fixed nodes whose prior is
+        not calculated from the conditional coalescent but instead are allocated a prior
+        whose mean is the node time in the tree sequence and whose variance is the
+        value in this dictionary. This allows sample nodes to be treated as nonfixed
+        nodes, and therefore dated. If ``None`` (default) then all sample nodes are
+        treated as occurring at a fixed time (as if this were an empty dict).
     :param float eps: Specify minimum distance separating points in the time grid. Also
         specifies the error factor in time difference calculations. Default: 1e-6
     :return: A prior object to pass to tsdate.date() containing prior values for
         inference and a discretised time grid
     :rtype:  base.NodeGridValues Object
     """
+
     if Ne <= 0:
         raise ValueError("Parameter 'Ne' must be greater than 0")
     if approximate_priors:
@@ -1043,20 +1158,18 @@ def build_grid(
             raise ValueError(
                 "Can't set approx_prior_size if approximate_prior is False"
             )
+    if truncate_priors is None:
+        truncate_priors = True
+    if allow_historical_samples is None:
+        allow_historical_samples = False
 
-    contmpr_ts, node_map = util.reduce_to_contemporaneous(tree_sequence)
-    if contmpr_ts.num_nodes != tree_sequence.num_nodes:
-        raise ValueError(
-            "Passed tree sequence is not simplified and/or contains "
-            "noncontemporaneous samples"
-        )
-    span_data = SpansBySamples(contmpr_ts, progress=progress, allow_unary=allow_unary)
+    span_data = SpansBySamples(tree_sequence, progress=progress)
 
     base_priors = ConditionalCoalescentTimes(
         approx_prior_size, Ne, prior_distribution, progress=progress
     )
 
-    base_priors.add(contmpr_ts.num_samples, approximate_priors)
+    base_priors.add(tree_sequence.num_samples, approximate_priors)
     for total_fixed in span_data.total_fixed_at_0_counts:
         # For missing data: trees vary in total fixed node count => have different priors
         if total_fixed > 0:
@@ -1080,9 +1193,7 @@ def build_grid(
     else:
         raise ValueError("time_slices must be an integer or a numpy array of floats")
 
-    prior_params_contmpr = base_priors.get_mixture_prior_params(span_data)
-    # Map the nodes in the prior params back to the node ids in the original ts
-    prior_params = prior_params_contmpr[node_map, :]
+    prior_params = base_priors.get_mixture_prior_params(span_data)
     # Set all fixed nodes (i.e. samples) to have 0 variance
     priors = fill_priors(
         prior_params,
@@ -1090,6 +1201,20 @@ def build_grid(
         tree_sequence,
         Ne,
         prior_distr=prior_distribution,
+        nonfixed_sample_var=nonfixed_sample_var,
         progress=progress,
     )
+    if np.any(tree_sequence.nodes_time[tree_sequence.samples()] > 0):
+        if not allow_historical_samples:
+            raise ValueError(
+                "There are samples at non-zero times, invalidating the conditional "
+                "coalescent prior. You can set allow_historical_samples=True to carry "
+                "on regardless, calculating a prior as if all samples were "
+                "contemporaneous (reasonable if you only have a few ancient samples)"
+            )
+        if (
+            np.any(tree_sequence.nodes_time[priors.fixed_node_ids()] > 0)
+            and truncate_priors
+        ):
+            priors = _truncate_priors(tree_sequence, priors, progress=progress)
     return priors

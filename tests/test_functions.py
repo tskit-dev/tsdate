@@ -1048,7 +1048,7 @@ class TestInsideAlgorithm:
         print(ts.draw_text())
         print("Samples:", ts.samples())
         Ne = 0.5
-        with pytest.raises(ValueError, match="simplified"):
+        with pytest.raises(ValueError, match="simplify"):
             tsdate.build_prior_grid(ts, Ne, timepoints=np.array([0, 1.2, 2]))
         # mut_rate = 1
         # eps = 1e-6
@@ -1421,7 +1421,7 @@ class TestDate:
 
     def test_sample_as_parent_fails(self):
         ts = utility_functions.single_tree_ts_n3_sample_as_parent()
-        with pytest.raises(NotImplementedError):
+        with pytest.raises(ValueError, match="samples at non-zero times"):
             tsdate.date(ts, mutation_rate=None, Ne=1)
 
     def test_recombination_not_implemented(self):
@@ -1532,18 +1532,7 @@ class TestConstrainAgesTopo:
         ts = utility_functions.two_tree_ts()
         post_mn = np.array([0.0, 0.0, 0.0, 2.0, 1.0, 3.0])
         eps = 1e-6
-        nodes_to_date = np.array([3, 4, 5])
-        constrained_ages = constrain_ages_topo(ts, post_mn, eps, nodes_to_date)
-        assert np.array_equal(
-            np.array([0.0, 0.0, 0.0, 2.0, 2.000001, 3.0]), constrained_ages
-        )
-
-    def test_constrain_ages_topo_no_nodes_to_date(self):
-        ts = utility_functions.two_tree_ts()
-        post_mn = np.array([0.0, 0.0, 0.0, 2.0, 1.0, 3.0])
-        eps = 1e-6
-        nodes_to_date = None
-        constrained_ages = constrain_ages_topo(ts, post_mn, eps, nodes_to_date)
+        constrained_ages = constrain_ages_topo(ts, post_mn, eps)
         assert np.array_equal(
             np.array([0.0, 0.0, 0.0, 2.0, 2.000001, 3.0]), constrained_ages
         )

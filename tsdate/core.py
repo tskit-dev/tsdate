@@ -151,7 +151,7 @@ class Likelihoods:
         """
         ll = scipy.stats.poisson.pmf(muts, dt * mutation_rate * span)
         if normalize:
-            return ll / np.max(ll)
+            return ll / np.nanmax(ll)
         else:
             return ll
 
@@ -258,15 +258,28 @@ class Likelihoods:
 
         mutations_on_edge = self.mut_edges[edge.id]
         child_time = self.ts.node(edge.child).time
-        assert child_time == 0
-        # Temporary hack - we should really take a more precise likelihood
-        return self._lik(
-            mutations_on_edge,
-            edge.span,
-            self.timediff,
-            self.mut_rate,
-            normalize=self.normalize,
-        )
+        if child_time == 0:
+            return self._lik(
+                mutations_on_edge,
+                edge.span,
+                self.timediff,
+                self.mut_rate,
+                normalize=self.normalize,
+            )
+        else:
+            timediff = self.timepoints - child_time + 1e-8
+            # Temporary hack - we should really take a more precise likelihood
+            likelihood = self._lik(
+                mutations_on_edge,
+                edge.span,
+                timediff,
+                self.mut_rate,
+                normalize=self.normalize,
+            )
+            # Prevent child from being older than parent
+            likelihood[timediff < 0] = 0
+
+            return likelihood
 
     def get_mut_lik_lower_tri(self, edge):
         """
@@ -389,7 +402,7 @@ class Likelihoods:
         return arr * liks
 
     def scale_geometric(self, fraction, value):
-        return value**fraction
+        return value ** fraction
 
 
 class LogLikelihoods(Likelihoods):
@@ -429,7 +442,7 @@ class LogLikelihoods(Likelihoods):
         """
         ll = scipy.stats.poisson.logpmf(muts, dt * mutation_rate * span)
         if normalize:
-            return ll - np.max(ll)
+            return ll - np.nanmax(ll)
         else:
             return ll
 
@@ -634,11 +647,22 @@ class InOutAlgorithms:
         inside = self.priors.clone_with_new_data(  # store inside matrix values
             grid_data=np.nan, fixed_data=self.lik.identity_constant
         )
+        # It is possible that a simple node is non-fixed, in which case we want to
+        # provide an inside array that reflects the prior distribution
+        nonfixed_samples = np.intersect1d(inside.nonfixed_node_ids(), self.ts.samples())
+        for u in nonfixed_samples:
+            # this is in the same probability space as the prior, so we should be
+            # OK just to copy the prior values straight in. It's unclear to me (Yan)
+            # how/if they should be normalised, however
+            inside[u][:] = self.priors[u]
+
         if cache_inside:
             g_i = np.full(
                 (self.ts.num_edges, self.lik.grid_size), self.lik.identity_constant
             )
         norm = np.full(self.ts.num_nodes, np.nan)
+        to_visit = np.zeros(self.ts.num_nodes, dtype=bool)
+        to_visit[inside.nonfixed_node_ids()] = True
         # Iterate through the nodes via groupby on parent node
         for parent, edges in tqdm(
             self.edges_by_parent_asc(),
@@ -673,14 +697,23 @@ class InOutAlgorithms:
                             "dangling nodes: please simplify it"
                         )
                     daughter_val = self.lik.scale_geometric(
-                        spanfrac, self.lik.make_lower_tri(inside[edge.child])
+                        spanfrac, self.lik.make_lower_tri(inside_values)
                     )
                     edge_lik = self.lik.get_inside(daughter_val, edge)
                 val = self.lik.combine(val, edge_lik)
+                if np.all(val == 0):
+                    raise ValueError
                 if cache_inside:
                     g_i[edge.id] = edge_lik
-            norm[parent] = np.max(val) if normalize else 1
+            norm[parent] = np.max(val) if normalize else self.lik.identity_constant
             inside[parent] = self.lik.reduce(val, norm[parent])
+            to_visit[parent] = False
+
+        # There may be nodes that are not parents but are also not fixed (e.g.
+        # undated sample nodes). These need an identity normalization constant
+        for unfixed_unvisited in np.where(to_visit)[0]:
+            norm[unfixed_unvisited] = self.lik.identity_constant
+
         if cache_inside:
             self.g_i = self.lik.reduce(g_i, norm[self.ts.tables.edges.child, None])
         # Keep the results in this object
@@ -897,34 +930,32 @@ def posterior_mean_var(ts, posterior, *, fixed_node_set=None):
     return ts, mn_post, vr_post
 
 
-def constrain_ages_topo(ts, post_mn, eps, nodes_to_date=None, progress=False):
+def constrain_ages_topo(ts, node_times, eps, progress=False):
     """
-    If predicted node times violate topology, restrict node ages so that they
-    must be older than all their children.
+    If node_times violate topology, return increased node_times so that each node is
+    guaranteed to be older than any of its their children.
     """
-    new_mn_post = np.copy(post_mn)
-    if nodes_to_date is None:
-        nodes_to_date = np.arange(ts.num_nodes, dtype=np.uint64)
-        nodes_to_date = nodes_to_date[~np.isin(nodes_to_date, ts.samples())]
+    edges_parent = ts.edges_parent
+    edges_child = ts.edges_child
 
-    tables = ts.tables
-    parents = tables.edges.parent
-    nd_children = tables.edges.child[np.argsort(parents)]
-    parents = sorted(parents)
-    parents_unique = np.unique(parents, return_index=True)
-    parent_indices = parents_unique[1][np.isin(parents_unique[0], nodes_to_date)]
-    for index, nd in tqdm(
-        enumerate(sorted(nodes_to_date)), desc="Constrain Ages", disable=not progress
+    new_node_times = np.copy(node_times)
+    # Traverse through the ARG, ensuring children come before parents.
+    # This can be done by iterating over groups of edges with the same parent
+    new_parent_edge_idx = np.where(np.diff(edges_parent) != 0)[0] + 1
+    for edges_start, edges_end in tqdm(
+        zip(
+            itertools.chain([0], new_parent_edge_idx),
+            itertools.chain(new_parent_edge_idx, [len(edges_parent)]),
+        ),
+        desc="Constrain Ages",
+        disable=not progress,
     ):
-        if index + 1 != len(nodes_to_date):
-            children_index = np.arange(parent_indices[index], parent_indices[index + 1])
-        else:
-            children_index = np.arange(parent_indices[index], ts.num_edges)
-        children = nd_children[children_index]
-        time = np.max(new_mn_post[children])
-        if new_mn_post[nd] <= time:
-            new_mn_post[nd] = time + eps
-    return new_mn_post
+        parent = edges_parent[edges_start]
+        child_ids = edges_child[edges_start:edges_end]  # May contain dups
+        oldest_child_time = np.max(new_node_times[child_ids])
+        if oldest_child_time >= new_node_times[parent]:
+            new_node_times[parent] = oldest_child_time + eps
+    return new_node_times
 
 
 def date(
@@ -1015,7 +1046,7 @@ def date(
         progress=progress,
         **kwargs
     )
-    constrained = constrain_ages_topo(tree_sequence, dates, eps, nds, progress)
+    constrained = constrain_ages_topo(tree_sequence, dates, eps, progress)
     tables = tree_sequence.dump_tables()
     tables.time_units = time_units
     tables.nodes.time = constrained
@@ -1064,12 +1095,6 @@ def get_dates(
 
     :return: tuple(mn_post, posterior, timepoints, eps, nodes_to_date)
     """
-    # Stuff yet to be implemented. These can be deleted once fixed
-    for sample in tree_sequence.samples():
-        if tree_sequence.node(sample).time != 0:
-            raise NotImplementedError("Samples must all be at time 0")
-    fixed_nodes = set(tree_sequence.samples())
-
     # Default to not creating approximate priors unless ts has > 1000 samples
     approx_priors = False
     if tree_sequence.num_samples > 1000:
@@ -1096,6 +1121,8 @@ def get_dates(
                         specifying priors from tsdate.build_prior_grid()"
             )
         priors = priors
+
+    fixed_nodes = set(priors.fixed_node_ids())
 
     if probability_space != base.LOG:
         liklhd = Likelihoods(
