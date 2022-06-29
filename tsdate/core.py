@@ -258,7 +258,7 @@ class Likelihoods:
 
         mutations_on_edge = self.mut_edges[edge.id]
         child_time = self.ts.node(edge.child).time
-        assert child_time == 0
+        #assert child_time == 0
         # Temporary hack - we should really take a more precise likelihood
         return self._lik(
             mutations_on_edge,
@@ -732,10 +732,10 @@ class InOutAlgorithms:
                 if ignore_oldest_root:
                     if edge.parent == self.ts.num_nodes - 1:
                         continue
-                if edge.parent in self.fixednodes:
-                    raise RuntimeError(
-                        "Fixed nodes cannot currently be parents in the TS"
-                    )
+                #if edge.parent in self.fixednodes:
+                #    raise RuntimeError(
+                #        "Fixed nodes cannot currently be parents in the TS"
+                #    )
                 # Geometric scaling works exactly for all nodes fixed in graph
                 # but is an approximation when times are unknown.
                 spanfrac = edge.span / self.spans[child]
@@ -1066,9 +1066,9 @@ def get_dates(
     :return: tuple(mn_post, posterior, timepoints, eps, nodes_to_date)
     """
     # Stuff yet to be implemented. These can be deleted once fixed
-    for sample in tree_sequence.samples():
-        if tree_sequence.node(sample).time != 0:
-            raise NotImplementedError("Samples must all be at time 0")
+    #for sample in tree_sequence.samples():
+    #    if tree_sequence.node(sample).time != 0:
+    #        raise NotImplementedError("Samples must all be at time 0")
     fixed_nodes = set(tree_sequence.samples())
 
     # Default to not creating approximate priors unless ts has > 1000 samples

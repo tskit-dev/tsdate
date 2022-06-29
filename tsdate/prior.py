@@ -419,10 +419,10 @@ class SpansBySamples:
 
         self.ts = tree_sequence
         self.sample_node_set = set(self.ts.samples())
-        if np.any(self.ts.tables.nodes.time[self.ts.samples()] != 0):
-            raise ValueError(
-                "The SpansBySamples class needs a tree seq with all samples at time 0"
-            )
+        #if np.any(self.ts.tables.nodes.time[self.ts.samples()] != 0):
+        #    raise ValueError(
+        #        "The SpansBySamples class needs a tree seq with all samples at time 0"
+        #    )
         self.progress = progress
 
         # We will store the spans in here, and normalize them at the end
@@ -1042,19 +1042,19 @@ def build_grid(
                 "Can't set approx_prior_size if approximate_prior is False"
             )
 
-    contmpr_ts, node_map = util.reduce_to_contemporaneous(tree_sequence)
-    if contmpr_ts.num_nodes != tree_sequence.num_nodes:
-        raise ValueError(
-            "Passed tree sequence is not simplified and/or contains "
-            "noncontemporaneous samples"
-        )
-    span_data = SpansBySamples(contmpr_ts, progress=progress)
+    #contmpr_ts, node_map = util.reduce_to_contemporaneous(tree_sequence)
+    #if contmpr_ts.num_nodes != tree_sequence.num_nodes:
+    #    raise ValueError(
+    #        "Passed tree sequence is not simplified and/or contains "
+    #        "noncontemporaneous samples"
+    #    )
+    span_data = SpansBySamples(tree_sequence, progress=progress)
 
     base_priors = ConditionalCoalescentTimes(
         approx_prior_size, Ne, prior_distribution, progress=progress
     )
 
-    base_priors.add(contmpr_ts.num_samples, approximate_priors)
+    base_priors.add(tree_sequence.num_samples, approximate_priors)
     for total_fixed in span_data.total_fixed_at_0_counts:
         # For missing data: trees vary in total fixed node count => have different priors
         if total_fixed > 0:
@@ -1078,9 +1078,9 @@ def build_grid(
     else:
         raise ValueError("time_slices must be an integer or a numpy array of floats")
 
-    prior_params_contmpr = base_priors.get_mixture_prior_params(span_data)
+    prior_params = base_priors.get_mixture_prior_params(span_data)
     # Map the nodes in the prior params back to the node ids in the original ts
-    prior_params = prior_params_contmpr[node_map, :]
+    #prior_params = prior_params_contmpr[node_map, :]
     # Set all fixed nodes (i.e. samples) to have 0 variance
     priors = fill_priors(
         prior_params,
