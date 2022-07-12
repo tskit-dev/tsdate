@@ -412,9 +412,9 @@ class SpansBySamples:
     :vartype nodes_to_date: numpy.ndarray (dtype=np.uint32)
     """
 
-    def __init__(self, tree_sequence, progress=False):
+    def __init__(self, tree_sequence, *, progress=False, allow_unary=False):
         """
-        :param TreeSequence ts: The input :class:`tskit.TreeSequence`.
+        :param TreeSequence tree_sequence: The input :class:`tskit.TreeSequence`.
         """
 
         self.ts = tree_sequence
@@ -435,7 +435,7 @@ class SpansBySamples:
                 node_spans,
                 trees_with_undated,
                 total_fixed_at_0_per_tree,
-            ) = self.first_pass()
+            ) = self.first_pass(allow_unary=allow_unary)
             progressbar.update()
 
             # A set of the total_num_tips in different trees (used for missing data)
@@ -488,7 +488,7 @@ class SpansBySamples:
             return True
         return False
 
-    def first_pass(self):
+    def first_pass(self, allow_unary=False):
         """
         Returns a tuple of the span that each node covers, a list of the tree indices of
         trees that have undated nodes (used to quickly revist these trees later), and the
@@ -712,10 +712,16 @@ class SpansBySamples:
             n_tips_per_tree[prev_tree.index + 1] = num_fixed_at_0_treenodes
 
         if self.has_unary:
-            raise ValueError(
-                "The input tree sequence has unary nodes: tsdate currently requires "
-                "that these are removed using `simplify(keep_unary=False)`"
-            )
+            if allow_unary:
+                logging.warning(
+                    "The input tree sequence has unary nodes: tsdate may give "
+                    "poor results. Remove them using `simplify(keep_unary=False)`"
+                )
+            else:
+                raise ValueError(
+                    "The input tree sequence has unary nodes: tsdate currently "
+                    "requires these to be removed using `simplify(keep_unary=False)`"
+                )
         return node_spans, trees_with_undated, n_tips_per_tree
 
     def second_pass(self, trees_with_undated, n_tips_per_tree):
@@ -1000,7 +1006,9 @@ def build_grid(
     approx_prior_size=None,
     prior_distribution="lognorm",
     eps=1e-6,
+    # Parameters below undocumented
     progress=False,
+    allow_unary=False,
 ):
     """
     Using the conditional coalescent, calculate the prior distribution for the age of
@@ -1048,7 +1056,7 @@ def build_grid(
             "Passed tree sequence is not simplified and/or contains "
             "noncontemporaneous samples"
         )
-    span_data = SpansBySamples(contmpr_ts, progress=progress)
+    span_data = SpansBySamples(contmpr_ts, progress=progress, allow_unary=allow_unary)
 
     base_priors = ConditionalCoalescentTimes(
         approx_prior_size, Ne, prior_distribution, progress=progress
