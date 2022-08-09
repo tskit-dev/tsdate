@@ -1031,6 +1031,8 @@ def build_grid(
         inference and a discretised time grid
     :rtype:  base.NodeGridValues Object
     """
+    #tree_sequence = tree_sequence.simplify(tree_sequence.samples())
+
     if Ne <= 0:
         raise ValueError("Parameter 'Ne' must be greater than 0")
     if approximate_priors:
@@ -1042,12 +1044,6 @@ def build_grid(
                 "Can't set approx_prior_size if approximate_prior is False"
             )
 
-    #contmpr_ts, node_map = util.reduce_to_contemporaneous(tree_sequence)
-    #if contmpr_ts.num_nodes != tree_sequence.num_nodes:
-    #    raise ValueError(
-    #        "Passed tree sequence is not simplified and/or contains "
-    #        "noncontemporaneous samples"
-    #    )
     span_data = SpansBySamples(tree_sequence, progress=progress)
 
     base_priors = ConditionalCoalescentTimes(
@@ -1079,8 +1075,6 @@ def build_grid(
         raise ValueError("time_slices must be an integer or a numpy array of floats")
 
     prior_params = base_priors.get_mixture_prior_params(span_data)
-    # Map the nodes in the prior params back to the node ids in the original ts
-    #prior_params = prior_params_contmpr[node_map, :]
     # Set all fixed nodes (i.e. samples) to have 0 variance
     priors = fill_priors(
         prior_params,
