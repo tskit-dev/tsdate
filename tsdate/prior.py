@@ -991,6 +991,59 @@ def fill_priors(node_parameters, timepoints, ts, Ne, *, prior_distr, progress=Fa
     return prior_times
 
 
+def truncate_priors(ts, sample_times, priors, nodes_to_date=None, progress=False):
+    """
+    Truncate priors so they conform to the age of nodes in the tree sequence
+    """
+    grid_data = np.copy(priors.grid_data[:])
+    timepoints = priors.timepoints
+    if np.max(sample_times) >= np.max(timepoints):
+        raise ValueError("Sample times cannot be larger than the oldest timepoint")
+    if priors.probability_space == "linear":
+        zero_value = 0
+        one_value = 1
+    elif priors.probability_space == "logarithmic":
+        zero_value = -np.inf
+        one_value = 0
+    constrained_min_times = np.copy(sample_times)
+    constrained_max_times = np.full(sample_times.shape[0], np.inf)
+    if nodes_to_date is None:
+        nodes_to_date = np.arange(ts.num_nodes, dtype=np.uint64)
+        nodes_to_date = nodes_to_date[~np.isin(nodes_to_date, ts.samples())]
+
+    tables = ts.tables
+    parents = tables.edges.parent
+    nd_children = tables.edges.child[np.argsort(parents)]
+    parents = sorted(parents)
+    parents_unique = np.unique(parents, return_index=True)
+    parent_indices = parents_unique[1][np.isin(parents_unique[0], nodes_to_date)]
+    for index, nd in tqdm(
+        enumerate(sorted(nodes_to_date)), desc="Constrain Ages", disable=not progress
+    ):
+        if index + 1 != len(nodes_to_date):
+            children_index = np.arange(parent_indices[index], parent_indices[index + 1])
+        else:
+            children_index = np.arange(parent_indices[index], ts.num_edges)
+        children = nd_children[children_index]
+        time = np.max(constrained_min_times[children])
+        # The constrained time of the node should be the age of the oldest child
+        if constrained_min_times[nd] <= time:
+            constrained_min_times[nd] = time
+        nearest_time = np.argmin(np.abs(timepoints - time))
+        lookup_index = priors.row_lookup[int(nd)]
+        grid_data[lookup_index][:nearest_time] = zero_value
+    assert np.all(constrained_min_times < constrained_max_times)
+    all_zeros = np.where(np.all(grid_data == zero_value, axis=1))[0]
+
+    rowmax = grid_data[:, 1:].max(axis=1)
+    if priors.probability_space == "linear":
+        grid_data = grid_data / rowmax[:, np.newaxis]
+    elif priors.probability_space == "logarithmic":
+        grid_data = grid_data - rowmax[:, np.newaxis]
+                    
+    priors.grid_data[:] = grid_data
+    return constrained_min_times, constrained_max_times, priors
+
 def build_grid(
     tree_sequence,
     Ne,
@@ -1001,6 +1054,7 @@ def build_grid(
     prior_distribution="lognorm",
     eps=1e-6,
     progress=False,
+    sample_times=None
 ):
     """
     Using the conditional coalescent, calculate the prior distribution for the age of
@@ -1084,4 +1138,7 @@ def build_grid(
         prior_distr=prior_distribution,
         progress=progress,
     )
+    if np.any(tree_sequence.tables.nodes.time[tree_sequence.samples()] != 0):
+        if False:
+            priors = truncate_priors(tree_sequence, sample_times, priors, eps, progress=progress)
     return priors
