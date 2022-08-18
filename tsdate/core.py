@@ -151,7 +151,7 @@ class Likelihoods:
         """
         ll = scipy.stats.poisson.pmf(muts, dt * mutation_rate * span)
         if normalize:
-            return ll / np.max(ll)
+            return ll / np.nanmax(ll)
         else:
             return ll
 
@@ -274,12 +274,12 @@ class Likelihoods:
                 edge.span,
                 timediff,
                 self.mut_rate,
-                normalize=False,
+                normalize=self.normalize,
             )
+            # Prevent child from being older than parent
             likelihood[timediff < 0] = 0
-            
-            return likelihood
 
+            return likelihood
 
     def get_mut_lik_lower_tri(self, edge):
         """
@@ -402,7 +402,7 @@ class Likelihoods:
         return arr * liks
 
     def scale_geometric(self, fraction, value):
-        return value ** fraction
+        return value**fraction
 
 
 class LogLikelihoods(Likelihoods):
@@ -442,7 +442,7 @@ class LogLikelihoods(Likelihoods):
         """
         ll = scipy.stats.poisson.logpmf(muts, dt * mutation_rate * span)
         if normalize:
-            return ll - np.max(ll)
+            return ll - np.nanmax(ll)
         else:
             return ll
 
@@ -696,7 +696,7 @@ class InOutAlgorithms:
                     g_i[edge.id] = edge_lik
             norm[parent] = np.max(val) if normalize else 1
             inside[parent] = self.lik.reduce(val, norm[parent])
-            
+
         if cache_inside:
             self.g_i = self.lik.reduce(g_i, norm[self.ts.tables.edges.child, None])
         # Keep the results in this object
