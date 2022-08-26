@@ -655,7 +655,6 @@ class SpansBySamples:
                 if children is not None:
                     if len(children) == 1:
                         # Keep descending
-                        node == children[0]
                         while True:
                             children = prev_tree.children(node)
                             if len(children) != 1:
