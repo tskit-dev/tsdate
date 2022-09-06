@@ -1480,19 +1480,22 @@ class TestPosteriorMeanVar:
 
     def test_posterior_mean_var(self):
         ts = utility_functions.single_tree_ts_n2()
-        grid = np.array([0, 1.2, 2])
         for distr in ("gamma", "lognorm"):
             posterior, algo = TestTotalFunctionalValueTree().find_posterior(ts, distr)
-            ts_node_metadata, mn_post, vr_post = posterior_mean_var(ts, grid, posterior)
+            ts_node_metadata, mn_post, vr_post = posterior_mean_var(ts, posterior)
             assert np.array_equal(
-                mn_post, [0, 0, np.sum(grid * posterior[2]) / np.sum(posterior[2])]
+                mn_post,
+                [
+                    0,
+                    0,
+                    np.sum(posterior.timepoints * posterior[2]) / np.sum(posterior[2]),
+                ],
             )
 
     def test_node_metadata_single_tree_n2(self):
         ts = utility_functions.single_tree_ts_n2()
-        grid = np.array([0, 1.2, 2])
         posterior, algo = TestTotalFunctionalValueTree().find_posterior(ts, "lognorm")
-        ts_node_metadata, mn_post, vr_post = posterior_mean_var(ts, grid, posterior)
+        ts_node_metadata, mn_post, vr_post = posterior_mean_var(ts, posterior)
         assert json.loads(ts_node_metadata.node(2).metadata)["mn"] == mn_post[2]
         assert json.loads(ts_node_metadata.node(2).metadata)["vr"] == vr_post[2]
 
