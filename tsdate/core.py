@@ -854,7 +854,7 @@ class InOutAlgorithms:
         return self.lik.timepoints[np.array(maximized_node_times).astype("int")]
 
 
-def posterior_mean_var(ts, timepoints, posterior, *, fixed_node_set=None):
+def posterior_mean_var(ts, posterior, *, fixed_node_set=None):
     """
     Mean and variance of node age in unscaled time. Fixed nodes will be given a mean
     of their exact time in the tree sequence, and zero variance (as long as they are
@@ -876,11 +876,10 @@ def posterior_mean_var(ts, timepoints, posterior, *, fixed_node_set=None):
     metadata_array = tskit.unpack_bytes(
         ts.tables.nodes.metadata, ts.tables.nodes.metadata_offset
     )
-    timepoints = timepoints
     for row, node_id in zip(posterior.grid_data, posterior.nonfixed_nodes):
-        mn_post[node_id] = np.sum(row * timepoints) / np.sum(row)
+        mn_post[node_id] = np.sum(row * posterior.timepoints) / np.sum(row)
         vr_post[node_id] = np.sum(
-            ((mn_post[node_id] - (timepoints)) ** 2) * (row / np.sum(row))
+            ((mn_post[node_id] - (posterior.timepoints)) ** 2) * (row / np.sum(row))
         )
         metadata_array[node_id] = json.dumps(
             {"mn": mn_post[node_id], "vr": vr_post[node_id]}
@@ -1131,7 +1130,7 @@ def get_dates(
             normalize=outside_normalize, ignore_oldest_root=ignore_oldest_root
         )
         tree_sequence, mn_post, _ = posterior_mean_var(
-            tree_sequence, priors.timepoints, posterior, fixed_node_set=fixed_nodes
+            tree_sequence, posterior, fixed_node_set=fixed_nodes
         )
     elif method == "maximization":
         if mutation_rate is not None:
