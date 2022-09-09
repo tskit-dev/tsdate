@@ -119,7 +119,7 @@ class NodeGridValues:
             if self.probability_space == LOG:
                 pass
             elif self.probability_space == LIN:
-                with np.errstate(divide="ignore"):
+                with np.errstate(divide="ignore", invalid="ignore"):
                     self.grid_data = np.log(self.grid_data)
                     self.fixed_data = np.log(self.fixed_data)
                 self.probability_space = LOG
