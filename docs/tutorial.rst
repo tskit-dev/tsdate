@@ -75,19 +75,40 @@ The above example shows the basic use of ``tsdate``, using default parameters. T
 software has parameters the user can access through the :meth:`tsdate.build_prior_grid()`
 function which may affect the runtime and accuracy of the algorithm.
 
+.. _sec_tutorial_returned_dates:
+
+++++++++++++++
+Returned dates
+++++++++++++++
+
+Several different node time estimates are returned by :func:`tsdate.date()`. In particular,
+to conform to the requirements of a valid tree sequence, child nodes must always be strictly
+younger than their parents. In the unusual case that a child has an estimated time which is
+older than its parent, ``tsdate`` increases the node time of the parent in the tree
+sequence so that it is constrained to be fractionally older than its oldest child.
+
+In the case of the inside-outside method (see below), the estimated time is based on the
+posterior mean node time. The true posterior mean time (unconstrained by the tree sequence
+requirements above) is stored in the node metadata. This can be consulted if you want to
+obtain the raw mean times from the posterior.
+
+For even greater detail about the posterior time estimates for each node, you can use the
+``return_posteriors`` option, which will return the full distribution of posterior
+probabilities in each time slice.
 
 .. _sec_tutorial_inside_outside_v_maximization:
 
-++++++++++++++++++++++++++++++
+------------------------------
 Inside Outside vs Maximization
-++++++++++++++++++++++++++++++
+------------------------------
 
 One of the most important parameters to consider is whether ``tsdate`` should use the 
 inside-outside or the maximization algorithms to perform inference. A detailed
 description of the algorithms will be presented in our preprint, but from the users
-perspective, the inside-outside approach performs better empirically but has issues with
-numerical stability, while the maximization approach is slightly less accurate
-empirically, but is numerically stable.
+perspective, the inside-outside approach performs better empirically, and returns
+a full posterior distribution, but occasionally has issues with numerical stability. In
+contrast, the maximization approach is slightly less accurate empirically, and will
+not return true posteriors, but has the advantage of always being numerically stable.
 
 .. _command_line_interface:
 
