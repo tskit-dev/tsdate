@@ -742,13 +742,15 @@ class TestLikelihoodClass:
         assert np.allclose(LogLikelihoods.logsumexp(log_lls), np.log(ll_sum))
 
     def test_zeros_logsumexp(self):
-        lls = np.log(np.concatenate([np.zeros(100), np.random.rand(1000)]))
-        assert np.allclose(LogLikelihoods.logsumexp(lls), self.naive_logsumexp(lls))
+        with np.errstate(divide="ignore"):
+            lls = np.log(np.concatenate([np.zeros(100), np.random.rand(1000)]))
+            assert np.allclose(LogLikelihoods.logsumexp(lls), self.naive_logsumexp(lls))
 
     def test_logsumexp_underflow(self):
         # underflow in the naive case, but not in the LogLikelihoods implementation
         lls = np.array([-1000, -1001])
-        assert self.naive_logsumexp(lls) == -np.inf
+        with np.errstate(divide="ignore"):
+            assert self.naive_logsumexp(lls) == -np.inf
         assert LogLikelihoods.logsumexp(lls) != -np.inf
 
     def test_log_tri_functions(self):
