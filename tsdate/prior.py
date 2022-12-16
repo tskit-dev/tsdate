@@ -39,10 +39,7 @@ from . import provenance
 from . import util
 
 
-PriorParams_base = namedtuple("PriorParams", "alpha, beta, mean, var")
-
-
-class PriorParams(PriorParams_base):
+class PriorParams(namedtuple("PriorParamsBase", "alpha, beta, mean, var")):
     @classmethod
     def field_index(cls, fieldname):
         return np.where([f == fieldname for f in cls._fields])[0][0]
