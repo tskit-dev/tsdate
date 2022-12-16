@@ -39,10 +39,7 @@ from . import provenance
 from . import util
 
 
-PriorParams_base = namedtuple("PriorParams", "alpha, beta, mean, var")
-
-
-class PriorParams(PriorParams_base):
+class PriorParams(namedtuple("PriorParamsBase", "alpha, beta, mean, var")):
     @classmethod
     def field_index(cls, fieldname):
         return np.where([f == fieldname for f in cls._fields])[0][0]
@@ -652,24 +649,13 @@ class SpansBySamples:
             unary_descendants = set()
             for node in changed_nodes:
                 children = prev_tree.children(node)
-                if children is not None:
-                    if len(children) == 1:
-                        # Keep descending
-                        while True:
-                            children = prev_tree.children(node)
-                            if len(children) != 1:
-                                break
-                            unary_descendants.add(node)
-                            node = children[0]
-                    else:
-                        # Descend all branches, looking for unary nodes
-                        for node in prev_tree.children(node):
-                            while True:
-                                children = prev_tree.children(node)
-                                if len(children) != 1:
-                                    break
-                                unary_descendants.add(node)
-                                node = children[0]
+                for child in children:
+                    while True:
+                        children = prev_tree.children(child)
+                        if len(children) != 1:
+                            break
+                        unary_descendants.add(child)
+                        child = children[0]
 
             # find all the nodes in the tree that might have changed their number
             # of descendants, and reset. This might include nodes that are not in
