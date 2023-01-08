@@ -8,6 +8,12 @@
   individuals, populations, or sites, aiming to change the tree sequence tables as
   little as possible.
 
+**Bugfixes**
+
+- The returned posteriors when ``return_posteriors=True`` now return actual
+  probabilities (scaled so that they sum to one) rather than normalised
+  probabilites whose maximum value is one.
+
 --------------------
 [0.1.5] - 2022-06-07
 --------------------

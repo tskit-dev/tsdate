@@ -66,7 +66,7 @@ class Likelihoods:
         eps=0,
         fixed_node_set=None,
         normalize=True,
-        progress=False
+        progress=False,
     ):
         self.ts = ts
         self.timepoints = timepoints
@@ -694,13 +694,14 @@ class InOutAlgorithms:
         normalize=False,
         ignore_oldest_root=False,
         progress=None,
-        probability_space_returned=base.LIN
     ):
         """
-        Computes the full posterior distribution on nodes.
+        Computes the full posterior distribution on nodes, returning the
+        posterior values. These are *not* probabilities, as they do not sum to one:
+        to convert to probabilities, call posterior.to_probabilities()
 
-        Normalising may be necessary if there is overflow, but means that we cannot
-        check the total functional value at each node
+        Normalising *during* the outside process may be necessary if there is overflow,
+        but means that we cannot  check the total functional value at each node
 
         Ignoring the oldest root may also be necessary when the oldest root node
         causes numerical stability issues.
@@ -769,13 +770,11 @@ class InOutAlgorithms:
             outside[child] = self.lik.reduce(val, self.norm[child])
             if normalize:
                 outside[child] = self.lik.reduce(val, np.max(val))
+        self.outside = outside
         posterior = outside.clone_with_new_data(
             grid_data=self.lik.combine(self.inside.grid_data, outside.grid_data),
             fixed_data=np.nan,
         )  # We should never use the posterior for a fixed node
-        posterior.normalize()
-        posterior.force_probability_space(probability_space_returned)
-        self.outside = outside
         return posterior
 
     def outside_maximization(self, *, eps, progress=None):
@@ -857,12 +856,12 @@ class InOutAlgorithms:
 
 def posterior_mean_var(ts, posterior, *, fixed_node_set=None):
     """
-    Mean and variance of node age in unscaled time. Fixed nodes will be given a mean
+    Mean and variance of node age. Fixed nodes will be given a mean
     of their exact time in the tree sequence, and zero variance (as long as they are
-    identified by the fixed_node_set
+    identified by the fixed_node_set).
     If fixed_node_set is None, we attempt to date all the non-sample nodes
-    Also assigns the estimated mean and variance of the age of each node, in unscaled
-    time, as metadata in the tree sequence.
+    Also assigns the estimated mean and variance of the age of each node
+    as metadata in the tree sequence.
     """
     mn_post = np.full(ts.num_nodes, np.nan)  # Fill with NaNs so we detect when there's
     vr_post = np.full(ts.num_nodes, np.nan)  # been an error
@@ -936,7 +935,7 @@ def date(
     *,
     return_posteriors=None,
     progress=False,
-    **kwargs
+    **kwargs,
 ):
     """
     Take a tree sequence (which could have
@@ -947,6 +946,19 @@ def date(
     recombination_rate is given, a topology-only clock is used. Times associated with
     mutations and non-sample nodes in the input tree sequence are not used in inference
     and will be removed.
+
+    .. note::
+        If posteriors are returned via the ``return_posteriors`` option, the output will
+        be a tuple ``(ts, posteriors)``, where ``posteriors`` is a dictionary suitable
+        for reading as a pandas ``DataFrame`` object, using ``pd.DataFrame(posteriors)``.
+        Each node whose time was inferred corresponds to an item in this dictionary,
+        with the key being the node ID and the value a 1D array of probabilities of the
+        node being in a given time slice (or ``None`` if the "inside_outside" method
+        was not used). The start and end times of each time slice are given as 1D
+        arrays in the dictionary, under keys named ``"start_time"`` and ``end_time"``.
+        As timeslices may not be not of uniform width, it is important to divide the
+        posterior probabilities by ``end_time - start_time`` when assessing the shape
+        of the probability density function over time.
 
     :param TreeSequence tree_sequence: The input :class:`tskit.TreeSequence`, treated as
         one whose non-sample nodes are undated.
@@ -974,9 +986,7 @@ def date(
         conditional coalescent prior with a standard set of time points as given by
         :func:`build_prior_grid`.
     :param bool return_posteriors: If ``True``, instead of returning just a dated tree
-        sequence, return a tuple of ``(dated_ts, posteriors)``. Note that the dictionary
-        returned in ``posteriors`` (described below) is suitable for reading as a pandas
-        ``DataFrame`` object, using ``pd.DataFrame(posteriors)``.
+        sequence, return a tuple of ``(dated_ts, posteriors)`` (see note above).
     :param float eps: Specify minimum distance separating time points. Also specifies
         the error factor in time difference calculations. Default: 1e-6
     :param int num_threads: The number of threads to use. A simpler unthreaded algorithm
@@ -996,11 +1006,6 @@ def date(
     :return: A copy of the input tree sequence but with altered node times, or (if
         ``return_posteriors`` is True) a tuple of that tree sequence plus a dictionary
         of posterior probabilities from the "inside_outside" estimation ``method``.
-        Each node whose time was inferred corresponds to an item in this dictionary,
-        with the key being the node ID and the value a 1D array of probabilities of the
-        node being in a given time slice (or ``None`` if the "inside_outside" method
-        was not used). The start and end times of each time slice are given as 1D
-        arrays in the dictionary, under keys named ``"start_time"`` and ``end_time"``.
     :rtype: tskit.TreeSequence or (tskit.TreeSequence, dict)
     """
     if time_units is None:
@@ -1012,7 +1017,7 @@ def date(
         recombination_rate=recombination_rate,
         priors=priors,
         progress=progress,
-        **kwargs
+        **kwargs,
     )
     constrained = constrain_ages_topo(tree_sequence, dates, eps, nds, progress)
     tables = tree_sequence.dump_tables()
@@ -1028,12 +1033,12 @@ def date(
         Ne=Ne,
         recombination_rate=recombination_rate,
         progress=progress,
-        **kwargs
+        **kwargs,
     )
     if return_posteriors:
         pst = {"start_time": timepoints, "end_time": np.append(timepoints[1:], np.inf)}
-        for i, n in enumerate(nds):
-            pst[n] = None if posteriors is None else posteriors.grid_data[i, :]
+        for n in nds:
+            pst[n] = None if posteriors is None else posteriors[n]
         return tables.tree_sequence(), pst
     else:
         return tables.tree_sequence()
@@ -1053,15 +1058,18 @@ def get_dates(
     ignore_oldest_root=False,
     progress=False,
     cache_inside=False,
-    probability_space=base.LOG
+    probability_space=base.LOG,
 ):
     """
     Infer dates for the nodes in a tree sequence, returning an array of inferred dates
-    for nodes, plus other variables such as the distribution of posterior probabilities
+    for nodes, plus other variables such as the posteriors object
     etc. Parameters are identical to the date() method, which calls this method, then
     injects the resulting date estimates into the tree sequence
 
-    :return: tuple(mn_post, posterior, timepoints, eps, nodes_to_date)
+    :return: a tuple of ``(mn_post, posteriors, timepoints, eps, nodes_to_date)``.
+        If the "inside_outside" method is used, ``posteriors`` will contain the
+        posterior probabilities for each node in each time slice, else the returned
+        variable will be ``None``.
     """
     # Stuff yet to be implemented. These can be deleted once fixed
     for sample in tree_sequence.samples():
@@ -1128,6 +1136,10 @@ def get_dates(
         posterior = dynamic_prog.outside_pass(
             normalize=outside_normalize, ignore_oldest_root=ignore_oldest_root
         )
+        # Turn the posterior into probabilities
+        posterior.normalize()  # Just to make sure there are no floating point issues
+        posterior.force_probability_space(base.LIN)
+        posterior.to_probabilities()
         tree_sequence, mn_post, _ = posterior_mean_var(
             tree_sequence, posterior, fixed_node_set=fixed_nodes
         )
