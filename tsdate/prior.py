@@ -1,6 +1,7 @@
 # MIT License
 #
 # Copyright (c) 2020 University of Oxford
+# Copyright (c) 2021-2023 Tskit Developers
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -75,7 +76,7 @@ class ConditionalCoalescentTimes:
         :param bool precalc_approximation_n: the size of tree used for
             approximate prior (larger numbers give a better approximation).
             If 0 or otherwise falsey, do not precalculate,
-            and therefore do no allow approximate priors to be used
+            and therefore do not allow approximate priors to be used
         """
         self.n_approx = precalc_approximation_n
         self.Ne = Ne
@@ -111,6 +112,15 @@ class ConditionalCoalescentTimes:
         number of total tips in the tree
         """
         return self.prior_store[total_tips]
+
+    def __str__(self):
+        s = [f"Conditional coalescent params under the {self.prior_distr} distibution:"]
+        for t, priors in self.prior_store.items():
+            indent = len(str(t))
+            s.append(f"{t} total tips  ({list(PriorParams._fields)})")
+            for i, prior_params in enumerate(priors):
+                s.append(f" {i:>{indent}} descendants {prior_params}")
+        return "\n".join(s)
 
     def prior_with_max_total_tips(self):
         return self.prior_store.get(max(self.prior_store.keys()))
