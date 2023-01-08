@@ -872,7 +872,7 @@ class SpansBySamples:
         return self.get_weights(node)[total_tips]["weight"][which]
 
 
-def create_timepoints(base_priors, prior_distr, n_points=21):
+def create_timepoints(base_priors, n_points=21):
     """
     Create the time points by finding union of the quantiles of the gammas
     For a node with k descendants we have gamma approxs.
@@ -896,7 +896,7 @@ def create_timepoints(base_priors, prior_distr, n_points=21):
     percentiles specifies the value of the RV such that the prob of the var
     being less than or equal to that value equals the given probability
     """
-    if prior_distr == "lognorm":
+    if base_priors.prior_distr == "lognorm":
 
         def lognorm_ppf(percentiles, alpha, beta):
             return scipy.stats.lognorm.ppf(
@@ -910,7 +910,7 @@ def create_timepoints(base_priors, prior_distr, n_points=21):
 
         cdf = lognorm_cdf
 
-    elif prior_distr == "gamma":
+    elif base_priors.prior_distr == "gamma":
 
         def gamma_ppf(percentiles, alpha, beta):
             return scipy.stats.gamma.ppf(percentiles, alpha, scale=1 / beta)
@@ -1066,7 +1066,7 @@ def build_grid(
     if isinstance(timepoints, int):
         if timepoints < 2:
             raise ValueError("You must have at least 2 time points")
-        timepoints = create_timepoints(base_priors, prior_distribution, timepoints + 1)
+        timepoints = create_timepoints(base_priors, timepoints + 1)
     elif isinstance(timepoints, np.ndarray):
         try:
             timepoints = np.sort(timepoints.astype(base.FLOAT_DTYPE, casting="safe"))
