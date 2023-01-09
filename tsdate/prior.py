@@ -1,6 +1,7 @@
 # MIT License
 #
 # Copyright (c) 2020 University of Oxford
+# Copyright (c) 2021-2023 Tskit Developers
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -75,7 +76,7 @@ class ConditionalCoalescentTimes:
         :param bool precalc_approximation_n: the size of tree used for
             approximate prior (larger numbers give a better approximation).
             If 0 or otherwise falsey, do not precalculate,
-            and therefore do no allow approximate priors to be used
+            and therefore do not allow approximate priors to be used
         """
         self.n_approx = precalc_approximation_n
         self.Ne = Ne
@@ -111,6 +112,15 @@ class ConditionalCoalescentTimes:
         number of total tips in the tree
         """
         return self.prior_store[total_tips]
+
+    def __str__(self):
+        s = [f"Conditional coalescent params under the {self.prior_distr} distibution:"]
+        for t, priors in self.prior_store.items():
+            indent = len(str(t))
+            s.append(f"{t} total tips  ({list(PriorParams._fields)})")
+            for i, prior_params in enumerate(priors):
+                s.append(f" {i:>{indent}} descendants {prior_params}")
+        return "\n".join(s)
 
     def prior_with_max_total_tips(self):
         return self.prior_store.get(max(self.prior_store.keys()))
@@ -862,7 +872,7 @@ class SpansBySamples:
         return self.get_weights(node)[total_tips]["weight"][which]
 
 
-def create_timepoints(base_priors, prior_distr, n_points=21):
+def create_timepoints(base_priors, n_points=21):
     """
     Create the time points by finding union of the quantiles of the gammas
     For a node with k descendants we have gamma approxs.
@@ -886,7 +896,7 @@ def create_timepoints(base_priors, prior_distr, n_points=21):
     percentiles specifies the value of the RV such that the prob of the var
     being less than or equal to that value equals the given probability
     """
-    if prior_distr == "lognorm":
+    if base_priors.prior_distr == "lognorm":
 
         def lognorm_ppf(percentiles, alpha, beta):
             return scipy.stats.lognorm.ppf(
@@ -900,7 +910,7 @@ def create_timepoints(base_priors, prior_distr, n_points=21):
 
         cdf = lognorm_cdf
 
-    elif prior_distr == "gamma":
+    elif base_priors.prior_distr == "gamma":
 
         def gamma_ppf(percentiles, alpha, beta):
             return scipy.stats.gamma.ppf(percentiles, alpha, scale=1 / beta)
@@ -1056,7 +1066,7 @@ def build_grid(
     if isinstance(timepoints, int):
         if timepoints < 2:
             raise ValueError("You must have at least 2 time points")
-        timepoints = create_timepoints(base_priors, prior_distribution, timepoints + 1)
+        timepoints = create_timepoints(base_priors, timepoints + 1)
     elif isinstance(timepoints, np.ndarray):
         try:
             timepoints = np.sort(timepoints.astype(base.FLOAT_DTYPE, casting="safe"))
