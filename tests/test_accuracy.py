@@ -132,3 +132,13 @@ class TestAccuracy:
 
             spearmans_r = scipy.stats.spearmanr(expected, observed).correlation
             assert spearmans_r >= min_vals["spearmans_r"][src]
+
+    @pytest.mark.parametrize("Ne", [0.1, 1, 400])
+    def test_scaling(self, Ne):
+        """
+        Test that we are in the right theoretical ballpark given known Ne
+        """
+        ts = tskit.Tree.generate_comb(2).tree_sequence
+        dts = tsdate.date(ts, Ne=Ne, mutation_rate=None)
+        # Check the date is within 10% of the expected
+        assert 0.9 < dts.node(dts.first().root).time / (2 * Ne) < 1.1
