@@ -29,6 +29,7 @@ import os
 import msprime
 import numpy as np
 import pytest
+import scipy
 import tskit
 
 import tsdate
@@ -46,7 +47,7 @@ class TestAccuracy:
         So that we are assured of using the same tree sequence, regardless of the
         version and random number generator used in msprime, we keep these
         as static files and only run this function when explicitly specified, e.g. via
-            pytest test_accuracy.py::TestAccuracy::create_static_files
+            pytest test_accuracy.py::TestAccuracy::test_make_static_files
         """
         mu = 1e-6
         Ne = 1e4
@@ -74,14 +75,22 @@ class TestAccuracy:
             ts.dump(os.path.join(request.fspath.dirname, "data", f"{name}.trees"))
 
     @pytest.mark.parametrize(
-        "ts_name,min_r2_ts,min_r2_posterior",
+        "ts_name,min_r2_ts,min_r2_unconstrained,min_spear_ts,min_spear_unconstrained",
         [
-            ("one_tree", 0.94776615238, 0.94776615238),
-            ("few_trees", 0.96605244, 0.96605244),
-            ("many_trees", 0.92646, 0.92646),
+            ("one_tree", 0.98601, 0.98601, 0.97719, 0.97719),
+            ("few_trees", 0.98220, 0.98220, 0.97744, 0.97744),
+            ("many_trees", 0.93449, 0.93449, 0.964547, 0.964547),
         ],
     )
-    def test_basic(self, ts_name, min_r2_ts, min_r2_posterior, request):
+    def test_basic(
+        self,
+        ts_name,
+        min_r2_ts,
+        min_r2_unconstrained,
+        min_spear_ts,
+        min_spear_unconstrained,
+        request,
+    ):
         ts = tskit.load(
             os.path.join(request.fspath.dirname, "data", ts_name + ".trees")
         )
@@ -97,29 +106,29 @@ class TestAccuracy:
         dts, posteriors = tsdate.date(
             ts, Ne=Ne, mutation_rate=mu, return_posteriors=True
         )
+        # make sure we can read node metadata - old tsdate versions didn't set a schema
+        if dts.table_metadata_schemas.node.schema is None:
+            tables = dts.dump_tables()
+            tables.nodes.metadata_schema = tskit.MetadataSchema.permissive_json()
+            dts = tables.tree_sequence()
+
         # Only test nonsample node times
-        nonsample_nodes = np.ones(ts.num_nodes, dtype=bool)
-        nonsample_nodes[ts.samples()] = False
+        nonsamples = np.ones(ts.num_nodes, dtype=bool)
+        nonsamples[ts.samples()] = False
 
-        # Test the tree sequence times
-        r_sq = (
-            np.corrcoef(
-                np.log(ts.nodes_time[nonsample_nodes]),
-                np.log(dts.nodes_time[nonsample_nodes]),
-            )[0, 1]
-            ** 2
-        )
-        assert r_sq >= min_r2_ts
+        min_vals = {
+            "r_sq": {"ts": min_r2_ts, "unconstr": min_r2_unconstrained},
+            "spearmans_r": {"ts": min_spear_ts, "unconstr": min_spear_unconstrained},
+        }
 
-        # Test the posterior means too.
-        post_mean = np.array(
-            [
-                np.sum(posteriors[i] * posteriors["start_time"]) / np.sum(posteriors[i])
-                for i in np.where(nonsample_nodes)[0]
-            ]
-        )
-        r_sq = (
-            np.corrcoef(np.log(ts.nodes_time[nonsample_nodes]), np.log(post_mean))[0, 1]
-            ** 2
-        )
-        assert r_sq >= min_r2_posterior
+        expected = ts.nodes_time[nonsamples]
+        for (observed, src) in [
+            (dts.nodes_time[nonsamples], "ts"),
+            ([dts.node(i).metadata["mn"] for i in np.where(nonsamples)[0]], "unconstr"),
+        ]:
+            # Test the tree sequence times
+            r_sq = np.corrcoef(expected, observed)[0, 1] ** 2
+            assert r_sq >= min_vals["r_sq"][src]
+
+            spearmans_r = scipy.stats.spearmanr(expected, observed).correlation
+            assert spearmans_r >= min_vals["spearmans_r"][src]
