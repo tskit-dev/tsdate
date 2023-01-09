@@ -11,6 +11,9 @@
 - The default `min_branch_length` and `eps` have been set to 1e-8 rather than 1e-10, to avoid
   occasional issues with floating point error.
 
+- A slight adjustement in the default timeslices used for the discrete-time method: see
+  https://github.com/tskit-dev/tsdate/pull/233 for a rationale.
+
 ## [0.2.4] - 2025-09-18
 
 - Add support for Python 3.13, minimum version is now 3.10.
