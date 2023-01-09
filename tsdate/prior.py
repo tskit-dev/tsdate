@@ -874,13 +874,12 @@ class SpansBySamples:
 
 def create_timepoints(base_priors, n_points=21):
     """
-    Create the time points by finding union of the quantiles of the gammas
-    For a node with k descendants we have gamma approxs.
-    Reasonable way to create timepoints is to take all the distributions
-    quantile them up, and then take the union of the quantiles.
-    Then thin this, making it no more than 0.05 of a quantile apart.
-    Takes all the gamma distributions, finds quantiles, takes union,
-    and thins them. Does this in an iterative way.
+    Create the time points by finding union of the quantiles of the distributions.
+    For a node with k descendants we have approximate distributions (either lognorm or
+    gamma): a reasonable way to create timepoints is to take all the distributions,
+    quantile them up, and then take the union of the quantiles, thinning it to make
+    each timepoint no more than 0.05 of a quantile apart. This function does this in an
+    iterative way.
     """
     # Assume that the best set of priors to use are those for n descendant tips out of
     # max total tips, where n = 2 .. max_total_tips. This is only relevant when we have
