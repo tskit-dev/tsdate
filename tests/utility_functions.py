@@ -178,6 +178,7 @@ def site_no_mutations():
     r"""
     Simple case where we have n = 3 and one tree.
     The single site has no derived alleles.
+    It also has some unused populations and individuals
             4
            / \
           3   x
@@ -207,7 +208,27 @@ def site_no_mutations():
     0.5         0
     """
     )
-    return tskit.load_text(nodes=nodes, edges=edges, sites=sites, strict=False)
+    populations = io.StringIO(
+        """\
+    metadata
+    unused
+    """
+    )
+    individuals = io.StringIO(
+        """\
+    flags
+    0
+    """
+    )
+    return tskit.load_text(
+        nodes=nodes,
+        edges=edges,
+        sites=sites,
+        populations=populations,
+        individuals=individuals,
+        strict=False,
+        base64_metadata=False,
+    )
 
 
 def single_tree_all_samples_one_mutation_n3():
