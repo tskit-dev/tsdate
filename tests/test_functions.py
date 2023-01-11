@@ -45,8 +45,9 @@ from tsdate.core import Likelihoods
 from tsdate.core import LogLikelihoods
 from tsdate.core import posterior_mean_var
 from tsdate.prior import ConditionalCoalescentTimes
-from tsdate.prior import fill_priors
+from tsdate.prior import fill_discretised_grid
 from tsdate.prior import gamma_approx
+from tsdate.prior import make_discretised_grid
 from tsdate.prior import PriorParams
 from tsdate.prior import SpansBySamples
 from tsdate.util import nodes_time_unconstrained
@@ -511,7 +512,8 @@ class TestPriorVals:
         priors.add(ts.num_samples, approximate=False)
         grid = np.linspace(0, 3, 3)
         mixture_priors = priors.get_mixture_prior_params(span_data)
-        prior_vals = fill_priors(mixture_priors, grid, ts, Ne, prior_distr=prior_distr)
+        prior_vals = make_discretised_grid(grid, ts)
+        fill_discretised_grid(prior_vals, mixture_priors)
         return prior_vals
 
     def test_one_tree_n2(self):
@@ -1068,7 +1070,8 @@ class TestOutsideAlgorithm:
         priors.add(ts.num_samples, approximate=False)
         grid = np.array([0, 1.2, 2])
         mixture_priors = priors.get_mixture_prior_params(span_data)
-        prior_vals = fill_priors(mixture_priors, grid, ts, Ne, prior_distr=prior_distr)
+        prior_vals = make_discretised_grid(grid, ts)
+        fill_discretised_grid(prior_vals, mixture_priors)
         mut_rate = 1
         eps = 1e-6
         lls = Likelihoods(ts, grid, mut_rate, eps=eps)
@@ -1168,7 +1171,8 @@ class TestTotalFunctionalValueTree:
         priors = ConditionalCoalescentTimes(None, Ne=Ne, prior_distr=prior_distr)
         priors.add(ts.num_samples, approximate=False)
         mixture_priors = priors.get_mixture_prior_params(span_data)
-        prior_vals = fill_priors(mixture_priors, grid, ts, Ne, prior_distr=prior_distr)
+        prior_vals = make_discretised_grid(grid, ts)
+        fill_discretised_grid(prior_vals, mixture_priors)
         mut_rate = 1
         eps = 1e-6
         lls = Likelihoods(ts, grid, mut_rate, eps=eps)
@@ -1233,9 +1237,8 @@ class TestGilTree:
             priors.add(ts.num_samples, approximate=False)
             grid = np.array([0, 0.1, 0.2, 0.5, 1, 2, 5])
             mixture_prior = priors.get_mixture_prior_params(span_data)
-            prior_vals = fill_priors(
-                mixture_prior, grid, ts, 1, prior_distr=prior_distr
-            )
+            prior_vals = make_discretised_grid(grid, ts)
+            fill_discretised_grid(prior_vals, mixture_prior)
             prior_vals.grid_data[0] = [0, 0.5, 0.3, 0.1, 0.05, 0.02, 0.03]
             prior_vals.grid_data[1] = [0, 0.05, 0.1, 0.2, 0.45, 0.1, 0.1]
             mut_rate = 1

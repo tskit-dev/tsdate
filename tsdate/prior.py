@@ -46,6 +46,28 @@ class PriorParams(namedtuple("PriorParamsBase", "alpha, beta, mean, var")):
         return np.where([f == fieldname for f in cls._fields])[0][0]
 
 
+class PriorParamsArray(np.ndarray):
+    """
+    Store alpha and beta parameters in an array (used for a set of nodes). Implementation
+    taken from the RealisticInfoArray example in the numpy docs
+    """
+
+    def __new__(cls, input_array, distribution=None):
+        # Input array is an already formed ndarray instance
+        # We first cast to be our class type
+        obj = np.asarray(input_array).view(cls)
+        # add the new attribute to the created instance
+        obj.distribution = distribution
+        # Finally, we must return the newly created object:
+        return obj
+
+    def __array_finalize__(self, obj):
+        # see InfoArray.__array_finalize__ for comments
+        if obj is None:
+            return
+        self.distribution = getattr(obj, "distribution", None)
+
+
 def lognorm_approx(mean, var):
     """
     alpha is mean of underlying normal distribution
@@ -341,7 +363,10 @@ class ConditionalCoalescentTimes:
         seen_mixtures = {}
         # allocate space for params for all nodes, even though we only use nodes_to_date
         num_nodes, num_params = spans_by_samples.ts.num_nodes, len(param_cols)
-        priors = np.full((num_nodes + 1, num_params), np.nan, dtype=base.FLOAT_DTYPE)
+        priors = PriorParamsArray(
+            np.full((num_nodes + 1, num_params), np.nan, dtype=base.FLOAT_DTYPE),
+            distribution=self.prior_distr,
+        )
         for node in tqdm(
             spans_by_samples.nodes_to_date,
             total=len(spans_by_samples.nodes_to_date),
@@ -947,48 +972,55 @@ def create_timepoints(base_priors, n_points=21):
     return np.insert(t_set, 0, 0)
 
 
-def fill_priors(node_parameters, timepoints, ts, Ne, *, prior_distr, progress=False):
+def make_discretised_grid(timepoints, ts):
     """
-    Take the alpha and beta values from the node_parameters array, which contains
-    one row for each node in the TS (including fixed nodes)
-    and fill out a NodeGridValues object with the prior values from the
-    gamma or lognormal distribution with those parameters.
+    Create a NodeGridValues object to containing probabilities of nodes existing in
+    a set of specified timeslices, with nodes corresponding to the input tree sequence
+    """
+    datable_nodes = np.ones(ts.num_nodes, dtype=bool)
+    datable_nodes[ts.samples()] = False
+    datable_nodes = np.where(datable_nodes)[0]
+    return base.NodeGridValues(
+        ts.num_nodes,
+        datable_nodes[np.argsort(ts.tables.nodes.time[datable_nodes])].astype(np.int32),
+        timepoints,
+    )
+
+
+def fill_discretised_grid(grid, node_parameters, progress=False):
+    """
+    Fill out a NodeGridValues object using the alpha and beta values from the
+    node_parameters array, which contains one row for each node in the TS
+    (including fixed nodes). The node_parameters are taken as the params of a
+    gamma or lognormal distribution.
 
     TODO - what if there is an internal fixed node? Should we truncate
     """
-    if prior_distr == "lognorm":
+    if node_parameters.distribution == "lognorm":
         cdf_func = scipy.stats.lognorm.cdf
         main_param = np.sqrt(node_parameters[:, PriorParams.field_index("beta")])
         scale_param = np.exp(node_parameters[:, PriorParams.field_index("alpha")])
-    elif prior_distr == "gamma":
+    elif node_parameters.distribution == "gamma":
         cdf_func = scipy.stats.gamma.cdf
         main_param = node_parameters[:, PriorParams.field_index("alpha")]
         scale_param = 1 / node_parameters[:, PriorParams.field_index("beta")]
     else:
         raise ValueError("prior distribution must be lognorm or gamma")
 
-    datable_nodes = np.ones(ts.num_nodes, dtype=bool)
-    datable_nodes[ts.samples()] = False
-    datable_nodes = np.where(datable_nodes)[0]
-    prior_times = base.NodeGridValues(
-        ts.num_nodes,
-        datable_nodes[np.argsort(ts.tables.nodes.time[datable_nodes])].astype(np.int32),
-        timepoints,
-    )
-
     # TO DO - this can probably be done in an single numpy step rather than a for loop
     for node in tqdm(
-        datable_nodes, desc="Assign Prior to Each Node", disable=not progress
+        grid.nonfixed_nodes, desc="Assign Prior to Each Node", disable=not progress
     ):
         with np.errstate(divide="ignore", invalid="ignore"):
-            prior_node = cdf_func(timepoints, main_param[node], scale=scale_param[node])
+            prior_node = cdf_func(
+                grid.timepoints, main_param[node], scale=scale_param[node]
+            )
         # force age to be less than max value
         prior_node = np.divide(prior_node, np.max(prior_node))
         # prior in each epoch
-        prior_times[node] = np.concatenate([np.array([0]), np.diff(prior_node)])
+        grid[node] = np.concatenate([np.array([0]), np.diff(prior_node)])
     # normalize so max value is 1
-    prior_times.normalize()
-    return prior_times
+    grid.normalize()
 
 
 def build_grid(
@@ -1083,13 +1115,8 @@ def build_grid(
     prior_params_contmpr = base_priors.get_mixture_prior_params(span_data)
     # Map the nodes in the prior params back to the node ids in the original ts
     prior_params = prior_params_contmpr[node_map, :]
+    print(prior_params)
     # Set all fixed nodes (i.e. samples) to have 0 variance
-    priors = fill_priors(
-        prior_params,
-        timepoints,
-        tree_sequence,
-        Ne,
-        prior_distr=prior_distribution,
-        progress=progress,
-    )
-    return priors
+    discretised_priors = make_discretised_grid(timepoints, contmpr_ts)
+    fill_discretised_grid(discretised_priors, prior_params, progress=progress)
+    return discretised_priors
