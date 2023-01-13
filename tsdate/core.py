@@ -1,6 +1,7 @@
 # MIT License
 #
-# Copyright (c) 2020 University of Oxford
+# Copyright (c) 2021-23 Tskit Developers
+# Copyright (c) 2020-21 University of Oxford
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -876,14 +877,12 @@ def posterior_mean_var(ts, posterior, *, fixed_node_set=None):
     metadata_array = tskit.unpack_bytes(
         ts.tables.nodes.metadata, ts.tables.nodes.metadata_offset
     )
-    for row, node_id in zip(posterior.grid_data, posterior.nonfixed_nodes):
-        mn_post[node_id] = np.sum(row * posterior.timepoints) / np.sum(row)
-        vr_post[node_id] = np.sum(
-            ((mn_post[node_id] - (posterior.timepoints)) ** 2) * (row / np.sum(row))
-        )
-        metadata_array[node_id] = json.dumps(
-            {"mn": mn_post[node_id], "vr": vr_post[node_id]}
-        ).encode()
+    for u in posterior.nonfixed_nodes:
+        probs = posterior[u]
+        times = posterior.timepoints
+        mn_post[u] = np.sum(probs * times) / np.sum(probs)
+        vr_post[u] = np.sum(((mn_post[u] - (times)) ** 2) * (probs / np.sum(probs)))
+        metadata_array[u] = json.dumps({"mn": mn_post[u], "vr": vr_post[u]}).encode()
     md, md_offset = tskit.pack_bytes(metadata_array)
     tables.nodes.set_columns(
         flags=tables.nodes.flags,
