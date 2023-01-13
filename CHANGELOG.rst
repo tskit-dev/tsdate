@@ -2,6 +2,14 @@
 [0.1.6] - ****-**-**
 --------------------
 
+**Features**
+
+- Historical samples can now be incorporated directly into the dating framework.
+  This is done by constructing a bespoke prior grid using
+  ``grid=tsdate.build_prior_grid(..., allow_historical_samples=True`` and
+  passing that into ``tsdate.date``. It is also possible to set a variance for
+  historial sample nodes.
+
 **Breaking changes**
 
 - The standalone ``preprocess_ts`` function now defaults to not removing unreferenced

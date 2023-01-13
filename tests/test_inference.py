@@ -61,7 +61,7 @@ class TestPrebuilt(unittest.TestCase):
 
     def test_dangling_failure(self):
         ts = utility_functions.single_tree_ts_n2_dangling()
-        with pytest.raises(ValueError, match="simplified"):
+        with pytest.raises(ValueError, match="simplify"):
             tsdate.date(ts, mutation_rate=None, Ne=1)
 
     def test_unary_failure(self):
@@ -271,6 +271,19 @@ class TestSimulated:
         with pytest.raises(ValueError):
             tsdate.date(multiroot_ts, Ne=1, mutation_rate=2, priors=good_priors)
 
+    def test_non_contemporaneous_warn(self):
+        samples = [
+            msprime.Sample(population=0, time=0),
+            msprime.Sample(population=0, time=0),
+            msprime.Sample(population=0, time=0),
+            msprime.Sample(population=0, time=1.0),
+        ]
+        ts = msprime.simulate(samples=samples, Ne=1, mutation_rate=2, random_seed=12)
+        with pytest.raises(ValueError, match="samples at non-zero times"):
+            tsdate.date(ts, Ne=1, mutation_rate=2)
+        with pytest.raises(ValueError, match="samples at non-zero times"):
+            tsdate.build_prior_grid(ts, Ne=1)
+
     def test_non_contemporaneous(self):
         samples = [
             msprime.Sample(population=0, time=0),
@@ -279,8 +292,8 @@ class TestSimulated:
             msprime.Sample(population=0, time=1.0),
         ]
         ts = msprime.simulate(samples=samples, Ne=1, mutation_rate=2, random_seed=12)
-        with pytest.raises(NotImplementedError):
-            tsdate.date(ts, Ne=1, mutation_rate=2)
+        priors = tsdate.build_prior_grid(ts, Ne=1, allow_historical_samples=True)
+        tsdate.date(ts, priors=priors, mutation_rate=2)
 
     def test_no_mutation_times(self):
         ts = msprime.simulate(20, Ne=1, mutation_rate=1, random_seed=12)

@@ -95,6 +95,12 @@ class NodeGridValues:
         ] = (-np.arange(num_nodes - self.num_nonfixed) - 1)
         self.probability_space = LIN
 
+    def fixed_node_ids(self):
+        return np.where(self.row_lookup < 0)[0]
+
+    def nonfixed_node_ids(self):
+        return np.where(self.row_lookup >= 0)[0]
+
     def force_probability_space(self, probability_space):
         """
         probability_space can be "logarithmic" or "linear": this function will force
@@ -139,6 +145,9 @@ class NodeGridValues:
             self.grid_data = self.grid_data - rowmax[:, np.newaxis]
         else:
             raise RuntimeError("Probability space is not", LIN, "or", LOG)
+
+    def is_fixed(self, node_id):
+        return self.row_lookup[node_id] < 0
 
     def __getitem__(self, node_id):
         index = self.row_lookup[node_id]
@@ -207,8 +216,7 @@ class NodeGridValues:
             new_obj.fixed_data = fill_fixed(
                 self, grid_data if fixed_data is None else fixed_data
             )
-        if probability_space is None:
-            new_obj.probability_space = self.probability_space
-        else:
-            new_obj.probability_space = probability_space
+        new_obj.probability_space = self.probability_space
+        if probability_space is not None:
+            new_obj.force_probability_space(probability_space)
         return new_obj
