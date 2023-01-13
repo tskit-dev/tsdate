@@ -1,6 +1,7 @@
 # MIT License
 #
-# Copyright (c) 2020 University of Oxford
+# Copyright (c) 2021-23 Tskit Developers
+# Copyright (c) 2020-21 University of Oxford
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -402,8 +403,8 @@ class TestMakePrior:
 class TestMixturePrior:
     alpha_beta = [PriorParams.field_index("alpha"), PriorParams.field_index("beta")]
 
-    def get_mixture_prior_params(self, ts, prior_distr):
-        span_data = SpansBySamples(ts)
+    def get_mixture_prior_params(self, ts, prior_distr, **kwargs):
+        span_data = SpansBySamples(ts, **kwargs)
         priors = ConditionalCoalescentTimes(None, Ne=0.5, prior_distr=prior_distr)
         priors.add(ts.num_samples, approximate=False)
         mixture_priors = priors.get_mixture_prior_params(span_data)
@@ -449,20 +450,24 @@ class TestMixturePrior:
         assert np.allclose(mixture_priors[4, self.alpha_beta], [0.60377, 1.13207])
         assert np.allclose(mixture_priors[5, self.alpha_beta], [1.6, 1.2])
 
-    def test_single_tree_ts_with_unary(self):
+    def test_single_tree_ts_disallow_unary(self):
         ts = utility_functions.single_tree_ts_with_unary()
         with pytest.raises(ValueError, match="unary"):
             self.get_mixture_prior_params(ts, "gamma")
-        # # Root is a 3 tip prior
-        # assert np.allclose(mixture_priors[7, self.alpha_beta], [1.6, 1.2])
-        # # Node 6 should be a 50:50 mixture between 1 and 3 tips
-        # assert np.allclose(mixture_priors[6, self.alpha_beta], [0.44444, 0.66666])
-        # # Node 5 should be a 50:50 mixture of 2 and 3 tips
-        # assert np.allclose(mixture_priors[5, self.alpha_beta], [0.80645, 0.96774])
-        # # Node 4 should be a 75:25 mixture of 2 and 3 tips
-        # assert np.allclose(mixture_priors[4, self.alpha_beta], [0.62025, 1.06329])
-        # # Node 3 is a 2 tip prior
-        # assert np.allclose(mixture_priors[3, self.alpha_beta], [1.0, 3.0])
+
+    def test_single_tree_ts_with_unary(self):
+        ts = utility_functions.single_tree_ts_with_unary()
+        mixture_priors = self.get_mixture_prior_params(ts, "gamma", allow_unary=True)
+        # Root is a 3 tip prior
+        assert np.allclose(mixture_priors[7, self.alpha_beta], [1.6, 1.2])
+        # Node 6 should be a 50:50 mixture between 1 and 3 tips
+        assert np.allclose(mixture_priors[6, self.alpha_beta], [0.44444, 0.66666])
+        # Node 5 should be a 50:50 mixture of 2 and 3 tips
+        assert np.allclose(mixture_priors[5, self.alpha_beta], [0.80645, 0.96774])
+        # Node 4 should be a 75:25 mixture of 2 and 3 tips
+        assert np.allclose(mixture_priors[4, self.alpha_beta], [0.62025, 1.06329])
+        # Node 3 is a 2 tip prior
+        assert np.allclose(mixture_priors[3, self.alpha_beta], [1.0, 3.0])
 
     def test_two_tree_mutation_ts(self):
         ts = utility_functions.two_tree_mutation_ts()
@@ -504,8 +509,8 @@ class TestMixturePrior:
 
 
 class TestPriorVals:
-    def verify_prior_vals(self, ts, prior_distr):
-        span_data = SpansBySamples(ts)
+    def verify_prior_vals(self, ts, prior_distr, **kwargs):
+        span_data = SpansBySamples(ts, **kwargs)
         Ne = 0.5
         priors = ConditionalCoalescentTimes(None, Ne=Ne, prior_distr=prior_distr)
         priors.add(ts.num_samples, approximate=False)
@@ -546,13 +551,12 @@ class TestPriorVals:
 
     def test_tree_with_unary_nodes(self):
         ts = utility_functions.single_tree_ts_with_unary()
-        with pytest.raises(ValueError, match="unary"):
-            self.verify_prior_vals(ts, "gamma")
-        # assert np.allclose(prior_vals[7], [0, 1, 0.397385])
-        # assert np.allclose(prior_vals[6], [0, 1, 0.113122])
-        # assert np.allclose(prior_vals[5], [0, 1, 0.164433])
-        # assert np.allclose(prior_vals[4], [0, 1, 0.093389])
-        # assert np.allclose(prior_vals[3], [0, 1, 0.011109])
+        prior_vals = self.verify_prior_vals(ts, "gamma", allow_unary=True)
+        assert np.allclose(prior_vals[7], [0, 1, 0.397385])
+        assert np.allclose(prior_vals[6], [0, 1, 0.113122])
+        assert np.allclose(prior_vals[5], [0, 1, 0.164433])
+        assert np.allclose(prior_vals[4], [0, 1, 0.093389])
+        assert np.allclose(prior_vals[3], [0, 1, 0.011109])
 
     def test_one_tree_n2_intervals(self):
         ts = utility_functions.single_tree_ts_n2()
@@ -913,7 +917,7 @@ class TestAlgorithmClass:
 
 
 class TestInsideAlgorithm:
-    def run_inside_algorithm(self, ts, prior_distr, normalize=True):
+    def run_inside_algorithm(self, ts, prior_distr, normalize=True, **kwargs):
         Ne = 0.5
         priors = tsdate.build_prior_grid(
             ts,
@@ -921,6 +925,7 @@ class TestInsideAlgorithm:
             timepoints=np.array([0, 1.2, 2]),
             approximate_priors=False,
             prior_distribution=prior_distr,
+            **kwargs,
         )
         eps = 1e-6
         mut_rate = 0.5
@@ -1022,15 +1027,19 @@ class TestInsideAlgorithm:
         )
         assert np.allclose(algo.inside[5], np.array([0, node5_t1, node5_t2]))
 
-    def test_tree_with_unary_nodes(self):
+    def test_tree_disallow_unary_nodes(self):
         ts = utility_functions.single_tree_ts_with_unary()
         with pytest.raises(ValueError, match="unary"):
             self.run_inside_algorithm(ts, "gamma")[0]
-        # assert np.allclose(algo.inside[7], np.array([0, 1, 0.25406637]))
-        # assert np.allclose(algo.inside[6], np.array([0, 1, 0.07506923]))
-        # assert np.allclose(algo.inside[5], np.array([0, 1, 0.13189998]))
-        # assert np.allclose(algo.inside[4], np.array([0, 1, 0.07370801]))
-        # assert np.allclose(algo.inside[3], np.array([0, 1, 0.01147716]))
+
+    def test_tree_with_unary_nodes(self):
+        ts = utility_functions.single_tree_ts_with_unary()
+        algo = self.run_inside_algorithm(ts, "gamma", allow_unary=True)[0]
+        assert np.allclose(algo.inside[7], np.array([0, 1, 0.25406637]))
+        assert np.allclose(algo.inside[6], np.array([0, 1, 0.07506923]))
+        assert np.allclose(algo.inside[5], np.array([0, 1, 0.13189998]))
+        assert np.allclose(algo.inside[4], np.array([0, 1, 0.07370801]))
+        assert np.allclose(algo.inside[3], np.array([0, 1, 0.01147716]))
 
     def test_two_tree_mutation_ts(self):
         ts = utility_functions.two_tree_mutation_ts()
