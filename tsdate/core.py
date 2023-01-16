@@ -344,13 +344,10 @@ class Likelihoods:
     def combine(self, lik_1, lik_2):
         return lik_1 * lik_2
 
-    def reduce(self, lik_1, lik_2, div_0_null=False):
+    def ratio(self, lik_1, lik_2, div_0_null=False):
         """
-        In linear space, this divides lik_1 by lik_2
+        Return the ratio of lik_1 to lik_2. In linear space, this divides lik_1 by lik_2
         If div_0_null==True, then 0/0 is set to the null_constant
-
-        NB: "reduce" is not a very good name for the function: can we think of
-        something better that will also be meaningful in log space?
         """
         with np.errstate(divide="ignore", invalid="ignore"):
             ret = lik_1 / lik_2
@@ -487,9 +484,9 @@ class LogLikelihoods(Likelihoods):
     def combine(self, loglik_1, loglik_2):
         return loglik_1 + loglik_2
 
-    def reduce(self, loglik_1, loglik_2, div_0_null=False):
+    def ratio(self, loglik_1, loglik_2, div_0_null=False):
         """
-        In log space, loglik_1 - loglik_2
+        In log space, likelihood ratio is loglik_1 - loglik_2
         If div_0_null==True, then if either is -inf it returns -inf (the null_constant)
         """
         with np.errstate(divide="ignore", invalid="ignore"):
@@ -686,9 +683,9 @@ class InOutAlgorithms:
             denominator[parent] = (
                 np.max(val) if standardize else self.lik.identity_constant
             )
-            inside[parent] = self.lik.reduce(val, denominator[parent])
+            inside[parent] = self.lik.ratio(val, denominator[parent])
         if cache_inside:
-            self.g_i = self.lik.reduce(
+            self.g_i = self.lik.ratio(
                 g_i, denominator[self.ts.tables.edges.child, None]
             )
         # Keep the results in this object
@@ -749,7 +746,7 @@ class InOutAlgorithms:
                 # but is an approximation when times are unknown.
                 spanfrac = edge.span / self.spans[child]
                 try:
-                    inside_div_gi = self.lik.reduce(
+                    inside_div_gi = self.lik.ratio(
                         self.inside[edge.parent], self.g_i[edge.id], div_0_null=True
                     )
                 except AttributeError:  # we haven't cached g_i so we recalculate
@@ -757,8 +754,8 @@ class InOutAlgorithms:
                         spanfrac, self.lik.make_lower_tri(self.inside[edge.child])
                     )
                     edge_lik = self.lik.get_inside(daughter_val, edge)
-                    cur_g_i = self.lik.reduce(edge_lik, self.denominator[child])
-                    inside_div_gi = self.lik.reduce(
+                    cur_g_i = self.lik.ratio(edge_lik, self.denominator[child])
+                    inside_div_gi = self.lik.ratio(
                         self.inside[edge.parent], cur_g_i, div_0_null=True
                     )
                 parent_val = self.lik.scale_geometric(
@@ -768,15 +765,15 @@ class InOutAlgorithms:
                     ),
                 )
                 if standardize:
-                    parent_val = self.lik.reduce(parent_val, np.max(parent_val))
+                    parent_val = self.lik.ratio(parent_val, np.max(parent_val))
                 edge_lik = self.lik.get_outside(parent_val, edge)
                 val = self.lik.combine(val, edge_lik)
 
             # vv[0] = 0  # Seems a hack: internal nodes should be allowed at time 0
             assert self.denominator[edge.child] > self.lik.null_constant
-            outside[child] = self.lik.reduce(val, self.denominator[child])
+            outside[child] = self.lik.ratio(val, self.denominator[child])
             if standardize:
-                outside[child] = self.lik.reduce(val, np.max(val))
+                outside[child] = self.lik.ratio(val, np.max(val))
         self.outside = outside
         posterior = outside.clone_with_new_data(
             grid_data=self.lik.combine(self.inside.grid_data, outside.grid_data),
@@ -829,7 +826,7 @@ class InOutAlgorithms:
                         * self.lik.mut_rate
                         * edge.span,
                     )
-                    result = self.lik.reduce(ll_mut, np.max(ll_mut))
+                    result = self.lik.ratio(ll_mut, np.max(ll_mut))
                 else:
                     cur_parent_index = maximized_node_times[edge.parent]
                     if cur_parent_index < youngest_par_index:
@@ -846,7 +843,7 @@ class InOutAlgorithms:
                         * edge.span,
                     )
                     result[: youngest_par_index + 1] = self.lik.combine(
-                        self.lik.reduce(
+                        self.lik.ratio(
                             ll_mut[: youngest_par_index + 1],
                             np.max(ll_mut[: youngest_par_index + 1]),
                         ),
