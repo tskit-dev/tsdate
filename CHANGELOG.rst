@@ -10,7 +10,7 @@
 
 - Not strictly breaking, as not in the published API, but the "normalize" flag
   in ``get_dates`` and the internal ``normalize`` terminology is changed to
-  ``sandardize`` to better reflect the fact that the maximum (not sum) is one.
+  ``standardize`` to better reflect the fact that the maximum (not sum) is one.
 
 **Bugfixes**
 
