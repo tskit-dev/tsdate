@@ -50,6 +50,9 @@ class Likelihoods:
     A class to store and process likelihoods. Likelihoods for edges are stored as a
     flattened lower triangular matrix of all the possible delta t's. This class also
     provides methods for accessing this lower triangular matrix, multiplying it, etc.
+
+    If ``standardize`` is true, routines will operate to standardize the likelihoods
+    such that their maximum is one (in linear space) or zero (in log space)
     """
 
     probability_space = base.LIN
@@ -65,7 +68,7 @@ class Likelihoods:
         *,
         eps=0,
         fixed_node_set=None,
-        normalize=True,
+        standardize=True,
         progress=False,
     ):
         self.ts = ts
@@ -75,7 +78,7 @@ class Likelihoods:
         )
         self.mut_rate = mutation_rate
         self.rec_rate = recombination_rate
-        self.normalize = normalize
+        self.standardize = standardize
         self.grid_size = len(timepoints)
         self.tri_size = self.grid_size * (self.grid_size + 1) / 2
         self.ll_mut = {}
@@ -145,25 +148,25 @@ class Likelihoods:
         return mut_edges
 
     @staticmethod
-    def _lik(muts, span, dt, mutation_rate, normalize=True):
+    def _lik(muts, span, dt, mutation_rate, standardize=True):
         """
         The likelihood of an edge given a number of mutations, as set of time deltas (dt)
         and a span. This is a static function to allow parallelization
         """
         ll = scipy.stats.poisson.pmf(muts, dt * mutation_rate * span)
-        if normalize:
+        if standardize:
             return ll / np.max(ll)
         else:
             return ll
 
     @staticmethod
-    def _lik_wrapper(muts_span, dt, mutation_rate, normalize=True):
+    def _lik_wrapper(muts_span, dt, mutation_rate, standardize=True):
         """
         A wrapper to allow this _lik to be called by pool.imap_unordered, returning the
         mutation and span values
         """
         return muts_span, Likelihoods._lik(
-            muts_span[0], muts_span[1], dt, mutation_rate, normalize=normalize
+            muts_span[0], muts_span[1], dt, mutation_rate, standardize=standardize
         )
 
     def precalculate_mutation_likelihoods(self, num_threads=None, unique_method=0):
@@ -206,7 +209,7 @@ class Likelihoods:
                 self._lik_wrapper,
                 dt=self.timediff_lower_tri,
                 mutation_rate=self.mut_rate,
-                normalize=self.normalize,
+                standardize=self.standardize,
             )
             if num_threads == 1:
                 # Useful for testing
@@ -240,7 +243,7 @@ class Likelihoods:
                     span,
                     dt=self.timediff_lower_tri,
                     mutation_rate=self.mut_rate,
-                    normalize=self.normalize,
+                    standardize=self.standardize,
                 )
 
     def get_mut_lik_fixed_node(self, edge):
@@ -266,7 +269,7 @@ class Likelihoods:
             edge.span,
             self.timediff,
             self.mut_rate,
-            normalize=self.normalize,
+            standardize=self.standardize,
         )
 
     def get_mut_lik_lower_tri(self, edge):
@@ -423,24 +426,24 @@ class LogLikelihoods(Likelihoods):
         return np.log(r) + alpha
 
     @staticmethod
-    def _lik(muts, span, dt, mutation_rate, normalize=True):
+    def _lik(muts, span, dt, mutation_rate, standardize=True):
         """
         The likelihood of an edge given a number of mutations, as set of time deltas (dt)
         and a span. This is a static function to allow parallelization
         """
         ll = scipy.stats.poisson.logpmf(muts, dt * mutation_rate * span)
-        if normalize:
+        if standardize:
             return ll - np.max(ll)
         else:
             return ll
 
     @staticmethod
-    def _lik_wrapper(muts_span, dt, mutation_rate, normalize=True):
+    def _lik_wrapper(muts_span, dt, mutation_rate, standardize=True):
         """
         Needs redefining to refer to the LogLikelihoods class
         """
         return muts_span, LogLikelihoods._lik(
-            muts_span[0], muts_span[1], dt, mutation_rate, normalize=normalize
+            muts_span[0], muts_span[1], dt, mutation_rate, standardize=standardize
         )
 
     def rowsum_lower_tri(self, input_array):
@@ -626,7 +629,7 @@ class InOutAlgorithms:
 
     # === MAIN ALGORITHMS ===
 
-    def inside_pass(self, *, normalize=True, cache_inside=False, progress=None):
+    def inside_pass(self, *, standardize=True, cache_inside=False, progress=None):
         """
         Use dynamic programming to find approximate posterior to sample from
         """
@@ -639,7 +642,7 @@ class InOutAlgorithms:
             g_i = np.full(
                 (self.ts.num_edges, self.lik.grid_size), self.lik.identity_constant
             )
-        norm = np.full(self.ts.num_nodes, np.nan)
+        denominator = np.full(self.ts.num_nodes, np.nan)
         # Iterate through the nodes via groupby on parent node
         for parent, edges in tqdm(
             self.edges_by_parent_asc(),
@@ -680,18 +683,22 @@ class InOutAlgorithms:
                 val = self.lik.combine(val, edge_lik)
                 if cache_inside:
                     g_i[edge.id] = edge_lik
-            norm[parent] = np.max(val) if normalize else 1
-            inside[parent] = self.lik.reduce(val, norm[parent])
+            denominator[parent] = (
+                np.max(val) if standardize else self.lik.identity_constant
+            )
+            inside[parent] = self.lik.reduce(val, denominator[parent])
         if cache_inside:
-            self.g_i = self.lik.reduce(g_i, norm[self.ts.tables.edges.child, None])
+            self.g_i = self.lik.reduce(
+                g_i, denominator[self.ts.tables.edges.child, None]
+            )
         # Keep the results in this object
         self.inside = inside
-        self.norm = norm
+        self.denominator = denominator
 
     def outside_pass(
         self,
         *,
-        normalize=False,
+        standardize=False,
         ignore_oldest_root=False,
         progress=None,
     ):
@@ -700,8 +707,8 @@ class InOutAlgorithms:
         posterior values. These are *not* probabilities, as they do not sum to one:
         to convert to probabilities, call posterior.to_probabilities()
 
-        Normalising *during* the outside process may be necessary if there is overflow,
-        but means that we cannot  check the total functional value at each node
+        Standardizing *during* the outside process may be necessary if there is
+        overflow, but means that we cannot  check the total functional value at each node
 
         Ignoring the oldest root may also be necessary when the oldest root node
         causes numerical stability issues.
@@ -750,7 +757,7 @@ class InOutAlgorithms:
                         spanfrac, self.lik.make_lower_tri(self.inside[edge.child])
                     )
                     edge_lik = self.lik.get_inside(daughter_val, edge)
-                    cur_g_i = self.lik.reduce(edge_lik, self.norm[child])
+                    cur_g_i = self.lik.reduce(edge_lik, self.denominator[child])
                     inside_div_gi = self.lik.reduce(
                         self.inside[edge.parent], cur_g_i, div_0_null=True
                     )
@@ -760,15 +767,15 @@ class InOutAlgorithms:
                         self.lik.combine(outside[edge.parent], inside_div_gi)
                     ),
                 )
-                if normalize:
+                if standardize:
                     parent_val = self.lik.reduce(parent_val, np.max(parent_val))
                 edge_lik = self.lik.get_outside(parent_val, edge)
                 val = self.lik.combine(val, edge_lik)
 
             # vv[0] = 0  # Seems a hack: internal nodes should be allowed at time 0
-            assert self.norm[edge.child] > self.lik.null_constant
-            outside[child] = self.lik.reduce(val, self.norm[child])
-            if normalize:
+            assert self.denominator[edge.child] > self.lik.null_constant
+            outside[child] = self.lik.reduce(val, self.denominator[child])
+            if standardize:
                 outside[child] = self.lik.reduce(val, np.max(val))
         self.outside = outside
         posterior = outside.clone_with_new_data(
@@ -1054,7 +1061,7 @@ def get_dates(
     eps=1e-6,
     num_threads=None,
     method="inside_outside",
-    outside_normalize=True,
+    outside_standardize=True,
     ignore_oldest_root=False,
     progress=False,
     cache_inside=False,
@@ -1134,10 +1141,10 @@ def get_dates(
     posterior = None
     if method == "inside_outside":
         posterior = dynamic_prog.outside_pass(
-            normalize=outside_normalize, ignore_oldest_root=ignore_oldest_root
+            standardize=outside_standardize, ignore_oldest_root=ignore_oldest_root
         )
         # Turn the posterior into probabilities
-        posterior.normalize()  # Just to make sure there are no floating point issues
+        posterior.standardize()  # Just to make sure there are no floating point issues
         posterior.force_probability_space(base.LIN)
         posterior.to_probabilities()
         tree_sequence, mn_post, _ = posterior_mean_var(
