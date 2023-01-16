@@ -37,7 +37,7 @@ import tskit
 import utility_functions
 
 import tsdate
-from tsdate.base import NodeGridValues
+from tsdate import base
 from tsdate.core import constrain_ages_topo
 from tsdate.core import date
 from tsdate.core import get_dates
@@ -797,14 +797,14 @@ class TestNodeGridValuesClass:
         num_nodes = 5
         ids = np.array([3, 4])
         timepoints = np.array(range(10))
-        store = NodeGridValues(num_nodes, ids, timepoints, fill_value=6)
+        store = base.NodeGridValues(num_nodes, ids, timepoints, fill_value=6)
         assert store.grid_data.shape == (len(ids), len(timepoints))
         assert len(store.fixed_data) == (num_nodes - len(ids))
         assert np.all(store.grid_data == 6)
         assert np.all(store.fixed_data == 6)
 
         ids = np.array([3, 4], dtype=np.int32)
-        store = NodeGridValues(num_nodes, ids, timepoints, fill_value=5)
+        store = base.NodeGridValues(num_nodes, ids, timepoints, fill_value=5)
         assert store.grid_data.shape == (len(ids), len(timepoints))
         assert len(store.fixed_data) == num_nodes - len(ids)
         assert np.all(store.fixed_data == 5)
@@ -815,7 +815,7 @@ class TestNodeGridValuesClass:
         fill = {}
         for ids in ([3, 4], []):
             np.random.seed(1)
-            store = NodeGridValues(
+            store = base.NodeGridValues(
                 num_nodes, np.array(ids, dtype=np.int32), np.array(range(grid_size))
             )
             for i in range(num_nodes):
@@ -829,48 +829,52 @@ class TestNodeGridValuesClass:
     def test_bad_init(self):
         ids = [3, 4]
         with pytest.raises(ValueError):
-            NodeGridValues(3, np.array(ids), np.array([0, 1.2, 2]))
+            base.NodeGridValues(3, np.array(ids), np.array([0, 1.2, 2]))
         with pytest.raises(AttributeError):
-            NodeGridValues(5, np.array(ids), -1)
+            base.NodeGridValues(5, np.array(ids), -1)
         with pytest.raises(ValueError):
-            NodeGridValues(5, np.array([-1]), np.array([0, 1.2, 2]))
+            base.NodeGridValues(5, np.array([-1]), np.array([0, 1.2, 2]))
 
     def test_clone(self):
         num_nodes = 10
         grid_size = 2
         ids = [3, 4]
-        orig = NodeGridValues(num_nodes, np.array(ids), np.array(range(grid_size)))
+        orig = base.NodeGridValues(num_nodes, np.array(ids), np.array(range(grid_size)))
         orig[3] = np.array([1, 2])
         orig[4] = np.array([4, 3])
         orig[0] = 1.5
         orig[9] = 2.5
         # test with np.zeros
-        clone = NodeGridValues.clone_with_new_data(orig, 0)
+        clone = base.NodeGridValues.clone_with_new_data(orig, 0)
         assert clone.grid_data.shape == orig.grid_data.shape
         assert clone.fixed_data.shape == orig.fixed_data.shape
         assert np.all(clone.grid_data == 0)
         assert np.all(clone.fixed_data == 0)
         # test with something else
-        clone = NodeGridValues.clone_with_new_data(orig, 5)
+        clone = base.NodeGridValues.clone_with_new_data(orig, 5)
         assert clone.grid_data.shape == orig.grid_data.shape
         assert clone.fixed_data.shape == orig.fixed_data.shape
         assert np.all(clone.grid_data == 5)
         assert np.all(clone.fixed_data == 5)
         # test with different
         scalars = np.arange(num_nodes - len(ids))
-        clone = NodeGridValues.clone_with_new_data(orig, 0, scalars)
+        clone = base.NodeGridValues.clone_with_new_data(orig, 0, scalars)
         assert clone.grid_data.shape == orig.grid_data.shape
         assert clone.fixed_data.shape == orig.fixed_data.shape
         assert np.all(clone.grid_data == 0)
         assert np.all(clone.fixed_data == scalars)
 
-        clone = NodeGridValues.clone_with_new_data(orig, np.array([[1, 2], [4, 3]]))
+        clone = base.NodeGridValues.clone_with_new_data(
+            orig, np.array([[1, 2], [4, 3]])
+        )
         for i in range(num_nodes):
             if i in ids:
                 assert np.all(clone[i] == orig[i])
             else:
                 assert np.isnan(clone[i])
-        clone = NodeGridValues.clone_with_new_data(orig, np.array([[1, 2], [4, 3]]), 0)
+        clone = base.NodeGridValues.clone_with_new_data(
+            orig, np.array([[1, 2], [4, 3]]), 0
+        )
         for i in range(num_nodes):
             if i in ids:
                 assert np.all(clone[i] == orig[i])
@@ -880,18 +884,43 @@ class TestNodeGridValuesClass:
     def test_bad_clone(self):
         num_nodes = 10
         ids = [3, 4]
-        orig = NodeGridValues(num_nodes, np.array(ids), np.array([0, 1.2]))
+        orig = base.NodeGridValues(num_nodes, np.array(ids), np.array([0, 1.2]))
         with pytest.raises(ValueError):
-            NodeGridValues.clone_with_new_data(
+            base.NodeGridValues.clone_with_new_data(
                 orig,
                 np.array([[1, 2, 3], [4, 5, 6]]),
             )
         with pytest.raises(ValueError):
-            NodeGridValues.clone_with_new_data(
+            base.NodeGridValues.clone_with_new_data(
                 orig,
                 0,
                 np.array([[1, 2], [4, 5]]),
             )
+
+    def test_convert_to_probs(self):
+        num_nodes = 10
+        ids = [3, 4]
+        make_nan_row = 4
+        orig = base.NodeGridValues(num_nodes, np.array(ids), np.array([0, 1.2]), 1)
+        orig[make_nan_row][0] = np.nan
+        assert np.all(np.isnan(orig[make_nan_row]) == [True, False])
+        orig.force_probability_space(base.LIN)
+        orig.to_probabilities()
+        for n in orig.nonfixed_nodes:
+            if n == make_nan_row:
+                assert np.all(np.isnan(orig[n]))
+            else:
+                assert np.allclose(np.sum(orig[n]), 1)
+                assert np.all(orig[n] >= 0)
+
+    def test_cannot_convert_to_probs(self):
+        # No class implemention of logsumexp to convert to probabilities in log space
+        num_nodes = 10
+        ids = [3, 4]
+        orig = base.NodeGridValues(num_nodes, np.array(ids), np.array([0, 1.2]))
+        orig.force_probability_space(base.LOG)
+        with pytest.raises(NotImplementedError, match="linear space"):
+            orig.to_probabilities()
 
 
 class TestAlgorithmClass:

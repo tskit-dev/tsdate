@@ -1,5 +1,6 @@
 # MIT License
 #
+# Copyright (c) 2021-23 Tskit Developers
 # Copyright (c) 2020 University of Oxford
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -109,7 +110,7 @@ class TestPrebuilt(unittest.TestCase):
         assert len(posteriors["start_time"]) == len(posteriors["end_time"])
         assert len(posteriors["start_time"]) > 0
         for node in ts.nodes():
-            if not node.is_sample:
+            if not node.is_sample():
                 assert node.id in posteriors
                 assert posteriors[node.id] is None
 
@@ -122,7 +123,7 @@ class TestPrebuilt(unittest.TestCase):
         assert len(posteriors["start_time"]) == len(posteriors["end_time"])
         assert len(posteriors["start_time"]) > 0
         for node in ts.nodes():
-            if not node.is_sample:
+            if not node.is_sample():
                 assert node.id in posteriors
                 assert len(posteriors[node.id]) == len(posteriors["start_time"])
                 assert np.isclose(np.sum(posteriors[node.id]), 1)

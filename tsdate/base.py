@@ -38,10 +38,9 @@ NODE_IS_HISTORIC_SAMPLE = 1 << 20
 
 class NodeGridValues:
     """
-    A class to store grid values for node ids. For some nodes (fixed ones), only a single
-    value needs to be stored. For non-fixed nodes, an array of grid_size variables
-    is required, e.g. in order to store all the possible values for each of the hidden
-    states in the grid
+    A class to store times or discretised distributions of times for node ids. For nodes
+    with fixed times, only a single time value needs to be stored. For non-fixed nodes,
+    an array of len(timepoints) probabilies is required.
 
     :ivar num_nodes: The number of nodes that will be stored in this object
     :vartype num_nodes: int
@@ -130,7 +129,10 @@ class NodeGridValues:
 
     def normalize(self):
         """
-        normalize grid and fixed data so the max is one
+        normalize grid data so the max is one (in linear space) or zero
+        (in logarithmic space)
+
+        TODO - is it clear why we omit the first element of the
         """
         rowmax = self.grid_data[:, 1:].max(axis=1)
         if self.probability_space == LIN:
@@ -139,6 +141,18 @@ class NodeGridValues:
             self.grid_data = self.grid_data - rowmax[:, np.newaxis]
         else:
             raise RuntimeError("Probability space is not", LIN, "or", LOG)
+
+    def to_probabilities(self):
+        """
+        Change grid data into probabilities (i.e. each row sums to one in linear or zero
+        in logarithmic space)
+        """
+        if self.probability_space != LIN:
+            raise NotImplementedError(
+                "Can only convert to probabilities in linear space"
+            )
+        assert not np.any(self.grid_data < 0)
+        self.grid_data = self.grid_data / self.grid_data.sum(axis=1)[:, np.newaxis]
 
     def __getitem__(self, node_id):
         index = self.row_lookup[node_id]
