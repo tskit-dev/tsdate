@@ -447,7 +447,7 @@ class SpansBySamples:
 
             # A set of the total_num_tips in different trees (used for missing data)
             self.total_fixed_at_0_counts = set(np.unique(total_fixed_at_0_per_tree))
-            # The complete spans for each node, used e.g. for normalising
+            # The complete spans for each node, used e.g. for normalizing
             self.node_spans = node_spans
 
             # Check for remaining undated nodes (all unary ones)
@@ -861,7 +861,7 @@ class SpansBySamples:
             themselves a dictionary where key :math:`k` gives the weight (genomic
             span, normalized by the total span over which the node exists) for
             :math:`k` descendant samples, as a floating point number. For any node,
-            the normalisation means that all the weights should sum to one.
+            the normalization means that all the weights should sum to one.
         :rtype: dict(int, numpy.ndarray)'
         """
         return self.normalized_node_span_data[node]
@@ -986,8 +986,8 @@ def fill_priors(node_parameters, timepoints, ts, Ne, *, prior_distr, progress=Fa
         prior_node = np.divide(prior_node, np.max(prior_node))
         # prior in each epoch
         prior_times[node] = np.concatenate([np.array([0]), np.diff(prior_node)])
-    # normalize so max value is 1
-    prior_times.normalize()
+    # standardize so max value is 1
+    prior_times.standardize()
     return prior_times
 
 

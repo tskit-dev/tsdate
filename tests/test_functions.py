@@ -570,17 +570,17 @@ class TestPriorVals:
 
 
 class TestLikelihoodClass:
-    def poisson(self, param, x, normalize=True):
+    def poisson(self, param, x, standardize=True):
         ll = np.exp(-param) * param**x / scipy.special.factorial(x)
-        if normalize:
+        if standardize:
             return ll / np.max(ll)
         else:
             return ll
 
-    def log_poisson(self, param, x, normalize=True):
+    def log_poisson(self, param, x, standardize=True):
         with np.errstate(divide="ignore"):
             ll = np.log(np.exp(-param) * param**x / scipy.special.factorial(x))
-        if normalize:
+        if standardize:
             return ll - np.max(ll)
         else:
             return ll
@@ -669,8 +669,8 @@ class TestLikelihoodClass:
             (Likelihoods, self.poisson),
             (LogLikelihoods, self.log_poisson),
         ]:
-            for normalize in (True, False):
-                lik = L(ts, grid, mut_rate, eps, normalize=normalize)
+            for standardize in (True, False):
+                lik = L(ts, grid, mut_rate, eps, standardize=standardize)
                 dt = grid
                 for num_threads in (None, 1, 2):
                     n_internal_edges = 0
@@ -691,7 +691,7 @@ class TestLikelihoodClass:
                             expected_lik_dt = pois(
                                 dt * (mut_rate * span),
                                 num_muts,
-                                normalize=normalize,
+                                standardize=standardize,
                             )
                             upper_tri = lik.get_mut_lik_upper_tri(edge)
 
@@ -946,7 +946,7 @@ class TestAlgorithmClass:
 
 
 class TestInsideAlgorithm:
-    def run_inside_algorithm(self, ts, prior_distr, normalize=True, **kwargs):
+    def run_inside_algorithm(self, ts, prior_distr, standardize=True, **kwargs):
         Ne = 0.5
         priors = tsdate.build_prior_grid(
             ts,
@@ -961,7 +961,7 @@ class TestInsideAlgorithm:
         lls = Likelihoods(ts, priors.timepoints, mut_rate, eps=eps)
         lls.precalculate_mutation_likelihoods()
         algo = InOutAlgorithms(priors, lls)
-        algo.inside_pass(normalize=normalize)
+        algo.inside_pass(standardize=standardize)
         return algo, priors
 
     def test_one_tree_n2(self):
@@ -989,7 +989,7 @@ class TestInsideAlgorithm:
 
     def test_two_tree_ts(self):
         ts = utility_functions.two_tree_ts()
-        algo, priors = self.run_inside_algorithm(ts, "gamma", normalize=False)
+        algo, priors = self.run_inside_algorithm(ts, "gamma", standardize=False)
         mut_rate = 0.5
         # priors[3][1] * Ll_(0->3)(1.2 - 0 + eps) ** 2
         node3_t1 = (
@@ -1098,7 +1098,7 @@ class TestInsideAlgorithm:
 
 class TestOutsideAlgorithm:
     def run_outside_algorithm(
-        self, ts, prior_distr="lognorm", normalize=False, ignore_oldest_root=False
+        self, ts, prior_distr="lognorm", standardize=False, ignore_oldest_root=False
     ):
         span_data = SpansBySamples(ts)
         Ne = 0.5
@@ -1113,7 +1113,9 @@ class TestOutsideAlgorithm:
         lls.precalculate_mutation_likelihoods()
         algo = InOutAlgorithms(prior_vals, lls)
         algo.inside_pass()
-        algo.outside_pass(normalize=normalize, ignore_oldest_root=ignore_oldest_root)
+        algo.outside_pass(
+            standardize=standardize, ignore_oldest_root=ignore_oldest_root
+        )
         return algo
 
     def test_one_tree_n2(self):
@@ -1157,17 +1159,17 @@ class TestOutsideAlgorithm:
         with pytest.raises(RuntimeError):
             algo.outside_pass()
 
-    def test_normalize_outside(self):
+    def test_standardize_outside(self):
         ts = msprime.simulate(
             50, Ne=10000, mutation_rate=1e-8, recombination_rate=1e-8, random_seed=12
         )
-        normalize = self.run_outside_algorithm(ts, normalize=True)
-        no_normalize = self.run_outside_algorithm(ts, normalize=False)
+        standardize = self.run_outside_algorithm(ts, standardize=True)
+        no_standardize = self.run_outside_algorithm(ts, standardize=False)
         assert np.allclose(
-            normalize.outside.grid_data[:],
+            standardize.outside.grid_data[:],
             (
-                no_normalize.outside.grid_data[:]
-                / np.max(no_normalize.outside.grid_data[:], axis=1)[:, np.newaxis]
+                no_standardize.outside.grid_data[:]
+                / np.max(no_standardize.outside.grid_data[:], axis=1)[:, np.newaxis]
             ),
         )
 
@@ -1213,7 +1215,7 @@ class TestTotalFunctionalValueTree:
         lls.precalculate_mutation_likelihoods()
         algo = InOutAlgorithms(prior_vals, lls)
         algo.inside_pass()
-        posterior = algo.outside_pass(normalize=False)
+        posterior = algo.outside_pass(standardize=False)
         assert np.array_equal(
             np.sum(algo.inside.grid_data * algo.outside.grid_data, axis=1),
             np.sum(algo.inside.grid_data * algo.outside.grid_data, axis=1),
@@ -1278,11 +1280,11 @@ class TestGilTree:
             prior_vals.grid_data[1] = [0, 0.05, 0.1, 0.2, 0.45, 0.1, 0.1]
             mut_rate = 1
             eps = 0.01
-            lls = Likelihoods(ts, grid, mut_rate, eps=eps, normalize=False)
+            lls = Likelihoods(ts, grid, mut_rate, eps=eps, standardize=False)
             lls.precalculate_mutation_likelihoods()
             algo = InOutAlgorithms(prior_vals, lls)
-            algo.inside_pass(normalize=False, cache_inside=cache_inside)
-            algo.outside_pass(normalize=False)
+            algo.inside_pass(standardize=False, cache_inside=cache_inside)
+            algo.outside_pass(standardize=False)
             assert np.allclose(
                 np.sum(algo.inside.grid_data * algo.outside.grid_data, axis=1),
                 [7.44449e-05, 7.44449e-05],

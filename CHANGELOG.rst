@@ -8,11 +8,15 @@
   individuals, populations, or sites, aiming to change the tree sequence tables as
   little as possible.
 
+- Not strictly breaking, as not in the published API, but the "normalize" flag
+  in ``get_dates`` and the internal ``normalize`` terminology is changed to
+  ``sandardize`` to better reflect the fact that the maximum (not sum) is one.
+
 **Bugfixes**
 
 - The returned posteriors when ``return_posteriors=True`` now return actual
-  probabilities (scaled so that they sum to one) rather than normalised
-  probabilites whose maximum value is one.
+  probabilities (scaled so that they sum to one) rather than standardized
+  "probabilites" whose maximum value is one.
 
 --------------------
 [0.1.5] - 2022-06-07

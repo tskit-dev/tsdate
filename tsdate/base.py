@@ -1,6 +1,7 @@
 # MIT License
 #
-# Copyright (c) 2020 University of Oxford
+# Copyright (c) 2021-23 Tskit Developers
+# Copyright (c) 2020-21 University of Oxford
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -127,9 +128,9 @@ class NodeGridValues:
         else:
             logging.warning("Cannot force", *descr)
 
-    def normalize(self):
+    def standardize(self):
         """
-        normalize grid data so the max is one (in linear space) or zero
+        Standardize grid data so the max for each row is one (in linear space) or zero
         (in logarithmic space)
 
         TODO - is it clear why we omit the first element of the
