@@ -974,9 +974,15 @@ def fill_priors(
     datable_nodes[ts.samples()] = False
     datable_nodes = np.where(datable_nodes)[0]
 
-    coalescent_rate = 1 / (2 * population_size[:, 1])
+    """
+    Convert piecewise constant demographic history to coalescent units,
+    then convert coalescent time grid to generations
+    """
+    _, epoch_start, coalescent_rate = util.change_time_measure(
+        np.array([0]), population_size[:, 0], 2 * population_size[:, 1]
+    )
     generations, _, _ = util.change_time_measure(
-        timepoints, population_size[:, 0], coalescent_rate
+        timepoints, epoch_start, coalescent_rate
     )
 
     prior_times = base.NodeGridValues(
@@ -984,6 +990,7 @@ def fill_priors(
         datable_nodes[np.argsort(ts.tables.nodes.time[datable_nodes])].astype(np.int32),
         generations,
     )
+    print(population_size)
 
     # TO DO - this can probably be done in an single numpy step rather than a for loop
     for node in tqdm(
