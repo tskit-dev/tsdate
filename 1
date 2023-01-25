@@ -31,6 +31,7 @@ import unittest
 import msprime
 import numpy as np
 import pytest
+import scipy
 import scipy.integrate
 import tsinfer
 import tskit
@@ -50,8 +51,8 @@ from tsdate.prior import fill_priors
 from tsdate.prior import gamma_approx
 from tsdate.prior import PriorParams
 from tsdate.prior import SpansBySamples
-from tsdate.util import change_time_measure
 from tsdate.util import nodes_time_unconstrained
+from tsdate.util import change_time_measure
 
 
 class TestBasicFunctions:
@@ -1975,24 +1976,28 @@ class TestRescaleTime:
         Ne = 10000
         coaltime = np.array([0, 1, 2, 3])
         coalstart = np.array([0])
-        coalrate = np.array([1 / (2 * Ne)])
+        coalrate = np.array([1/(2*Ne)])
         gens, _, _ = change_time_measure(coaltime, coalstart, coalrate)
-        assert np.allclose(gens, 2 * coaltime * Ne)
+        assert np.allclose(gens, 2*coaltime*Ne)
 
     def test_piecewise(self):
         Ne = np.array([2000, 3000, 5000])
         start = np.array([0, 4000, 10000])
         gens = np.array([2000, 7000, 15000])
-        coaltime, coalstart, coalrate = change_time_measure(gens, start, 2 * Ne)
+        coaltime, coalstart, coalrate = change_time_measure(
+            gens, start, 2*Ne
+        )
         assert np.allclose(coalstart, np.array([0, 1, 2]))
         assert np.allclose(coaltime, np.array([0.5, 1.5, 2.5]))
-        assert np.allclose(coalrate, 1 / (2 * Ne))
+        assert np.allclose(coalrate, 1/(2*Ne))
 
     def test_piecewise_bijection(self):
         hapNe = np.array([2000, 3000, 5000])
         start = np.array([0, 4000, 10000])
         gens = np.array([500, 7000, 15000])
-        coaltime, coalstart, coalrate = change_time_measure(gens, start, hapNe)
+        coaltime, coalstart, coalrate = change_time_measure(
+            gens, start, hapNe
+        )
         gens_back, start_back, hapNe_back = change_time_measure(
             coaltime, coalstart, coalrate
         )
@@ -2000,15 +2005,17 @@ class TestRescaleTime:
         assert np.allclose(start, start_back)
         assert np.allclose(hapNe, hapNe_back)
 
-    def test_piecewise_numerically(self):
+    def test_piecewise_quadrature(self):
         coalrate = np.array([0.001, 0.01, 0.1])
         coalstart = np.array([0, 1, 2])
         coaltime = np.linspace(0, 3, 10)
-        gens, _, _ = change_time_measure(coaltime, coalstart, coalrate)
+        gens, _, _ = change_time_measure(
+            coaltime, coalstart, coalrate
+        )
         for i in range(gens.size):
-            x, _ = scipy.integrate.quad(
-                lambda t: 1 / coalrate[np.digitize(t, coalstart) - 1],
-                a=0,
-                b=coaltime[i],
+            x = scipy.integrate.quad(
+                lambda t: 1/coalrate[np.digitize(t, coalstart) - 1],
+                lower=0,
+                upper=coaltime[i]
             )
             assert np.isclose(x, gens[i])
