@@ -72,7 +72,6 @@ class ConditionalCoalescentTimes:
     def __init__(
         self,
         precalc_approximation_n,
-        population_size,
         prior_distr="lognorm",
         progress=False,
     ):
@@ -83,7 +82,6 @@ class ConditionalCoalescentTimes:
             and therefore do not allow approximate priors to be used
         """
         self.n_approx = precalc_approximation_n
-        self.population_size = population_size
         self.prior_store = {}
         self.progress = progress
 
@@ -181,8 +179,7 @@ class ConditionalCoalescentTimes:
             priors[1] = PriorParams(alpha=0, beta=1, mean=0, var=0)
         for var, tips in zip(variances, all_tips):
             # NB: it should be possible to vectorize this in numpy
-            var = var * ((2 * self.Ne) ** 2)  # TODO
-            expectation = self.tau_expect(tips, total_tips) * 2 * self.Ne  # TODO
+            expectation = self.tau_expect(tips, total_tips)
             alpha, beta = self.func_approx(expectation, var)
             priors[tips] = PriorParams(
                 alpha=alpha, beta=beta, mean=expectation, var=var
@@ -976,10 +973,15 @@ def fill_priors(
     datable_nodes = np.ones(ts.num_nodes, dtype=bool)
     datable_nodes[ts.samples()] = False
     datable_nodes = np.where(datable_nodes)[0]
+
+    rescaled_timepoints = util.rescale_time_by_population_size(
+        timepoints, population_size
+    )
+
     prior_times = base.NodeGridValues(
         ts.num_nodes,
         datable_nodes[np.argsort(ts.tables.nodes.time[datable_nodes])].astype(np.int32),
-        timepoints,
+        rescaled_timepoints,
     )
 
     # TO DO - this can probably be done in an single numpy step rather than a for loop
@@ -1020,7 +1022,7 @@ def build_grid(
     :param float population_size: The estimated (diploid) effective population
         size: must be specified. May be a single value, or a two-column array with
         epoch breakpoints and effective population sizes. Using standard (unscaled)
-        values for ``population_size`` results in a prior where times are measures
+        values for ``population_size`` results in a prior where times are measured
         in generations.
     :param int_or_array_like timepoints: The number of quantiles used to create the
         time slices, or manually-specified time slices as a numpy array. Default: 20
@@ -1041,9 +1043,34 @@ def build_grid(
         inference and a discretised time grid
     :rtype:  base.NodeGridValues Object
     """
-    # TODO
-    if population_size <= 0:
-        raise ValueError("Parameter 'population_size' must be greater than 0")
+    if isinstance(population_size, np.ndarray):
+        if population_size.ndim != 2:
+            raise ValueError(
+                "Parameter 'population_size' must be a scalar or a 2d array"
+            )
+        if population_size.shape[1] != 2:
+            raise ValueError(
+                "'population_size' array must have two columns that contain \
+                epoch start times and population sizes, respectively"
+            )
+        if np.any(population_size[:, 0] < 0.0):
+            raise ValueError(
+                "Epoch start times in 'population_size' array must be nonnegative"
+            )
+        if np.any(population_size[:, 1] <= 0.0):
+            raise ValueError(
+                "Population sizes in 'population_size' array must be positive "
+            )
+        if population_size[0, 0] != 0:
+            raise ValueError(
+                "The first epoch in 'population_size' array must start at time 0"
+            )
+        if not np.all(np.diff(population_size[:, 0]) > 0):
+            raise ValueError(
+                "Epoch start times 'population_size' array must be unique and increasing"
+            )
+    elif population_size <= 0:
+        raise ValueError("Scalar 'population_size' must be greater than 0")
     if approximate_priors:
         if not approx_prior_size:
             approx_prior_size = 1000
@@ -1062,7 +1089,7 @@ def build_grid(
     span_data = SpansBySamples(contmpr_ts, progress=progress, allow_unary=allow_unary)
 
     base_priors = ConditionalCoalescentTimes(
-        approx_prior_size, population_size, prior_distribution, progress=progress
+        approx_prior_size, prior_distribution, progress=progress
     )
 
     base_priors.add(contmpr_ts.num_samples, approximate_priors)
