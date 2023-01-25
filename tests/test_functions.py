@@ -265,7 +265,7 @@ class TestMakePrior:
     # We only test make_prior() on single trees
     def verify_priors(self, ts, prior_distr):
         # Check prior contains all possible tips
-        priors = ConditionalCoalescentTimes(None, Ne=0.5, prior_distr=prior_distr)
+        priors = ConditionalCoalescentTimes(None, prior_distr=prior_distr)
         priors.add(ts.num_samples)
         priors_df = priors[ts.num_samples]
         assert priors_df.shape[0] == ts.num_samples + 1
@@ -406,7 +406,7 @@ class TestMixturePrior:
 
     def get_mixture_prior_params(self, ts, prior_distr, **kwargs):
         span_data = SpansBySamples(ts, **kwargs)
-        priors = ConditionalCoalescentTimes(None, Ne=0.5, prior_distr=prior_distr)
+        priors = ConditionalCoalescentTimes(None, prior_distr=prior_distr)
         priors.add(ts.num_samples, approximate=False)
         mixture_priors = priors.get_mixture_prior_params(span_data)
         return mixture_priors
@@ -512,8 +512,8 @@ class TestMixturePrior:
 class TestPriorVals:
     def verify_prior_vals(self, ts, prior_distr, **kwargs):
         span_data = SpansBySamples(ts, **kwargs)
-        Ne = 0.5
-        priors = ConditionalCoalescentTimes(None, Ne=Ne, prior_distr=prior_distr)
+        Ne = np.array([[0, 0.5]])
+        priors = ConditionalCoalescentTimes(None, prior_distr=prior_distr)
         priors.add(ts.num_samples, approximate=False)
         grid = np.linspace(0, 3, 3)
         mixture_priors = priors.get_mixture_prior_params(span_data)
@@ -1102,8 +1102,8 @@ class TestOutsideAlgorithm:
         self, ts, prior_distr="lognorm", standardize=False, ignore_oldest_root=False
     ):
         span_data = SpansBySamples(ts)
-        Ne = 0.5
-        priors = ConditionalCoalescentTimes(None, Ne, prior_distr)
+        Ne = np.array([[0, 0.5]])
+        priors = ConditionalCoalescentTimes(None, prior_distr)
         priors.add(ts.num_samples, approximate=False)
         grid = np.array([0, 1.2, 2])
         mixture_priors = priors.get_mixture_prior_params(span_data)
@@ -1205,8 +1205,8 @@ class TestTotalFunctionalValueTree:
     def find_posterior(self, ts, prior_distr):
         grid = np.array([0, 1.2, 2])
         span_data = SpansBySamples(ts)
-        Ne = 0.5
-        priors = ConditionalCoalescentTimes(None, Ne=Ne, prior_distr=prior_distr)
+        Ne = np.array([[0, 0.5]])
+        priors = ConditionalCoalescentTimes(None, prior_distr=prior_distr)
         priors.add(ts.num_samples, approximate=False)
         mixture_priors = priors.get_mixture_prior_params(span_data)
         prior_vals = fill_priors(mixture_priors, grid, ts, Ne, prior_distr=prior_distr)
@@ -1269,13 +1269,13 @@ class TestGilTree:
             ts = utility_functions.gils_example_tree()
             span_data = SpansBySamples(ts)
             prior_distr = "lognorm"
-            Ne = 0.5
-            priors = ConditionalCoalescentTimes(None, Ne, prior_distr=prior_distr)
+            Ne = np.array([[0, 0.5]])
+            priors = ConditionalCoalescentTimes(None, prior_distr=prior_distr)
             priors.add(ts.num_samples, approximate=False)
             grid = np.array([0, 0.1, 0.2, 0.5, 1, 2, 5])
             mixture_prior = priors.get_mixture_prior_params(span_data)
             prior_vals = fill_priors(
-                mixture_prior, grid, ts, 1, prior_distr=prior_distr
+                mixture_prior, grid, ts, Ne, prior_distr=prior_distr
             )
             prior_vals.grid_data[0] = [0, 0.5, 0.3, 0.1, 0.05, 0.02, 0.03]
             prior_vals.grid_data[1] = [0, 0.05, 0.1, 0.2, 0.45, 0.1, 0.1]
@@ -1458,28 +1458,30 @@ class TestDate:
     def test_date_input(self):
         ts = utility_functions.single_tree_ts_n2()
         with pytest.raises(ValueError):
-            tsdate.date(ts, mutation_rate=None, Ne=1, method="foobar")
+            tsdate.date(ts, mutation_rate=None, population_size=1, method="foobar")
 
     def test_sample_as_parent_fails(self):
         ts = utility_functions.single_tree_ts_n3_sample_as_parent()
         with pytest.raises(NotImplementedError):
-            tsdate.date(ts, mutation_rate=None, Ne=1)
+            tsdate.date(ts, mutation_rate=None, population_size=1)
 
     def test_recombination_not_implemented(self):
         ts = utility_functions.single_tree_ts_n2()
         with pytest.raises(NotImplementedError):
-            tsdate.date(ts, mutation_rate=None, Ne=1, recombination_rate=1e-8)
+            tsdate.date(
+                ts, mutation_rate=None, population_size=1, recombination_rate=1e-8
+            )
 
     def test_Ne_and_priors(self):
         ts = utility_functions.single_tree_ts_n2()
         with pytest.raises(ValueError):
-            priors = tsdate.build_prior_grid(ts, Ne=1)
-            tsdate.date(ts, mutation_rate=None, Ne=1, priors=priors)
+            priors = tsdate.build_prior_grid(ts, population_size=1)
+            tsdate.date(ts, mutation_rate=None, population_size=1, priors=priors)
 
     def test_no_Ne_priors(self):
         ts = utility_functions.single_tree_ts_n2()
         with pytest.raises(ValueError):
-            tsdate.date(ts, mutation_rate=None, Ne=None, priors=None)
+            tsdate.date(ts, mutation_rate=None, population_size=None, priors=None)
 
 
 class TestBuildPriorGrid:
@@ -1512,7 +1514,7 @@ class TestBuildPriorGrid:
     def test_bad_Ne(self):
         ts = msprime.simulate(2, random_seed=12)
         with pytest.raises(ValueError):
-            tsdate.build_prior_grid(ts, Ne=-10)
+            tsdate.build_prior_grid(ts, population_size=-10)
 
 
 class TestPosteriorMeanVar:
@@ -1545,8 +1547,10 @@ class TestPosteriorMeanVar:
         larger_ts = msprime.simulate(
             10, mutation_rate=1, recombination_rate=1, length=20, random_seed=12
         )
-        _, mn_post, _, _, eps, _ = get_dates(larger_ts, mutation_rate=None, Ne=10000)
-        dated_ts = date(larger_ts, Ne=10000, mutation_rate=None)
+        _, mn_post, _, _, eps, _ = get_dates(
+            larger_ts, mutation_rate=None, population_size=10000
+        )
+        dated_ts = date(larger_ts, population_size=10000, mutation_rate=None)
         metadata = dated_ts.tables.nodes.metadata
         metadata_offset = dated_ts.tables.nodes.metadata_offset
         unconstrained_mn = [
@@ -1709,7 +1713,7 @@ class TestNodeTimes:
         larger_ts = msprime.simulate(
             10, mutation_rate=1, recombination_rate=1, length=20, random_seed=12
         )
-        dated = date(larger_ts, mutation_rate=None, Ne=10000)
+        dated = date(larger_ts, mutation_rate=None, population_size=10000)
         node_ages = nodes_time_unconstrained(dated)
         assert np.all(dated.tables.nodes.time[:] >= node_ages)
 
@@ -1736,8 +1740,8 @@ class TestSiteTimes:
 
     def test_sites_time_insideoutside(self):
         ts = utility_functions.two_tree_mutation_ts()
-        dated = tsdate.date(ts, mutation_rate=None, Ne=1)
-        _, mn_post, _, _, eps, _ = get_dates(ts, mutation_rate=None, Ne=1)
+        dated = tsdate.date(ts, mutation_rate=None, population_size=1)
+        _, mn_post, _, _, eps, _ = get_dates(ts, mutation_rate=None, population_size=1)
         assert np.array_equal(
             mn_post[ts.tables.mutations.node],
             tsdate.sites_time_from_ts(dated, unconstrained=True, min_time=0),
@@ -1749,7 +1753,9 @@ class TestSiteTimes:
 
     def test_sites_time_maximization(self):
         ts = utility_functions.two_tree_mutation_ts()
-        dated = tsdate.date(ts, Ne=1, mutation_rate=1, method="maximization")
+        dated = tsdate.date(
+            ts, population_size=1, mutation_rate=1, method="maximization"
+        )
         assert np.array_equal(
             dated.tables.nodes.time[ts.tables.mutations.node],
             tsdate.sites_time_from_ts(dated, unconstrained=False, min_time=0),
@@ -1757,7 +1763,7 @@ class TestSiteTimes:
 
     def test_sites_time_node_selection(self):
         ts = utility_functions.two_tree_mutation_ts()
-        dated = tsdate.date(ts, Ne=1, mutation_rate=1)
+        dated = tsdate.date(ts, population_size=1, mutation_rate=1)
         sites_time_child = tsdate.sites_time_from_ts(
             dated, node_selection="child", min_time=0
         )
@@ -1838,8 +1844,10 @@ class TestSiteTimes:
         larger_ts = msprime.simulate(
             10, mutation_rate=1, recombination_rate=1, length=20, random_seed=12
         )
-        _, mn_post, _, _, _, _ = get_dates(larger_ts, mutation_rate=None, Ne=10000)
-        dated = date(larger_ts, mutation_rate=None, Ne=10000)
+        _, mn_post, _, _, _, _ = get_dates(
+            larger_ts, mutation_rate=None, population_size=10000
+        )
+        dated = date(larger_ts, mutation_rate=None, population_size=10000)
         assert np.array_equal(
             mn_post[larger_ts.tables.mutations.node],
             tsdate.sites_time_from_ts(dated, unconstrained=True, min_time=0),
@@ -1944,7 +1952,7 @@ class TestHistoricalExample:
             ts.simplify(ts.samples(time=0), filter_sites=False)
         )
         inferred_ts = tsinfer.infer(modern_samples).simplify(filter_sites=False)
-        dated_ts = tsdate.date(inferred_ts, Ne=1, mutation_rate=1)
+        dated_ts = tsdate.date(inferred_ts, population_size=1, mutation_rate=1)
         site_times = tsdate.sites_time_from_ts(dated_ts)
         # make a sd file with historical individual times
         samples = tsinfer.SampleData.from_tree_sequence(

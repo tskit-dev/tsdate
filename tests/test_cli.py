@@ -50,7 +50,7 @@ class TestTsdateArgParser:
             args = parser.parse_args(["date", self.infile, self.output, "1"])
         assert args.tree_sequence == self.infile
         assert args.output == self.output
-        assert args.Ne == 1
+        assert args.population_size == 1
         assert args.mutation_rate is None
         assert args.recombination_rate is None
         assert args.epsilon == 1e-6
@@ -216,7 +216,7 @@ class TestEndToEnd:
             cli.tsdate_main(full_cmd.split())
             output_ts = tskit.load(output_filename)
         dated_ts = tsdate.date(
-            input_ts, Ne=Ne, mutation_rate=mutation_rate, method=method
+            input_ts, population_size=Ne, mutation_rate=mutation_rate, method=method
         )
         print(dated_ts.tables.nodes.time, output_ts.tables.nodes.time)
         assert np.array_equal(dated_ts.tables.nodes.time, output_ts.tables.nodes.time)

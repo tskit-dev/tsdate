@@ -974,14 +974,15 @@ def fill_priors(
     datable_nodes[ts.samples()] = False
     datable_nodes = np.where(datable_nodes)[0]
 
-    rescaled_timepoints, _, _ = util.change_time_measure(
-        timepoints, population_size[:, 0], 1 / (2 * population_size[:, 1])
+    coalescent_rate = 1 / (2 * population_size[:, 1])
+    generations, _, _ = util.change_time_measure(
+        timepoints, population_size[:, 0], coalescent_rate
     )
 
     prior_times = base.NodeGridValues(
         ts.num_nodes,
         datable_nodes[np.argsort(ts.tables.nodes.time[datable_nodes])].astype(np.int32),
-        rescaled_timepoints,
+        generations,
     )
 
     # TO DO - this can probably be done in an single numpy step rather than a for loop
@@ -1045,9 +1046,7 @@ def build_grid(
     """
     if isinstance(population_size, np.ndarray):
         if population_size.ndim != 2:
-            raise ValueError(
-                "Parameter 'population_size' must be a scalar or a 2d array"
-            )
+            raise ValueError("Array 'population_size' must be two-dimensional")
         if population_size.shape[1] != 2:
             raise ValueError(
                 "Population size array must have two columns that contain \
@@ -1056,14 +1055,14 @@ def build_grid(
         if np.any(population_size[:, 0] < 0.0):
             raise ValueError("Epoch start times must be nonnegative")
         if np.any(population_size[:, 1] <= 0.0):
-            raise ValueError("Population sizes must be positive ")
+            raise ValueError("Population sizes must be positive")
         if population_size[0, 0] != 0:
             raise ValueError("The first epoch must start at time 0")
         if not np.all(np.diff(population_size[:, 0]) > 0):
             raise ValueError("Epoch start times must be unique and increasing")
     else:
         if population_size <= 0:
-            raise ValueError("Scalar 'population_size' must be greater than 0")
+            raise ValueError("Parameter 'population_size' must be greater than 0")
         population_size = np.array([[0, population_size]], dtype=float)
     if approximate_priors:
         if not approx_prior_size:

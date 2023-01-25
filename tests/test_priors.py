@@ -29,7 +29,7 @@ from tsdate.prior import PriorParams
 class TestConditionalCoalescentTimes:
     def test_str(self):
         # Test how a CC times object is printed out (for debug purposes)
-        priors = ConditionalCoalescentTimes(None, 2, "gamma")
+        priors = ConditionalCoalescentTimes(None, "gamma")
         lines = str(priors).split("\n")
         assert len(lines) == 1
         assert "gamma" in lines[0]

@@ -1091,7 +1091,7 @@ def get_dates(
     if priors is None:
         if population_size is None:
             raise ValueError(
-                "Must specify population_size if priors are not already built \
+                "Must specify population size if priors are not already built \
                         using tsdate.build_prior_grid()"
             )
         priors = prior.build_grid(
@@ -1105,7 +1105,7 @@ def get_dates(
         logging.info("Using user-specified priors")
         if population_size is not None:
             raise ValueError(
-                "Cannot specify population_size in tsdate.date() or tsdate.get_dates() \
+                "Cannot specify population size in tsdate.date() or tsdate.get_dates() \
                         if specifying priors from tsdate.build_prior_grid()"
             )
         priors = priors

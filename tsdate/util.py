@@ -304,11 +304,10 @@ def add_sampledata_times(samples, sites_time):
 
 def change_time_measure(time_ago, breakpoints, time_measure):
     """
-    Rescales time given a piecewise-constant time measure (e.g. a piecewise
-    constant demographic history).  To convert from generations to coalescent
-    units, the time measure per epoch should be 2 * effective population size.  To
-    convert from coalescent units to generations, the time measure should be
-    the coalescent rate ``1/(2 * Ne)``.
+    Rescales time given a piecewise-constant time measure. To convert from
+    generations to coalescent units, the time measure per epoch should be 2 *
+    effective population size.  To convert from coalescent units to
+    generations, the time measure should be the coalescent rate ``1/(2 * Ne)``.
 
     :param np.ndarray time_ago: An increasing vector of time points
     :param np.ndarray breakpoints: Start times of pieces
@@ -316,6 +315,10 @@ def change_time_measure(time_ago, breakpoints, time_measure):
 
     :return: Inputs in new time measure
     """
+
+    # TODO: Make this work for arbitrary positive fuctions? Could use
+    # scipy.integrate.quad, but would need to check for convergence;
+    # as it can fail when function is not sufficiently smooth.
 
     assert sorted(breakpoints)
     assert np.min(breakpoints) == 0.0

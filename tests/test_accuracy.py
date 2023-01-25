@@ -104,7 +104,7 @@ class TestAccuracy:
         mu = sim_mutations_parameters["rate"]
 
         dts, posteriors = tsdate.date(
-            ts, Ne=Ne, mutation_rate=mu, return_posteriors=True
+            ts, population_size=Ne, mutation_rate=mu, return_posteriors=True
         )
         # make sure we can read node metadata - old tsdate versions didn't set a schema
         if dts.table_metadata_schemas.node.schema is None:
@@ -139,6 +139,6 @@ class TestAccuracy:
         Test that we are in the right theoretical ballpark given known Ne
         """
         ts = tskit.Tree.generate_comb(2).tree_sequence
-        dts = tsdate.date(ts, Ne=Ne, mutation_rate=None)
+        dts = tsdate.date(ts, population_size=Ne, mutation_rate=None)
         # Check the date is within 10% of the expected
         assert 0.9 < dts.node(dts.first().root).time / (2 * Ne) < 1.1
