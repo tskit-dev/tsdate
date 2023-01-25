@@ -70,7 +70,11 @@ class ConditionalCoalescentTimes:
     """
 
     def __init__(
-        self, precalc_approximation_n, Ne, prior_distr="lognorm", progress=False
+        self,
+        precalc_approximation_n,
+        population_size,
+        prior_distr="lognorm",
+        progress=False,
     ):
         """
         :param bool precalc_approximation_n: the size of tree used for
@@ -79,7 +83,7 @@ class ConditionalCoalescentTimes:
             and therefore do not allow approximate priors to be used
         """
         self.n_approx = precalc_approximation_n
-        self.Ne = Ne
+        self.population_size = population_size
         self.prior_store = {}
         self.progress = progress
 
@@ -177,8 +181,8 @@ class ConditionalCoalescentTimes:
             priors[1] = PriorParams(alpha=0, beta=1, mean=0, var=0)
         for var, tips in zip(variances, all_tips):
             # NB: it should be possible to vectorize this in numpy
-            var = var * ((2 * self.Ne) ** 2)
-            expectation = self.tau_expect(tips, total_tips) * 2 * self.Ne
+            var = var * ((2 * self.Ne) ** 2)  # TODO
+            expectation = self.tau_expect(tips, total_tips) * 2 * self.Ne  # TODO
             alpha, beta = self.func_approx(expectation, var)
             priors[tips] = PriorParams(
                 alpha=alpha, beta=beta, mean=expectation, var=var
@@ -947,7 +951,9 @@ def create_timepoints(base_priors, n_points=21):
     return np.insert(t_set, 0, 0)
 
 
-def fill_priors(node_parameters, timepoints, ts, Ne, *, prior_distr, progress=False):
+def fill_priors(
+    node_parameters, timepoints, ts, population_size, *, prior_distr, progress=False
+):
     """
     Take the alpha and beta values from the node_parameters array, which contains
     one row for each node in the TS (including fixed nodes)
@@ -993,7 +999,7 @@ def fill_priors(node_parameters, timepoints, ts, Ne, *, prior_distr, progress=Fa
 
 def build_grid(
     tree_sequence,
-    Ne,
+    population_size,
     timepoints=20,
     *,
     approximate_priors=False,
@@ -1011,9 +1017,11 @@ def build_grid(
 
     :param TreeSequence tree_sequence: The input :class:`tskit.TreeSequence`, treated as
         undated.
-    :param float Ne: The estimated (diploid) effective population size: must be
-        specified. Using standard (unscaled) values for ``Ne`` results in a prior where
-        times are measures in generations.
+    :param float population_size: The estimated (diploid) effective population
+        size: must be specified. May be a single value, or a two-column array with
+        epoch breakpoints and effective population sizes. Using standard (unscaled)
+        values for ``population_size`` results in a prior where times are measures
+        in generations.
     :param int_or_array_like timepoints: The number of quantiles used to create the
         time slices, or manually-specified time slices as a numpy array. Default: 20
     :param bool approximate_priors: Whether to use a precalculated approximate prior or
@@ -1033,8 +1041,9 @@ def build_grid(
         inference and a discretised time grid
     :rtype:  base.NodeGridValues Object
     """
-    if Ne <= 0:
-        raise ValueError("Parameter 'Ne' must be greater than 0")
+    # TODO
+    if population_size <= 0:
+        raise ValueError("Parameter 'population_size' must be greater than 0")
     if approximate_priors:
         if not approx_prior_size:
             approx_prior_size = 1000
@@ -1053,7 +1062,7 @@ def build_grid(
     span_data = SpansBySamples(contmpr_ts, progress=progress, allow_unary=allow_unary)
 
     base_priors = ConditionalCoalescentTimes(
-        approx_prior_size, Ne, prior_distribution, progress=progress
+        approx_prior_size, population_size, prior_distribution, progress=progress
     )
 
     base_priors.add(contmpr_ts.num_samples, approximate_priors)
@@ -1088,7 +1097,7 @@ def build_grid(
         prior_params,
         timepoints,
         tree_sequence,
-        Ne,
+        population_size,
         prior_distr=prior_distribution,
         progress=progress,
     )

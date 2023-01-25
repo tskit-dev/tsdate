@@ -80,8 +80,11 @@ def tsdate_cli_parser():
         help="The path and name of output file where the dated tree \
                         sequence will saved.",
     )
+    # TODO array specification from file?
     parser.add_argument(
-        "Ne", type=float, help="estimated effective (diploid) population size."
+        "population_size",
+        type=float,
+        help="estimated effective (diploid) population size.",
     )
     parser.add_argument(
         "-m",
@@ -190,7 +193,7 @@ def run_date(args):
     dated_ts = tsdate.date(
         ts,
         args.mutation_rate,
-        args.Ne,
+        args.population_size,
         recombination_rate=args.recombination_rate,
         probability_space=args.probability_space,
         method=args.method,

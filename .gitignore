@@ -9,3 +9,5 @@ tsdate.egg-info
 data/prior_1000df.txt
 *.ipynb
 .ipynb*
+build/
+.*.swp
