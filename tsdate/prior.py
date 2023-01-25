@@ -990,7 +990,6 @@ def fill_priors(
         datable_nodes[np.argsort(ts.tables.nodes.time[datable_nodes])].astype(np.int32),
         generations,
     )
-    print(population_size)
 
     # TO DO - this can probably be done in an single numpy step rather than a for loop
     for node in tqdm(
