@@ -300,3 +300,40 @@ def add_sampledata_times(samples, sites_time):
     copy.sites_time[:] = sites_time
     copy.finalise()
     return copy
+
+
+def change_time_measure(time_ago, breakpoints, time_measure):
+    """
+    Rescales time given a piecewise-constant time measure (e.g. a piecewise
+    constant demographic history).  To convert from generations to coalescent
+    units, the time measure per epoch should be 2 * effective population size.  To
+    convert from coalescent units to generations, the time measure should be
+    the coalescent rate ``1/(2 * Ne)``.
+
+    :param np.ndarray time_ago: An increasing vector of time points
+    :param np.ndarray breakpoints: Start times of pieces
+    :param np.ndarray time_measure: Time measure within pieces
+
+    :return: Inputs in new time measure
+    """
+
+    assert sorted(breakpoints)
+    assert np.min(breakpoints) == 0.0
+    assert np.all(time_ago >= 0.0)
+    assert np.all(time_measure > 0.0)
+
+    index = np.searchsorted(breakpoints, time_ago, side="right") - 1
+    step = np.concatenate(
+        [
+            [0.0],
+            np.cumsum(
+                breakpoints[1:] * (1.0 / time_measure[:-1] - 1.0 / time_measure[1:])
+            ),
+        ]
+    )
+
+    new_time_ago = time_ago * 1.0 / time_measure[index] + step[index]
+    new_breakpoints = breakpoints * 1.0 / time_measure + step
+    new_time_measure = 1.0 / time_measure
+
+    return new_time_ago, new_breakpoints, new_time_measure

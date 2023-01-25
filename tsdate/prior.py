@@ -974,8 +974,8 @@ def fill_priors(
     datable_nodes[ts.samples()] = False
     datable_nodes = np.where(datable_nodes)[0]
 
-    rescaled_timepoints = util.rescale_time_by_population_size(
-        timepoints, population_size
+    rescaled_timepoints, _, _ = util.change_time_measure(
+        timepoints, population_size[:, 0], 1 / (2 * population_size[:, 1])
     )
 
     prior_times = base.NodeGridValues(
@@ -1050,27 +1050,21 @@ def build_grid(
             )
         if population_size.shape[1] != 2:
             raise ValueError(
-                "'population_size' array must have two columns that contain \
+                "Population size array must have two columns that contain \
                 epoch start times and population sizes, respectively"
             )
         if np.any(population_size[:, 0] < 0.0):
-            raise ValueError(
-                "Epoch start times in 'population_size' array must be nonnegative"
-            )
+            raise ValueError("Epoch start times must be nonnegative")
         if np.any(population_size[:, 1] <= 0.0):
-            raise ValueError(
-                "Population sizes in 'population_size' array must be positive "
-            )
+            raise ValueError("Population sizes must be positive ")
         if population_size[0, 0] != 0:
-            raise ValueError(
-                "The first epoch in 'population_size' array must start at time 0"
-            )
+            raise ValueError("The first epoch must start at time 0")
         if not np.all(np.diff(population_size[:, 0]) > 0):
-            raise ValueError(
-                "Epoch start times 'population_size' array must be unique and increasing"
-            )
-    elif population_size <= 0:
-        raise ValueError("Scalar 'population_size' must be greater than 0")
+            raise ValueError("Epoch start times must be unique and increasing")
+    else:
+        if population_size <= 0:
+            raise ValueError("Scalar 'population_size' must be greater than 0")
+        population_size = np.array([[0, population_size]], dtype=float)
     if approximate_priors:
         if not approx_prior_size:
             approx_prior_size = 1000
