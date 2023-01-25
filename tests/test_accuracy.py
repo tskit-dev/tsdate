@@ -142,3 +142,36 @@ class TestAccuracy:
         dts = tsdate.date(ts, population_size=Ne, mutation_rate=None)
         # Check the date is within 10% of the expected
         assert 0.9 < dts.node(dts.first().root).time / (2 * Ne) < 1.1
+
+    @pytest.mark.parametrize(
+        "bkwd_rate, trio_tmrca",
+        [  # calculated from simulations
+            (-1.0, 0.76),
+            (-0.9, 0.79),
+            (-0.8, 0.82),
+            (-0.7, 0.85),
+            (-0.6, 0.89),
+            (-0.5, 0.94),
+            (-0.4, 0.99),
+            (-0.3, 1.05),
+            (-0.2, 1.12),
+            (-0.1, 1.21),
+            (0.0, 1.32),
+        ],
+    )
+    def test_piecewise_scaling(self, bkwd_rate, trio_tmrca):
+        """
+        Test that we are in the right theoretical ballpark given known Ne,
+        under exponential growth.
+
+        Check coalescence time of a trio instead of a pair, because of
+        https://github.com/tskit-dev/tsdate/issues/230
+        """
+        time = np.linspace(0, 10, 100)
+        ne = 0.5 * np.exp(bkwd_rate * time)
+        ts = tskit.Tree.generate_comb(3).tree_sequence
+        dts = tsdate.date(
+            ts, population_size=np.column_stack([time, ne]), mutation_rate=None
+        )
+        # Check the date is within 10% of the expected
+        assert 0.9 < dts.node(dts.first().root).time / trio_tmrca < 1.1
