@@ -69,7 +69,7 @@ class Likelihoods:
         *,
         eps=0,
         fixed_node_set=None,
-        standardize=True,
+        standardize=False,
         progress=False,
     ):
         self.ts = ts
@@ -342,6 +342,12 @@ class Likelihoods:
             ret[np.isnan(ret)] = self.null_constant
         return ret
 
+    def marginalize(self, lik):
+        """
+        Return the sum of likelihoods
+        """
+        return np.sum(lik)
+
     def _recombination_lik(self, edge, fixed=True):
         # Needs to return a lower tri *or* flattened array depending on `fixed`
         raise NotImplementedError(
@@ -481,6 +487,12 @@ class LogLikelihoods(Likelihoods):
         if div_0_null:
             ret[np.isnan(ret)] = self.null_constant
         return ret
+
+    def marginalize(self, loglik):
+        """
+        Return the logged sum of likelihoods
+        """
+        return self.logsumexp(loglik)
 
     def get_inside(self, arr, edge):
         log_liks = self.identity_constant
@@ -700,6 +712,10 @@ class InOutAlgorithms:
                 (self.ts.num_edges, self.lik.grid_size), self.lik.identity_constant
             )
         denominator = np.full(self.ts.num_nodes, np.nan)
+        assert (
+            self.lik.standardize is False
+        ), "Marginal likelihood requires unstandardized mutation likelihoods"
+        marginal_lik = self.lik.identity_constant
         # Iterate through the nodes via groupby on parent node
         for parent, edges in tqdm(
             self.edges_by_parent_asc(),
@@ -744,6 +760,8 @@ class InOutAlgorithms:
                 np.max(val) if standardize else self.lik.identity_constant
             )
             inside[parent] = self.lik.ratio(val, denominator[parent])
+            if standardize:
+                marginal_lik = self.lik.combine(marginal_lik, denominator[parent])
         if cache_inside:
             self.g_i = self.lik.ratio(
                 g_i, denominator[self.ts.tables.edges.child, None]
@@ -751,6 +769,14 @@ class InOutAlgorithms:
         # Keep the results in this object
         self.inside = inside
         self.denominator = denominator
+        # Calculate marginal likelihood
+        for root, span_when_root in self.root_spans.items():
+            spanfrac = span_when_root / self.spans[root]
+            root_val = self.lik.scale_geometric(spanfrac, inside[root])
+            marginal_lik = self.lik.combine(
+                marginal_lik, self.lik.marginalize(root_val)
+            )
+        return marginal_lik
 
     def outside_pass(
         self,
@@ -1179,6 +1205,7 @@ def date(
     *,
     Ne=None,
     return_posteriors=None,
+    return_likelihood=None,
     progress=False,
     **kwargs,
 ):
@@ -1236,6 +1263,10 @@ def date(
         :func:`build_prior_grid`.
     :param bool return_posteriors: If ``True``, instead of returning just a dated tree
         sequence, return a tuple of ``(dated_ts, posteriors)`` (see note above).
+    :param bool return_likelihood: If ``True``, return the log marginal likelihood
+        from the inside algorithm in addition to the dated tree sequence. If
+        ``return_posteriors`` is also ``True``, then the marginal likelihood
+        will be the last element of the tuple.
     :param float eps: Specify minimum distance separating time points. Also specifies
         the error factor in time difference calculations. Default: 1e-6
     :param int num_threads: The number of threads to use. A simpler unthreaded algorithm
@@ -1255,8 +1286,10 @@ def date(
     :param bool progress: Whether to display a progress bar. Default: False
     :param float Ne: Deprecated, use the``population_size`` argument instead.
     :return: A copy of the input tree sequence but with altered node times, or (if
-        ``return_posteriors`` is True) a tuple of that tree sequence plus a dictionary
-        of posterior probabilities from the "inside_outside" estimation ``method``.
+        ``return_posteriors`` or ``return_likelihood`` is True) a tuple of that
+        tree sequence plus a dictionary of posterior probabilities from the
+        "inside_outside" estimation ``method`` and/or the marginal likelihood
+        from the inside algorithm.
     :rtype: tskit.TreeSequence or (tskit.TreeSequence, dict)
     """
     if time_units is None:
@@ -1273,7 +1306,7 @@ def date(
         population_size = demography.PopulationSizeHistory(**population_size)
 
     if method == "variational_gamma":
-        tree_sequence, dates, posteriors, timepoints, eps, nds = variational_dates(
+        tree_sequence, dates, posteriors, timepoints, eps, nds, lik = variational_dates(
             tree_sequence,
             population_size=population_size,
             mutation_rate=mutation_rate,
@@ -1283,7 +1316,7 @@ def date(
             **kwargs,
         )
     else:
-        tree_sequence, dates, posteriors, timepoints, eps, nds = get_dates(
+        tree_sequence, dates, posteriors, timepoints, eps, nds, lik = get_dates(
             tree_sequence,
             population_size=population_size,
             mutation_rate=mutation_rate,
@@ -1315,13 +1348,20 @@ def date(
         **params,
         **kwargs,
     )
+    # TODO: could the likelihood be stored in tree sequence metadata instead?
     if return_posteriors:
         pst = {"start_time": timepoints, "end_time": np.append(timepoints[1:], np.inf)}
         for n in nds:
             pst[n] = None if posteriors is None else posteriors[n]
-        return tables.tree_sequence(), pst
+        if return_likelihood:
+            return tables.tree_sequence(), pst, lik
+        else:
+            return tables.tree_sequence(), pst
     else:
-        return tables.tree_sequence()
+        if return_likelihood:
+            return tables.tree_sequence(), lik
+        else:
+            return tables.tree_sequence()
 
 
 def get_dates(
@@ -1346,7 +1386,8 @@ def get_dates(
     etc. Parameters are identical to the date() method, which calls this method, then
     injects the resulting date estimates into the tree sequence
 
-    :return: a tuple of ``(mn_post, posteriors, timepoints, eps, nodes_to_date)``.
+    :return: a tuple of
+        ``(mn_post, posteriors, timepoints, eps, nodes_to_date, marginal_lik)``.
         If the "inside_outside" method is used, ``posteriors`` will contain the
         posterior probabilities for each node in each time slice, else the returned
         variable will be ``None``.
@@ -1412,7 +1453,7 @@ def get_dates(
         liklhd.precalculate_mutation_likelihoods(num_threads=num_threads)
 
     dynamic_prog = InOutAlgorithms(priors, liklhd, progress=progress)
-    dynamic_prog.inside_pass(cache_inside=False)
+    marginal_likelihood = dynamic_prog.inside_pass(cache_inside=False)
 
     posterior = None
     if method == "inside_outside":
@@ -1443,6 +1484,7 @@ def get_dates(
         priors.timepoints,
         eps,
         priors.nonfixed_nodes,
+        marginal_likelihood,
     )
 
 
@@ -1600,4 +1642,5 @@ def variational_dates(
         np.array([0.0]),
         eps,
         priors.nonfixed_nodes,
+        np.nan,
     )
