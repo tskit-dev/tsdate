@@ -1008,10 +1008,19 @@ def fill_priors(
 
 class MixturePrior:
     """
-    Maps ConditionalCoalescentPrior onto nodes in a tree sequence and creates time-discretized priors
+    Maps ConditionalCoalescentPrior onto nodes in a tree sequence and creates
+    time-discretized priors
     """
 
-    def __init__(self, tree_sequence, approximate_priors=False, approx_prior_size=None, prior_distribution="lognorm", allow_unary=False, progress=False):
+    def __init__(
+        self,
+        tree_sequence,
+        approximate_priors=False,
+        approx_prior_size=None,
+        prior_distribution="lognorm",
+        allow_unary=False,
+        progress=False,
+    ):
 
         if approximate_priors:
             if not approx_prior_size:
@@ -1028,7 +1037,9 @@ class MixturePrior:
                 "Passed tree sequence is not simplified and/or contains "
                 "noncontemporaneous samples"
             )
-        span_data = SpansBySamples(contmpr_ts, progress=progress, allow_unary=allow_unary)
+        span_data = SpansBySamples(
+            contmpr_ts, progress=progress, allow_unary=allow_unary
+        )
 
         base_priors = ConditionalCoalescentTimes(
             approx_prior_size, prior_distribution, progress=progress
@@ -1036,7 +1047,8 @@ class MixturePrior:
 
         base_priors.add(contmpr_ts.num_samples, approximate_priors)
         for total_fixed in span_data.total_fixed_at_0_counts:
-            # For missing data: trees vary in total fixed node count => have different priors
+            # For missing data: trees vary in total fixed node count =>
+            # have different priors
             if total_fixed > 0:
                 base_priors.add(total_fixed, approximate_priors)
         prior_params_contmpr = base_priors.get_mixture_prior_params(span_data)
@@ -1046,7 +1058,6 @@ class MixturePrior:
         self.base_priors = base_priors
         self.tree_sequence = tree_sequence
         self.prior_distribution = prior_distribution
-
 
     def make_discretized_prior(self, population_size, timepoints=20, progress=False):
         """
@@ -1080,7 +1091,9 @@ class MixturePrior:
             timepoints = create_timepoints(self.base_priors, timepoints + 1)
         elif isinstance(timepoints, np.ndarray):
             try:
-                timepoints = np.sort(timepoints.astype(base.FLOAT_DTYPE, casting="safe"))
+                timepoints = np.sort(
+                    timepoints.astype(base.FLOAT_DTYPE, casting="safe")
+                )
             except TypeError:
                 raise TypeError("Timepoints array cannot be converted to float dtype")
             if len(timepoints) < 2:
@@ -1090,7 +1103,9 @@ class MixturePrior:
             elif np.any(np.unique(timepoints, return_counts=True)[1] > 1):
                 raise ValueError("Timepoints cannot have duplicate values")
         else:
-            raise ValueError("time_slices must be an integer or a numpy array of floats")
+            raise ValueError(
+                "time_slices must be an integer or a numpy array of floats"
+            )
 
         # Set all fixed nodes (i.e. samples) to have 0 variance
         priors = fill_priors(
@@ -1113,6 +1128,7 @@ def build_grid(
     approx_prior_size=None,
     prior_distribution="lognorm",
     # Parameters below undocumented
+    eps=1e-6,  # placeholder
     progress=False,
     allow_unary=False,
 ):
@@ -1147,7 +1163,11 @@ def build_grid(
     """
 
     mixture_prior = MixturePrior(
-        tree_sequence, approximate_priors, approx_prior_size, prior_distribution, allow_unary, progress
+        tree_sequence,
+        approximate_priors,
+        approx_prior_size,
+        prior_distribution,
+        allow_unary,
+        progress,
     )
     return mixture_prior.make_discretized_prior(population_size, timepoints)
-
