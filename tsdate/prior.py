@@ -1006,6 +1006,104 @@ def fill_priors(
     return prior_times
 
 
+class MixturePrior:
+    """
+    Maps ConditionalCoalescentPrior onto nodes in a tree sequence and creates time-discretized priors
+    """
+
+    def __init__(self, tree_sequence, approximate_priors=False, approx_prior_size=None, prior_distribution="lognorm", allow_unary=False, progress=False):
+
+        if approximate_priors:
+            if not approx_prior_size:
+                approx_prior_size = 1000
+        else:
+            if approx_prior_size is not None:
+                raise ValueError(
+                    "Can't set approx_prior_size if approximate_prior is False"
+                )
+
+        contmpr_ts, node_map = util.reduce_to_contemporaneous(tree_sequence)
+        if contmpr_ts.num_nodes != tree_sequence.num_nodes:
+            raise ValueError(
+                "Passed tree sequence is not simplified and/or contains "
+                "noncontemporaneous samples"
+            )
+        span_data = SpansBySamples(contmpr_ts, progress=progress, allow_unary=allow_unary)
+
+        base_priors = ConditionalCoalescentTimes(
+            approx_prior_size, prior_distribution, progress=progress
+        )
+
+        base_priors.add(contmpr_ts.num_samples, approximate_priors)
+        for total_fixed in span_data.total_fixed_at_0_counts:
+            # For missing data: trees vary in total fixed node count => have different priors
+            if total_fixed > 0:
+                base_priors.add(total_fixed, approximate_priors)
+        prior_params_contmpr = base_priors.get_mixture_prior_params(span_data)
+
+        # Map the nodes in the prior params back to the node ids in the original ts
+        self.prior_params = prior_params_contmpr[node_map, :]
+        self.base_priors = base_priors
+        self.tree_sequence = tree_sequence
+        self.prior_distribution = prior_distribution
+
+
+    def make_discretized_prior(self, population_size, timepoints=20, progress=False):
+        """
+        Calculate prior grid for a set of timepoints and a population size history
+        """
+
+        if isinstance(population_size, np.ndarray):
+            if population_size.ndim != 2:
+                raise ValueError("Array 'population_size' must be two-dimensional")
+            if population_size.shape[1] != 2:
+                raise ValueError(
+                    "Population size array must have two columns that contain \
+                    epoch start times and population sizes, respectively"
+                )
+            if np.any(population_size[:, 0] < 0.0):
+                raise ValueError("Epoch start times must be nonnegative")
+            if np.any(population_size[:, 1] <= 0.0):
+                raise ValueError("Population sizes must be positive")
+            if population_size[0, 0] != 0:
+                raise ValueError("The first epoch must start at time 0")
+            if not np.all(np.diff(population_size[:, 0]) > 0):
+                raise ValueError("Epoch start times must be unique and increasing")
+        else:
+            if population_size <= 0:
+                raise ValueError("Parameter 'population_size' must be greater than 0")
+            population_size = np.array([[0, population_size]], dtype=float)
+
+        if isinstance(timepoints, int):
+            if timepoints < 2:
+                raise ValueError("You must have at least 2 time points")
+            timepoints = create_timepoints(self.base_priors, timepoints + 1)
+        elif isinstance(timepoints, np.ndarray):
+            try:
+                timepoints = np.sort(timepoints.astype(base.FLOAT_DTYPE, casting="safe"))
+            except TypeError:
+                raise TypeError("Timepoints array cannot be converted to float dtype")
+            if len(timepoints) < 2:
+                raise ValueError("You must have at least 2 time points")
+            elif np.any(timepoints < 0):
+                raise ValueError("Timepoints cannot be negative")
+            elif np.any(np.unique(timepoints, return_counts=True)[1] > 1):
+                raise ValueError("Timepoints cannot have duplicate values")
+        else:
+            raise ValueError("time_slices must be an integer or a numpy array of floats")
+
+        # Set all fixed nodes (i.e. samples) to have 0 variance
+        priors = fill_priors(
+            self.prior_params,
+            timepoints,
+            self.tree_sequence,
+            population_size,
+            prior_distr=self.prior_distribution,
+            progress=progress,
+        )
+        return priors
+
+
 def build_grid(
     tree_sequence,
     population_size,
@@ -1014,7 +1112,6 @@ def build_grid(
     approximate_priors=False,
     approx_prior_size=None,
     prior_distribution="lognorm",
-    eps=1e-6,
     # Parameters below undocumented
     progress=False,
     allow_unary=False,
@@ -1044,87 +1141,13 @@ def build_grid(
         better fit, but slightly slower to calculate) or "gamma" for the gamma
         distribution (slightly faster, but a poorer fit for recent nodes). Default:
         "lognorm"
-    :param float eps: Specify minimum distance separating points in the time grid. Also
-        specifies the error factor in time difference calculations. Default: 1e-6
     :return: A prior object to pass to tsdate.date() containing prior values for
         inference and a discretised time grid
     :rtype:  base.NodeGridValues Object
     """
-    if isinstance(population_size, np.ndarray):
-        if population_size.ndim != 2:
-            raise ValueError("Array 'population_size' must be two-dimensional")
-        if population_size.shape[1] != 2:
-            raise ValueError(
-                "Population size array must have two columns that contain \
-                epoch start times and population sizes, respectively"
-            )
-        if np.any(population_size[:, 0] < 0.0):
-            raise ValueError("Epoch start times must be nonnegative")
-        if np.any(population_size[:, 1] <= 0.0):
-            raise ValueError("Population sizes must be positive")
-        if population_size[0, 0] != 0:
-            raise ValueError("The first epoch must start at time 0")
-        if not np.all(np.diff(population_size[:, 0]) > 0):
-            raise ValueError("Epoch start times must be unique and increasing")
-    else:
-        if population_size <= 0:
-            raise ValueError("Parameter 'population_size' must be greater than 0")
-        population_size = np.array([[0, population_size]], dtype=float)
-    if approximate_priors:
-        if not approx_prior_size:
-            approx_prior_size = 1000
-    else:
-        if approx_prior_size is not None:
-            raise ValueError(
-                "Can't set approx_prior_size if approximate_prior is False"
-            )
 
-    contmpr_ts, node_map = util.reduce_to_contemporaneous(tree_sequence)
-    if contmpr_ts.num_nodes != tree_sequence.num_nodes:
-        raise ValueError(
-            "Passed tree sequence is not simplified and/or contains "
-            "noncontemporaneous samples"
-        )
-    span_data = SpansBySamples(contmpr_ts, progress=progress, allow_unary=allow_unary)
-
-    base_priors = ConditionalCoalescentTimes(
-        approx_prior_size, prior_distribution, progress=progress
+    mixture_prior = MixturePrior(
+        tree_sequence, approximate_priors, approx_prior_size, prior_distribution, allow_unary, progress
     )
+    return mixture_prior.make_discretized_prior(population_size, timepoints)
 
-    base_priors.add(contmpr_ts.num_samples, approximate_priors)
-    for total_fixed in span_data.total_fixed_at_0_counts:
-        # For missing data: trees vary in total fixed node count => have different priors
-        if total_fixed > 0:
-            base_priors.add(total_fixed, approximate_priors)
-
-    if isinstance(timepoints, int):
-        if timepoints < 2:
-            raise ValueError("You must have at least 2 time points")
-        timepoints = create_timepoints(base_priors, timepoints + 1)
-    elif isinstance(timepoints, np.ndarray):
-        try:
-            timepoints = np.sort(timepoints.astype(base.FLOAT_DTYPE, casting="safe"))
-        except TypeError:
-            raise TypeError("Timepoints array cannot be converted to float dtype")
-        if len(timepoints) < 2:
-            raise ValueError("You must have at least 2 time points")
-        elif np.any(timepoints < 0):
-            raise ValueError("Timepoints cannot be negative")
-        elif np.any(np.unique(timepoints, return_counts=True)[1] > 1):
-            raise ValueError("Timepoints cannot have duplicate values")
-    else:
-        raise ValueError("time_slices must be an integer or a numpy array of floats")
-
-    prior_params_contmpr = base_priors.get_mixture_prior_params(span_data)
-    # Map the nodes in the prior params back to the node ids in the original ts
-    prior_params = prior_params_contmpr[node_map, :]
-    # Set all fixed nodes (i.e. samples) to have 0 variance
-    priors = fill_priors(
-        prior_params,
-        timepoints,
-        tree_sequence,
-        population_size,
-        prior_distr=prior_distribution,
-        progress=progress,
-    )
-    return priors
