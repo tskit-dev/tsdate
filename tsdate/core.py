@@ -937,6 +937,7 @@ def date(
     time_units=None,
     priors=None,
     *,
+    Ne=None,
     return_posteriors=None,
     progress=False,
     **kwargs,
@@ -966,12 +967,12 @@ def date(
 
     :param TreeSequence tree_sequence: The input :class:`tskit.TreeSequence`, treated as
         one whose non-sample nodes are undated.
-    :param float population_size: The estimated (diploid) effective population
-        size used to construct the (default) conditional coalescent prior. This may
-        be a single value, or a two-column array of epoch breakpoints and effective
-        population sizes within epochs. These are used when ``priors`` is ``None``.
-        Conversely, if ``priors`` is not ``None``, no ``population_size`` value
-        should be given.
+    :param PopulationSizeHistory population_size: The estimated (diploid) effective
+        population size used to construct the (default) conditional coalescent
+        prior. This may be a single value (for a population with constant size), or
+        a :class:`PopulationSizeHistory` object (for a population with time-varying
+        size). This is used when ``priors`` is ``None``.  Conversely, if ``priors``
+        is not ``None``, no ``population_size`` value should be given.
     :param float mutation_rate: The estimated mutation rate per unit of genome per
         unit time. If provided, the dating algorithm will use a mutation rate clock to
         help estimate node dates. Default: ``None``
@@ -1009,6 +1010,11 @@ def date(
         Ignoring outside root provides greater stability when dating tree sequences
         inferred from real data. Default: False
     :param bool progress: Whether to display a progress bar. Default: False
+    :param float Ne: the estimated (diploid) effective population size used to
+        construct the (default) conditional coalescent prior. This is used when
+        ``priors`` is ``None``.  Conversely, if ``priors`` is not ``None``, no
+        ``population_size`` value should be given.  (Deprecated, use the
+        ``population_size`` argument instead).
     :return: A copy of the input tree sequence but with altered node times, or (if
         ``return_posteriors`` is True) a tuple of that tree sequence plus a dictionary
         of posterior probabilities from the "inside_outside" estimation ``method``.
@@ -1016,6 +1022,13 @@ def date(
     """
     if time_units is None:
         time_units = "generations"
+    if Ne is not None:
+        if population_size is not None:
+            raise ValueError(
+                "Only one of Ne (deprecated) or population_size may be specified"
+            )
+        else:
+            population_size = Ne
     tree_sequence, dates, posteriors, timepoints, eps, nds = get_dates(
         tree_sequence,
         population_size=population_size,

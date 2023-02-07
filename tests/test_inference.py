@@ -35,6 +35,7 @@ import utility_functions
 import tsdate
 from tsdate.base import LIN
 from tsdate.base import LOG
+from tsdate.demography import PopulationSizeHistory
 
 
 class TestPrebuilt(unittest.TestCase):
@@ -58,6 +59,14 @@ class TestPrebuilt(unittest.TestCase):
         for Ne in [0, -1]:
             with pytest.raises(ValueError, match="greater than 0"):
                 tsdate.date(ts, mutation_rate=None, population_size=Ne)
+
+    def test_both_ne_and_population_size_specified(self):
+        ts = utility_functions.two_tree_mutation_ts()
+        with pytest.raises(ValueError, match="may be specified"):
+            tsdate.date(
+                ts, mutation_rate=None, population_size=PopulationSizeHistory(1), Ne=1
+            )
+        tsdate.date(ts, mutation_rate=None, Ne=PopulationSizeHistory(1))
 
     def test_dangling_failure(self):
         ts = utility_functions.single_tree_ts_n2_dangling()
