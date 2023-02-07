@@ -55,24 +55,9 @@ class TestPrebuilt(unittest.TestCase):
 
     def test_bad_population_size(self):
         ts = utility_functions.two_tree_mutation_ts()
-        with pytest.raises(ValueError, match="greater than 0"):
-            tsdate.date(ts, mutation_rate=None, population_size=0)
-        with pytest.raises(ValueError, match="greater than 0"):
-            tsdate.date(ts, mutation_rate=None, population_size=-1)
-        with pytest.raises(ValueError, match="two-dimensional"):
-            tsdate.date(ts, mutation_rate=None, population_size=np.array([[[1]]]))
-        with pytest.raises(ValueError, match="two columns"):
-            tsdate.date(ts, mutation_rate=None, population_size=np.array([[1]]))
-        with pytest.raises(ValueError, match="nonnegative"):
-            tsdate.date(ts, mutation_rate=None, population_size=np.array([[-1, 1]]))
-        with pytest.raises(ValueError, match="positive"):
-            tsdate.date(ts, mutation_rate=None, population_size=np.array([[0, 0]]))
-        with pytest.raises(ValueError, match="start at time 0"):
-            tsdate.date(ts, mutation_rate=None, population_size=np.array([[1, 1]]))
-        with pytest.raises(ValueError, match="unique and increasing"):
-            tsdate.date(
-                ts, mutation_rate=None, population_size=np.array([[0, 1], [0, 1]])
-            )
+        for Ne in [0, -1]:
+            with pytest.raises(ValueError, match="greater than 0"):
+                tsdate.date(ts, mutation_rate=None, population_size=Ne)
 
     def test_dangling_failure(self):
         ts = utility_functions.single_tree_ts_n2_dangling()

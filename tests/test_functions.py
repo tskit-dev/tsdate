@@ -45,12 +45,12 @@ from tsdate.core import InOutAlgorithms
 from tsdate.core import Likelihoods
 from tsdate.core import LogLikelihoods
 from tsdate.core import posterior_mean_var
+from tsdate.demography import PopulationSizeHistory
 from tsdate.prior import ConditionalCoalescentTimes
 from tsdate.prior import fill_priors
 from tsdate.prior import gamma_approx
 from tsdate.prior import PriorParams
 from tsdate.prior import SpansBySamples
-from tsdate.util import change_time_measure
 from tsdate.util import nodes_time_unconstrained
 
 
@@ -512,7 +512,7 @@ class TestMixturePrior:
 class TestPriorVals:
     def verify_prior_vals(self, ts, prior_distr, **kwargs):
         span_data = SpansBySamples(ts, **kwargs)
-        Ne = np.array([[0, 0.5]])
+        Ne = PopulationSizeHistory(0.5)
         priors = ConditionalCoalescentTimes(None, prior_distr=prior_distr)
         priors.add(ts.num_samples, approximate=False)
         grid = np.linspace(0, 3, 3)
@@ -1102,7 +1102,7 @@ class TestOutsideAlgorithm:
         self, ts, prior_distr="lognorm", standardize=False, ignore_oldest_root=False
     ):
         span_data = SpansBySamples(ts)
-        Ne = np.array([[0, 0.5]])
+        Ne = PopulationSizeHistory(0.5)
         priors = ConditionalCoalescentTimes(None, prior_distr)
         priors.add(ts.num_samples, approximate=False)
         grid = np.array([0, 1.2, 2])
@@ -1205,7 +1205,7 @@ class TestTotalFunctionalValueTree:
     def find_posterior(self, ts, prior_distr):
         grid = np.array([0, 1.2, 2])
         span_data = SpansBySamples(ts)
-        Ne = np.array([[0, 0.5]])
+        Ne = PopulationSizeHistory(0.5)
         priors = ConditionalCoalescentTimes(None, prior_distr=prior_distr)
         priors.add(ts.num_samples, approximate=False)
         mixture_priors = priors.get_mixture_prior_params(span_data)
@@ -1269,7 +1269,7 @@ class TestGilTree:
             ts = utility_functions.gils_example_tree()
             span_data = SpansBySamples(ts)
             prior_distr = "lognorm"
-            Ne = np.array([[0, 0.5]])
+            Ne = PopulationSizeHistory(0.5)
             priors = ConditionalCoalescentTimes(None, prior_distr=prior_distr)
             priors.add(ts.num_samples, approximate=False)
             grid = np.array([0, 0.1, 0.2, 0.5, 1, 2, 5])
@@ -1978,41 +1978,49 @@ class TestHistoricalExample:
         )
 
 
-class TestRescaleTime:
-    def test_rescale(self):
+class TestPopulationSizeHistory:
+    def test_change_time_measure_scalar(self):
         Ne = 10000
         coaltime = np.array([0, 1, 2, 3])
         coalstart = np.array([0])
         coalrate = np.array([1 / (2 * Ne)])
-        gens, _, _ = change_time_measure(coaltime, coalstart, coalrate)
+        gens, _, _ = PopulationSizeHistory._change_time_measure(
+            coaltime, coalstart, coalrate
+        )
         assert np.allclose(gens, 2 * coaltime * Ne)
 
-    def test_piecewise(self):
+    def test_change_time_measure_piecewise(self):
         Ne = np.array([2000, 3000, 5000])
         start = np.array([0, 4000, 10000])
         gens = np.array([2000, 7000, 15000])
-        coaltime, coalstart, coalrate = change_time_measure(gens, start, 2 * Ne)
+        coaltime, coalstart, coalrate = PopulationSizeHistory._change_time_measure(
+            gens, start, 2 * Ne
+        )
         assert np.allclose(coalstart, np.array([0, 1, 2]))
         assert np.allclose(coaltime, np.array([0.5, 1.5, 2.5]))
         assert np.allclose(coalrate, 1 / (2 * Ne))
 
-    def test_piecewise_bijection(self):
+    def test_change_time_measure_bijection(self):
         hapNe = np.array([2000, 3000, 5000])
         start = np.array([0, 4000, 10000])
         gens = np.array([500, 7000, 15000])
-        coaltime, coalstart, coalrate = change_time_measure(gens, start, hapNe)
-        gens_back, start_back, hapNe_back = change_time_measure(
+        coaltime, coalstart, coalrate = PopulationSizeHistory._change_time_measure(
+            gens, start, hapNe
+        )
+        gens_back, start_back, hapNe_back = PopulationSizeHistory._change_time_measure(
             coaltime, coalstart, coalrate
         )
         assert np.allclose(gens, gens_back)
         assert np.allclose(start, start_back)
         assert np.allclose(hapNe, hapNe_back)
 
-    def test_piecewise_numerically(self):
+    def test_change_time_measure_numerically(self):
         coalrate = np.array([0.001, 0.01, 0.1])
         coalstart = np.array([0, 1, 2])
         coaltime = np.linspace(0, 3, 10)
-        gens, _, _ = change_time_measure(coaltime, coalstart, coalrate)
+        gens, _, _ = PopulationSizeHistory._change_time_measure(
+            coaltime, coalstart, coalrate
+        )
         for i in range(gens.size):
             x, _ = scipy.integrate.quad(
                 lambda t: 1 / coalrate[np.digitize(t, coalstart) - 1],
@@ -2020,3 +2028,45 @@ class TestRescaleTime:
                 b=coaltime[i],
             )
             assert np.isclose(x, gens[i])
+
+    def test_to_coalescent_timescale(self):
+        demography = PopulationSizeHistory(
+            np.array([1000, 2000, 3000]), np.array([500, 2500])
+        )
+        coaltime = demography.to_coalescent_timescale(np.array([250, 1500]))
+        assert np.allclose(coaltime, [0.125, 0.5])
+
+    def test_to_natural_timescale(self):
+        demography = PopulationSizeHistory(
+            np.array([1000, 2000, 3000]), np.array([500, 2500])
+        )
+        time = demography.to_natural_timescale(np.array([0.125, 0.5]))
+        assert np.allclose(time, [250, 1500])
+
+    def test_single_epoch(self):
+        for Ne in [10000, np.array([10000])]:
+            demography = PopulationSizeHistory(Ne)
+            time = demography.to_natural_timescale(np.array([0, 1, 2, 3]))
+            assert np.allclose(time, [0.0, 20000, 40000, 60000])
+
+    def test_bad_arguments(self):
+        with pytest.raises(ValueError, match="a numpy array"):
+            PopulationSizeHistory([1])
+        with pytest.raises(ValueError, match="a numpy array"):
+            PopulationSizeHistory(np.array([1, 1]), [1])
+        with pytest.raises(ValueError, match="must be greater than 0"):
+            PopulationSizeHistory(0)
+        with pytest.raises(ValueError, match="must be greater than 0"):
+            PopulationSizeHistory(np.array([0, 0]), np.array([1]))
+        with pytest.raises(ValueError, match="must be greater than 0"):
+            PopulationSizeHistory(np.array([1, 1]), np.array([0]))
+        with pytest.raises(ValueError, match="one less than the number"):
+            PopulationSizeHistory(np.array([1]), np.array([1]))
+        with pytest.raises(ValueError, match="increasing order"):
+            PopulationSizeHistory(np.array([1, 1, 1]), np.array([2, 1]))
+        demography = PopulationSizeHistory(1)
+        for time in [1, [1]]:
+            with pytest.raises(ValueError, match="a numpy array"):
+                demography.to_natural_timescale(time)
+            with pytest.raises(ValueError, match="a numpy array"):
+                demography.to_coalescent_timescale(time)

@@ -36,6 +36,7 @@ from tqdm import tqdm
 
 from . import base
 from . import cache
+from . import demography
 from . import provenance
 from . import util
 
@@ -974,21 +975,11 @@ def fill_priors(
     datable_nodes[ts.samples()] = False
     datable_nodes = np.where(datable_nodes)[0]
 
-    """
-    Convert piecewise constant demographic history to coalescent units,
-    then convert coalescent time grid to generations
-    """
-    _, epoch_start, coalescent_rate = util.change_time_measure(
-        np.array([0]), population_size[:, 0], 2 * population_size[:, 1]
-    )
-    generations, _, _ = util.change_time_measure(
-        timepoints, epoch_start, coalescent_rate
-    )
-
+    # convert coalescent time grid to generations
     prior_times = base.NodeGridValues(
         ts.num_nodes,
         datable_nodes[np.argsort(ts.tables.nodes.time[datable_nodes])].astype(np.int32),
-        generations,
+        population_size.to_natural_timescale(timepoints),
     )
 
     # TO DO - this can probably be done in an single numpy step rather than a for loop
@@ -1064,26 +1055,8 @@ class MixturePrior:
         Calculate prior grid for a set of timepoints and a population size history
         """
 
-        if isinstance(population_size, np.ndarray):
-            if population_size.ndim != 2:
-                raise ValueError("Array 'population_size' must be two-dimensional")
-            if population_size.shape[1] != 2:
-                raise ValueError(
-                    "Population size array must have two columns that contain \
-                    epoch start times and population sizes, respectively"
-                )
-            if np.any(population_size[:, 0] < 0.0):
-                raise ValueError("Epoch start times must be nonnegative")
-            if np.any(population_size[:, 1] <= 0.0):
-                raise ValueError("Population sizes must be positive")
-            if population_size[0, 0] != 0:
-                raise ValueError("The first epoch must start at time 0")
-            if not np.all(np.diff(population_size[:, 0]) > 0):
-                raise ValueError("Epoch start times must be unique and increasing")
-        else:
-            if population_size <= 0:
-                raise ValueError("Parameter 'population_size' must be greater than 0")
-            population_size = np.array([[0, population_size]], dtype=float)
+        if isinstance(population_size, (int, float, np.ndarray)):
+            population_size = demography.PopulationSizeHistory(population_size)
 
         if isinstance(timepoints, int):
             if timepoints < 2:

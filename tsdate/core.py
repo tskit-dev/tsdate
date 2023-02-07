@@ -1032,16 +1032,11 @@ def date(
     # Remove any times associated with mutations
     tables.mutations.time = np.full(tree_sequence.num_mutations, tskit.UNKNOWN_TIME)
     tables.sort()
-    population_size_provenance = (
-        population_size.tolist()
-        if isinstance(population_size, np.ndarray)
-        else population_size
-    )
+    # TODO: record population_size provenance, or record that it is omitted
     provenance.record_provenance(
         tables,
         "date",
         mutation_rate=mutation_rate,
-        population_size=population_size_provenance,
         recombination_rate=recombination_rate,
         progress=progress,
         **kwargs,

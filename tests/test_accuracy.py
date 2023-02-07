@@ -170,8 +170,7 @@ class TestAccuracy:
         time = np.linspace(0, 10, 100)
         ne = 0.5 * np.exp(bkwd_rate * time)
         ts = tskit.Tree.generate_comb(3).tree_sequence
-        dts = tsdate.date(
-            ts, population_size=np.column_stack([time, ne]), mutation_rate=None
-        )
+        demo = tsdate.demography.PopulationSizeHistory(ne, time[1:])
+        dts = tsdate.date(ts, population_size=demo, mutation_rate=None)
         # Check the date is within 10% of the expected
         assert 0.9 < dts.node(dts.first().root).time / trio_tmrca < 1.1
