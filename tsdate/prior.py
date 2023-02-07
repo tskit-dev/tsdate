@@ -958,7 +958,12 @@ def fill_priors(
     and fill out a NodeGridValues object with the prior values from the
     gamma or lognormal distribution with those parameters.
 
+    The `population_size` can be a scalar, or an object with a `.to_natural_timescale`
+    method used to map from coalescent to generational timescale.
+
     TODO - what if there is an internal fixed node? Should we truncate
+
+    TODO - support times scaled by generation length?
     """
     if prior_distr == "lognorm":
         cdf_func = scipy.stats.lognorm.cdf
@@ -975,7 +980,10 @@ def fill_priors(
     datable_nodes[ts.samples()] = False
     datable_nodes = np.where(datable_nodes)[0]
 
-    # convert coalescent time grid to generations
+    if isinstance(population_size, (int, float, np.ndarray)):
+        population_size = demography.PopulationSizeHistory(population_size)
+
+    # convert coalescent time grid to generational time scale
     prior_times = base.NodeGridValues(
         ts.num_nodes,
         datable_nodes[np.argsort(ts.tables.nodes.time[datable_nodes])].astype(np.int32),
@@ -1054,9 +1062,6 @@ class MixturePrior:
         """
         Calculate prior grid for a set of timepoints and a population size history
         """
-
-        if isinstance(population_size, (int, float, np.ndarray)):
-            population_size = demography.PopulationSizeHistory(population_size)
 
         if isinstance(timepoints, int):
             if timepoints < 2:
