@@ -932,11 +932,12 @@ def constrain_ages_topo(ts, post_mn, eps, nodes_to_date=None, progress=False):
 def date(
     tree_sequence,
     mutation_rate,
-    Ne=None,
+    population_size=None,
     recombination_rate=None,
     time_units=None,
     priors=None,
     *,
+    Ne=None,
     return_posteriors=None,
     progress=False,
     **kwargs,
@@ -966,10 +967,12 @@ def date(
 
     :param TreeSequence tree_sequence: The input :class:`tskit.TreeSequence`, treated as
         one whose non-sample nodes are undated.
-    :param float Ne: The estimated (diploid) effective population size used to construct
-        the (default) conditional coalescent prior. This is what is used when ``priors``
-        is ``None``: a positive ``Ne`` value is therefore required in this case.
-        Conversely, if ``priors`` is not ``None``, no ``Ne`` value should be given.
+    :param PopulationSizeHistory population_size: The estimated (diploid) effective
+        population size used to construct the (default) conditional coalescent
+        prior. This may be a single value (for a population with constant size), or
+        a :class:`PopulationSizeHistory` object (for a population with time-varying
+        size). This is used when ``priors`` is ``None``.  Conversely, if ``priors``
+        is not ``None``, no ``population_size`` value should be given.
     :param float mutation_rate: The estimated mutation rate per unit of genome per
         unit time. If provided, the dating algorithm will use a mutation rate clock to
         help estimate node dates. Default: ``None``
@@ -979,12 +982,12 @@ def date(
     :param str time_units: The time units used by the ``mutation_rate`` and
         ``recombination_rate`` values, and stored in the ``time_units`` attribute of the
         output tree sequence. If the conditional coalescent prior is used,
-        then this is also applies to the value of ``Ne``, which in standard coalescent
-        theory is measured in generations. Therefore if you wish to use mutation and
-        recombination rates measured in (say) years, and are using the conditional
-        coalescent prior, the ``Ne`` value which you provide must be scaled by
-        multiplying by the number of years per generation. If ``None`` (default), assume
-        ``"generations"``.
+        then this is also applies to the value of ``population_size``, which in
+        standard coalescent theory is measured in generations. Therefore if you
+        wish to use mutation and recombination rates measured in (say) years,
+        and are using the conditional coalescent prior, the ``population_size``
+        value which you provide must be scaled by multiplying by the number of
+        years per generation. If ``None`` (default), assume ``"generations"``.
     :param NodeGridValues priors: NodeGridValue object containing the prior probabilities
         for each node at a set of discrete time points. If ``None`` (default), use the
         conditional coalescent prior with a standard set of time points as given by
@@ -1007,6 +1010,11 @@ def date(
         Ignoring outside root provides greater stability when dating tree sequences
         inferred from real data. Default: False
     :param bool progress: Whether to display a progress bar. Default: False
+    :param float Ne: the estimated (diploid) effective population size used to
+        construct the (default) conditional coalescent prior. This is used when
+        ``priors`` is ``None``.  Conversely, if ``priors`` is not ``None``, no
+        ``population_size`` value should be given.  (Deprecated, use the
+        ``population_size`` argument instead).
     :return: A copy of the input tree sequence but with altered node times, or (if
         ``return_posteriors`` is True) a tuple of that tree sequence plus a dictionary
         of posterior probabilities from the "inside_outside" estimation ``method``.
@@ -1014,9 +1022,16 @@ def date(
     """
     if time_units is None:
         time_units = "generations"
+    if Ne is not None:
+        if population_size is not None:
+            raise ValueError(
+                "Only one of Ne (deprecated) or population_size may be specified"
+            )
+        else:
+            population_size = Ne
     tree_sequence, dates, posteriors, timepoints, eps, nds = get_dates(
         tree_sequence,
-        Ne=Ne,
+        population_size=population_size,
         mutation_rate=mutation_rate,
         recombination_rate=recombination_rate,
         priors=priors,
@@ -1030,11 +1045,11 @@ def date(
     # Remove any times associated with mutations
     tables.mutations.time = np.full(tree_sequence.num_mutations, tskit.UNKNOWN_TIME)
     tables.sort()
+    # TODO: record population_size provenance, or record that it is omitted
     provenance.record_provenance(
         tables,
         "date",
         mutation_rate=mutation_rate,
-        Ne=Ne,
         recombination_rate=recombination_rate,
         progress=progress,
         **kwargs,
@@ -1051,7 +1066,7 @@ def date(
 def get_dates(
     tree_sequence,
     mutation_rate,
-    Ne=None,
+    population_size=None,
     recombination_rate=None,
     priors=None,
     *,
@@ -1087,24 +1102,24 @@ def get_dates(
         approx_priors = True
 
     if priors is None:
-        if Ne is None:
+        if population_size is None:
             raise ValueError(
-                "Must specify Ne if priors are not already built using \
-                        tsdate.build_prior_grid()"
+                "Must specify population size if priors are not already built \
+                        using tsdate.build_prior_grid()"
             )
         priors = prior.build_grid(
             tree_sequence,
-            Ne=Ne,
+            population_size=population_size,
             eps=eps,
             progress=progress,
             approximate_priors=approx_priors,
         )
     else:
         logging.info("Using user-specified priors")
-        if Ne is not None:
+        if population_size is not None:
             raise ValueError(
-                "Cannot specify Ne in tsdate.date() or tsdate.get_dates() if \
-                        specifying priors from tsdate.build_prior_grid()"
+                "Cannot specify population size in tsdate.date() or tsdate.get_dates() \
+                        if specifying priors from tsdate.build_prior_grid()"
             )
         priors = priors
 

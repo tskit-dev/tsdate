@@ -36,6 +36,7 @@ from tqdm import tqdm
 
 from . import base
 from . import cache
+from . import demography
 from . import provenance
 from . import util
 
@@ -70,7 +71,10 @@ class ConditionalCoalescentTimes:
     """
 
     def __init__(
-        self, precalc_approximation_n, Ne, prior_distr="lognorm", progress=False
+        self,
+        precalc_approximation_n,
+        prior_distr="lognorm",
+        progress=False,
     ):
         """
         :param bool precalc_approximation_n: the size of tree used for
@@ -79,7 +83,6 @@ class ConditionalCoalescentTimes:
             and therefore do not allow approximate priors to be used
         """
         self.n_approx = precalc_approximation_n
-        self.Ne = Ne
         self.prior_store = {}
         self.progress = progress
 
@@ -177,8 +180,7 @@ class ConditionalCoalescentTimes:
             priors[1] = PriorParams(alpha=0, beta=1, mean=0, var=0)
         for var, tips in zip(variances, all_tips):
             # NB: it should be possible to vectorize this in numpy
-            var = var * ((2 * self.Ne) ** 2)
-            expectation = self.tau_expect(tips, total_tips) * 2 * self.Ne
+            expectation = self.tau_expect(tips, total_tips)
             alpha, beta = self.func_approx(expectation, var)
             priors[tips] = PriorParams(
                 alpha=alpha, beta=beta, mean=expectation, var=var
@@ -947,14 +949,21 @@ def create_timepoints(base_priors, n_points=21):
     return np.insert(t_set, 0, 0)
 
 
-def fill_priors(node_parameters, timepoints, ts, Ne, *, prior_distr, progress=False):
+def fill_priors(
+    node_parameters, timepoints, ts, population_size, *, prior_distr, progress=False
+):
     """
     Take the alpha and beta values from the node_parameters array, which contains
     one row for each node in the TS (including fixed nodes)
     and fill out a NodeGridValues object with the prior values from the
     gamma or lognormal distribution with those parameters.
 
+    The `population_size` can be a scalar, or an object with a `.to_natural_timescale`
+    method used to map from coalescent to generational timescale.
+
     TODO - what if there is an internal fixed node? Should we truncate
+
+    TODO - support times scaled by generation length?
     """
     if prior_distr == "lognorm":
         cdf_func = scipy.stats.lognorm.cdf
@@ -970,10 +979,15 @@ def fill_priors(node_parameters, timepoints, ts, Ne, *, prior_distr, progress=Fa
     datable_nodes = np.ones(ts.num_nodes, dtype=bool)
     datable_nodes[ts.samples()] = False
     datable_nodes = np.where(datable_nodes)[0]
+
+    if isinstance(population_size, (int, float, np.ndarray)):
+        population_size = demography.PopulationSizeHistory(population_size)
+
+    # convert coalescent time grid to generational time scale
     prior_times = base.NodeGridValues(
         ts.num_nodes,
         datable_nodes[np.argsort(ts.tables.nodes.time[datable_nodes])].astype(np.int32),
-        timepoints,
+        population_size.to_natural_timescale(timepoints),
     )
 
     # TO DO - this can probably be done in an single numpy step rather than a for loop
@@ -991,16 +1005,108 @@ def fill_priors(node_parameters, timepoints, ts, Ne, *, prior_distr, progress=Fa
     return prior_times
 
 
+class MixturePrior:
+    """
+    Maps ConditionalCoalescentPrior onto nodes in a tree sequence and creates
+    time-discretized priors
+    """
+
+    def __init__(
+        self,
+        tree_sequence,
+        approximate_priors=False,
+        approx_prior_size=None,
+        prior_distribution="lognorm",
+        allow_unary=False,
+        progress=False,
+    ):
+
+        if approximate_priors:
+            if not approx_prior_size:
+                approx_prior_size = 1000
+        else:
+            if approx_prior_size is not None:
+                raise ValueError(
+                    "Can't set approx_prior_size if approximate_prior is False"
+                )
+
+        contmpr_ts, node_map = util.reduce_to_contemporaneous(tree_sequence)
+        if contmpr_ts.num_nodes != tree_sequence.num_nodes:
+            raise ValueError(
+                "Passed tree sequence is not simplified and/or contains "
+                "noncontemporaneous samples"
+            )
+        span_data = SpansBySamples(
+            contmpr_ts, progress=progress, allow_unary=allow_unary
+        )
+
+        base_priors = ConditionalCoalescentTimes(
+            approx_prior_size, prior_distribution, progress=progress
+        )
+
+        base_priors.add(contmpr_ts.num_samples, approximate_priors)
+        for total_fixed in span_data.total_fixed_at_0_counts:
+            # For missing data: trees vary in total fixed node count =>
+            # have different priors
+            if total_fixed > 0:
+                base_priors.add(total_fixed, approximate_priors)
+        prior_params_contmpr = base_priors.get_mixture_prior_params(span_data)
+
+        # Map the nodes in the prior params back to the node ids in the original ts
+        self.prior_params = prior_params_contmpr[node_map, :]
+        self.base_priors = base_priors
+        self.tree_sequence = tree_sequence
+        self.prior_distribution = prior_distribution
+
+    def make_discretized_prior(self, population_size, timepoints=20, progress=False):
+        """
+        Calculate prior grid for a set of timepoints and a population size history
+        """
+
+        if isinstance(timepoints, int):
+            if timepoints < 2:
+                raise ValueError("You must have at least 2 time points")
+            timepoints = create_timepoints(self.base_priors, timepoints + 1)
+        elif isinstance(timepoints, np.ndarray):
+            try:
+                timepoints = np.sort(
+                    timepoints.astype(base.FLOAT_DTYPE, casting="safe")
+                )
+            except TypeError:
+                raise TypeError("Timepoints array cannot be converted to float dtype")
+            if len(timepoints) < 2:
+                raise ValueError("You must have at least 2 time points")
+            elif np.any(timepoints < 0):
+                raise ValueError("Timepoints cannot be negative")
+            elif np.any(np.unique(timepoints, return_counts=True)[1] > 1):
+                raise ValueError("Timepoints cannot have duplicate values")
+        else:
+            raise ValueError(
+                "time_slices must be an integer or a numpy array of floats"
+            )
+
+        # Set all fixed nodes (i.e. samples) to have 0 variance
+        priors = fill_priors(
+            self.prior_params,
+            timepoints,
+            self.tree_sequence,
+            population_size,
+            prior_distr=self.prior_distribution,
+            progress=progress,
+        )
+        return priors
+
+
 def build_grid(
     tree_sequence,
-    Ne,
+    population_size,
     timepoints=20,
     *,
     approximate_priors=False,
     approx_prior_size=None,
     prior_distribution="lognorm",
-    eps=1e-6,
     # Parameters below undocumented
+    eps=1e-6,  # placeholder
     progress=False,
     allow_unary=False,
 ):
@@ -1011,9 +1117,11 @@ def build_grid(
 
     :param TreeSequence tree_sequence: The input :class:`tskit.TreeSequence`, treated as
         undated.
-    :param float Ne: The estimated (diploid) effective population size: must be
-        specified. Using standard (unscaled) values for ``Ne`` results in a prior where
-        times are measures in generations.
+    :param float population_size: The estimated (diploid) effective population
+        size: must be specified. May be a single value, or a two-column array with
+        epoch breakpoints and effective population sizes. Using standard (unscaled)
+        values for ``population_size`` results in a prior where times are measured
+        in generations.
     :param int_or_array_like timepoints: The number of quantiles used to create the
         time slices, or manually-specified time slices as a numpy array. Default: 20
     :param bool approximate_priors: Whether to use a precalculated approximate prior or
@@ -1027,69 +1135,17 @@ def build_grid(
         better fit, but slightly slower to calculate) or "gamma" for the gamma
         distribution (slightly faster, but a poorer fit for recent nodes). Default:
         "lognorm"
-    :param float eps: Specify minimum distance separating points in the time grid. Also
-        specifies the error factor in time difference calculations. Default: 1e-6
     :return: A prior object to pass to tsdate.date() containing prior values for
         inference and a discretised time grid
     :rtype:  base.NodeGridValues Object
     """
-    if Ne <= 0:
-        raise ValueError("Parameter 'Ne' must be greater than 0")
-    if approximate_priors:
-        if not approx_prior_size:
-            approx_prior_size = 1000
-    else:
-        if approx_prior_size is not None:
-            raise ValueError(
-                "Can't set approx_prior_size if approximate_prior is False"
-            )
 
-    contmpr_ts, node_map = util.reduce_to_contemporaneous(tree_sequence)
-    if contmpr_ts.num_nodes != tree_sequence.num_nodes:
-        raise ValueError(
-            "Passed tree sequence is not simplified and/or contains "
-            "noncontemporaneous samples"
-        )
-    span_data = SpansBySamples(contmpr_ts, progress=progress, allow_unary=allow_unary)
-
-    base_priors = ConditionalCoalescentTimes(
-        approx_prior_size, Ne, prior_distribution, progress=progress
-    )
-
-    base_priors.add(contmpr_ts.num_samples, approximate_priors)
-    for total_fixed in span_data.total_fixed_at_0_counts:
-        # For missing data: trees vary in total fixed node count => have different priors
-        if total_fixed > 0:
-            base_priors.add(total_fixed, approximate_priors)
-
-    if isinstance(timepoints, int):
-        if timepoints < 2:
-            raise ValueError("You must have at least 2 time points")
-        timepoints = create_timepoints(base_priors, timepoints + 1)
-    elif isinstance(timepoints, np.ndarray):
-        try:
-            timepoints = np.sort(timepoints.astype(base.FLOAT_DTYPE, casting="safe"))
-        except TypeError:
-            raise TypeError("Timepoints array cannot be converted to float dtype")
-        if len(timepoints) < 2:
-            raise ValueError("You must have at least 2 time points")
-        elif np.any(timepoints < 0):
-            raise ValueError("Timepoints cannot be negative")
-        elif np.any(np.unique(timepoints, return_counts=True)[1] > 1):
-            raise ValueError("Timepoints cannot have duplicate values")
-    else:
-        raise ValueError("time_slices must be an integer or a numpy array of floats")
-
-    prior_params_contmpr = base_priors.get_mixture_prior_params(span_data)
-    # Map the nodes in the prior params back to the node ids in the original ts
-    prior_params = prior_params_contmpr[node_map, :]
-    # Set all fixed nodes (i.e. samples) to have 0 variance
-    priors = fill_priors(
-        prior_params,
-        timepoints,
+    mixture_prior = MixturePrior(
         tree_sequence,
-        Ne,
-        prior_distr=prior_distribution,
-        progress=progress,
+        approximate_priors,
+        approx_prior_size,
+        prior_distribution,
+        allow_unary,
+        progress,
     )
-    return priors
+    return mixture_prior.make_discretized_prior(population_size, timepoints)

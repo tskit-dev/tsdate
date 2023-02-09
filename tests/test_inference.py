@@ -35,6 +35,7 @@ import utility_functions
 import tsdate
 from tsdate.base import LIN
 from tsdate.base import LOG
+from tsdate.demography import PopulationSizeHistory
 
 
 class TestPrebuilt(unittest.TestCase):
@@ -42,33 +43,42 @@ class TestPrebuilt(unittest.TestCase):
     Tests for tsdate on prebuilt tree sequences
     """
 
-    def test_no_Ne(self):
+    def test_no_population_size(self):
         ts = utility_functions.two_tree_mutation_ts()
-        with pytest.raises(ValueError, match="Must specify Ne"):
+        with pytest.raises(ValueError, match="Must specify population size"):
             tsdate.date(ts, mutation_rate=None)
 
-    def test_not_needed_Ne(self):
+    def test_not_needed_population_size(self):
         ts = utility_functions.two_tree_mutation_ts()
-        prior = tsdate.build_prior_grid(ts, Ne=1, timepoints=10)
-        with pytest.raises(ValueError, match="Cannot specify Ne"):
-            tsdate.date(ts, Ne=1, mutation_rate=None, priors=prior)
+        prior = tsdate.build_prior_grid(ts, population_size=1, timepoints=10)
+        with pytest.raises(ValueError, match="Cannot specify population size"):
+            tsdate.date(ts, population_size=1, mutation_rate=None, priors=prior)
 
-    def test_bad_Ne(self):
+    def test_bad_population_size(self):
         ts = utility_functions.two_tree_mutation_ts()
-        with pytest.raises(ValueError, match="greater than 0"):
-            tsdate.date(ts, mutation_rate=None, Ne=0)
-        with pytest.raises(ValueError, match="greater than 0"):
-            tsdate.date(ts, mutation_rate=None, Ne=-1)
+        for Ne in [0, -1]:
+            with pytest.raises(ValueError, match="greater than 0"):
+                tsdate.date(ts, mutation_rate=None, population_size=Ne)
+
+    def test_both_ne_and_population_size_specified(self):
+        ts = utility_functions.two_tree_mutation_ts()
+        with pytest.raises(ValueError, match="may be specified"):
+            tsdate.date(
+                ts, mutation_rate=None, population_size=PopulationSizeHistory(1), Ne=1
+            )
+        tsdate.date(ts, mutation_rate=None, Ne=PopulationSizeHistory(1))
 
     def test_dangling_failure(self):
         ts = utility_functions.single_tree_ts_n2_dangling()
         with pytest.raises(ValueError, match="simplified"):
-            tsdate.date(ts, mutation_rate=None, Ne=1)
+            tsdate.date(ts, mutation_rate=None, population_size=1)
 
     def test_unary_failure(self):
         with pytest.raises(ValueError, match="unary"):
             tsdate.date(
-                utility_functions.single_tree_ts_with_unary(), mutation_rate=None, Ne=1
+                utility_functions.single_tree_ts_with_unary(),
+                mutation_rate=None,
+                population_size=1,
             )
 
     def test_fails_with_recombination(self):
@@ -78,14 +88,14 @@ class TestPrebuilt(unittest.TestCase):
                 tsdate.date(
                     ts,
                     mutation_rate=None,
-                    Ne=1,
+                    population_size=1,
                     recombination_rate=1,
                     probability_space=probability_space,
                 )
             with pytest.raises(NotImplementedError):
                 tsdate.date(
                     ts,
-                    Ne=1,
+                    population_size=1,
                     recombination_rate=1,
                     probability_space=probability_space,
                     mutation_rate=1,
@@ -93,18 +103,22 @@ class TestPrebuilt(unittest.TestCase):
 
     def test_default_time_units(self):
         ts = utility_functions.two_tree_mutation_ts()
-        ts = tsdate.date(ts, mutation_rate=None, Ne=1)
+        ts = tsdate.date(ts, mutation_rate=None, population_size=1)
         assert ts.time_units == "generations"
 
     def test_default_alternative_time_units(self):
         ts = utility_functions.two_tree_mutation_ts()
-        ts = tsdate.date(ts, mutation_rate=None, Ne=1, time_units="years")
+        ts = tsdate.date(ts, mutation_rate=None, population_size=1, time_units="years")
         assert ts.time_units == "years"
 
     def test_no_posteriors(self):
         ts = utility_functions.two_tree_mutation_ts()
         ts, posteriors = tsdate.date(
-            ts, Ne=1, return_posteriors=True, method="maximization", mutation_rate=1
+            ts,
+            population_size=1,
+            return_posteriors=True,
+            method="maximization",
+            mutation_rate=1,
         )
         assert len(posteriors) == ts.num_nodes - ts.num_samples + 2
         assert len(posteriors["start_time"]) == len(posteriors["end_time"])
@@ -117,7 +131,7 @@ class TestPrebuilt(unittest.TestCase):
     def test_posteriors(self):
         ts = utility_functions.two_tree_mutation_ts()
         ts, posteriors = tsdate.date(
-            ts, mutation_rate=None, Ne=1, return_posteriors=True
+            ts, mutation_rate=None, population_size=1, return_posteriors=True
         )
         assert len(posteriors) == ts.num_nodes - ts.num_samples + 2
         assert len(posteriors["start_time"]) == len(posteriors["end_time"])
@@ -133,9 +147,9 @@ class TestPrebuilt(unittest.TestCase):
         long_ts = utility_functions.two_tree_ts_extra_length()
         keep_ts = long_ts.keep_intervals([[0.0, 1.0]])
         delete_ts = long_ts.delete_intervals([[1.0, 1.5]])
-        dated_ts = tsdate.date(ts, mutation_rate=None, Ne=1)
-        dated_keep_ts = tsdate.date(keep_ts, mutation_rate=None, Ne=1)
-        dated_deleted_ts = tsdate.date(delete_ts, mutation_rate=None, Ne=1)
+        dated_ts = tsdate.date(ts, mutation_rate=None, population_size=1)
+        dated_keep_ts = tsdate.date(keep_ts, mutation_rate=None, population_size=1)
+        dated_deleted_ts = tsdate.date(delete_ts, mutation_rate=None, population_size=1)
         assert np.allclose(
             dated_ts.tables.nodes.time[:], dated_keep_ts.tables.nodes.time[:]
         )
@@ -182,17 +196,21 @@ class TestSimulated:
 
     def test_simple_sim_1_tree(self):
         ts = msprime.simulate(8, mutation_rate=5, random_seed=2)
-        max_dated_ts = tsdate.date(ts, Ne=1, mutation_rate=5, method="maximization")
+        max_dated_ts = tsdate.date(
+            ts, population_size=1, mutation_rate=5, method="maximization"
+        )
         self.ts_equal_except_times(ts, max_dated_ts)
-        io_dated_ts = tsdate.date(ts, Ne=1, mutation_rate=5)
+        io_dated_ts = tsdate.date(ts, population_size=1, mutation_rate=5)
         self.ts_equal_except_times(ts, io_dated_ts)
 
     def test_simple_sim_multi_tree(self):
         ts = msprime.simulate(8, mutation_rate=5, recombination_rate=5, random_seed=2)
         assert ts.num_trees > 1
-        max_dated_ts = tsdate.date(ts, Ne=1, mutation_rate=5, method="maximization")
+        max_dated_ts = tsdate.date(
+            ts, population_size=1, mutation_rate=5, method="maximization"
+        )
         self.ts_equal_except_times(ts, max_dated_ts)
-        io_dated_ts = tsdate.date(ts, Ne=1, mutation_rate=5)
+        io_dated_ts = tsdate.date(ts, population_size=1, mutation_rate=5)
         self.ts_equal_except_times(ts, io_dated_ts)
 
     def test_simple_sim_larger_example(self):
@@ -205,9 +223,9 @@ class TestSimulated:
             recombination_rate=1e-8,
             random_seed=11,
         )
-        io_ts = tsdate.date(ts, Ne=10000, mutation_rate=1e-8)
+        io_ts = tsdate.date(ts, population_size=10000, mutation_rate=1e-8)
         maximized_ts = tsdate.date(
-            ts, Ne=10000, mutation_rate=1e-8, method="maximization"
+            ts, population_size=10000, mutation_rate=1e-8, method="maximization"
         )
         self.ts_equal_except_times(ts, io_ts)
         self.ts_equal_except_times(ts, maximized_ts)
@@ -223,7 +241,7 @@ class TestSimulated:
             random_seed=11,
         )
         priors = tsdate.build_prior_grid(
-            ts, Ne=10000, timepoints=10, approximate_priors=None
+            ts, population_size=10000, timepoints=10, approximate_priors=None
         )
         dated_ts = tsdate.date(
             ts, mutation_rate=1e-8, priors=priors, probability_space=LIN
@@ -248,9 +266,9 @@ class TestSimulated:
         )
 
         with pytest.raises(ValueError, match="unary"):
-            tsdate.date(ts, Ne=1, mutation_rate=10, method="maximization")
+            tsdate.date(ts, population_size=1, mutation_rate=10, method="maximization")
         with pytest.raises(ValueError, match="unary"):
-            tsdate.date(ts, Ne=1, mutation_rate=10)
+            tsdate.date(ts, population_size=1, mutation_rate=10)
 
     def test_fails_multi_root(self):
         ts = msprime.simulate(8, mutation_rate=2, random_seed=2)
@@ -264,13 +282,15 @@ class TestSimulated:
                     continue
             tables.edges.append(row)
         multiroot_ts = tables.tree_sequence()
-        good_priors = tsdate.build_prior_grid(ts, Ne=1)
+        good_priors = tsdate.build_prior_grid(ts, population_size=1)
         with pytest.raises(ValueError):
-            tsdate.build_prior_grid(multiroot_ts, Ne=1)
+            tsdate.build_prior_grid(multiroot_ts, population_size=1)
         with pytest.raises(ValueError):
-            tsdate.date(multiroot_ts, Ne=1, mutation_rate=2)
+            tsdate.date(multiroot_ts, population_size=1, mutation_rate=2)
         with pytest.raises(ValueError):
-            tsdate.date(multiroot_ts, Ne=1, mutation_rate=2, priors=good_priors)
+            tsdate.date(
+                multiroot_ts, population_size=1, mutation_rate=2, priors=good_priors
+            )
 
     def test_non_contemporaneous(self):
         samples = [
@@ -281,12 +301,12 @@ class TestSimulated:
         ]
         ts = msprime.simulate(samples=samples, Ne=1, mutation_rate=2, random_seed=12)
         with pytest.raises(NotImplementedError):
-            tsdate.date(ts, Ne=1, mutation_rate=2)
+            tsdate.date(ts, population_size=1, mutation_rate=2)
 
     def test_no_mutation_times(self):
         ts = msprime.simulate(20, Ne=1, mutation_rate=1, random_seed=12)
         assert np.all(ts.tables.mutations.time > 0)
-        dated = tsdate.date(ts, Ne=1, mutation_rate=1)
+        dated = tsdate.date(ts, population_size=1, mutation_rate=1)
         assert np.all(np.isnan(dated.tables.mutations.time))
 
     @pytest.mark.skip("YAN to fix")
@@ -304,7 +324,7 @@ class TestSimulated:
         truncated_ts = utility_functions.truncate_ts_samples(
             ts, average_span=200, random_seed=123
         )
-        dated_ts = tsdate.date(truncated_ts, Ne=Ne, mutation_rate=mu)
+        dated_ts = tsdate.date(truncated_ts, population_size=Ne, mutation_rate=mu)
         # We should ideally test whether *haplotypes* are the same here
         # in case allele encoding has changed. But haplotypes() doesn't currently
         # deal with missing data
@@ -324,12 +344,12 @@ class TestInferred:
             )
             inferred_ts = tsinfer.infer(sample_data).simplify()
             max_dated_ts = tsdate.date(
-                inferred_ts, Ne=1, mutation_rate=5, method="maximization"
+                inferred_ts, population_size=1, mutation_rate=5, method="maximization"
             )
             assert all(
                 [a == b for a, b in zip(ts.haplotypes(), max_dated_ts.haplotypes())]
             )
-            io_dated_ts = tsdate.date(inferred_ts, Ne=1, mutation_rate=5)
+            io_dated_ts = tsdate.date(inferred_ts, population_size=1, mutation_rate=5)
             assert all(
                 [a == b for a, b in zip(ts.haplotypes(), io_dated_ts.haplotypes())]
             )
@@ -343,12 +363,12 @@ class TestInferred:
             )
             inferred_ts = tsinfer.infer(sample_data).simplify()
             max_dated_ts = tsdate.date(
-                inferred_ts, Ne=1, mutation_rate=5, method="maximization"
+                inferred_ts, population_size=1, mutation_rate=5, method="maximization"
             )
             assert all(
                 [a == b for a, b in zip(ts.haplotypes(), max_dated_ts.haplotypes())]
             )
-            io_dated_ts = tsdate.date(inferred_ts, Ne=1, mutation_rate=5)
+            io_dated_ts = tsdate.date(inferred_ts, population_size=1, mutation_rate=5)
             assert all(
                 [a == b for a, b in zip(ts.haplotypes(), io_dated_ts.haplotypes())]
             )

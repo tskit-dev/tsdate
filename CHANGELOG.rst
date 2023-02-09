@@ -12,11 +12,22 @@
   in ``get_dates`` and the internal ``normalize`` terminology is changed to
   ``standardize`` to better reflect the fact that the maximum (not sum) is one.
 
+- The ``Ne`` argument to ``date`` has been deprecated (although it is
+  still in the API for backward compatibility).  The equivalent argument
+  ``population_size`` should be used instead.
+
+**Features**
+
+- Priors may be calculated using a piecewise-constant effective population trajectory,
+  which is implemented in the ``demography.PopulationSizeHistory`` class. The
+  ``population_size`` argument to ``date`` accepts either a single scalar effective
+  population size, or a ``PopulationSizeHistory`` instance.
+
 **Bugfixes**
 
 - The returned posteriors when ``return_posteriors=True`` now return actual
   probabilities (scaled so that they sum to one) rather than standardized
-  "probabilites" whose maximum value is one.
+  "probabilities" whose maximum value is one.
 
 --------------------
 [0.1.5] - 2022-06-07
