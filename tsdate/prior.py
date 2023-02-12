@@ -980,10 +980,7 @@ def fill_priors(
     datable_nodes[ts.samples()] = False
     datable_nodes = np.where(datable_nodes)[0]
 
-    if isinstance(population_size, (int, float, np.ndarray)):
-        population_size = demography.PopulationSizeHistory(population_size)
-
-    # convert coalescent time grid to generational time scale
+    # convert timepoints to generational timescale
     prior_times = base.NodeGridValues(
         ts.num_nodes,
         datable_nodes[np.argsort(ts.tables.nodes.time[datable_nodes])].astype(np.int32),
@@ -994,6 +991,7 @@ def fill_priors(
     for node in tqdm(
         datable_nodes, desc="Assign Prior to Each Node", disable=not progress
     ):
+        # NB: prior CDF is evaluated on coalescent timescale
         with np.errstate(divide="ignore", invalid="ignore"):
             prior_node = cdf_func(timepoints, main_param[node], scale=scale_param[node])
         # force age to be less than max value
@@ -1063,6 +1061,9 @@ class MixturePrior:
         Calculate prior grid for a set of timepoints and a population size history
         """
 
+        if isinstance(population_size, (int, float, np.ndarray)):
+            population_size = demography.PopulationSizeHistory(population_size)
+
         if isinstance(timepoints, int):
             if timepoints < 2:
                 raise ValueError("You must have at least 2 time points")
@@ -1080,6 +1081,9 @@ class MixturePrior:
                 raise ValueError("Timepoints cannot be negative")
             elif np.any(np.unique(timepoints, return_counts=True)[1] > 1):
                 raise ValueError("Timepoints cannot have duplicate values")
+            # timepoints are assumed to be on generational scale, so convert to
+            # coalescent timescale to evaluate prior
+            timepoints = population_size.to_coalescent_timescale(timepoints)
         else:
             raise ValueError(
                 "time_slices must be an integer or a numpy array of floats"

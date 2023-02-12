@@ -49,6 +49,7 @@ from tsdate.demography import PopulationSizeHistory
 from tsdate.prior import ConditionalCoalescentTimes
 from tsdate.prior import fill_priors
 from tsdate.prior import gamma_approx
+from tsdate.prior import MixturePrior
 from tsdate.prior import PriorParams
 from tsdate.prior import SpansBySamples
 from tsdate.util import nodes_time_unconstrained
@@ -507,6 +508,14 @@ class TestMixturePrior:
         keep_interval_ts = ts_extra_length.keep_intervals([[0, 1.0]])
         tests = self.check_intervals(ts, delete_interval_ts, keep_interval_ts)
         assert np.all(tests)
+
+    def test_custom_timegrid_is_not_rescaled(self):
+        ts = utility_functions.two_tree_mutation_ts()
+        prior = MixturePrior(ts)
+        demography = PopulationSizeHistory(3)
+        timepoints = np.array([0, 300, 1000, 2000])
+        prior_grid = prior.make_discretized_prior(demography, timepoints=timepoints)
+        assert np.array_equal(prior_grid.timepoints, timepoints)
 
 
 class TestPriorVals:
