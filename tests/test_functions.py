@@ -26,6 +26,7 @@ Test cases for the python API for tsdate.
 """
 import collections
 import json
+import logging
 import unittest
 
 import msprime
@@ -457,9 +458,13 @@ class TestMixturePrior:
         with pytest.raises(ValueError, match="unary"):
             self.get_mixture_prior_params(ts, "gamma")
 
-    def test_single_tree_ts_with_unary(self):
+    def test_single_tree_ts_with_unary(self, caplog):
         ts = utility_functions.single_tree_ts_with_unary()
-        mixture_priors = self.get_mixture_prior_params(ts, "gamma", allow_unary=True)
+        with caplog.at_level(logging.WARNING):
+            mixture_priors = self.get_mixture_prior_params(
+                ts, "gamma", allow_unary=True
+            )
+        assert "tsdate may give poor results" in caplog.text
         # Root is a 3 tip prior
         assert np.allclose(mixture_priors[7, self.alpha_beta], [1.6, 1.2])
         # Node 6 should be a 50:50 mixture between 1 and 3 tips
@@ -1093,8 +1098,8 @@ class TestInsideAlgorithm:
 
     def test_dangling_fails(self):
         ts = utility_functions.single_tree_ts_n2_dangling()
-        print(ts.draw_text())
-        print("Samples:", ts.samples())
+        # print(ts.draw_text())
+        # print("Samples:", ts.samples())
         Ne = 0.5
         with pytest.raises(ValueError, match="simplified"):
             tsdate.build_prior_grid(ts, Ne, timepoints=np.array([0, 1.2, 2]))
