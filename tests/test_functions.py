@@ -1093,8 +1093,8 @@ class TestInsideAlgorithm:
 
     def test_dangling_fails(self):
         ts = utility_functions.single_tree_ts_n2_dangling()
-        print(ts.draw_text())
-        print("Samples:", ts.samples())
+        # print(ts.draw_text())
+        # print("Samples:", ts.samples())
         Ne = 0.5
         with pytest.raises(ValueError, match="simplified"):
             tsdate.build_prior_grid(ts, Ne, timepoints=np.array([0, 1.2, 2]))

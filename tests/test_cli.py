@@ -218,7 +218,7 @@ class TestEndToEnd:
         dated_ts = tsdate.date(
             input_ts, population_size=Ne, mutation_rate=mutation_rate, method=method
         )
-        print(dated_ts.tables.nodes.time, output_ts.tables.nodes.time)
+        # print(dated_ts.tables.nodes.time, output_ts.tables.nodes.time)
         assert np.array_equal(dated_ts.tables.nodes.time, output_ts.tables.nodes.time)
 
     def test_ts(self):
@@ -284,7 +284,7 @@ class TestEndToEnd:
             input_ts.dump(input_filename)
             output_filename = pathlib.Path(tmpdir) / "output.trees"
             full_cmd = "preprocess " + str(input_filename) + f" {output_filename}"
-            print(full_cmd)
+            # print(full_cmd)
             cli.tsdate_main(full_cmd.split())
             output_ts = tskit.load(output_filename)
         preprocessed_ts = tsdate.preprocess_ts(input_ts)
