@@ -1,4 +1,4 @@
-tskit>=0.4.0
+tskit>=0.5.0
 tsinfer>=0.3.0
 flake8
 numpy
