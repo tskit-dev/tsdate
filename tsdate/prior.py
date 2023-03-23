@@ -1100,6 +1100,42 @@ class MixturePrior:
         )
         return priors
 
+    def make_parameter_grid(self, population_size, progress=False):
+        """
+        Adjust prior parameters given a population size history
+        """
+
+        if self.prior_distribution != "gamma":
+            raise ValueError("Parameter grid may only be calculated with gamma priors")
+
+        if isinstance(population_size, (int, float, np.ndarray)):
+            population_size = demography.PopulationSizeHistory(population_size)
+
+        ts = self.tree_sequence
+
+        datable_nodes = np.ones(ts.num_nodes, dtype=bool)
+        datable_nodes[ts.samples()] = False
+        datable_nodes = np.where(datable_nodes)[0]
+
+        prior_pars = base.NodeGridValues(
+            self.tree_sequence.num_nodes,
+            datable_nodes[np.argsort(ts.tables.nodes.time[datable_nodes])].astype(
+                np.int32
+            ),
+            np.array([0, np.inf]),
+        )
+        prior_pars.probability_space = base.PAR
+
+        shape_param = self.prior_params[:, PriorParams.field_index("alpha")]
+        rate_param = self.prior_params[:, PriorParams.field_index("beta")]
+        for node in tqdm(
+            datable_nodes, desc="Assign Prior to Each Node", disable=not progress
+        ):
+            prior_pars[node] = population_size.to_gamma(
+                shape_param[node], rate_param[node]
+            )
+        return prior_pars
+
 
 def build_grid(
     tree_sequence,
@@ -1153,3 +1189,45 @@ def build_grid(
         progress,
     )
     return mixture_prior.make_discretized_prior(population_size, timepoints)
+
+
+def parameter_grid(
+    tree_sequence,
+    population_size,
+    *,
+    approximate_priors=False,
+    approx_prior_size=None,
+    # Parameters below undocumented
+    progress=False,
+    allow_unary=False,
+):
+    """
+    Using the conditional coalescent, calculate the prior distribution for the age of
+    each node, given the number of contemporaneous samples below it, and
+    return parameters (shape and rate of gamma) in a grid
+
+    :param TreeSequence tree_sequence: The input :class:`tskit.TreeSequence`, treated as
+        undated.
+    :param float population_size: The estimated (diploid) effective population
+        size: must be specified. May be a single value, or a two-column array with
+        epoch breakpoints and effective population sizes. Using standard (unscaled)
+        values for ``population_size`` results in a prior where times are measured
+        in generations.
+    :param bool approximate_priors: Whether to use a precalculated approximate prior or
+        exactly calculate prior. If approximate prior has not been precalculated, tsdate
+        will do so and cache the result. Default: False
+    :param int approx_prior_size: Number of samples from which to precalculate prior.
+        Should only enter value if approximate_priors=True. If approximate_priors=True
+        and no value specified, defaults to 1000. Default: None
+    :rtype:  base.NodeGridValues Object
+    """
+
+    mixture_prior = MixturePrior(
+        tree_sequence,
+        approximate_priors,
+        approx_prior_size,
+        "gamma",
+        allow_unary,
+        progress,
+    )
+    return mixture_prior.make_parameter_grid(population_size)

@@ -2063,6 +2063,36 @@ class TestPopulationSizeHistory:
             time = demography.to_natural_timescale(np.array([0, 1, 2, 3]))
             assert np.allclose(time, [0.0, 20000, 40000, 60000])
 
+    def test_moments_numerically(self):
+        alpha = 2.8
+        beta = 1.7
+        demography = PopulationSizeHistory(
+            np.array([1000, 2000, 3000]), np.array([500, 2500])
+        )
+        numer_mn, _ = scipy.integrate.quad(
+            lambda t: demography.to_natural_timescale(np.array([t]))
+            * scipy.stats.gamma.pdf(t, alpha, scale=1 / beta),
+            0,
+            np.inf,
+        )
+        numer_va, _ = scipy.integrate.quad(
+            lambda t: demography.to_natural_timescale(np.array([t])) ** 2
+            * scipy.stats.gamma.pdf(t, alpha, scale=1 / beta),
+            0,
+            np.inf,
+        )
+        numer_va -= numer_mn**2
+        shape, rate = demography.to_gamma(shape=alpha, rate=beta)
+        analy_mn = scipy.stats.gamma.mean(shape, scale=1 / rate)
+        analy_va = scipy.stats.gamma.var(shape, scale=1 / rate)
+        assert np.isclose(numer_mn, analy_mn)
+        assert np.isclose(numer_va, analy_va)
+        shape, rate = demography.to_gamma_depr(shape=alpha, rate=beta)
+        analy_mn = scipy.stats.gamma.mean(shape, scale=1 / rate)
+        analy_va = scipy.stats.gamma.var(shape, scale=1 / rate)
+        assert np.isclose(numer_mn, analy_mn)
+        assert np.isclose(numer_va, analy_va)
+
     def test_bad_arguments(self):
         with pytest.raises(ValueError, match="a numpy array"):
             PopulationSizeHistory([1])

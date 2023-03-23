@@ -37,6 +37,7 @@ import scipy.stats
 import tskit
 from tqdm import tqdm
 
+from . import approx
 from . import base
 from . import prior
 from . import provenance
@@ -508,6 +509,78 @@ class LogLikelihoods(Likelihoods):
         return fraction * value
 
 
+class VariationalLikelihoods:
+    """
+    A class to store and process likelihoods for use in variational inference.
+    """
+
+    probability_space = base.PAR
+    identity_constant = np.array([1.0, 0.0], dtype=float)  # "improper" gamma prior
+    null_constant = 0.0
+    timepoints = np.array([0, np.inf], dtype=float)
+    grid_size = 2
+
+    def __init__(
+        self,
+        ts,
+        mutation_rate=None,
+        recombination_rate=None,
+        *,
+        fixed_node_set=None,
+    ):
+        self.ts = ts
+        self.fixednodes = (
+            set(ts.samples()) if fixed_node_set is None else fixed_node_set
+        )
+        self.mut_rate = mutation_rate
+        self.rec_rate = recombination_rate
+        self.mut_edges = self.get_mut_edges(ts)
+        self.identity_constant.flags.writeable = False
+        self.timepoints.flags.writeable = False
+
+    def to_gamma(self, edge):
+        """
+        Return the shape and rate parameters of the (gamma) posterior of edge
+        length, given an improper (constant) prior.
+        """
+        y = self.mut_edges[edge.id]
+        mu = edge.span * self.mut_rate
+        return np.array([y + 1, mu])
+
+    @staticmethod
+    def get_mut_edges(ts):
+        """
+        Get the number of mutations on each edge in the tree sequence.
+        """
+        return Likelihoods.get_mut_edges(ts)
+
+    @staticmethod
+    def combine(base, message):
+        """
+        Multiply two gamma PDFs
+        """
+        return base + message + [-1, 0]
+
+    @staticmethod
+    def ratio(base, message):
+        """
+        Divide two gamma PDFs
+        """
+        return base - message + [1, 0]
+
+    @staticmethod
+    def scale_geometric(fraction, pars):
+        """
+        Scale the parameters of a gamma distribution by raising the PDF to a
+        fractional power.
+        """
+        assert 1 >= fraction >= 0
+        new_pars = pars.copy()
+        new_pars[0] = fraction * (new_pars[0] - 1) + 1
+        new_pars[1] = fraction * new_pars[1]
+        return new_pars
+
+
 class InOutAlgorithms:
     """
     Contains the inside and outside algorithms
@@ -836,6 +909,178 @@ class InOutAlgorithms:
         return self.lik.timepoints[np.array(maximized_node_times).astype("int")]
 
 
+class ExpectationPropagation(InOutAlgorithms):
+    """
+    Implements expectation propagation, where the edge factors are approximated
+    by the product of two gamma distributions
+    """
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        assert self.priors.probability_space == base.PAR
+        assert self.lik.probability_space == base.PAR
+        assert self.lik.grid_size == 2
+        assert self.priors.timepoints.size == 2
+
+        # Messages passed from factors in the direction of roots
+        self.parent_message = np.tile(
+            self.lik.identity_constant,
+            (self.ts.num_edges, 1),
+        )
+
+        # Messages passed from factors in the direction of leaves
+        self.child_message = np.tile(
+            self.lik.identity_constant,
+            (self.ts.num_edges, 1),
+        )
+
+        # Normalizing constants from each factor
+        self.factor_norm = np.full(self.ts.num_edges, 0.0)
+
+        # the approximate posterior marginals
+        self.posterior = self.priors.clone_with_new_data(
+            grid_data=self.priors.grid_data.copy(),
+            fixed_data=np.nan,
+        )
+
+        # factors for edges leading from fixed nodes are invariant
+        # and can be incorporated into the posterior beforehand
+        for edge in self.ts.edges():
+            if edge.child in self.fixednodes:
+                self.parent_message[edge.id] = self.lik.to_gamma(edge)
+                self.posterior[edge.parent] = self.lik.combine(
+                    self.posterior[edge.parent], self.parent_message[edge.id]
+                )
+                # self.factor_norm[edge.id] += ... # TODO
+
+        # prior contribution to marginal likelihood? TODO
+
+    def edges_by_parent_asc(self):
+        """
+        Edges in order of increasing age of parent
+        """
+        return self.ts.edges()
+
+    def edges_by_child_desc(self):
+        """
+        Edges in order of decreasing age of child
+        """
+        wtype = np.dtype(
+            [
+                ("child_age", self.ts.tables.nodes.time.dtype),
+                ("child_node", self.ts.tables.edges.child.dtype),
+            ]
+        )
+        w = np.empty(self.ts.num_edges, dtype=wtype)
+        w["child_age"] = self.ts.tables.nodes.time[self.ts.tables.edges.child]
+        w["child_node"] = self.ts.tables.edges.child
+        sorted_child_parent = (
+            self.ts.edge(i)
+            for i in reversed(np.argsort(w, order=("child_age", "child_node")))
+        )
+        return sorted_child_parent
+
+    # def propagate(self, *, edges, progress=None):
+    #    """
+    #    Update approximating factor for each edge
+    #    """
+    #    if progress is None:
+    #        progress = self.progress
+    #    # TODO: this will still converge if parallelized (potentially slower)
+    #    for edge in tqdm(
+    #        edges,
+    #        desc="Expectation Propagation",
+    #        total=self.ts.num_edges,
+    #        disable=not progress,
+    #    ):
+    #        if edge.child in self.fixednodes:
+    #            continue
+    #        if edge.parent in self.fixednodes:
+    #            raise ValueError("Internal nodes can not be fixed in EP algorithm")
+    #        edge_potential = self.lik.to_gamma(edge)
+    #        edge_potential += np.array([-1.0, 0.0])  # to Poisson, TODO cleanup
+    #        # create posteriors without approximate edge factor
+    #        parent_cavity = self.lik.ratio(
+    #            self.posterior[edge.parent], self.parent_message[edge.id]
+    #        )
+    #        child_cavity = self.lik.ratio(
+    #            self.posterior[edge.child], self.child_message[edge.id]
+    #        )
+    #        # target posterior matching cavity + exact edge factor
+    #        parent_norm, *self.posterior[edge.parent] = approx.inside_potential(
+    #            *parent_cavity, *child_cavity, *edge_potential
+    #        )
+    #        child_norm, *self.posterior[edge.child] = approx.outside_potential(
+    #            *parent_cavity, *child_cavity, *edge_potential
+    #        )
+    #        # store approximate edge factors including normalizer
+    #        self.parent_message[edge.id] = self.lik.ratio(
+    #            self.posterior[edge.parent], parent_cavity
+    #        )
+    #        self.child_message[edge.id] = self.lik.ratio(
+    #            self.posterior[edge.child], child_cavity
+    #        )
+    #        # store target normalizing constants
+    #        # TODO: this isn't quite right
+    #        self.factor_norm[edge.id] = 0.5 * parent_norm + 0.5 * child_norm
+
+    def propagate(self, *, edges, progress=None):
+        """
+        Update approximating factor for each edge
+        """
+        if progress is None:
+            progress = self.progress
+        # TODO: this will still converge if parallelized (potentially slower)
+        for edge in tqdm(
+            edges,
+            desc="Expectation Propagation",
+            total=self.ts.num_edges,
+            disable=not progress,
+        ):
+            if edge.child in self.fixednodes:
+                continue
+            if edge.parent in self.fixednodes:
+                raise ValueError("Internal nodes can not be fixed in EP algorithm")
+            edge_lik = self.lik.to_gamma(edge)
+            edge_lik += np.array([-1.0, 0.0])  # to Poisson, TODO cleanup
+            # cavity posteriors without approximate edge factor
+            parent_cavity = self.lik.ratio(
+                self.posterior[edge.parent], self.parent_message[edge.id]
+            )
+            child_cavity = self.lik.ratio(
+                self.posterior[edge.child], self.child_message[edge.id]
+            )
+            # target posterior matches cavity with exact edge factor
+            (
+                norm_const,
+                self.posterior[edge.parent],
+                self.posterior[edge.child],
+            ) = approx.gamma_projection(*parent_cavity, *child_cavity, *edge_lik)
+            # store approximate edge factors including normalizer
+            self.parent_message[edge.id] = self.lik.ratio(
+                self.posterior[edge.parent], parent_cavity
+            )
+            self.child_message[edge.id] = self.lik.ratio(
+                self.posterior[edge.child], child_cavity
+            )
+            # TODO: this isn't quite right
+            self.factor_norm[edge.id] = norm_const
+
+    def iterate(self, *, progress=None, **kwargs):
+        """
+        Update edge factors from leaves to root then from root to leaves,
+        and return approximate log marginal likelihood
+        """
+        self.propagate(edges=self.edges_by_parent_asc(), progress=progress)
+        self.propagate(edges=self.edges_by_child_desc(), progress=progress)
+        marginal_lik = np.sum(self.factor_norm)
+        # marginal_lik = np.sum(
+        #    [approx.log_partition_gamma(*pars) for pars in self.posterior.grid_data]
+        # )
+        return marginal_lik
+
+
 def posterior_mean_var(ts, posterior, *, fixed_node_set=None):
     """
     Mean and variance of node age. Fixed nodes will be given a mean
@@ -918,6 +1163,8 @@ def date(
     Ne=None,
     return_posteriors=None,
     progress=False,
+    expectation_propagation=0,  # TODO document
+    global_prior=True,  # TODO document
     **kwargs,
 ):
     """
@@ -1007,15 +1254,27 @@ def date(
             )
         else:
             population_size = Ne
-    tree_sequence, dates, posteriors, timepoints, eps, nds = get_dates(
-        tree_sequence,
-        population_size=population_size,
-        mutation_rate=mutation_rate,
-        recombination_rate=recombination_rate,
-        priors=priors,
-        progress=progress,
-        **kwargs,
-    )
+    if expectation_propagation > 0:
+        tree_sequence, dates, posteriors, timepoints, eps, nds = variational_dates(
+            tree_sequence,
+            population_size=population_size,
+            mutation_rate=mutation_rate,
+            recombination_rate=recombination_rate,
+            priors=priors,
+            progress=progress,
+            expectation_propagation=expectation_propagation,
+            global_prior=global_prior,
+        )
+    else:
+        tree_sequence, dates, posteriors, timepoints, eps, nds = get_dates(
+            tree_sequence,
+            population_size=population_size,
+            mutation_rate=mutation_rate,
+            recombination_rate=recombination_rate,
+            priors=priors,
+            progress=progress,
+            **kwargs,
+        )
     constrained = constrain_ages_topo(tree_sequence, dates, eps, nds, progress)
     tables = tree_sequence.dump_tables()
     tables.time_units = time_units
@@ -1155,6 +1414,143 @@ def get_dates(
         mn_post,
         posterior,
         priors.timepoints,
+        eps,
+        priors.nonfixed_nodes,
+    )
+
+
+def variational_mean_var(ts, posterior, *, fixed_node_set=None):
+    """
+    Mean and variance of node age from variational posterior (e.g. gamma
+    distributions).  Fixed nodes will be given a mean of their exact time in
+    the tree sequence, and zero variance (as long as they are identified by the
+    fixed_node_set).  If fixed_node_set is None, we attempt to date all the
+    non-sample nodes Also assigns the estimated mean and variance of the age of
+    each node as metadata in the tree sequence.
+    """
+    mn_post = np.full(ts.num_nodes, np.nan)  # Fill with NaNs so we detect when there's
+    vr_post = np.full(ts.num_nodes, np.nan)  # been an error
+    tables = ts.dump_tables()
+
+    if fixed_node_set is None:
+        fixed_node_set = ts.samples()
+    fixed_nodes = np.array(list(fixed_node_set))
+    mn_post[fixed_nodes] = tables.nodes.time[fixed_nodes]
+    vr_post[fixed_nodes] = 0
+
+    assert np.all(posterior.grid_data[:, 0] > 0), "Invalid posterior"
+
+    metadata_array = tskit.unpack_bytes(
+        ts.tables.nodes.metadata, ts.tables.nodes.metadata_offset
+    )
+    for u in posterior.nonfixed_nodes:
+        # TODO: with method posterior.mean_and_var(node_id) this could be
+        # easily combined with posterior_mean_var
+        pars = posterior[u]
+        mn_post[u] = pars[0] / pars[1]
+        vr_post[u] = pars[0] / pars[1] ** 2
+        metadata_array[u] = json.dumps({"mn": mn_post[u], "vr": vr_post[u]}).encode()
+    md, md_offset = tskit.pack_bytes(metadata_array)
+    tables.nodes.set_columns(
+        flags=tables.nodes.flags,
+        time=tables.nodes.time,
+        population=tables.nodes.population,
+        individual=tables.nodes.individual,
+        metadata=md,
+        metadata_offset=md_offset,
+    )
+    ts = tables.tree_sequence()
+    return ts, mn_post, vr_post
+
+
+def variational_dates(
+    tree_sequence,
+    mutation_rate,
+    population_size=None,
+    recombination_rate=None,
+    priors=None,
+    *,
+    expectation_propagation=1,
+    global_prior=True,
+    eps=1e-6,
+    ignore_oldest_root=False,
+    progress=False,
+    cache_inside=False,
+):
+    """
+    TODO update docstring
+
+    Infer dates for the nodes in a tree sequence, returning an array of inferred dates
+    for nodes, plus other variables such as the posteriors object
+    etc. Parameters are identical to the date() method, which calls this method, then
+    injects the resulting date estimates into the tree sequence
+
+    :return: a tuple of ``(mn_post, posteriors, timepoints, eps, nodes_to_date)``.
+        If the "inside_outside" method is used, ``posteriors`` will contain the
+        posterior probabilities for each node in each time slice, else the returned
+        variable will be ``None``.
+    """
+    # TODO: non-contemporary samples must have priors specified: if so, they'll
+    # work fine with this algorithm.
+    for sample in tree_sequence.samples():
+        if tree_sequence.node(sample).time != 0:
+            raise NotImplementedError("Samples must all be at time 0")
+    fixed_nodes = set(tree_sequence.samples())
+
+    assert expectation_propagation > 0
+
+    # Default to not creating approximate priors unless ts has > 1000 samples
+    approx_priors = False
+    if tree_sequence.num_samples > 1000:
+        approx_priors = True
+
+    if priors is None:
+        if population_size is None:
+            raise ValueError(
+                "Must specify population size if priors are not already "
+                "built using tsdate.build_parameter_grid()"
+            )
+        priors = prior.parameter_grid(
+            tree_sequence,
+            population_size=population_size,
+            progress=progress,
+            approximate_priors=approx_priors,
+        )
+    else:
+        logging.info("Using user-specified priors")
+        if population_size is not None:
+            raise ValueError(
+                "Cannot specify population size in tsdate.date() or "
+                "tsdate.variational_dates() if specifying priors from "
+                "tsdate.build_parameter_grid()"
+            )
+        priors = priors
+    if global_prior:
+        logging.info("Pooling node-specific priors into global prior")
+        priors.grid_data[:] = approx.average_gammas(
+            priors.grid_data[:, 0], priors.grid_data[:, 1]
+        )
+
+    liklhd = VariationalLikelihoods(
+        tree_sequence,
+        mutation_rate,
+        recombination_rate,
+        fixed_node_set=fixed_nodes,
+    )
+
+    dynamic_prog = ExpectationPropagation(priors, liklhd, progress=progress)
+    for _ in range(expectation_propagation):
+        dynamic_prog.iterate()
+    posterior = dynamic_prog.posterior
+    tree_sequence, mn_post, _ = variational_mean_var(
+        tree_sequence, posterior, fixed_node_set=fixed_nodes
+    )
+
+    return (
+        tree_sequence,
+        mn_post,
+        posterior,
+        np.array([]),
         eps,
         priors.nonfixed_nodes,
     )
