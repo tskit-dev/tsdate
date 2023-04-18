@@ -6,7 +6,6 @@ tqdm
 daiquiri
 msprime>=1.0.0
 scipy
-codecov
 numba
 appdirs
 pre-commit

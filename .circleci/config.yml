@@ -1,4 +1,8 @@
 version: 2.1
+
+orbs:
+  codecov: codecov/codecov@3.2.4
+
 jobs:
   build:
     docker:
@@ -38,4 +42,6 @@ jobs:
           name: Run Python tests
           command: |
               python -m pytest -vv -n0 --cov=tsdate  --cov-report=xml --cov-branch tests
-              python3 -m codecov 
+
+      - codecov/upload:
+          token: CODECOV_TOKEN
