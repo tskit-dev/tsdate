@@ -2087,11 +2087,6 @@ class TestPopulationSizeHistory:
         analy_va = scipy.stats.gamma.var(shape, scale=1 / rate)
         assert np.isclose(numer_mn, analy_mn)
         assert np.isclose(numer_va, analy_va)
-        shape, rate = demography.to_gamma_depr(shape=alpha, rate=beta)
-        analy_mn = scipy.stats.gamma.mean(shape, scale=1 / rate)
-        analy_va = scipy.stats.gamma.var(shape, scale=1 / rate)
-        assert np.isclose(numer_mn, analy_mn)
-        assert np.isclose(numer_va, analy_va)
 
     def test_bad_arguments(self):
         with pytest.raises(ValueError, match="a numpy array"):
