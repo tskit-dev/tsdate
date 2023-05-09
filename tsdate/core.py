@@ -911,7 +911,7 @@ class InOutAlgorithms:
 
 class ExpectationPropagation(InOutAlgorithms):
     """
-    Implements expectation propagation, where the edge factors are approximated
+    Expectation propagation, where the edge factors are approximated
     by the product of two gamma distributions
     """
 
@@ -954,8 +954,6 @@ class ExpectationPropagation(InOutAlgorithms):
                 )
                 # self.factor_norm[edge.id] += ... # TODO
 
-        # prior contribution to marginal likelihood? TODO
-
     def edges_by_parent_asc(self):
         """
         Edges in order of increasing age of parent
@@ -980,50 +978,6 @@ class ExpectationPropagation(InOutAlgorithms):
             for i in reversed(np.argsort(w, order=("child_age", "child_node")))
         )
         return sorted_child_parent
-
-    # def propagate(self, *, edges, progress=None):
-    #    """
-    #    Update approximating factor for each edge
-    #    """
-    #    if progress is None:
-    #        progress = self.progress
-    #    # TODO: this will still converge if parallelized (potentially slower)
-    #    for edge in tqdm(
-    #        edges,
-    #        desc="Expectation Propagation",
-    #        total=self.ts.num_edges,
-    #        disable=not progress,
-    #    ):
-    #        if edge.child in self.fixednodes:
-    #            continue
-    #        if edge.parent in self.fixednodes:
-    #            raise ValueError("Internal nodes can not be fixed in EP algorithm")
-    #        edge_potential = self.lik.to_gamma(edge)
-    #        edge_potential += np.array([-1.0, 0.0])  # to Poisson, TODO cleanup
-    #        # create posteriors without approximate edge factor
-    #        parent_cavity = self.lik.ratio(
-    #            self.posterior[edge.parent], self.parent_message[edge.id]
-    #        )
-    #        child_cavity = self.lik.ratio(
-    #            self.posterior[edge.child], self.child_message[edge.id]
-    #        )
-    #        # target posterior matching cavity + exact edge factor
-    #        parent_norm, *self.posterior[edge.parent] = approx.inside_potential(
-    #            *parent_cavity, *child_cavity, *edge_potential
-    #        )
-    #        child_norm, *self.posterior[edge.child] = approx.outside_potential(
-    #            *parent_cavity, *child_cavity, *edge_potential
-    #        )
-    #        # store approximate edge factors including normalizer
-    #        self.parent_message[edge.id] = self.lik.ratio(
-    #            self.posterior[edge.parent], parent_cavity
-    #        )
-    #        self.child_message[edge.id] = self.lik.ratio(
-    #            self.posterior[edge.child], child_cavity
-    #        )
-    #        # store target normalizing constants
-    #        # TODO: this isn't quite right
-    #        self.factor_norm[edge.id] = 0.5 * parent_norm + 0.5 * child_norm
 
     def propagate(self, *, edges, progress=None):
         """
@@ -1064,7 +1018,6 @@ class ExpectationPropagation(InOutAlgorithms):
             self.child_message[edge.id] = self.lik.ratio(
                 self.posterior[edge.child], child_cavity
             )
-            # TODO: this isn't quite right
             self.factor_norm[edge.id] = norm_const
 
     def iterate(self, *, progress=None, **kwargs):
@@ -1074,11 +1027,9 @@ class ExpectationPropagation(InOutAlgorithms):
         """
         self.propagate(edges=self.edges_by_parent_asc(), progress=progress)
         self.propagate(edges=self.edges_by_child_desc(), progress=progress)
-        marginal_lik = np.sum(self.factor_norm)
-        # marginal_lik = np.sum(
-        #    [approx.log_partition_gamma(*pars) for pars in self.posterior.grid_data]
-        # )
-        return marginal_lik
+        # TODO
+        # marginal_lik = np.sum(self.factor_norm)
+        # return marginal_lik
 
 
 def posterior_mean_var(ts, posterior, *, fixed_node_set=None):
