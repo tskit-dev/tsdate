@@ -570,20 +570,13 @@ class InOutAlgorithms:
         Return an itertools.groupby object of edges grouped by child in descending order
         of the time of the child.
         """
-        wtype = np.dtype(
-            [
-                ("child_age", self.ts.tables.nodes.time.dtype),
-                ("child_node", self.ts.tables.edges.child.dtype),
-            ]
+        it = (
+            self.ts.edge(u)
+            for u in np.lexsort(
+                (self.ts.edges_child, -self.ts.nodes_time[self.ts.edges_child])
+            )
         )
-        w = np.empty(self.ts.num_edges, dtype=wtype)
-        w["child_age"] = self.ts.tables.nodes.time[self.ts.tables.edges.child]
-        w["child_node"] = self.ts.tables.edges.child
-        sorted_child_parent = (
-            self.ts.edge(i)
-            for i in reversed(np.argsort(w, order=("child_age", "child_node")))
-        )
-        return itertools.groupby(sorted_child_parent, operator.attrgetter("child"))
+        return itertools.groupby(it, operator.attrgetter("child"))
 
     def edges_by_child_then_parent_desc(self):
         """
