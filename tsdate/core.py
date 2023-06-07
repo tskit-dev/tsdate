@@ -127,24 +127,9 @@ class Likelihoods:
         """
         Get the number of mutations on each edge in the tree sequence.
         """
-        edge_diff_iter = ts.edge_diffs()
-        right = 0
-        edges_by_child = {}  # contains {child_node:edge_id}
         mut_edges = np.zeros(ts.num_edges, dtype=np.int64)
-        for site in ts.sites():
-            while right <= site.position:
-                (left, right), edges_out, edges_in = next(edge_diff_iter)
-                for e in edges_out:
-                    del edges_by_child[e.child]
-                for e in edges_in:
-                    assert e.child not in edges_by_child
-                    edges_by_child[e.child] = e.id
-            for m in site.mutations:
-                # In some cases, mutations occur above the root
-                # These don't provide any information for the inside step
-                if m.node in edges_by_child:
-                    edge_id = edges_by_child[m.node]
-                    mut_edges[edge_id] += 1
+        for m in ts.mutations():
+            mut_edges[m.edge] += 1
         return mut_edges
 
     @staticmethod
@@ -585,20 +570,13 @@ class InOutAlgorithms:
         Return an itertools.groupby object of edges grouped by child in descending order
         of the time of the child.
         """
-        wtype = np.dtype(
-            [
-                ("child_age", self.ts.tables.nodes.time.dtype),
-                ("child_node", self.ts.tables.edges.child.dtype),
-            ]
+        it = (
+            self.ts.edge(u)
+            for u in np.lexsort(
+                (self.ts.edges_child, -self.ts.nodes_time[self.ts.edges_child])
+            )
         )
-        w = np.empty(self.ts.num_edges, dtype=wtype)
-        w["child_age"] = self.ts.tables.nodes.time[self.ts.tables.edges.child]
-        w["child_node"] = self.ts.tables.edges.child
-        sorted_child_parent = (
-            self.ts.edge(i)
-            for i in reversed(np.argsort(w, order=("child_age", "child_node")))
-        )
-        return itertools.groupby(sorted_child_parent, operator.attrgetter("child"))
+        return itertools.groupby(it, operator.attrgetter("child"))
 
     def edges_by_child_then_parent_desc(self):
         """
