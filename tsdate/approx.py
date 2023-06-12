@@ -48,19 +48,6 @@ def approximate_log_moments(mean, variance):
 
 
 @numba.njit("UniTuple(float64, 2)(float64, float64)")
-def approximate_gamma_mom(mean, variance):
-    """
-    Use the method of moments to approximate a distribution with a gamma of the
-    same mean and variance
-    """
-    assert mean > 0
-    assert variance > 0
-    alpha = mean**2 / variance
-    beta = mean / variance
-    return alpha, beta
-
-
-@numba.njit("UniTuple(float64, 2)(float64, float64)")
 def approximate_gamma_kl(x, logx):
     """
     Use Newton root finding to get gamma parameters matching the sufficient
