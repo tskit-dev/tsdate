@@ -912,23 +912,23 @@ class ExpectationPropagation(InOutAlgorithms):
     Expectation propagation (EP) algorithm to infer approximate marginal
     distributions for node ages.
 
-    The model has the form,
+    The probability model has the form,
 
     .. math::
 
         \prod_{i \in \mathcal{N} f(t_i | \theta_i)
         \prod_{(i,j) \in \mathcal{E}} g(y_ij | t_i - t_j)
 
-    Where :math:`f(.)` is a prior distribution on node ages with parameters
+    where :math:`f(.)` is a prior distribution on node ages with parameters
     :math:`\\theta` and :math:`g(.)` are Poisson likelihoods per edge. The
-    EP approximation has the form,
+    EP approximation to the posterior has the form,
 
     .. math::
 
         \prod_{i \in \mathcal{N} q(t_i | \eta_i)
         \prod_{(i,j) \in \mathcal{E}} q(t_i | \gamma_{ij}) q(t_j | \kappa_{ij})
 
-    Here, :math:`q(.)` are pseudo-gamma distributions (termed 'factors'), and
+    where :math:`q(.)` are pseudo-gamma distributions (termed 'factors'), and
     :math:`\eta, \gamma, \kappa` are variational parameters that reflect to
     prior, inside (leaf-to-root), and outside (root-to-edge) information.
 
@@ -998,20 +998,25 @@ class ExpectationPropagation(InOutAlgorithms):
                 raise ValueError("Internal nodes can not be fixed in EP algorithm")
             edge_lik = self.lik.to_gamma(edge)
             edge_lik += np.array([-1.0, 0.0])  # to Poisson, TODO cleanup
-            # cavity posteriors without approximate edge factor
+            # Get the cavity posteriors: that is, the rest of the approximation
+            # without the factor for this edge. This only involves the variational
+            # parameters for the parent and child on the edge.
             parent_cavity = self.lik.ratio(
                 self.posterior[edge.parent], self.parent_message[edge.id]
             )
             child_cavity = self.lik.ratio(
                 self.posterior[edge.child], self.child_message[edge.id]
             )
-            # target posterior matches cavity with exact edge factor
+            # Get the target posterior: that is, the cavity multiplied by the
+            # edge likelihood, and projected onto a gamma distribution via
+            # moment matching.
             (
                 norm_const,
                 self.posterior[edge.parent],
                 self.posterior[edge.child],
             ) = approx.gamma_projection(*parent_cavity, *child_cavity, *edge_lik)
-            # store approximate edge factors including normalizer
+            # Get the messages: that is, the multiplicative difference between
+            # the target and cavity posteriors.
             self.parent_message[edge.id] = self.lik.ratio(
                 self.posterior[edge.parent], parent_cavity
             )
@@ -1110,12 +1115,11 @@ def date(
     recombination_rate=None,
     time_units=None,
     priors=None,
+    method="inside_outside",
     *,
     Ne=None,
     return_posteriors=None,
     progress=False,
-    expectation_propagation=0,  # TODO document
-    global_prior=True,  # TODO document
     **kwargs,
 ):
     """
@@ -1175,12 +1179,13 @@ def date(
     :param int num_threads: The number of threads to use. A simpler unthreaded algorithm
         is used unless this is >= 1. Default: None
     :param string method: What estimation method to use: can be
+        "EP" (variational approximation, empirically most accurate),
         "inside_outside" (empirically better, theoretically problematic) or
         "maximization" (worse empirically, especially with gamma approximated priors,
         but theoretically robust). If ``None`` (default) use "inside_outside"
     :param string probability_space: Should the internal algorithm save probabilities in
         "logarithmic" (slower, less liable to to overflow) or "linear" space (fast, may
-        overflow). Default: "logarithmic"
+        overflow). Does not apply to method ``EP``. Default: "logarithmic"
     :param bool ignore_oldest_root: Should the oldest root in the tree sequence be
         ignored in the outside algorithm (if "inside_outside" is used as the method).
         Ignoring outside root provides greater stability when dating tree sequences
@@ -1205,7 +1210,7 @@ def date(
             )
         else:
             population_size = Ne
-    if expectation_propagation > 0:
+    if method == "EP":
         tree_sequence, dates, posteriors, timepoints, eps, nds = variational_dates(
             tree_sequence,
             population_size=population_size,
@@ -1213,8 +1218,7 @@ def date(
             recombination_rate=recombination_rate,
             priors=priors,
             progress=progress,
-            expectation_propagation=expectation_propagation,
-            global_prior=global_prior,
+            **kwargs,
         )
     else:
         tree_sequence, dates, posteriors, timepoints, eps, nds = get_dates(
@@ -1224,6 +1228,7 @@ def date(
             recombination_rate=recombination_rate,
             priors=priors,
             progress=progress,
+            method=method,
             **kwargs,
         )
     constrained = constrain_ages_topo(tree_sequence, dates, eps, nds, progress)
@@ -1421,25 +1426,21 @@ def variational_dates(
     recombination_rate=None,
     priors=None,
     *,
-    expectation_propagation=1,
+    max_iterations=20,
     global_prior=True,
     eps=1e-6,
-    ignore_oldest_root=False,
     progress=False,
-    cache_inside=False,
 ):
     """
-    TODO update docstring
-
-    Infer dates for the nodes in a tree sequence, returning an array of inferred dates
-    for nodes, plus other variables such as the posteriors object
-    etc. Parameters are identical to the date() method, which calls this method, then
-    injects the resulting date estimates into the tree sequence
+    Infer dates for the nodes in a tree sequence using expectation propagation,
+    returning an array of inferred dates for nodes, plus other variables such
+    as the posteriors object etc. Parameters are identical to the date()
+    method, which calls this method, then injects the resulting date estimates
+    into the tree sequence
 
     :return: a tuple of ``(mn_post, posteriors, timepoints, eps, nodes_to_date)``.
-        If the "inside_outside" method is used, ``posteriors`` will contain the
-        posterior probabilities for each node in each time slice, else the returned
-        variable will be ``None``.
+        ``posteriors`` contains shape/rate parameters for a gamma approximation to
+        the marginal posterior distribution of each node.
     """
     # TODO: non-contemporary samples must have priors specified: if so, they'll
     # work fine with this algorithm.
@@ -1448,7 +1449,8 @@ def variational_dates(
             raise NotImplementedError("Samples must all be at time 0")
     fixed_nodes = set(tree_sequence.samples())
 
-    assert expectation_propagation > 0
+    if not max_iterations >= 1:
+        raise ValueError("Maximum number of iterations must be greater than 0")
 
     # Default to not creating approximate priors unless ts has > 1000 samples
     approx_priors = False
@@ -1490,7 +1492,7 @@ def variational_dates(
     )
 
     dynamic_prog = ExpectationPropagation(priors, liklhd, progress=progress)
-    for _ in range(expectation_propagation):
+    for _ in range(max_iterations):
         dynamic_prog.iterate()
     posterior = dynamic_prog.posterior
     tree_sequence, mn_post, _ = variational_mean_var(
@@ -1501,7 +1503,7 @@ def variational_dates(
         tree_sequence,
         mn_post,
         posterior,
-        np.array([]),
+        np.array([0.0]),
         eps,
         priors.nonfixed_nodes,
     )
