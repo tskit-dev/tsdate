@@ -1023,6 +1023,8 @@ class ExpectationPropagation(InOutAlgorithms):
             self.child_message[edge.id] = self.lik.ratio(
                 self.posterior[edge.child], child_cavity
             )
+            # Get the approximation to the marginal likelihood
+            # TODO not complete
             self.factor_norm[edge.id] = norm_const
 
     def iterate(self, *, progress=None, **kwargs):
