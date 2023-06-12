@@ -1000,10 +1000,11 @@ class ExpectationPropagation(InOutAlgorithms):
                 continue
             if edge.parent in self.fixednodes:
                 raise ValueError("Internal nodes can not be fixed in EP algorithm")
+            # Get the edge likelihood (Poisson) in terms of a gamma distribution
             edge_lik = self.lik.to_gamma(edge, natural=True)
             # Get the cavity posteriors: that is, the rest of the approximation
-            # without the factor for this edge. This only involves the variational
-            # parameters for the parent and child on the edge.
+            # without the factor for this edge. This only involves updating the
+            # variational parameters for the parent and child on the edge.
             parent_cavity = self.lik.ratio(
                 self.posterior[edge.parent], self.parent_message[edge.id]
             )
@@ -1019,14 +1020,16 @@ class ExpectationPropagation(InOutAlgorithms):
                 self.posterior[edge.child],
             ) = approx.gamma_projection(*parent_cavity, *child_cavity, *edge_lik)
             # Get the messages: that is, the multiplicative difference between
-            # the target and cavity posteriors.
+            # the target and cavity posteriors. This only involves updating the
+            # variational parameters for the parent and child on the edge.
             self.parent_message[edge.id] = self.lik.ratio(
                 self.posterior[edge.parent], parent_cavity
             )
             self.child_message[edge.id] = self.lik.ratio(
                 self.posterior[edge.child], child_cavity
             )
-            # Get the approximation to the marginal likelihood
+            # Get the contribution to the (approximate) marginal likelihood from
+            # the edge.
             # TODO not complete
             self.factor_norm[edge.id] = norm_const
 

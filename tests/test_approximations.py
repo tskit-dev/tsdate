@@ -70,7 +70,6 @@ class TestPosteriorMomentMatching:
             )
 
     def test_sufficient_statistics(self, pars):
-        print((pars[5] - pars[3]) / (pars[1] + pars[5]))
         logconst, t_i, ln_t_i, t_j, ln_t_j = approx.sufficient_statistics(*pars)
         ck_normconst = scipy.integrate.dblquad(
             lambda ti, tj: self.pdf(ti, tj, *pars), 0, np.inf, lambda tj: tj, np.inf
@@ -184,5 +183,4 @@ class TestPriorMomentMatching:
             lambda x: conditional_coalescent_pdf(x, self.n, k),
             lambda x: scipy.stats.gamma.logpdf(x, alpha_1, scale=1 / beta_1),
         )
-        print(kl_1, kl_0)
         assert kl_1 < kl_0

@@ -90,7 +90,6 @@ class TestTaylorSeries:
         f, s, *_ = hypergeo._hyp2f1_taylor_series(*pars)
         check = self._2f1_validate(*pars)
         assert s == mpmath.sign(check)
-        print(f, mpmath.log(mpmath.fabs(check)))
         assert np.isclose(f, float(mpmath.log(mpmath.fabs(check))))
 
     def test_2f1_grad(self, pars):
@@ -98,7 +97,6 @@ class TestTaylorSeries:
         grad = grad[:-1]
         offset = self._2f1_validate(*pars)
         check = self._2f1_grad_validate(*pars, offset=offset)
-        print(grad, check)
         assert np.allclose(grad, check)
 
 
@@ -142,7 +140,6 @@ class TestRecurrence:
         f, s, *_ = hypergeo._hyp2f1_recurrence(*pars)
         check = self._2f1_validate(*pars)
         assert s == mpmath.sign(check)
-        print(f, mpmath.log(mpmath.fabs(check)))
         assert np.isclose(f, float(mpmath.log(mpmath.fabs(check))))
 
     def test_2f1_grad(self, pars):
@@ -152,7 +149,6 @@ class TestRecurrence:
         offset = self._2f1_validate(*pars)
         check = self._2f1_grad_validate(*pars, offset=offset)
         check[1] = 0.0  # integer parameter has no gradient
-        print(grad, check)
         assert np.allclose(grad, check)
 
 
@@ -235,7 +231,6 @@ class TestTransforms:
         f, s, *_ = hyp2f1_func(*pars)
         assert s > 0
         check = float(mpmath.log(self._2f1_validate(*pars)))
-        print(f, check)
         assert np.isclose(f, check)
 
     def test_2f1_grad(self, muts, hyp2f1_func, pars):
@@ -244,5 +239,4 @@ class TestTransforms:
         assert s > 0
         offset = self._2f1_validate(*pars)
         check = self._2f1_grad_validate(*pars, offset=offset)
-        print(grad, check)
         assert np.allclose(grad, check)
