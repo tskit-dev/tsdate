@@ -514,7 +514,7 @@ class VariationalLikelihoods:
     A class to store and process likelihoods for use in variational inference.
     """
 
-    probability_space = base.PAR
+    probability_space = base.GAMMA_PAR
     identity_constant = np.array([1.0, 0.0], dtype=float)  # "improper" gamma prior
     null_constant = 0.0
     timepoints = np.array([0, np.inf], dtype=float)
@@ -918,8 +918,8 @@ class ExpectationPropagation(InOutAlgorithms):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-        assert self.priors.probability_space == base.PAR
-        assert self.lik.probability_space == base.PAR
+        assert self.priors.probability_space == base.GAMMA_PAR
+        assert self.lik.probability_space == base.GAMMA_PAR
         assert self.lik.grid_size == 2
         assert self.priors.timepoints.size == 2
 

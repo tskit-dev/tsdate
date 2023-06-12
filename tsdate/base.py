@@ -31,7 +31,7 @@ import numpy as np
 FLOAT_DTYPE = np.float64
 LIN = "linear"
 LOG = "logarithmic"
-PAR = "parameter"
+GAMMA_PAR = "gamma_parameter"
 
 # Bit 20 is set in node flags when they are samples not at time zero in the sampledata
 # file
@@ -126,8 +126,8 @@ class NodeGridValues:
                 self.probability_space = LOG
             else:
                 logging.warning("Cannot force", *descr)
-        elif probability_space == PAR:
-            if self.probability_space == PAR:
+        elif probability_space == GAMMA_PAR:
+            if self.probability_space == GAMMA_PAR:
                 pass
             else:
                 logging.warning("Cannot force", *descr)

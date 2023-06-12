@@ -1124,7 +1124,7 @@ class MixturePrior:
             ),
             np.array([0, np.inf]),
         )
-        prior_pars.probability_space = base.PAR
+        prior_pars.probability_space = base.GAMMA_PAR
 
         shape_param = self.prior_params[:, PriorParams.field_index("alpha")]
         rate_param = self.prior_params[:, PriorParams.field_index("beta")]
