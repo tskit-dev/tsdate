@@ -908,9 +908,36 @@ class InOutAlgorithms:
 
 
 class ExpectationPropagation(InOutAlgorithms):
-    """
-    Expectation propagation, where the edge factors are approximated
-    by the product of two gamma distributions
+    r"""
+    Expectation propagation (EP) algorithm to infer approximate marginal
+    distributions for node ages.
+
+    The model has the form,
+
+    .. math::
+
+        \prod_{i \in \mathcal{N} f(t_i | \theta_i)
+        \prod_{(i,j) \in \mathcal{E}} g(y_ij | t_i - t_j)
+
+    Where :math:`f(.)` is a prior distribution on node ages with parameters
+    :math:`\\theta` and :math:`g(.)` are Poisson likelihoods per edge. The
+    EP approximation has the form,
+
+    .. math::
+
+        \prod_{i \in \mathcal{N} q(t_i | \eta_i)
+        \prod_{(i,j) \in \mathcal{E}} q(t_i | \gamma_{ij}) q(t_j | \kappa_{ij})
+
+    Here, :math:`q(.)` are pseudo-gamma distributions (termed 'factors'), and
+    :math:`\eta, \gamma, \kappa` are variational parameters that reflect to
+    prior, inside (leaf-to-root), and outside (root-to-edge) information.
+
+    Thus, the EP approximation results in gamma-distribution marginals.  The
+    factors :math:`q(.)` do not need to be valid distributions (e.g. the
+    shape/rate parameters may be negative), as long as the marginals are valid
+    distributions.  For details on how the variational parameters are
+    optimized, see Minka (2002) "Expectation Propagation for Approximate
+    Bayesian Inference"
     """
 
     def __init__(self, *args, **kwargs):
