@@ -542,14 +542,18 @@ class VariationalLikelihoods:
         self.identity_constant.flags.writeable = False
         self.timepoints.flags.writeable = False
 
-    def to_gamma(self, edge):
+    def to_gamma(self, edge, natural=False):
         """
         Return the shape and rate parameters of the (gamma) posterior of edge
-        length, given an improper (constant) prior.
+        length, given an improper (constant) prior. If ``natural`` is ``True``,
+        return the natural parameterization instead.
         """
         y = self.mut_edges[edge.id]
         mu = edge.span * self.mut_rate
-        return np.array([y + 1, mu])
+        if natural:
+            return np.array([y, mu])
+        else:
+            return np.array([y + 1, mu])
 
     @staticmethod
     def get_mut_edges(ts):
@@ -973,7 +977,7 @@ class ExpectationPropagation(InOutAlgorithms):
         # and can be incorporated into the posterior beforehand
         for edge in self.ts.edges():
             if edge.child in self.fixednodes:
-                self.parent_message[edge.id] = self.lik.to_gamma(edge)
+                self.parent_message[edge.id] = self.lik.to_gamma(edge, natural=False)
                 self.posterior[edge.parent] = self.lik.combine(
                     self.posterior[edge.parent], self.parent_message[edge.id]
                 )
@@ -996,8 +1000,7 @@ class ExpectationPropagation(InOutAlgorithms):
                 continue
             if edge.parent in self.fixednodes:
                 raise ValueError("Internal nodes can not be fixed in EP algorithm")
-            edge_lik = self.lik.to_gamma(edge)
-            edge_lik += np.array([-1.0, 0.0])  # to Poisson, TODO cleanup
+            edge_lik = self.lik.to_gamma(edge, natural=True)
             # Get the cavity posteriors: that is, the rest of the approximation
             # without the factor for this edge. This only involves the variational
             # parameters for the parent and child on the edge.
@@ -1181,13 +1184,13 @@ def date(
     :param int num_threads: The number of threads to use. A simpler unthreaded algorithm
         is used unless this is >= 1. Default: None
     :param string method: What estimation method to use: can be
-        "EP" (variational approximation, empirically most accurate),
+        "variational_gamma" (variational approximation, empirically most accurate),
         "inside_outside" (empirically better, theoretically problematic) or
         "maximization" (worse empirically, especially with gamma approximated priors,
         but theoretically robust). If ``None`` (default) use "inside_outside"
     :param string probability_space: Should the internal algorithm save probabilities in
         "logarithmic" (slower, less liable to to overflow) or "linear" space (fast, may
-        overflow). Does not apply to method ``EP``. Default: "logarithmic"
+        overflow). Does not apply to method ``variational_gamma``. Default: "logarithmic"
     :param bool ignore_oldest_root: Should the oldest root in the tree sequence be
         ignored in the outside algorithm (if "inside_outside" is used as the method).
         Ignoring outside root provides greater stability when dating tree sequences
@@ -1212,7 +1215,7 @@ def date(
             )
         else:
             population_size = Ne
-    if method == "EP":
+    if method == "variational_gamma":
         tree_sequence, dates, posteriors, timepoints, eps, nds = variational_dates(
             tree_sequence,
             population_size=population_size,
