@@ -561,14 +561,20 @@ class VariationalLikelihoods:
     @staticmethod
     def combine(base, message):
         """
-        Multiply two gamma PDFs
+        Multiply two gamma PDFs in shape/rate parameterization. This
+        is equivalent to addition of natural parameters. Because the natural
+        parametrization is (shape - 1, rate), the operation returns
+        [(base_shape - 1) + (message_shape - 1) + 1, base_rate + message_rate]
         """
         return base + message + [-1, 0]
 
     @staticmethod
     def ratio(base, message):
         """
-        Divide two gamma PDFs
+        Divide two gamma PDFs in shape/rate parameterization. This
+        is equivalent to subtraction of natural parameters. Because the natural
+        parametrization is (shape - 1, rate), the operation returns
+        [(base_shape - 1) - (message_shape - 1) + 1, base_rate - message_rate]
         """
         return base - message + [1, 0]
 
