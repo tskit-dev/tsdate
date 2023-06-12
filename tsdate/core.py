@@ -946,31 +946,6 @@ class ExpectationPropagation(InOutAlgorithms):
                 )
                 # self.factor_norm[edge.id] += ... # TODO
 
-    def edges_by_parent_asc(self):
-        """
-        Edges in order of increasing age of parent
-        """
-        return self.ts.edges()
-
-    def edges_by_child_desc(self):
-        """
-        Edges in order of decreasing age of child
-        """
-        wtype = np.dtype(
-            [
-                ("child_age", self.ts.tables.nodes.time.dtype),
-                ("child_node", self.ts.tables.edges.child.dtype),
-            ]
-        )
-        w = np.empty(self.ts.num_edges, dtype=wtype)
-        w["child_age"] = self.ts.tables.nodes.time[self.ts.tables.edges.child]
-        w["child_node"] = self.ts.tables.edges.child
-        sorted_child_parent = (
-            self.ts.edge(i)
-            for i in reversed(np.argsort(w, order=("child_age", "child_node")))
-        )
-        return sorted_child_parent
-
     def propagate(self, *, edges, progress=None):
         """
         Update approximating factor for each edge
