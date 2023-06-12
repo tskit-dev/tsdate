@@ -1,5 +1,6 @@
 # MIT License
 #
+# Copyright (C) 2023 Tskit Developers
 # Copyright (C) 2023 University of Oxford
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -215,27 +216,6 @@ class TiltedGammaDiff:
             )
         return np.exp(val)
 
-    def laplace(self, s):
-        """
-        Laplace transform, derived using 13.23.4 in DLMF
-        """
-        # TODO: assert ROC
-        A = self.shape1 + self.shape2 + self.shape3 - 1
-        B = self.shape3
-        C = self.shape2 + self.shape3
-        S = self.rate2 - self.rate3
-        T = self.rate1 + self.rate2
-        if self.reparametrize:
-            val = (
-                -A * np.log(T - S + s)
-                + A * np.log(T - S)
-                + self._2F1(A, C - B, C, (s - S) / (T - S + s))
-                + -self._2F1(A, C - B, C, S / (S - T))
-            )
-        else:
-            val = self._2F1(A, B, C, (S - s) / T) - self._2F1(A, B, C, S / T)
-        return np.exp(val)
-
     def moments(self):
         r"""
         Returns the first two raw moments.
@@ -445,23 +425,6 @@ class TiltedGammaSum:
             scipy.stats.gamma.logpdf(x, B, scale=1 / S)
             + self._M(self.shape1, self.shape1 + self.shape2, T * x)
             - self._2F1(A, B, C, T / S)
-        )
-        return np.exp(val)
-
-    def laplace(self, s):
-        """
-        Laplace transform, derived using 13.10.3 in DLMF
-        """
-        # TODO: assert ROC
-        A = self.shape1
-        B = self.shape1 + self.shape2 + self.shape3 - 1
-        C = self.shape1 + self.shape2
-        T = self.rate2 - self.rate1
-        S = self.rate2 + self.rate3
-        val = (
-            self._2F1(A, B, C, T / (S + s))
-            - self._2F1(A, B, C, T / S)
-            + B * (np.log(S) - np.log(S + s))
         )
         return np.exp(val)
 
