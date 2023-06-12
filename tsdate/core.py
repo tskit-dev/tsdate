@@ -512,6 +512,10 @@ class LogLikelihoods(Likelihoods):
 class VariationalLikelihoods:
     """
     A class to store and process likelihoods for use in variational inference.
+    Has two main purposes: to store mutation counts / rates for Poisson
+    likelihoods per edge, and to perform binary operations gamma distributions
+    in terms of their natural parameterization (e.g. adding / subtracting sufficient
+    statistics is equivalent to multiplying / dividing gamma PDFs).
     """
 
     probability_space = base.GAMMA_PAR
@@ -567,18 +571,6 @@ class VariationalLikelihoods:
         Divide two gamma PDFs
         """
         return base - message + [1, 0]
-
-    @staticmethod
-    def scale_geometric(fraction, pars):
-        """
-        Scale the parameters of a gamma distribution by raising the PDF to a
-        fractional power.
-        """
-        assert 1 >= fraction >= 0
-        new_pars = pars.copy()
-        new_pars[0] = fraction * (new_pars[0] - 1) + 1
-        new_pars[1] = fraction * new_pars[1]
-        return new_pars
 
 
 class InOutAlgorithms:
