@@ -75,7 +75,9 @@ def approximate_gamma_kl(x, logx):
     assert alpha > 0, "kl-min: bad initial condition"
     last = np.inf
     itt = 0
-    while np.abs(alpha - last) > alpha * 1e-8:
+    # determine convergence when the change in alpha falls below
+    # some small value (e.g. square root of machine precision)
+    while np.abs(alpha - last) > alpha * np.sqrt(np.finfo(np.float64).eps):
         last = alpha
         numer = hypergeo._digamma(alpha) - np.log(alpha) - logx + np.log(x)
         denom = hypergeo._trigamma(alpha) - 1 / alpha
