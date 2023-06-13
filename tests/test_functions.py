@@ -46,6 +46,7 @@ from tsdate.core import InOutAlgorithms
 from tsdate.core import Likelihoods
 from tsdate.core import LogLikelihoods
 from tsdate.core import posterior_mean_var
+from tsdate.core import variational_dates
 from tsdate.demography import PopulationSizeHistory
 from tsdate.prior import ConditionalCoalescentTimes
 from tsdate.prior import fill_priors
@@ -1529,6 +1530,25 @@ class TestBuildPriorGrid:
         ts = msprime.simulate(2, random_seed=12)
         with pytest.raises(ValueError):
             tsdate.build_prior_grid(ts, population_size=-10)
+
+
+class TestCallingErrors:
+    def test_bad_vgamma_probability_space(self):
+        ts = utility_functions.single_tree_ts_n2()
+        with pytest.raises(ValueError, match="Cannot specify"):
+            variational_dates(ts, 1, 1, probability_space=base.LOG)
+
+    def test_bad_vgamma_num_threads(self):
+        # Test can be removed if we specify num_threads in the future
+        ts = utility_functions.single_tree_ts_n2()
+        with pytest.raises(ValueError, match="does not currently"):
+            variational_dates(ts, 1, 1, num_threads=2)
+
+    def test_bad_vgamma_ignore_oldest_root(self):
+        # Test can be removed in the future if this is implemented
+        ts = utility_functions.single_tree_ts_n2()
+        with pytest.raises(ValueError, match="not implemented"):
+            variational_dates(ts, 1, 1, ignore_oldest_root=True)
 
 
 class TestPosteriorMeanVar:

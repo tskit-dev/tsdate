@@ -55,7 +55,7 @@ class TestTsdateArgParser:
         assert args.recombination_rate is None
         assert args.epsilon == 1e-6
         assert args.num_threads is None
-        assert args.probability_space == "logarithmic"
+        assert args.probability_space is None  # Use the defaults
         assert args.method == "inside_outside"
         assert not args.progress
 
@@ -128,16 +128,15 @@ class TestTsdateArgParser:
         )
         assert args.probability_space == "logarithmic"
 
-    def test_method(self):
+    @pytest.mark.parametrize(
+        "method", ["inside_outside", "maximization", "variational_gamma"]
+    )
+    def test_method(self, method):
         parser = cli.tsdate_cli_parser()
         args = parser.parse_args(
-            ["date", self.infile, self.output, "10000", "--method", "inside_outside"]
+            ["date", self.infile, self.output, "10000", "--method", method]
         )
-        assert args.method == "inside_outside"
-        args = parser.parse_args(
-            ["date", self.infile, self.output, "10000", "--method", "maximization"]
-        )
-        assert args.method == "maximization"
+        assert args.method == method
 
     def test_progress(self):
         parser = cli.tsdate_cli_parser()
@@ -262,7 +261,10 @@ class TestEndToEnd:
         with pytest.raises(ValueError):
             self.verify(input_ts, cmd)
 
-    def test_compare_python_api(self):
+    @pytest.mark.parametrize(
+        "method", ["inside_outside", "maximization", "variational_gamma"]
+    )
+    def test_compare_python_api(self, method):
         input_ts = msprime.simulate(
             100,
             Ne=10000,
@@ -271,12 +273,9 @@ class TestEndToEnd:
             length=2e4,
             random_seed=10,
         )
-        cmd = "10000 -m 1e-8 --method inside_outside"
+        cmd = f"10000 -m 1e-8 --method {method}"
         self.verify(input_ts, cmd)
-        self.compare_python_api(input_ts, cmd, 10000, 1e-8, "inside_outside")
-        cmd = "10000 -m 1e-8 --method maximization"
-        self.verify(input_ts, cmd)
-        self.compare_python_api(input_ts, cmd, 10000, 1e-8, "maximization")
+        self.compare_python_api(input_ts, cmd, 10000, 1e-8, method)
 
     def preprocess_compare_python_api(self, input_ts):
         with tempfile.TemporaryDirectory() as tmpdir:
