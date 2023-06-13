@@ -12,3 +12,5 @@ pre-commit
 pytest
 pytest-xdist
 pytest-cov
+mpmath
+numdifftools
