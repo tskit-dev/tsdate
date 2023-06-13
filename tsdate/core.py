@@ -1287,7 +1287,7 @@ def get_dates(
     ignore_oldest_root=False,
     progress=False,
     cache_inside=False,
-    probability_space=base.LOG,
+    probability_space=None,
 ):
     """
     Infer dates for the nodes in a tree sequence, returning an array of inferred dates
@@ -1332,6 +1332,9 @@ def get_dates(
                         if specifying priors from tsdate.build_prior_grid()"
             )
         priors = priors
+
+    if probability_space is None:
+        probability_space = base.LOG
 
     if probability_space != base.LOG:
         liklhd = Likelihoods(
@@ -1447,6 +1450,9 @@ def variational_dates(
     global_prior=True,
     eps=1e-6,
     progress=False,
+    num_threads=None,  # Unused, matches get_dates()
+    probability_space=None,  # Can only be None, simply to match get_dates()
+    ignore_oldest_root=False,  # Can only be False, simply to match get_dates()
 ):
     """
     Infer dates for the nodes in a tree sequence using expectation propagation,
@@ -1468,6 +1474,21 @@ def variational_dates(
 
     if not max_iterations >= 1:
         raise ValueError("Maximum number of iterations must be greater than 0")
+
+    # Parameters below are not used in variational dating, but are here
+    # to match the signature of get_dates(). We may be able to remove some
+    # if we move to specifying some params via a control dictionary
+
+    if probability_space is not None:
+        raise ValueError("Cannot specify a probability space in variational dating")
+
+    if num_threads is not None and num_threads != 1:
+        raise ValueError("Variational dating does not currently use multiple threads")
+
+    if ignore_oldest_root:
+        raise ValueError(
+            "Ignoring the oldes root is not implemented in variational dating"
+        )
 
     # Default to not creating approximate priors unless ts has > 1000 samples
     approx_priors = False

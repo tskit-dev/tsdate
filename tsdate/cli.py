@@ -125,10 +125,12 @@ def tsdate_cli_parser():
     parser.add_argument(
         "--probability-space",
         type=str,
-        default="logarithmic",
+        default=None,
         help="Should the internal algorithm save probabilities in \
                         'logarithmic' (slower, less liable to to overflow) or 'linear' \
-                        space (faster, may overflow). Default: 'logarithmic'",
+                        space (faster, may overflow). Not relevant for the \
+                        'variational_gamma' method; default otherwise is `None` \
+                        currently treated as 'logarithmic'",
     )
     parser.add_argument(
         "--method",
@@ -136,15 +138,16 @@ def tsdate_cli_parser():
         default="inside_outside",
         help="Specify which estimation method to use: can be \
                         'inside_outside' (empirically better, theoretically \
-                        problematic) or 'maximization' (worse empirically, especially \
-                        with a gamma approximated prior, but theoretically robust). \
-                        Default: 'inside_outside'",
+                        problematic), 'maximization' (worse empirically, especially \
+                        with a gamma approximated prior, but theoretically robust), or \
+                        'variational_gamma' (a fast experimental continuous-time \
+                        approximation). Default: 'inside_outside'",
     )
     parser.add_argument(
         "--ignore-oldest",
         action="store_true",
-        help="Ignore the oldest node in the tree sequence, which is \
-                        often of low quality when using empirical data.",
+        help="Ignore the oldest node in the tree sequence: in older tsinfer versions \
+                        this could be of low quality when using empirical data.",
     )
     parser.add_argument(
         "-p", "--progress", action="store_true", help="Show progress bar."
@@ -190,18 +193,18 @@ def run_date(args):
         ts = tskit.load(args.tree_sequence)
     except tskit.FileFormatError as ffe:
         error_exit(f"Error loading '{args.tree_sequence}: {ffe}")
-    dated_ts = tsdate.date(
-        ts,
-        args.mutation_rate,
-        args.population_size,
+    params = dict(
         recombination_rate=args.recombination_rate,
-        probability_space=args.probability_space,
         method=args.method,
         eps=args.epsilon,
+        progress=args.progress,
+        probability_space=args.probability_space,
         num_threads=args.num_threads,
         ignore_oldest_root=args.ignore_oldest,
-        progress=args.progress,
     )
+    # TODO: error out if ignore_oldest_root is set,
+    # see https://github.com/tskit-dev/tsdate/issues/262
+    dated_ts = tsdate.date(ts, args.mutation_rate, args.population_size, **params)
     dated_ts.dump(args.output)
 
 
