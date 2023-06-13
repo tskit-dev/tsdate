@@ -372,3 +372,41 @@ class TestInferred:
             assert all(
                 [a == b for a, b in zip(ts.haplotypes(), io_dated_ts.haplotypes())]
             )
+
+
+class TestVariational:
+    """
+    Tests for tsdate with variational algorithm
+    """
+
+    def test_simple_sim_1_tree(self):
+        ts = msprime.simulate(8, mutation_rate=5, random_seed=2)
+        tsdate.date(ts, mutation_rate=5, population_size=1, method="variational_gamma")
+
+    def test_simple_sim_multi_tree(self):
+        ts = msprime.simulate(8, mutation_rate=5, recombination_rate=5, random_seed=2)
+        tsdate.date(ts, mutation_rate=5, population_size=1, method="variational_gamma")
+
+    def test_nonglobal_priors(self):
+        ts = msprime.simulate(8, mutation_rate=5, recombination_rate=5, random_seed=2)
+        priors = tsdate.prior.MixturePrior(ts, prior_distribution="gamma")
+        grid = priors.make_parameter_grid(population_size=1)
+        grid.grid_data[:] = [1.0, 0.0]  # noninformative prior
+        tsdate.date(
+            ts,
+            mutation_rate=5,
+            method="variational_gamma",
+            priors=grid,
+            global_prior=False,
+        )
+
+    def test_bad_arguments(self):
+        ts = utility_functions.two_tree_mutation_ts()
+        with pytest.raises(ValueError, match="Maximum number of iterations"):
+            tsdate.date(
+                ts,
+                mutation_rate=5,
+                population_size=1,
+                method="variational_gamma",
+                max_iterations=-1,
+            )

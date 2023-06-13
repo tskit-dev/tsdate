@@ -111,8 +111,8 @@ def sufficient_statistics(a_i, b_i, a_j, b_j, y_ij, mu_ij):
 
     :return: normalizing constant, E[t_i], E[log t_i], E[t_j], E[log t_j]
     """
-    assert a_i > 0 and b_i > 0, "Invalid parent parameters"
-    assert a_j > 0 and b_j > 0, "Invalid child parameters"
+    assert a_i > 0 and b_i >= 0, "Invalid parent parameters"
+    assert a_j > 0 and b_j >= 0, "Invalid child parameters"
     assert y_ij >= 0 and mu_ij > 0, "Invalid edge parameters"
 
     a = a_i + a_j + y_ij

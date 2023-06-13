@@ -630,7 +630,7 @@ class InOutAlgorithms:
 
     # === Grouped edge iterators ===
 
-    def edges_by_parent_asc(self):
+    def edges_by_parent_asc(self, grouped=True):
         """
         Return an itertools.groupby object of edges grouped by parent in ascending order
         of the time of the parent. Since tree sequence properties guarantee that edges
@@ -638,9 +638,12 @@ class InOutAlgorithms:
         (https://tskit.readthedocs.io/en/latest/data-model.html#edge-requirements)
         we can simply use the standard edge order
         """
-        return itertools.groupby(self.ts.edges(), operator.attrgetter("parent"))
+        if grouped:
+            return itertools.groupby(self.ts.edges(), operator.attrgetter("parent"))
+        else:
+            return self.ts.edges()
 
-    def edges_by_child_desc(self):
+    def edges_by_child_desc(self, grouped=True):
         """
         Return an itertools.groupby object of edges grouped by child in descending order
         of the time of the child.
@@ -651,9 +654,12 @@ class InOutAlgorithms:
                 (self.ts.edges_child, -self.ts.nodes_time[self.ts.edges_child])
             )
         )
-        return itertools.groupby(it, operator.attrgetter("child"))
+        if grouped:
+            return itertools.groupby(it, operator.attrgetter("child"))
+        else:
+            return it
 
-    def edges_by_child_then_parent_desc(self):
+    def edges_by_child_then_parent_desc(self, grouped=True):
         """
         Return an itertools.groupby object of edges grouped by child in descending order
         of the time of the child, then by descending order of age of child
@@ -675,7 +681,10 @@ class InOutAlgorithms:
                 np.argsort(w, order=("child_age", "child_node", "parent_age"))
             )
         )
-        return itertools.groupby(sorted_child_parent, operator.attrgetter("child"))
+        if grouped:
+            return itertools.groupby(sorted_child_parent, operator.attrgetter("child"))
+        else:
+            return sorted_child_parent
 
     # === MAIN ALGORITHMS ===
 
@@ -1038,8 +1047,8 @@ class ExpectationPropagation(InOutAlgorithms):
         Update edge factors from leaves to root then from root to leaves,
         and return approximate log marginal likelihood
         """
-        self.propagate(edges=self.edges_by_parent_asc(), progress=progress)
-        self.propagate(edges=self.edges_by_child_desc(), progress=progress)
+        self.propagate(edges=self.edges_by_parent_asc(grouped=False), progress=progress)
+        self.propagate(edges=self.edges_by_child_desc(grouped=False), progress=progress)
         # TODO
         # marginal_lik = np.sum(self.factor_norm)
         # return marginal_lik
