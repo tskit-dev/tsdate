@@ -44,6 +44,18 @@ _gamma_trio_test_cases = [  # [shape1, rate1, shape2, rate2, muts, rate]
 ]
 
 
+def approximate_gamma_mom(mean, variance):
+    """
+    Use the method of moments to approximate a distribution with a gamma of the
+    same mean and variance
+    """
+    assert mean > 0
+    assert variance > 0
+    alpha = mean**2 / variance
+    beta = mean / variance
+    return alpha, beta
+
+
 @pytest.mark.parametrize("pars", _gamma_trio_test_cases)
 class TestPosteriorMomentMatching:
     """
