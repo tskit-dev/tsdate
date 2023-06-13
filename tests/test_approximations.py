@@ -174,7 +174,7 @@ class TestPriorMomentMatching:
         x = self.priors[self.n][k][mean_column]
         xvar = self.priors[self.n][k][var_column]
         # match mean/variance
-        alpha_0, beta_0 = approx.approximate_gamma_mom(x, xvar)
+        alpha_0, beta_0 = approximate_gamma_mom(x, xvar)
         ck_x = alpha_0 / beta_0
         ck_xvar = alpha_0 / beta_0**2
         assert np.isclose(x, ck_x)
