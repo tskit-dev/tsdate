@@ -992,19 +992,14 @@ class ExpectationPropagation(InOutAlgorithms):
                 )
                 # self.factor_norm[edge.id] += ... # TODO
 
-    def propagate(self, *, edges, progress=None):
+    def propagate(self, *, edges, desc=None, progress=None):
         """
         Update approximating factor for each edge
         """
         if progress is None:
             progress = self.progress
         # TODO: this will still converge if parallelized (potentially slower)
-        for edge in tqdm(
-            edges,
-            desc="Expectation Propagation",
-            total=self.ts.num_edges,
-            disable=not progress,
-        ):
+        for edge in tqdm(edges, desc, total=self.ts.num_edges, disable=not progress):
             if edge.child in self.fixednodes:
                 continue
             if edge.parent in self.fixednodes:
@@ -1042,13 +1037,22 @@ class ExpectationPropagation(InOutAlgorithms):
             # TODO not complete
             self.factor_norm[edge.id] = norm_const
 
-    def iterate(self, *, progress=None, **kwargs):
+    def iterate(self, *, iter_num=None, progress=None):
         """
         Update edge factors from leaves to root then from root to leaves,
         and return approximate log marginal likelihood
         """
-        self.propagate(edges=self.edges_by_parent_asc(grouped=False), progress=progress)
-        self.propagate(edges=self.edges_by_child_desc(grouped=False), progress=progress)
+        desc = "Expectation Propagation"
+        if iter_num:  # Show iteration number if not first iteration
+            desc = f"EP (iter {iter_num + 1:>2}, rootwards)"
+        self.propagate(
+            edges=self.edges_by_parent_asc(grouped=False), desc=desc, progress=progress
+        )
+        if iter_num:
+            desc = f"EP (iter {iter_num + 1:>2}, leafwards)"
+        self.propagate(
+            edges=self.edges_by_child_desc(grouped=False), desc=desc, progress=progress
+        )
         # TODO
         # marginal_lik = np.sum(self.factor_norm)
         # return marginal_lik
@@ -1112,7 +1116,10 @@ def constrain_ages_topo(ts, post_mn, eps, nodes_to_date=None, progress=False):
     parents_unique = np.unique(parents, return_index=True)
     parent_indices = parents_unique[1][np.isin(parents_unique[0], nodes_to_date)]
     for index, nd in tqdm(
-        enumerate(sorted(nodes_to_date)), desc="Constrain Ages", disable=not progress
+        enumerate(sorted(nodes_to_date)),
+        desc="Constrain Ages",
+        total=len(nodes_to_date),
+        disable=not progress,
     ):
         if index + 1 != len(nodes_to_date):
             children_index = np.arange(parent_indices[index], parent_indices[index + 1])
@@ -1530,8 +1537,8 @@ def variational_dates(
     )
 
     dynamic_prog = ExpectationPropagation(priors, liklhd, progress=progress)
-    for _ in range(max_iterations):
-        dynamic_prog.iterate()
+    for it in range(max_iterations):
+        dynamic_prog.iterate(iter_num=it)
     posterior = dynamic_prog.posterior
     tree_sequence, mn_post, _ = variational_mean_var(
         tree_sequence, posterior, fixed_node_set=fixed_nodes
