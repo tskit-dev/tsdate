@@ -1406,6 +1406,15 @@ class TestMaximization:
         algo.inside_pass()
         return lls, algo, algo.outside_maximization(eps=eps)
 
+    def test_outside_maximization_error(self):
+        ts = utility_functions.single_tree_ts_n2()
+        priors = tsdate.build_prior_grid(ts, 0.5)
+        lls = Likelihoods(ts, priors.timepoints, 1)
+        lls.precalculate_mutation_likelihoods()
+        algo = InOutAlgorithms(priors, lls)
+        with pytest.raises(RuntimeError, match="not yet run"):
+            algo.outside_maximization(eps=1e-6)
+
     def test_one_tree_n2(self):
         ts = utility_functions.single_tree_ts_n2()
         for prior_distr in ("lognorm", "gamma"):
