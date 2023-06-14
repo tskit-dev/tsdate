@@ -193,7 +193,7 @@ def run_date(args):
     try:
         ts = tskit.load(args.tree_sequence)
     except tskit.FileFormatError as ffe:
-        error_exit(f"Error loading '{args.tree_sequence}: {ffe}")
+        error_exit(f"FileFormatError loading '{args.tree_sequence}: {ffe}")
     params = dict(
         recombination_rate=args.recombination_rate,
         method=args.method,

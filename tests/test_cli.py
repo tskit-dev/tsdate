@@ -23,8 +23,6 @@
 Test cases for the command line interface for tsdate.
 """
 import json
-import pathlib
-import tempfile
 from unittest import mock
 
 import msprime
@@ -156,14 +154,37 @@ class TestTsdateArgParser:
 
 
 class RunCLI:
-    def run_tsdate_cli(self, input_ts, cmd=""):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            input_filename = pathlib.Path(tmpdir) / "input.trees"
-            input_ts.dump(input_filename)
-            output_filename = pathlib.Path(tmpdir) / "output.trees"
-            full_cmd = "date " + str(input_filename) + f" {output_filename} " + cmd
-            cli.tsdate_main(full_cmd.split())
-            return tskit.load(output_filename)
+    popsize = 1
+
+    def run_tsdate_cli(self, tmp_path, input_ts, params=None, cmd="date"):
+        if cmd == "date" and params is None:
+            params = str(self.popsize)
+        input_filename = tmp_path / "input.trees"
+        input_ts.dump(input_filename)
+        output_filename = tmp_path / "output.trees"
+        cmd = [cmd, str(input_filename), str(output_filename)]
+        if params is not None:
+            cmd.append(params)
+        cli.tsdate_main(" ".join(cmd).split())
+        return tskit.load(output_filename)
+
+
+class TestCLIErrors(RunCLI):
+    def test_bad_file(self, tmp_path):
+        input_fn = tmp_path / "input.trees"
+        print("bad file", file=input_fn.open("w"))
+        output_fn = tmp_path / "output.trees"
+        with pytest.raises(SystemExit, match="FileFormatError"):
+            cli.tsdate_main(["date", str(input_fn), str(output_fn), str(self.popsize)])
+
+    def test_bad_method(self, tmp_path, capfd):
+        bad = "bad_method"
+        input_ts = msprime.simulate(4, random_seed=123)
+        params = f"--method {bad}"
+        with pytest.raises(SystemExit):
+            self.run_tsdate_cli(tmp_path, input_ts, f"{self.popsize} {params}")
+        captured = capfd.readouterr()
+        assert bad in captured.err
 
 
 class TestOutput(RunCLI):
@@ -171,28 +192,17 @@ class TestOutput(RunCLI):
     Tests for the command-line output.
     """
 
-    popsize = 1
-
-    def test_bad_method(self, capfd):
-        bad = "bad_method"
+    def test_no_output(self, tmp_path, capfd):
         input_ts = msprime.simulate(4, random_seed=123)
-        cmd = f"--method {bad}"
-        with pytest.raises(SystemExit):
-            _ = self.run_tsdate_cli(input_ts, f"{self.popsize} " + cmd)
-            captured = capfd.readouterr()
-            assert bad in captured.err
-
-    def test_no_output(self, capfd):
-        input_ts = msprime.simulate(4, random_seed=123)
-        _ = self.run_tsdate_cli(input_ts, f"{self.popsize}")
+        self.run_tsdate_cli(tmp_path, input_ts)
         (out, err) = capfd.readouterr()
         assert out == ""
         assert err == ""
 
-    def test_progress(self, capfd):
+    def test_progress(self, tmp_path, capfd):
         input_ts = msprime.simulate(4, random_seed=123)
-        cmd = "--method inside_outside --progress"
-        _ = self.run_tsdate_cli(input_ts, f"{self.popsize} " + cmd)
+        params = "--method inside_outside --progress"
+        self.run_tsdate_cli(tmp_path, input_ts, f"{self.popsize} {params}")
         (out, err) = capfd.readouterr()
         assert out == ""
         # run_tsdate_cli print logging to stderr
@@ -210,10 +220,10 @@ class TestOutput(RunCLI):
         assert err.count("100%") == len(desc)
         assert err.count("it/s") >= len(desc)
 
-    def test_iterative_progress(self, capfd):
+    def test_iterative_progress(self, tmp_path, capfd):
         input_ts = msprime.simulate(4, random_seed=123)
-        cmd = "--method variational_gamma --mutation-rate 1e-8 --progress"
-        _ = self.run_tsdate_cli(input_ts, f"{self.popsize} " + cmd)
+        params = "--method variational_gamma --mutation-rate 1e-8 --progress"
+        self.run_tsdate_cli(tmp_path, input_ts, f"{self.popsize} {params}")
         (out, err) = capfd.readouterr()
         assert out == ""
         # run_tsdate_cli print logging to stderr
@@ -262,88 +272,81 @@ class TestEndToEnd(RunCLI):
         else:
             assert t1.nodes == t2.nodes
 
-    def verify(self, input_ts, cmd):
-        output_ts = self.run_tsdate_cli(input_ts, cmd)
+    def verify(self, tmp_path, input_ts, params=None):
+        output_ts = self.run_tsdate_cli(tmp_path, input_ts, params)
         assert input_ts.num_samples == output_ts.num_samples
         self.ts_equal(input_ts, output_ts)
 
-    def compare_python_api(self, input_ts, cmd, Ne, mutation_rate, method):
-        output_ts = self.run_tsdate_cli(input_ts, cmd)
+    def compare_python_api(self, tmp_path, input_ts, params, Ne, mutation_rate, method):
+        output_ts = self.run_tsdate_cli(tmp_path, input_ts, params)
         dated_ts = tsdate.date(
             input_ts, population_size=Ne, mutation_rate=mutation_rate, method=method
         )
         assert np.array_equal(dated_ts.nodes_time, output_ts.nodes_time)
 
-    def test_ts(self):
+    def test_ts(self, tmp_path):
         input_ts = msprime.simulate(10, random_seed=1)
-        cmd = "1"
-        self.verify(input_ts, cmd)
+        self.verify(tmp_path, input_ts)
 
-    def test_mutation_rate(self):
+    def test_mutation_rate(self, tmp_path):
         input_ts = msprime.simulate(10, random_seed=1)
-        cmd = "1 --mutation-rate 1e-8"
-        self.verify(input_ts, cmd)
+        params = f"{self.popsize} --mutation-rate 1e-8"
+        self.verify(tmp_path, input_ts, params)
 
-    def test_recombination_rate(self):
+    def test_recombination_rate(self, tmp_path):
         input_ts = msprime.simulate(10, random_seed=1)
-        cmd = "1 --recombination-rate 1e-8"
+        params = f"{self.popsize} --recombination-rate 1e-8"
         with pytest.raises(NotImplementedError):
-            self.verify(input_ts, cmd)
+            self.verify(tmp_path, input_ts, params)
 
-    def test_epsilon(self):
+    def test_epsilon(self, tmp_path):
         input_ts = msprime.simulate(10, random_seed=1)
-        cmd = "1 --epsilon 1e-3"
-        self.verify(input_ts, cmd)
+        params = f"{self.popsize} --epsilon 1e-3"
+        self.verify(tmp_path, input_ts, params)
 
-    def test_num_threads(self):
+    def test_num_threads(self, tmp_path):
         input_ts = msprime.simulate(10, random_seed=1)
-        cmd = "1 --num-threads 2"
-        self.verify(input_ts, cmd)
+        params = f"{self.popsize} --num-threads 2"
+        self.verify(tmp_path, input_ts, params)
 
-    def test_probability_space(self):
+    def test_probability_space(self, tmp_path):
         input_ts = msprime.simulate(10, random_seed=1)
-        cmd = "1 --probability-space linear"
-        self.verify(input_ts, cmd)
-        cmd = "1 --probability-space logarithmic"
-        self.verify(input_ts, cmd)
+        params = f"{self.popsize} --probability-space linear"
+        self.verify(tmp_path, input_ts, params)
+        params = f"{self.popsize} --probability-space logarithmic"
+        self.verify(tmp_path, input_ts, params)
 
-    def test_method(self):
+    def test_method(self, tmp_path):
         input_ts = msprime.simulate(10, random_seed=1)
-        cmd = "1 --method inside_outside"
-        self.verify(input_ts, cmd)
-        cmd = "1 --method maximization"
+        params = f"{self.popsize} --method inside_outside"
+        self.verify(tmp_path, input_ts, params)
+        params = f"{self.popsize} --method maximization"
         with pytest.raises(ValueError):
-            self.verify(input_ts, cmd)
+            self.verify(tmp_path, input_ts, params)
 
     @pytest.mark.parametrize(
         "method", ["inside_outside", "maximization", "variational_gamma"]
     )
-    def test_compare_python_api(self, method):
+    def test_compare_python_api(self, tmp_path, method):
+        popsize = 10000
         input_ts = msprime.simulate(
             100,
-            Ne=10000,
+            Ne=popsize,
             mutation_rate=1e-8,
             recombination_rate=1e-8,
             length=2e4,
             random_seed=10,
         )
-        cmd = f"10000 -m 1e-8 --method {method}"
-        self.verify(input_ts, cmd)
-        self.compare_python_api(input_ts, cmd, 10000, 1e-8, method)
+        params = f"{popsize} -m 1e-8 --method {method}"
+        self.verify(tmp_path, input_ts, params)
+        self.compare_python_api(tmp_path, input_ts, params, popsize, 1e-8, method)
 
-    def preprocess_compare_python_api(self, input_ts):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            input_filename = pathlib.Path(tmpdir) / "input.trees"
-            input_ts.dump(input_filename)
-            output_filename = pathlib.Path(tmpdir) / "output.trees"
-            full_cmd = "preprocess " + str(input_filename) + f" {output_filename}"
-            # print(full_cmd)
-            cli.tsdate_main(full_cmd.split())
-            output_ts = tskit.load(output_filename)
+    def preprocess_compare_python_api(self, tmp_path, input_ts):
+        output_ts = self.run_tsdate_cli(tmp_path, input_ts, cmd="preprocess")
         preprocessed_ts = tsdate.preprocess_ts(input_ts)
         self.ts_equal(output_ts, preprocessed_ts, times_equal=True)
 
-    def test_preprocess_compare_python_api(self):
+    def test_preprocess_compare_python_api(self, tmp_path):
         input_ts = msprime.simulate(
             100,
             Ne=10000,
@@ -352,4 +355,4 @@ class TestEndToEnd(RunCLI):
             length=2e4,
             random_seed=10,
         )
-        self.preprocess_compare_python_api(input_ts)
+        self.preprocess_compare_python_api(tmp_path, input_ts)
