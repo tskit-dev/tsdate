@@ -134,14 +134,15 @@ def tsdate_cli_parser():
     )
     parser.add_argument(
         "--method",
-        type=str,
+        choices=["inside_outside", "maximization", "variational_gamma"],
         default="inside_outside",
-        help="Specify which estimation method to use: can be \
-                        'inside_outside' (empirically better, theoretically \
-                        problematic), 'maximization' (worse empirically, especially \
-                        with a gamma approximated prior, but theoretically robust), or \
-                        'variational_gamma' (a fast experimental continuous-time \
-                        approximation). Default: 'inside_outside'",
+        help=(
+            "Specify which estimation method to use: "
+            "'inside_outside' is empirically better, but theoretically problematic, "
+            "'maximization' is worse empirically, especially with a gamma prior, but "
+            "theoretically robust), 'variational_gamma' is a fast experimental "
+            "continuous-time approximation). Current default: 'inside_outside'",
+        ),
     )
     parser.add_argument(
         "--ignore-oldest",

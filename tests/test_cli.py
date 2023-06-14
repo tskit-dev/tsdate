@@ -155,7 +155,74 @@ class TestTsdateArgParser:
         assert args.trim_telomeres
 
 
-class TestEndToEnd:
+class RunCLI:
+    def run_tsdate_cli(self, input_ts, cmd=""):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            input_filename = pathlib.Path(tmpdir) / "input.trees"
+            input_ts.dump(input_filename)
+            output_filename = pathlib.Path(tmpdir) / "output.trees"
+            full_cmd = "date " + str(input_filename) + f" {output_filename} " + cmd
+            cli.tsdate_main(full_cmd.split())
+            return tskit.load(output_filename)
+
+
+class TestOutput(RunCLI):
+    """
+    Tests for the command-line output.
+    """
+
+    popsize = 1
+
+    def test_bad_method(self, capfd):
+        bad = "bad_method"
+        input_ts = msprime.simulate(4, random_seed=123)
+        cmd = f"--method {bad}"
+        with pytest.raises(SystemExit):
+            _ = self.run_tsdate_cli(input_ts, f"{self.popsize} " + cmd)
+            captured = capfd.readouterr()
+            assert bad in captured.err
+
+    def test_no_output(self, capfd):
+        input_ts = msprime.simulate(4, random_seed=123)
+        _ = self.run_tsdate_cli(input_ts, f"{self.popsize}")
+        (out, err) = capfd.readouterr()
+        assert out == ""
+        assert err == ""
+
+    def test_progress(self, capfd):
+        input_ts = msprime.simulate(4, random_seed=123)
+        cmd = "--method inside_outside --progress"
+        _ = self.run_tsdate_cli(input_ts, f"{self.popsize} " + cmd)
+        (out, err) = capfd.readouterr()
+        assert out == ""
+        # run_tsdate_cli print logging to stderr
+        desc = (
+            "Find Node Spans",
+            "TipCount",
+            "Calculating Node Age Variances",
+            "Find Mixture Priors",
+            "Inside",
+            "Outside",
+            "Constrain Ages",
+        )
+        for match in desc:
+            assert match in err
+        assert err.count("100%") == len(desc)
+        assert err.count("it/s") >= len(desc)
+
+    def test_iterative_progress(self, capfd):
+        input_ts = msprime.simulate(4, random_seed=123)
+        cmd = "--method variational_gamma --mutation-rate 1e-8 --progress"
+        _ = self.run_tsdate_cli(input_ts, f"{self.popsize} " + cmd)
+        (out, err) = capfd.readouterr()
+        assert out == ""
+        # run_tsdate_cli print logging to stderr
+        assert err.count("Expectation Propagation: 100%") == 2
+        assert err.count("EP (iter  2, rootwards): 100%") == 1
+        assert err.count("rootwards): 100%") == err.count("leafwards): 100%")
+
+
+class TestEndToEnd(RunCLI):
     """
     Class to test input to CLI outputs dated tree sequences.
     """
@@ -196,29 +263,16 @@ class TestEndToEnd:
             assert t1.nodes == t2.nodes
 
     def verify(self, input_ts, cmd):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            input_filename = pathlib.Path(tmpdir) / "input.trees"
-            input_ts.dump(input_filename)
-            output_filename = pathlib.Path(tmpdir) / "output.trees"
-            full_cmd = "date " + str(input_filename) + f" {output_filename} " + cmd
-            cli.tsdate_main(full_cmd.split())
-            output_ts = tskit.load(output_filename)
+        output_ts = self.run_tsdate_cli(input_ts, cmd)
         assert input_ts.num_samples == output_ts.num_samples
         self.ts_equal(input_ts, output_ts)
 
     def compare_python_api(self, input_ts, cmd, Ne, mutation_rate, method):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            input_filename = pathlib.Path(tmpdir) / "input.trees"
-            input_ts.dump(input_filename)
-            output_filename = pathlib.Path(tmpdir) / "output.trees"
-            full_cmd = "date " + str(input_filename) + f" {output_filename} " + cmd
-            cli.tsdate_main(full_cmd.split())
-            output_ts = tskit.load(output_filename)
+        output_ts = self.run_tsdate_cli(input_ts, cmd)
         dated_ts = tsdate.date(
             input_ts, population_size=Ne, mutation_rate=mutation_rate, method=method
         )
-        # print(dated_ts.tables.nodes.time, output_ts.tables.nodes.time)
-        assert np.array_equal(dated_ts.tables.nodes.time, output_ts.tables.nodes.time)
+        assert np.array_equal(dated_ts.nodes_time, output_ts.nodes_time)
 
     def test_ts(self):
         input_ts = msprime.simulate(10, random_seed=1)
