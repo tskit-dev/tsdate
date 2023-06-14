@@ -32,6 +32,7 @@ import tskit
 
 import tsdate
 import tsdate.cli as cli
+from tsdate import __main__ as main
 
 
 class TestTsdateArgParser:
@@ -151,6 +152,15 @@ class TestTsdateArgParser:
         assert args.output == self.output
         assert args.minimum_gap == 1000000
         assert args.trim_telomeres
+
+
+class TestMain:
+    def test_main(self, capfd):
+        # Just for coverage really
+        with pytest.raises(SystemExit):
+            main.main()
+        captured = capfd.readouterr()
+        assert "required: subcommand" in captured.err
 
 
 class RunCLI:
