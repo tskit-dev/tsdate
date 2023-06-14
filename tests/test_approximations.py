@@ -84,7 +84,12 @@ class TestPosteriorMomentMatching:
     def test_sufficient_statistics(self, pars):
         logconst, t_i, ln_t_i, t_j, ln_t_j = approx.sufficient_statistics(*pars)
         ck_normconst = scipy.integrate.dblquad(
-            lambda ti, tj: self.pdf(ti, tj, *pars), 0, np.inf, lambda tj: tj, np.inf
+            lambda ti, tj: self.pdf(ti, tj, *pars),
+            0,
+            np.inf,
+            lambda tj: tj,
+            np.inf,
+            epsabs=0,
         )[0]
         assert np.isclose(logconst, np.log(ck_normconst), rtol=1e-3)
         ck_t_i = scipy.integrate.dblquad(
@@ -93,6 +98,7 @@ class TestPosteriorMomentMatching:
             np.inf,
             lambda tj: tj,
             np.inf,
+            epsabs=0,
         )[0]
         assert np.isclose(t_i, ck_t_i, rtol=1e-3)
         ck_t_j = scipy.integrate.dblquad(
@@ -101,6 +107,7 @@ class TestPosteriorMomentMatching:
             np.inf,
             lambda tj: tj,
             np.inf,
+            epsabs=0,
         )[0]
         assert np.isclose(t_j, ck_t_j, rtol=1e-3)
         ck_ln_t_i = scipy.integrate.dblquad(
@@ -109,6 +116,7 @@ class TestPosteriorMomentMatching:
             np.inf,
             lambda tj: tj,
             np.inf,
+            epsabs=0,
         )[0]
         assert np.isclose(ln_t_i, ck_ln_t_i, rtol=1e-3)
         ck_ln_t_j = scipy.integrate.dblquad(
@@ -117,6 +125,7 @@ class TestPosteriorMomentMatching:
             np.inf,
             lambda tj: tj,
             np.inf,
+            epsabs=0,
         )[0]
         assert np.isclose(ln_t_j, ck_ln_t_j, rtol=1e-3)
 
