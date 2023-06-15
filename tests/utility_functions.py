@@ -669,6 +669,10 @@ def two_tree_two_mrcas():
     )
 
 
+def multiroot():
+    return two_tree_two_mrcas().decapitate(1.5)
+
+
 def loopy_tree():
     r"""
     Testing a tree with a loop.

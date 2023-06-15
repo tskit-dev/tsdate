@@ -73,6 +73,11 @@ class TestSpansBySamples:
             for u in t.leaves():
                 assert rep.count(f"{u}: {{}}") == 1
 
+    def test_error_on_multiroot(self):
+        ts = utility_functions.multiroot()
+        with pytest.raises(ValueError, match="multiple roots"):
+            SpansBySamples(ts)
+
 
 class TestTimepoints:
     def test_create_timepoints(self):

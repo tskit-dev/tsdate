@@ -41,7 +41,6 @@ from . import approx
 from . import base
 from . import prior
 from . import provenance
-from . import util
 
 FORMAT_NAME = "tsdate"
 
@@ -618,12 +617,9 @@ class InOutAlgorithms:
         self.spans = np.pad(self.spans, (0, self.ts.num_nodes - len(self.spans)))
 
         self.root_spans = defaultdict(float)
-        for tree in self.ts.trees():
-            root = util.get_single_root(tree)
-            if root is not None:
-                self.root_spans[
-                    root
-                ] += tree.span  # Count span if we have a single tree
+        for tree in self.ts.trees(root_threshold=2):
+            if tree.has_single_root:
+                self.root_spans[tree.root] += tree.span
         # Add on the spans when this is a root
         for root, span_when_root in self.root_spans.items():
             self.spans[root] += span_when_root

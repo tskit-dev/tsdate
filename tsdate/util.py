@@ -34,16 +34,6 @@ from . import provenance
 logger = logging.getLogger(__name__)
 
 
-def get_single_root(tree):
-    # TODO - use new 'root_threshold=2' to avoid having to check isolated nodes
-    topological_roots = [r for r in tree.roots if tree.num_children(r) != 0]
-    if len(topological_roots) > 1:
-        raise ValueError(f"Invalid tree sequence: tree {tree.index} has >1 root")
-    if len(topological_roots) == 0:
-        return None  # Empty tree
-    return topological_roots[0]
-
-
 def reduce_to_contemporaneous(ts):
     """
     Simplify the ts to only the contemporaneous samples, and return the new ts + node map
