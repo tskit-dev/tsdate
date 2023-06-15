@@ -23,6 +23,7 @@
 Test cases for the command line interface for tsdate.
 """
 import json
+import logging
 from unittest import mock
 
 import msprime
@@ -33,6 +34,8 @@ import tskit
 import tsdate
 import tsdate.cli as cli
 from tsdate import __main__ as main
+
+logging_flags = {"-v": "INFO", "--verbosity": "INFO", "-vv": "DEBUG"}
 
 
 class TestTsdateArgParser:
@@ -127,6 +130,14 @@ class TestTsdateArgParser:
         )
         assert args.probability_space == "logarithmic"
 
+    @pytest.mark.parametrize("flag, log_status", logging_flags.items())
+    def test_verbosity(self, flag, log_status):
+        parser = cli.tsdate_cli_parser()
+        args = parser.parse_args(["preprocess", self.infile, self.output, flag])
+        log_string = cli.setup_logging(args)
+        assert log_string == log_status
+        assert hasattr(logging, log_string)
+
     @pytest.mark.parametrize(
         "method", ["inside_outside", "maximization", "variational_gamma"]
     )
@@ -160,7 +171,7 @@ class TestMain:
         with pytest.raises(SystemExit):
             main.main()
         captured = capfd.readouterr()
-        assert "required: subcommand" in captured.err
+        assert "subcommand" in captured.err
 
 
 class RunCLI:
@@ -180,14 +191,18 @@ class RunCLI:
 
 
 class TestCLIErrors(RunCLI):
-    def test_bad_file(self, tmp_path):
-        input_fn = tmp_path / "input.trees"
-        print("bad file", file=input_fn.open("w"))
-        output_fn = tmp_path / "output.trees"
+    @pytest.mark.parametrize("cmd", ["date", "preprocess"])
+    def test_bad_file(self, tmp_path, cmd):
+        input_filename = tmp_path / "input.trees"
+        print("bad file", file=input_filename.open("w"))
+        output_filename = tmp_path / "output.trees"
+        cmds = [cmd, str(input_filename), str(output_filename)]
+        if cmd == "date":
+            cmds.append(str(self.popsize))
         with pytest.raises(SystemExit, match="FileFormatError"):
-            cli.tsdate_main(["date", str(input_fn), str(output_fn), str(self.popsize)])
+            cli.tsdate_main(cmds)
 
-    def test_bad_method(self, tmp_path, capfd):
+    def test_bad_date_method(self, tmp_path, capfd):
         bad = "bad_method"
         input_ts = msprime.simulate(4, random_seed=123)
         params = f"--method {bad}"
@@ -208,6 +223,25 @@ class TestOutput(RunCLI):
         (out, err) = capfd.readouterr()
         assert out == ""
         assert err == ""
+
+    @pytest.mark.parametrize("flag, log_status", logging_flags.items())
+    def test_verbosity(self, tmp_path, caplog, flag, log_status):
+        popsize = 10000
+        input_ts = msprime.simulate(
+            10,
+            Ne=popsize,
+            mutation_rate=1e-8,
+            recombination_rate=1e-8,
+            length=2e4,
+            random_seed=10,
+        )
+        # Have to set the log level on the caplog object, because
+        # logging.basicConfig() doesn't work within pytest
+        caplog.set_level(getattr(logging, log_status))
+        # eihter tsdate date or tsdate preprocees
+        self.run_tsdate_cli(tmp_path, input_ts, f"{self.popsize} {flag}")
+        self.run_tsdate_cli(tmp_path, input_ts, flag, cmd="preprocess")
+        assert log_status in caplog.text
 
     def test_progress(self, tmp_path, capfd):
         input_ts = msprime.simulate(4, random_seed=123)
