@@ -47,6 +47,7 @@ from tsdate.core import Likelihoods
 from tsdate.core import LogLikelihoods
 from tsdate.core import posterior_mean_var
 from tsdate.core import variational_dates
+from tsdate.core import VariationalLikelihoods
 from tsdate.demography import PopulationSizeHistory
 from tsdate.prior import ConditionalCoalescentTimes
 from tsdate.prior import fill_priors
@@ -807,8 +808,15 @@ class TestLikelihoodClass:
                     )
 
 
-class TestNodeGridValuesClass:
+class TestVariationalLikelihoods:
     # TODO - needs a few more tests in here
+    def test_variational_prob_space(self):
+        ts = utility_functions.two_tree_mutation_ts()
+        lik = VariationalLikelihoods(ts, mutation_rate=None)
+        assert lik.probability_space == base.GAMMA_PAR
+
+
+class TestNodeGridValuesClass:
     def test_init(self):
         num_nodes = 5
         ids = np.array([3, 4])
@@ -850,6 +858,8 @@ class TestNodeGridValuesClass:
             base.NodeGridValues(5, np.array(ids), -1)
         with pytest.raises(ValueError):
             base.NodeGridValues(5, np.array([-1]), np.array([0, 1.2, 2]))
+        with pytest.raises(ValueError, match="must be a 1D numpy array"):
+            base.NodeGridValues(5, np.array([[1, 2], [3, 4]]), np.array([0, 1.2, 2]))
 
     def test_clone(self):
         num_nodes = 10
@@ -929,6 +939,25 @@ class TestNodeGridValuesClass:
                 assert np.allclose(np.sum(orig[n]), 1)
                 assert np.all(orig[n] >= 0)
 
+    def test_convert_back(self):
+        # No class implemention of logsumexp to convert to probabilities in log space
+        num_nodes = 10
+        ids = [3, 4]
+        timepoints = np.array([0, 1.2])
+        fill_val = 0.1
+        orig = base.NodeGridValues(num_nodes, np.array(ids), timepoints, fill_val)
+        assert np.allclose(orig.grid_data, fill_val)
+        assert orig.probability_space == base.LIN
+        orig.force_probability_space(base.LOG)
+        assert orig.probability_space == base.LOG
+        orig.force_probability_space(base.LOG)  # repeat, to check nothing changes
+        assert orig.probability_space == base.LOG
+        orig.force_probability_space(base.LIN)
+        assert orig.probability_space == base.LIN
+        orig.force_probability_space(base.LIN)  # repeat, to check nothing changes
+        assert orig.probability_space == base.LIN
+        assert np.allclose(orig.grid_data, fill_val)
+
     def test_cannot_convert_to_probs(self):
         # No class implemention of logsumexp to convert to probabilities in log space
         num_nodes = 10
@@ -937,6 +966,22 @@ class TestNodeGridValuesClass:
         orig.force_probability_space(base.LOG)
         with pytest.raises(NotImplementedError, match="linear space"):
             orig.to_probabilities()
+
+    def test_cannot_force_probability_space(self):
+        num_nodes = 10
+        ids = [3, 4]
+        orig = base.NodeGridValues(num_nodes, np.array(ids), np.array([0, 1.2]))
+        assert orig.probability_space == base.LIN
+        with pytest.raises(TypeError, match="Cannot force linear"):
+            orig.force_probability_space(base.GAMMA_PAR)
+
+    def test_bad_probability_space(self):
+        num_nodes = 10
+        ids = [3, 4]
+        orig = base.NodeGridValues(num_nodes, np.array(ids), np.array([0, 1.2]))
+        assert orig.probability_space == base.LIN
+        with pytest.raises(ValueError, match="Bad probability space"):
+            orig.force_probability_space("bad_space")
 
 
 class TestAlgorithmClass:

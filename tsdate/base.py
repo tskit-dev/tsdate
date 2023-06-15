@@ -23,8 +23,6 @@
 """
 Base classes and constants used by tsdate
 """
-import logging
-
 import numpy as np
 
 
@@ -103,7 +101,7 @@ class NodeGridValues:
         """
         descr = (
             self.probability_space,
-            " probabilities into",
+            "probabilities into",
             probability_space,
             "space",
         )
@@ -115,7 +113,7 @@ class NodeGridValues:
                 self.fixed_data = np.exp(self.fixed_data)
                 self.probability_space = LIN
             else:
-                logging.warning("Cannot force", *descr)
+                raise TypeError("Cannot force " + " ".join(descr))
         elif probability_space == LOG:
             if self.probability_space == LOG:
                 pass
@@ -125,14 +123,14 @@ class NodeGridValues:
                     self.fixed_data = np.log(self.fixed_data)
                 self.probability_space = LOG
             else:
-                logging.warning("Cannot force", *descr)
+                raise TypeError("Cannot force " + " ".join(descr))
         elif probability_space == GAMMA_PAR:
             if self.probability_space == GAMMA_PAR:
                 pass
             else:
-                logging.warning("Cannot force", *descr)
+                raise TypeError("Cannot force " + " ".join(descr))
         else:
-            logging.warning("Cannot force", *descr)
+            raise ValueError(f"Bad probability space {probability_space}")
 
     def standardize(self):
         """
