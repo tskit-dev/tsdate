@@ -1215,11 +1215,7 @@ def date(
         Ignoring outside root provides greater stability when dating tree sequences
         inferred from real data. Default: False
     :param bool progress: Whether to display a progress bar. Default: False
-    :param float Ne: the estimated (diploid) effective population size used to
-        construct the (default) conditional coalescent prior. This is used when
-        ``priors`` is ``None``.  Conversely, if ``priors`` is not ``None``, no
-        ``population_size`` value should be given.  (Deprecated, use the
-        ``population_size`` argument instead).
+    :param float Ne: Deprecated, use the``population_size`` argument instead.
     :return: A copy of the input tree sequence but with altered node times, or (if
         ``return_posteriors`` is True) a tuple of that tree sequence plus a dictionary
         of posterior probabilities from the "inside_outside" estimation ``method``.
@@ -1262,13 +1258,19 @@ def date(
     # Remove any times associated with mutations
     tables.mutations.time = np.full(tree_sequence.num_mutations, tskit.UNKNOWN_TIME)
     tables.sort()
-    # TODO: record population_size provenance, or record that it is omitted
-    provenance.record_provenance(
-        tables,
-        "date",
+    params = dict(
         mutation_rate=mutation_rate,
         recombination_rate=recombination_rate,
         progress=progress,
+    )
+    if isinstance(population_size, (int, float)):
+        params["population_size"] = population_size
+    else:
+        params["population_size"] = "TODO: PopulationSizeHistory object"
+    provenance.record_provenance(
+        tables,
+        "date",
+        **params,
         **kwargs,
     )
     if return_posteriors:
