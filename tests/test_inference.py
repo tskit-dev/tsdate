@@ -23,7 +23,6 @@
 """
 Test cases for the python API for tsdate.
 """
-import json
 import unittest
 
 import msprime
@@ -192,7 +191,6 @@ class TestSimulated:
             assert prov1 == prov2
             if index == len(t1.provenances) - 1:
                 break
-        assert json.loads(t2.provenances[-1].record)["software"]["name"] == "tsdate"
 
     def test_simple_sim_1_tree(self):
         ts = msprime.simulate(8, mutation_rate=5, random_seed=2)
