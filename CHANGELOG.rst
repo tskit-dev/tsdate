@@ -33,6 +33,14 @@
   probabilities (scaled so that they sum to one) rather than standardized
   "probabilities" whose maximum value is one.
 
+- The population size is saved in provenance metadata when possible (e.g. if it is
+  a single number)
+
+- ``preprocess_ts`` always records provenance as being from the ``preprocess_ts``
+  command, even if no gaps are removed. The command now has a (rarely used)
+  `delete_intervals` parameter, which is normally filled out and saved in provenance
+  (as it was before). If no gap deletion is done, the param is saved as ``[]``
+
 --------------------
 [0.1.5] - 2022-06-07
 --------------------
