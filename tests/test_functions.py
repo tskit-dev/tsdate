@@ -808,12 +808,24 @@ class TestLikelihoodClass:
                     )
 
 
-class TestVariationalLikelihoods:
+class TestVariational:
     # TODO - needs a few more tests in here
     def test_variational_prob_space(self):
         ts = utility_functions.two_tree_mutation_ts()
         lik = VariationalLikelihoods(ts, mutation_rate=None)
         assert lik.probability_space == base.GAMMA_PAR
+
+    def test_variational_nosize(self):
+        ts = utility_functions.two_tree_mutation_ts()
+        with pytest.raises(ValueError, match="Must specify population size"):
+            variational_dates(ts, mutation_rate=1)
+
+    def test_variational_toomanysizes(self):
+        ts = utility_functions.two_tree_mutation_ts()
+        Ne = 1
+        priors = tsdate.build_prior_grid(ts, Ne, np.array([0, 1.2, 2]))
+        with pytest.raises(ValueError, match="Cannot specify"):
+            variational_dates(ts, mutation_rate=1, population_size=Ne, priors=priors)
 
 
 class TestNodeGridValuesClass:
