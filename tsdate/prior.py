@@ -130,7 +130,7 @@ class ConditionalCoalescentTimes:
 
     def add(self, total_tips, approximate=None):
         """
-        Create and store a numpy array used to lookup prior paramsn and mean + variance
+        Create and store a numpy array used to lookup prior params and mean + variance
         of ages for nodes with descendant sample tips range from 2..``total_tips``
         given that the total number of tips in the coalescent tree is
         ``total_tips``. The array is indexed by (num_tips / total_tips).
@@ -604,12 +604,13 @@ class SpansBySamples:
         # Iterate over trees and remaining edge diffs
         focal_tips = list(self.sample_node_set)
         for prev_tree in tqdm(
-            self.ts.trees(tracked_samples=focal_tips),
+            self.ts.trees(tracked_samples=focal_tips, root_threshold=2),
             desc="Find Node Spans",
             total=self.ts.num_trees,
             disable=not self.progress,
         ):
-            util.get_single_root(prev_tree)  # Check only one root
+            if prev_tree.has_multiple_roots:
+                raise ValueError(f"Tree {prev_tree.index} has multiple roots")
             try:
                 # Get the edge diffs from the prev tree to the new tree
                 _, e_out, e_in = next(edge_diff_iter)
