@@ -42,6 +42,8 @@ jobs:
           name: Run Python tests
           command: |
               python -m pytest -vv -n0 --cov=tsdate  --cov-report=xml --cov-branch tests
+          environment:
+            NUMBA_DISABLE_JIT: 1
 
       - codecov/upload:
           token: CODECOV_TOKEN
