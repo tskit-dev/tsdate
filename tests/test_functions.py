@@ -1781,11 +1781,28 @@ class TestPreprocessTs(unittest.TestCase):
         assert ts.tables.edges == self.verify(ts, remove_telomeres=False).tables.edges
         assert ts.tables.edges == self.verify(ts, minimum_gap=0.05).tables.edges
 
+    def test_passed_intervals(self):
+        # Mostly we would not pass in user-defined intervals: this is mainly for testing
+        ts = utility_functions.single_tree_ts_n3()  # No sites!
+        ts = tsdate.preprocess_ts(
+            ts, delete_intervals=[(0, 0.1), (0.5, ts.sequence_length)]
+        )
+        assert ts.num_edges > 1
+        assert np.allclose(ts.edges_left, 0.1)
+        assert np.allclose(ts.edges_right, 0.5)
+
+    def test_bad_delete_intervals(self):
+        ts = utility_functions.two_tree_mutation_ts()
+        with pytest.raises(ValueError, match="specify both"):
+            tsdate.preprocess_ts(ts, delete_intervals=[(0, 0.1)], minimum_gap=0.05)
+        with pytest.raises(ValueError, match="specify both"):
+            tsdate.preprocess_ts(ts, delete_intervals=[(0, 0.1)], remove_telomeres=True)
+
     def test_delete_interval(self):
         ts = utility_functions.ts_w_data_desert(40, 60, 100)
         trimmed = self.verify(ts, minimum_gap=20, remove_telomeres=False)
-        lefts = trimmed.tables.edges.left
-        rights = trimmed.tables.edges.right
+        lefts = trimmed.edges_left
+        rights = trimmed.edges_right
         assert not np.any(np.logical_and(lefts > 41, lefts < 59))
         assert not np.any(np.logical_and(rights > 41, rights < 59))
 

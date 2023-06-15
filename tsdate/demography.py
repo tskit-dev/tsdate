@@ -245,3 +245,7 @@ class PopulationSizeHistory:
     #    """
     #    Create a `PopulationSizeHistory` instance from a `demes` format YAML
     #    """
+
+    # TODO:
+    # output a PopulationSizeHistory as a json object, so we can store it
+    # in the provenance. See https://github.com/tskit-dev/tsdate/issues/274

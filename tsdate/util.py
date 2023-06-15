@@ -64,11 +64,12 @@ def reduce_to_contemporaneous(ts):
 def preprocess_ts(
     tree_sequence,
     *,
-    minimum_gap=1000000,
-    remove_telomeres=True,
+    minimum_gap=None,
+    remove_telomeres=None,
     filter_populations=False,
     filter_individuals=False,
     filter_sites=False,
+    delete_intervals=None,
     **kwargs,
 ):
     """
@@ -81,9 +82,10 @@ def preprocess_ts(
     :param TreeSequence tree_sequence: The input :class`tskit.TreeSequence`
         to be preprocessed.
     :param float minimum_gap: The minimum gap between sites to remove from the tree
-        sequence. Default: "1000000"
+        sequence. Default: ``None`` treated as ``1000000``
     :param bool remove_telomeres: Should all material before the first site and after the
-        last site be removed, regardless of the length. Default: "True"
+        last site be removed, regardless of the length. Default: ``None`` treated as
+        ``True``
     :param bool filter_populations: parameter passed to the ``tskit.simplify``
         command. Unlike calling that command directly, this defaults to ``False``, such
         that all populations in the tree sequence are kept.
@@ -93,62 +95,76 @@ def preprocess_ts(
     :param bool filter_sites: parameter passed to the ``tskit.simplify``
         command. Unlike calling that command directly, this defaults to ``False``, such
         that all sites in the tree sequence are kept
+    :param array_like delete_intervals: A list (start, end) pairs describing the
+        genomic intervals (gaps) to delete. This is usually left as ``None``
+        (the default) in which case ``minimum_gap`` and ``remove_telomeres`` are used
+        to determine the gaps to remove, and the calculated intervals are recorded in
+        the provenance of the resulting tree sequence.
     :param \\**kwargs: All further keyword arguments are passed to the ``tskit.simplify``
         command.
 
     :return: A tree sequence with gaps removed.
     :rtype: tskit.TreeSequence
     """
+
     logger.info("Beginning preprocessing")
     logger.info(f"Minimum_gap: {minimum_gap} and remove_telomeres: {remove_telomeres}")
-    if tree_sequence.num_sites < 1:
-        raise ValueError("Invalid tree sequence: no sites present")
+    if delete_intervals is not None and (
+        minimum_gap is not None or remove_telomeres is not None
+    ):
+        raise ValueError(
+            "Cannot specify both delete_intervals and minimum_gap/remove_telomeres"
+        )
 
     tables = tree_sequence.dump_tables()
     sites = tables.sites.position[:]
-    delete_intervals = []
-    if remove_telomeres:
-        first_site = sites[0] - 1
-        if first_site > 0:
-            delete_intervals.append([0, first_site])
-            logger.info(
-                "REMOVING TELOMERE: Snip topology "
-                "from 0 to first site at {}.".format(first_site)
-            )
-        last_site = sites[-1] + 1
-        sequence_length = tables.sequence_length
-        if last_site < sequence_length:
-            delete_intervals.append([last_site, sequence_length])
-            logger.info(
-                "REMOVING TELOMERE: Snip topology "
-                "from {} to end of sequence at {}.".format(last_site, sequence_length)
-            )
-    gaps = sites[1:] - sites[:-1]
-    threshold_gaps = np.where(gaps >= minimum_gap)[0]
-    for gap in threshold_gaps:
-        gap_start = sites[gap] + 1
-        gap_end = sites[gap + 1] - 1
-        if gap_end > gap_start:
-            logger.info(
-                "Gap Size is {}. Snip topology "
-                "from {} to {}.".format(gap_end - gap_start, gap_start, gap_end)
-            )
-            delete_intervals.append([gap_start, gap_end])
-    delete_intervals = sorted(delete_intervals, key=lambda x: x[0])
+    if delete_intervals is None:
+        if minimum_gap is None:
+            minimum_gap = 1000000
+        if remove_telomeres is None:
+            remove_telomeres = True
+
+        if tree_sequence.num_sites < 1:
+            raise ValueError("Invalid tree sequence: no sites present")
+        delete_intervals = []
+        if remove_telomeres:
+            first_site = sites[0] - 1
+            if first_site > 0:
+                delete_intervals.append([0, first_site])
+                logger.info(
+                    "REMOVING TELOMERE: Snip topology "
+                    "from 0 to first site at {}.".format(first_site)
+                )
+            last_site = sites[-1] + 1
+            sequence_length = tables.sequence_length
+            if last_site < sequence_length:
+                delete_intervals.append([last_site, sequence_length])
+                logger.info(
+                    "REMOVING TELOMERE: Snip topology "
+                    "from {} to end of sequence at {}.".format(
+                        last_site, sequence_length
+                    )
+                )
+        gaps = sites[1:] - sites[:-1]
+        threshold_gaps = np.where(gaps >= minimum_gap)[0]
+        for gap in threshold_gaps:
+            gap_start = sites[gap] + 1
+            gap_end = sites[gap + 1] - 1
+            if gap_end > gap_start:
+                logger.info(
+                    "Gap Size is {}. Snip topology "
+                    "from {} to {}.".format(gap_end - gap_start, gap_start, gap_end)
+                )
+                delete_intervals.append([gap_start, gap_end])
+        delete_intervals = sorted(delete_intervals, key=lambda x: x[0])
     if len(delete_intervals) > 0:
         tables.delete_intervals(delete_intervals, simplify=False)
         tables.simplify(
             filter_populations=filter_populations,
             filter_individuals=filter_individuals,
             filter_sites=filter_sites,
+            record_provenance=False,
             **kwargs,
-        )
-        provenance.record_provenance(
-            tables,
-            "preprocess_ts",
-            minimum_gap=minimum_gap,
-            remove_telomeres=remove_telomeres,
-            delete_intervals=delete_intervals,
         )
     else:
         logger.info("No gaps to remove")
@@ -156,8 +172,19 @@ def preprocess_ts(
             filter_populations=filter_populations,
             filter_individuals=filter_individuals,
             filter_sites=filter_sites,
+            record_provenance=False,
             **kwargs,
         )
+    provenance.record_provenance(
+        tables,
+        "preprocess_ts",
+        minimum_gap=minimum_gap,
+        remove_telomeres=remove_telomeres,
+        filter_populations=filter_populations,
+        filter_individuals=filter_individuals,
+        filter_sites=filter_sites,
+        delete_intervals=delete_intervals,
+    )
     return tables.tree_sequence()
 
 
