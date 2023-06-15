@@ -63,13 +63,13 @@ def get_environment():
     return env
 
 
-def get_provenance_dict(command=None, **kwargs):
+def get_provenance_dict(command, **kwargs):
     """
     Returns a dictionary encoding an execution of tsdate conforming to the
     tskit provenance schema.
     """
     if command is None:
-        raise ValueError("Command must be provided")
+        raise ValueError("`command` cannot be None")
     parameters = dict(kwargs)
     parameters["command"] = command
     document = {
