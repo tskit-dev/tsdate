@@ -16,6 +16,10 @@
   still in the API for backward compatibility).  The equivalent argument
   ``population_size`` should be used instead.
 
+- The CLI ``-verbosity`` flag no longer takes a number, but uses
+  ``action="count"``, so ``-v`` turns verbosity to INFO level,
+  whereas ``-vv`` turns verbosity to DEBUG level.
+
 **Features**
 
 - Priors may be calculated using a piecewise-constant effective population trajectory,

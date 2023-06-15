@@ -48,6 +48,7 @@ def setup_logging(args):
     if args.verbosity > 1:
         log_level = "DEBUG"
     logging.basicConfig(level=log_level, format=log_format)
+    return log_level
 
 
 def tsdate_cli_parser():
@@ -154,7 +155,11 @@ def tsdate_cli_parser():
         "-p", "--progress", action="store_true", help="Show progress bar."
     )
     parser.add_argument(
-        "-v", "--verbosity", type=int, default=0, help="How much verbosity to output."
+        "-v",
+        "--verbosity",
+        action="count",
+        default=0,
+        help="How much verbosity to output.",
     )
     parser.set_defaults(runner=run_date)
 
@@ -183,7 +188,11 @@ def tsdate_cli_parser():
         default=True,
     )
     parser.add_argument(
-        "-v", "--verbosity", type=int, default=0, help="How much verbosity to output."
+        "-v",
+        "--verbosity",
+        action="count",
+        default=0,
+        help="How much verbosity to output.",
     )
     parser.set_defaults(runner=run_preprocess)
     return top_parser
@@ -213,7 +222,7 @@ def run_preprocess(args):
     try:
         ts = tskit.load(args.tree_sequence)
     except tskit.FileFormatError as ffe:
-        error_exit(f"Error loading '{args.tree_sequence}: {ffe}")
+        error_exit(f"FileFormatError loading '{args.tree_sequence}: {ffe}")
     snipped_ts = tsdate.preprocess_ts(
         ts, minimum_gap=args.minimum_gap, remove_telomeres=args.trim_telomeres
     )

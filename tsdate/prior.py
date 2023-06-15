@@ -503,6 +503,7 @@ class SpansBySamples:
         trees that have undated nodes (used to quickly revist these trees later), and the
         number of valid samples (tips) in each tree.
         """
+        logging.debug("Assigning priors to most non-fixed nodes")
         # The following 3 variables will be returned by this function
         node_spans = np.zeros(self.ts.num_nodes)
         trees_with_undated = []  # Used to revisit trees with nodes that need dating
