@@ -406,7 +406,7 @@ class LogLikelihoods(Likelihoods):
                     r *= np.exp(alpha - x)
                     r += 1.0
                     alpha = x
-        return np.log(r) + alpha
+        return -np.Inf if r == 0 else np.log(r) + alpha
 
     @staticmethod
     def _lik(muts, span, dt, mutation_rate, standardize=True):
