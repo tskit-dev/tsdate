@@ -196,8 +196,8 @@ def _hyp2f1_taylor_series(a, b, c, z):
         d2z /= val
         sign = 1.0
         val = np.log(val) + offset
-    if k >= _HYP2F1_MAXTERM:
-        raise Invalid2F1("Hypergeometric series did not converge")
+        if k >= _HYP2F1_MAXTERM:
+            raise Invalid2F1("Hypergeometric series did not converge")
     return val, sign, da, db, dc, dz, d2z
 
 
