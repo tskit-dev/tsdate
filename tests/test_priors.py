@@ -22,8 +22,15 @@
 """
 Test cases for prior functionality used in tsdate
 """
+import logging
+
+import pytest
+import utility_functions
+
 from tsdate.prior import ConditionalCoalescentTimes
+from tsdate.prior import create_timepoints
 from tsdate.prior import PriorParams
+from tsdate.prior import SpansBySamples
 
 
 class TestConditionalCoalescentTimes:
@@ -43,3 +50,41 @@ class TestConditionalCoalescentTimes:
         for i, line in enumerate(lines[2:]):
             assert line.startswith(f" {i} descendants")
             assert line.endswith("]")
+
+    def test_add_error(self):
+        priors = ConditionalCoalescentTimes(None, "gamma")
+        with pytest.raises(RuntimeError, match="cannot add"):
+            priors.add(2, approximate=True)
+
+    def test_clear_precalc_debug(self, caplog):
+        priors = ConditionalCoalescentTimes(None, "gamma")
+        caplog.set_level(logging.DEBUG)
+        priors.clear_precalculated_priors()
+        assert "not yet created" in caplog.text
+
+
+class TestSpansBySamples:
+    def test_repr(self):
+        ts = utility_functions.single_tree_ts_n2()
+        span_data = SpansBySamples(ts)
+        rep = repr(span_data)
+        assert rep.count("Node") == ts.num_nodes
+        for t in ts.trees():
+            for u in t.leaves():
+                assert rep.count(f"{u}: {{}}") == 1
+
+
+class TestTimepoints:
+    def test_create_timepoints(self):
+        priors = ConditionalCoalescentTimes(None, "gamma")
+        priors.add(3)
+        tp = create_timepoints(priors, n_points=3)
+        assert len(tp) == 4
+        assert tp[0] == 0
+
+    def test_create_timepoints_error(self):
+        priors = ConditionalCoalescentTimes(None, "gamma")
+        priors.add(2)
+        priors.prior_distr = "bad_distr"
+        with pytest.raises(ValueError, match="must be lognorm or gamma"):
+            create_timepoints(priors, n_points=3)
