@@ -2147,16 +2147,12 @@ class TestPopulationSizeHistory:
             assert np.isclose(x, gens[i])
 
     def test_to_coalescent_timescale(self):
-        demography = PopulationSizeHistory(
-            np.array([1000, 2000, 3000]), np.array([500, 2500])
-        )
+        demography = PopulationSizeHistory([1000, 2000, 3000], [500, 2500])
         coaltime = demography.to_coalescent_timescale(np.array([250, 1500]))
         assert np.allclose(coaltime, [0.125, 0.5])
 
     def test_to_natural_timescale(self):
-        demography = PopulationSizeHistory(
-            np.array([1000, 2000, 3000]), np.array([500, 2500])
-        )
+        demography = PopulationSizeHistory([1000, 2000, 3000], [500, 2500])
         time = demography.to_natural_timescale(np.array([0.125, 0.5]))
         assert np.allclose(time, [250, 1500])
 
@@ -2169,9 +2165,7 @@ class TestPopulationSizeHistory:
     def test_moments_numerically(self):
         alpha = 2.8
         beta = 1.7
-        demography = PopulationSizeHistory(
-            np.array([1000, 2000, 3000]), np.array([500, 2500])
-        )
+        demography = PopulationSizeHistory([1000, 2000, 3000], [500, 2500])
         numer_mn, _ = scipy.integrate.quad(
             lambda t: demography.to_natural_timescale(np.array([t]))
             * scipy.stats.gamma.pdf(t, alpha, scale=1 / beta),
@@ -2192,10 +2186,16 @@ class TestPopulationSizeHistory:
         assert np.isclose(numer_va, analy_va)
 
     def test_bad_arguments(self):
-        with pytest.raises(ValueError, match="a numpy array"):
-            PopulationSizeHistory([1])
-        with pytest.raises(ValueError, match="a numpy array"):
-            PopulationSizeHistory(np.array([1, 1]), [1])
+        with pytest.raises(ValueError, match="greater than 0"):
+            PopulationSizeHistory([None])
+        with pytest.raises(ValueError, match="finite"):
+            PopulationSizeHistory(np.inf)
+        with pytest.raises(ValueError, match="a numpy float array"):
+            PopulationSizeHistory(["a"])
+        with pytest.raises(TypeError, match="a numpy float array"):
+            PopulationSizeHistory([{}])
+        with pytest.raises(TypeError, match="a numpy float array"):
+            PopulationSizeHistory(np.array([1, 1]), [{}])
         with pytest.raises(ValueError, match="must be greater than 0"):
             PopulationSizeHistory(0)
         with pytest.raises(ValueError, match="must be greater than 0"):

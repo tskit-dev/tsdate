@@ -69,39 +69,48 @@ class PopulationSizeHistory:
 
     def __init__(self, population_size, time_breaks=None):
         """
-        :param np.ndarray population_size: A numpy array containing diploid
+        :param array_like population_size: An array containing diploid
             population sizes per epoch
-        :param np.ndarray time_breaks: A sorted numpy array containing time
+        :param array_like time_breaks: A sorted array containing time
             breaks that divide epochs, measured in units of generations in the
             past
         """
 
         if time_breaks is None:
-            time_breaks = np.array([], dtype=float)
+            time_breaks = []
 
         if isinstance(population_size, (int, float)):
-            if not population_size > 0:
-                raise ValueError("Population size must be greater than 0")
             population_size = np.array([population_size], dtype=float)
         else:
-            if not isinstance(population_size, np.ndarray):
-                raise ValueError("Population sizes must be in a numpy array")
-            if not np.all(population_size > 0.0):
-                raise ValueError("Population sizes must be greater than 0")
-            if not isinstance(time_breaks, np.ndarray):
-                raise ValueError("Epoch time breaks must be in a numpy array")
-            if not time_breaks.size == population_size.size - 1:
+            try:
+                population_size = np.array(population_size, dtype=float)
+            except (ValueError, TypeError) as e:
+                raise e.__class__(
+                    "Population sizes must be convertable to a numpy float array"
+                ) from e
+        if not np.all(population_size > 0.0):
+            raise ValueError("Population sizes must be greater than 0")
+        if not np.all(np.isfinite(population_size)):
+            raise ValueError("Population sizes must be finite")
+
+        try:
+            time_breaks = np.array(time_breaks, dtype=float)
+        except (ValueError, TypeError) as e:
+            raise e.__class__(
+                "Time breaks must be convertable to a numpy float array"
+            ) from e
+        if not time_breaks.size == population_size.size - 1:
+            raise ValueError(
+                "The length of the population size array must be one less "
+                "than the number of epoch time breaks"
+            )
+        if time_breaks.size > 0:
+            if not np.all(time_breaks > 0.0):
+                raise ValueError("Epoch time breaks must be greater than 0")
+            if not np.all(np.diff(time_breaks) > 0.0):
                 raise ValueError(
-                    "The length of the population size array must be one less "
-                    "than the number of epoch time breaks"
+                    "Epoch time breaks must be unique and in increasing order"
                 )
-            if time_breaks.size > 0:
-                if not np.all(time_breaks > 0.0):
-                    raise ValueError("Epoch time breaks must be greater than 0")
-                if not np.all(np.diff(time_breaks) > 0.0):
-                    raise ValueError(
-                        "Epoch time breaks must be unique and in increasing order"
-                    )
 
         self.time_breaks = np.append([0.0], time_breaks.flatten())
         self.population_size = 2 * population_size.flatten()
@@ -110,6 +119,17 @@ class PopulationSizeHistory:
         )
         self.coalescent_breaks = coalescent_breaks
         self.coalescent_rate = coalescent_rate
+
+    def as_dict(self):
+        """
+        Return the population size history as a dictionary of parameters
+        that can be used to initialise a new object
+        """
+        ret_val = {"population_size": list(self.population_size / 2)}
+        assert self.time_breaks[0] == 0.0
+        if len(self.time_breaks) > 1:
+            ret_val["time_breaks"] = list(self.time_breaks[1:])
+        return ret_val
 
     def to_natural_timescale(self, coalescent_time_ago):
         """

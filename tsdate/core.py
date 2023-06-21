@@ -39,6 +39,7 @@ from tqdm import tqdm
 
 from . import approx
 from . import base
+from . import demography
 from . import prior
 from . import provenance
 
@@ -1169,10 +1170,12 @@ def date(
         one whose non-sample nodes are undated.
     :param PopulationSizeHistory population_size: The estimated (diploid) effective
         population size used to construct the (default) conditional coalescent
-        prior. This may be a single value (for a population with constant size), or
-        a :class:`PopulationSizeHistory` object (for a population with time-varying
-        size). This is used when ``priors`` is ``None``.  Conversely, if ``priors``
-        is not ``None``, no ``population_size`` value should be given.
+        prior. For a population with constant size, this can be given as a single
+        value. For a population with time-varying size, this can be given directly as
+        a :class:`PopulationSizeHistory` object or a parameter dictionary passed
+        to initialise a class:`PopulationSizeHistory` object. This is used when
+        ``priors`` is ``None``.  Conversely, if ``priors`` is not ``None``, no
+        ``population_size`` value should be specified.
     :param float mutation_rate: The estimated mutation rate per unit of genome per
         unit time. If provided, the dating algorithm will use a mutation rate clock to
         help estimate node dates. Default: ``None``
@@ -1226,6 +1229,10 @@ def date(
             )
         else:
             population_size = Ne
+
+    if isinstance(population_size, dict):
+        population_size = demography.PopulationSizeHistory(**population_size)
+
     if method == "variational_gamma":
         tree_sequence, dates, posteriors, timepoints, eps, nds = variational_dates(
             tree_sequence,
@@ -1261,8 +1268,8 @@ def date(
     )
     if isinstance(population_size, (int, float)):
         params["population_size"] = population_size
-    else:
-        params["population_size"] = "TODO: PopulationSizeHistory object"
+    elif isinstance(population_size, demography.PopulationSizeHistory):
+        params["population_size"] = population_size.as_dict()
     provenance.record_provenance(
         tables,
         "date",
