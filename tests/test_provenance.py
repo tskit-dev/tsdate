@@ -54,26 +54,29 @@ class TestProvenance:
         assert np.isclose(rec["parameters"]["mutation_rate"], mu)
         assert np.isclose(rec["parameters"]["population_size"], Ne)
 
-    @pytest.mark.skip(
-        reason="Not implemented yet: https://github.com/tskit-dev/tsdate/issues/274"
+    @pytest.mark.parametrize(
+        "popdict",
+        [
+            {"population_size": [1, 2, 3], "time_breaks": [1, 1.2]},
+            {"population_size": [123]},
+        ],
     )
-    def test_date_popsizehist_recorded(self):
+    def test_date_popsizehist_recorded(self, popdict):
         ts = utility_functions.single_tree_ts_n2()
         mu = 0.123
-        popsize = tsdate.demography.PopulationSizeHistory(
-            np.array([1, 1]), np.array([1])
-        )
-        dated_ts = tsdate.date(ts, population_size=popsize, mutation_rate=mu)
-        rec = json.loads(dated_ts.provenance(-1).record)
-        assert np.isclose(rec["parameters"]["mutation_rate"], mu)
-        assert "population_size" in rec["parameters"]
-        # TODO: check that the population size history is recorded correctly
-        # https://github.com/tskit-dev/tsdate/issues/274
-        assert np.isclose(
-            # This is wrong - left in for now to show the sort of thing we want
-            (np.array(rec["parameters"]["population_size"])),
-            popsize,
-        )
+        for use_class in (False, True):
+            if use_class:
+                popsize = tsdate.demography.PopulationSizeHistory(**popdict)
+            else:
+                popsize = popdict
+            dated_ts = tsdate.date(ts, population_size=popsize, mutation_rate=mu)
+            rec = json.loads(dated_ts.provenance(-1).record)
+            assert np.isclose(rec["parameters"]["mutation_rate"], mu)
+            assert "population_size" in rec["parameters"]
+            popsz = rec["parameters"]["population_size"]
+            assert len(popsz) == len(popdict)
+            for param, val in popdict.items():
+                assert np.all(np.isclose(val, popsz[param]))
 
     def test_preprocess_cmd_recorded(self):
         ts = utility_functions.ts_w_data_desert(40, 60, 100)
