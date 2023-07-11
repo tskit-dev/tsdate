@@ -353,11 +353,34 @@ def _hyp2f1_dlmf1583(a_i, b_i, a_j, b_j, y, mu):
         a_i, b_i, a_j, b_j, y, mu
     )
 
-    if np.abs(f_1 - f_2) < _HYP2F1_TOL:
-        # TODO: detect a priori if this will occur
-        raise Invalid2F1("Singular hypergeometric function")
-
     f_0 = max(f_1, f_2)
+
+    # 2sum
+    aa = f_1
+    bb = -1 * f_0
+    s = aa + bb
+    ap = s - bb
+    bp = s - ap
+    da = aa - ap
+    db = bb - bp
+    t = da + db
+    print("2sum", s, t)
+
+    aa = f_2
+    bb = -1 * f_0
+    s = aa + bb
+    ap = s - bb
+    bp = s - ap
+    da = aa - ap
+    db = bb - bp
+    t = da + db
+    print("2sum", s, t)
+    # /2sum
+
+    # if np.abs(f_1 - f_2) < _HYP2F1_TOL:
+    #    # TODO: detect a priori if this will occur
+    #    raise Invalid2F1("Singular hypergeometric function")
+
     f_1 = np.exp(f_1 - f_0) * s_1
     f_2 = np.exp(f_2 - f_0) * s_2
     f = f_1 + f_2
