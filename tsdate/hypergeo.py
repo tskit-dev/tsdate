@@ -29,8 +29,9 @@ import numba
 import numpy as np
 from numba.extending import get_cython_function_address
 
+# TODO: these are reasonable defaults, but could
+# be made settable via a control dict
 _HYP2F1_TOL = np.sqrt(np.finfo(np.float64).eps)
-_HYP2F1_CHECK = np.sqrt(_HYP2F1_TOL)
 _HYP2F1_MAXTERM = int(1e6)
 
 _PTR = ctypes.POINTER
@@ -115,7 +116,7 @@ def _is_valid_2f1(f1, f2, a, b, c, z):
     See Eq. 6 in https://doi.org/10.1016/j.cpc.2007.11.007
     """
     if z == 0.0:
-        return np.abs(f1 - a * b / c) < _HYP2F1_CHECK
+        return np.abs(f1 - a * b / c) < _HYP2F1_TOL
     u = c - (a + b + 1) * z
     v = a * b
     w = z * (1 - z)
@@ -124,7 +125,7 @@ def _is_valid_2f1(f1, f2, a, b, c, z):
         numer = np.abs(u * f1 - v)
     else:
         numer = np.abs(f2 + u / w * f1 - v / w)
-    return numer / denom < _HYP2F1_CHECK
+    return numer / denom < _HYP2F1_TOL
 
 
 @numba.njit("UniTuple(float64, 7)(float64, float64, float64, float64)")
