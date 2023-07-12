@@ -388,7 +388,7 @@ def _hyp2f1_dlmf1583(a_i, b_i, a_j, b_j, y, mu):
         )
         or sign <= 0
     ):
-        raise Invalid2F1("Hypergeometric series did not converge")
+        raise Invalid2F1("Hypergeometric series is singular")
 
     return val, sign, da_i, db_i, da_j, db_j
 

@@ -240,3 +240,28 @@ class TestTransforms:
         offset = self._2f1_validate(*pars)
         check = self._2f1_grad_validate(*pars, offset=offset)
         assert np.allclose(grad, check)
+
+
+@pytest.mark.parametrize(
+    "pars",
+    [
+        # taken from examples in issues tsdate/286, tsdate/289
+        [1.104, 0.0001125, 118.1396, 0.009052, 1.0, 0.001404],
+        [2.7481, 0.001221, 344.94083, 0.02329, 3.0, 0.00026624],
+    ],
+)
+class TestSingular2F1:
+    """
+    Test detection of cases where 2F1 is close to singular and DLMF 15.8.3
+    suffers from catastrophic cancellation: in these cases, use DLMF 15.8.1
+    even though it takes much longer to converge.
+    """
+
+    def test_dlmf1583_throws_exception(self, pars):
+        with pytest.raises(Exception, match="is singular"):
+            hypergeo._hyp2f1_dlmf1583(*pars)
+
+    def test_exception_uses_dlmf1581(self, pars):
+        v1, *_ = hypergeo._hyp2f1(*pars)
+        v2, *_ = hypergeo._hyp2f1_dlmf1581(*pars)
+        assert np.isclose(v1, v2)

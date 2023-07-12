@@ -121,9 +121,6 @@ def sufficient_statistics(a_i, b_i, a_j, b_j, y_ij, mu_ij):
         a_i, b_i, a_j, b_j, y_ij, mu_ij
     )
 
-    if sign_f <= 0:
-        raise hypergeo.Invalid2F1("Singular hypergeometric function")
-
     logconst = (
         log_f + hypergeo._betaln(y_ij + 1, b) + hypergeo._gammaln(a) - a * np.log(t)
     )
@@ -138,6 +135,10 @@ def sufficient_statistics(a_i, b_i, a_j, b_j, y_ij, mu_ij):
         + hypergeo._digamma(b)
         - hypergeo._digamma(c)
     )
+
+    # check that Jensen's inequality holds
+    assert np.log(t_i) > ln_t_i
+    assert np.log(t_j) > ln_t_j
 
     return logconst, t_i, ln_t_i, t_j, ln_t_j
 
