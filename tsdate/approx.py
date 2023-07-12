@@ -111,9 +111,6 @@ def sufficient_statistics(a_i, b_i, a_j, b_j, y_ij, mu_ij):
 
     :return: normalizing constant, E[t_i], E[log t_i], E[t_j], E[log t_j]
     """
-    assert a_i > 0 and b_i >= 0, "Invalid parent parameters"
-    assert a_j > 0 and b_j >= 0, "Invalid child parameters"
-    assert y_ij >= 0 and mu_ij > 0, "Invalid edge parameters"
 
     a = a_i + a_j + y_ij
     b = a_j
@@ -123,9 +120,6 @@ def sufficient_statistics(a_i, b_i, a_j, b_j, y_ij, mu_ij):
     log_f, sign_f, da_i, db_i, da_j, db_j = hypergeo._hyp2f1(
         a_i, b_i, a_j, b_j, y_ij, mu_ij
     )
-
-    if sign_f <= 0:
-        raise hypergeo.Invalid2F1("Singular hypergeometric function")
 
     logconst = (
         log_f + hypergeo._betaln(y_ij + 1, b) + hypergeo._gammaln(a) - a * np.log(t)
@@ -141,6 +135,10 @@ def sufficient_statistics(a_i, b_i, a_j, b_j, y_ij, mu_ij):
         + hypergeo._digamma(b)
         - hypergeo._digamma(c)
     )
+
+    # check that Jensen's inequality holds
+    assert np.log(t_i) > ln_t_i
+    assert np.log(t_j) > ln_t_j
 
     return logconst, t_i, ln_t_i, t_j, ln_t_j
 
