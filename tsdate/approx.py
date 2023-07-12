@@ -111,14 +111,11 @@ def sufficient_statistics(a_i, b_i, a_j, b_j, y_ij, mu_ij):
 
     :return: normalizing constant, E[t_i], E[log t_i], E[t_j], E[log t_j]
     """
-    assert y_ij >= 0 and mu_ij > 0, "Invalid edge parameters"
 
     a = a_i + a_j + y_ij
     b = a_j
     c = a_j + y_ij + 1
     t = mu_ij + b_i
-
-    assert a > 0 and b > 0 and c > 0, "Invalid local posterior"
 
     log_f, sign_f, da_i, db_i, da_j, db_j = hypergeo._hyp2f1(
         a_i, b_i, a_j, b_j, y_ij, mu_ij

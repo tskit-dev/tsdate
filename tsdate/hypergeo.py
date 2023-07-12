@@ -255,7 +255,7 @@ def _hyp2f1_recurrence(a, b, c, z):
 
 
 @numba.njit(
-    "UniTuple(float64, 6)(float64, float64, float64, float64, float64, float64)"
+    "UniTuple(float64, 7)(float64, float64, float64, float64, float64, float64)"
 )
 def _hyp2f1_dlmf1583_first(a_i, b_i, a_j, b_j, y, mu):
     """
@@ -287,7 +287,7 @@ def _hyp2f1_dlmf1583_first(a_i, b_i, a_j, b_j, y, mu):
     )
 
     # 2F1(a, -y; c; z) via backwards recurrence
-    val, sign, da, _, dc, dz, _ = _hyp2f1_recurrence(a, y, c, z)
+    val, sign, da, _, dc, dz, d2z = _hyp2f1_recurrence(a, y, c, z)
 
     # map gradient to parameters
     da_i = dc - _digamma(a_i + a_j) + _digamma(a_i)
@@ -295,13 +295,18 @@ def _hyp2f1_dlmf1583_first(a_i, b_i, a_j, b_j, y, mu):
     db_i = dz / (b_j - mu) + a_j / (mu + b_i)
     db_j = dz * (1 - z) / (b_j - mu) - a_j / s / (mu + b_i)
 
+    # needed to verify result
+    d2b_j = (1 - z) / (b_j - mu) ** 2 * (d2z * (1 - z) - 2 * dz * (1 + a_j)) + (
+        1 + a_j
+    ) * a_j / (b_j - mu) ** 2
+
     val += scale
 
-    return val, sign, da_i, db_i, da_j, db_j
+    return val, sign, da_i, db_i, da_j, db_j, d2b_j
 
 
 @numba.njit(
-    "UniTuple(float64, 6)(float64, float64, float64, float64, float64, float64)"
+    "UniTuple(float64, 7)(float64, float64, float64, float64, float64, float64)"
 )
 def _hyp2f1_dlmf1583_second(a_i, b_i, a_j, b_j, y, mu):
     """
@@ -320,7 +325,7 @@ def _hyp2f1_dlmf1583_second(a_i, b_i, a_j, b_j, y, mu):
     )
 
     # 2F1(a, y+1; c; z) via series expansion
-    val, sign, da, _, dc, dz, _ = _hyp2f1_taylor_series(a, y + 1, c, z)
+    val, sign, da, _, dc, dz, d2z = _hyp2f1_taylor_series(a, y + 1, c, z)
 
     # map gradient to parameters
     da_i = da + np.log(z) + dc + _digamma(a_i) - _digamma(a_i + y + 1)
@@ -328,10 +333,16 @@ def _hyp2f1_dlmf1583_second(a_i, b_i, a_j, b_j, y, mu):
     db_i = (1 - z) * (dz + a / z) / (b_i + b_j)
     db_j = -z * (dz + a / z) / (b_i + b_j)
 
+    # needed to verify result
+    d2b_j = (
+        z / (b_i + b_j) ** 2 * (d2z * z + 2 * dz * (1 + a))
+        + a * (1 + a) / (b_i + b_j) ** 2
+    )
+
     sign *= (-1) ** (y + 1)
     val += scale
 
-    return val, sign, da_i, db_i, da_j, db_j
+    return val, sign, da_i, db_i, da_j, db_j, d2b_j
 
 
 @numba.njit(
@@ -345,42 +356,15 @@ def _hyp2f1_dlmf1583(a_i, b_i, a_j, b_j, y, mu):
     assert 0 <= mu <= b_j
     assert y >= 0 and y % 1.0 == 0.0
 
-    f_1, s_1, da_i_1, db_i_1, da_j_1, db_j_1 = _hyp2f1_dlmf1583_first(
+    f_1, s_1, da_i_1, db_i_1, da_j_1, db_j_1, d2b_j_1 = _hyp2f1_dlmf1583_first(
         a_i, b_i, a_j, b_j, y, mu
     )
 
-    f_2, s_2, da_i_2, db_i_2, da_j_2, db_j_2 = _hyp2f1_dlmf1583_second(
+    f_2, s_2, da_i_2, db_i_2, da_j_2, db_j_2, d2b_j_2 = _hyp2f1_dlmf1583_second(
         a_i, b_i, a_j, b_j, y, mu
     )
 
     f_0 = max(f_1, f_2)
-
-    # 2sum
-    aa = f_1
-    bb = -1 * f_0
-    s = aa + bb
-    ap = s - bb
-    bp = s - ap
-    da = aa - ap
-    db = bb - bp
-    t = da + db
-    print("2sum", s, t)
-
-    aa = f_2
-    bb = -1 * f_0
-    s = aa + bb
-    ap = s - bb
-    bp = s - ap
-    da = aa - ap
-    db = bb - bp
-    t = da + db
-    print("2sum", s, t)
-    # /2sum
-
-    # if np.abs(f_1 - f_2) < _HYP2F1_TOL:
-    #    # TODO: detect a priori if this will occur
-    #    raise Invalid2F1("Singular hypergeometric function")
-
     f_1 = np.exp(f_1 - f_0) * s_1
     f_2 = np.exp(f_2 - f_0) * s_2
     f = f_1 + f_2
@@ -389,9 +373,21 @@ def _hyp2f1_dlmf1583(a_i, b_i, a_j, b_j, y, mu):
     db_i = (db_i_1 * f_1 + db_i_2 * f_2) / f
     da_j = (da_j_1 * f_1 + da_j_2 * f_2) / f
     db_j = (db_j_1 * f_1 + db_j_2 * f_2) / f
+    d2b_j = (d2b_j_1 * f_1 + d2b_j_2 * f_2) / f
 
     sign = np.sign(f)
     val = np.log(np.abs(f)) + f_0
+
+    # use first/second derivatives to check that result is non-singular
+    dz = -db_j * (mu + b_i)
+    d2z = d2b_j * (mu + b_i) ** 2
+    if (
+        not _is_valid_2f1(
+            dz, d2z, a_j, a_i + a_j + y, a_j + y + 1, (mu - b_j) / (mu + b_i)
+        )
+        or sign <= 0
+    ):
+        raise Invalid2F1("Hypergeometric series did not converge")
 
     return val, sign, da_i, db_i, da_j, db_j
 
