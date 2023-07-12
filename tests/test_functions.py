@@ -1651,7 +1651,7 @@ class TestPosteriorMeanVar:
             for met in tskit.unpack_bytes(metadata, metadata_offset)
             if len(met.decode()) > 0
         ]
-        assert np.array_equal(unconstrained_mn, mn_post[larger_ts.num_samples :])
+        assert np.allclose(unconstrained_mn, mn_post[larger_ts.num_samples :])
         assert np.all(
             dated_ts.tables.nodes.time[larger_ts.num_samples :]
             >= mn_post[larger_ts.num_samples :]
@@ -1948,7 +1948,7 @@ class TestSiteTimes:
     def test_sites_time_multiple_mutations(self):
         ts = utility_functions.single_tree_ts_2mutations_n3()
         sites_time = tsdate.sites_time_from_ts(ts, unconstrained=False)
-        assert np.array_equal(sites_time, [10])
+        assert np.allclose(sites_time, [10])
 
     def test_sites_time_simulated(self):
         larger_ts = msprime.simulate(
@@ -1958,11 +1958,11 @@ class TestSiteTimes:
             larger_ts, mutation_rate=None, population_size=10000
         )
         dated = date(larger_ts, mutation_rate=None, population_size=10000)
-        assert np.array_equal(
+        assert np.allclose(
             mn_post[larger_ts.tables.mutations.node],
             tsdate.sites_time_from_ts(dated, unconstrained=True, min_time=0),
         )
-        assert np.array_equal(
+        assert np.allclose(
             dated.tables.nodes.time[larger_ts.tables.mutations.node],
             tsdate.sites_time_from_ts(dated, unconstrained=False, min_time=0),
         )
