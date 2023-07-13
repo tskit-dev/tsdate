@@ -1677,21 +1677,25 @@ class TestConstrainAgesTopo:
         ts = utility_functions.two_tree_ts()
         post_mn = np.array([0.0, 0.0, 0.0, 2.0, 1.0, 3.0])
         eps = 1e-6
-        nodes_to_date = np.array([3, 4, 5])
-        constrained_ages = constrain_ages_topo(ts, post_mn, eps, nodes_to_date)
+        constrained_ages = constrain_ages_topo(ts, post_mn, eps)
         assert np.array_equal(
             np.array([0.0, 0.0, 0.0, 2.0, 2.000001, 3.0]), constrained_ages
         )
 
-    def test_constrain_ages_topo_no_nodes_to_date(self):
+    def test_constrain_ages_topo_node_order_bug(self):
+        """
+        Previous version of constrain_ages_topo had a bug where it was
+        assumed that node IDs were in time order, although this is not
+        guaranteed by tskit.
+        """
         ts = utility_functions.two_tree_ts()
-        post_mn = np.array([0.0, 0.0, 0.0, 2.0, 1.0, 3.0])
+        ts = ts.subset([0, 1, 5, 3, 4, 2])  # alter the node order
+        post_mn = np.array([3.0, 0.0, 0.0, 0.0, 0.0, 0.0])
         eps = 1e-6
-        nodes_to_date = None
-        constrained_ages = constrain_ages_topo(ts, post_mn, eps, nodes_to_date)
-        assert np.array_equal(
-            np.array([0.0, 0.0, 0.0, 2.0, 2.000001, 3.0]), constrained_ages
-        )
+        constrained_ages = constrain_ages_topo(ts, post_mn, eps)
+        tables = ts.dump_tables()
+        tables.nodes.time = constrained_ages
+        tables.sort()
 
     def test_constrain_ages_topo_unary_nodes_unordered(self):
         ts = utility_functions.single_tree_ts_with_unary()
