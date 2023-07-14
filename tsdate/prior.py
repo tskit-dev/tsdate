@@ -32,7 +32,7 @@ import numpy as np
 import scipy.stats
 import tskit
 from scipy.special import comb
-from tqdm import tqdm
+from tqdm.auto import tqdm
 
 from . import base
 from . import cache
