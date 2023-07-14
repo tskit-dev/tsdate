@@ -35,7 +35,7 @@ import numba
 import numpy as np
 import scipy.stats
 import tskit
-from tqdm import tqdm
+from tqdm.auto import tqdm
 
 from . import approx
 from . import base
