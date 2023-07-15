@@ -271,9 +271,12 @@ class TestOutput(RunCLI):
         (out, err) = capfd.readouterr()
         assert out == ""
         # run_tsdate_cli print logging to stderr
-        assert err.count("Expectation Propagation: 100%") == 2
-        assert err.count("EP (iter  2, rootwards): 100%") == 1
-        assert err.count("rootwards): 100%") == err.count("leafwards): 100%")
+        assert err.count("Expectation Propagation: 100%") == 1
+        # The capfd fixture doesn't end up capturing progress bars with
+        # leave=False (they get deleted) so we can't see these in the output
+        # assert err.count("Iteration 1: 100%") == 1
+        # assert err.count("Rootwards: 100%") > 1
+        # assert err.count("Rootwards: 100%") == err.count("Leafwards: 100%")
 
 
 class TestEndToEnd(RunCLI):
