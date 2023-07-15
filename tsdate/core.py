@@ -996,7 +996,9 @@ class ExpectationPropagation(InOutAlgorithms):
         if progress is None:
             progress = self.progress
         # TODO: this will still converge if parallelized (potentially slower)
-        for edge in tqdm(edges, desc, total=self.ts.num_edges, disable=not progress):
+        for edge in tqdm(
+            edges, desc, total=self.ts.num_edges, disable=not progress, leave=False
+        ):
             if edge.child in self.fixednodes:
                 continue
             if edge.parent in self.fixednodes:
@@ -1039,17 +1041,17 @@ class ExpectationPropagation(InOutAlgorithms):
         Update edge factors from leaves to root then from root to leaves,
         and return approximate log marginal likelihood
         """
-        desc = "Expectation Propagation"
-        if iter_num:  # Show iteration number if not first iteration
-            desc = f"EP (iter {iter_num + 1:>2}, rootwards)"
-        self.propagate(
-            edges=self.edges_by_parent_asc(grouped=False), desc=desc, progress=progress
-        )
-        if iter_num:
-            desc = f"EP (iter {iter_num + 1:>2}, leafwards)"
-        self.propagate(
-            edges=self.edges_by_child_desc(grouped=False), desc=desc, progress=progress
-        )
+        if progress is None:
+            progress = self.progress
+        it = iter_num + 1  # For display purposes: show 1-based iteration
+        tasks = {
+            "Rootwards": self.edges_by_parent_asc,
+            "Leafwards": self.edges_by_child_desc,
+        }
+        for desc, func in tqdm(
+            tasks.items(), f"Iteration {it}", disable=not progress, leave=False
+        ):
+            self.propagate(edges=func(grouped=False), desc=desc, progress=progress)
         # TODO
         # marginal_lik = np.sum(self.factor_norm)
         # return marginal_lik
@@ -1538,7 +1540,10 @@ def variational_dates(
     )
 
     dynamic_prog = ExpectationPropagation(priors, liklhd, progress=progress)
-    for it in range(max_iterations):
+    for it in tqdm(
+        np.arange(max_iterations),
+        desc="Expectation Propagation",
+    ):
         dynamic_prog.iterate(iter_num=it)
     posterior = dynamic_prog.posterior
     tree_sequence, mn_post, _ = variational_mean_var(
