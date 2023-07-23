@@ -25,7 +25,6 @@ Infer the age of nodes conditional on a tree sequence topology.
 """
 import functools
 import itertools
-import json
 import logging
 import multiprocessing
 import operator
@@ -40,6 +39,7 @@ from tqdm.auto import tqdm
 from . import approx
 from . import base
 from . import demography
+from . import metadata
 from . import prior
 from . import provenance
 
@@ -1057,44 +1057,34 @@ class ExpectationPropagation(InOutAlgorithms):
         # return marginal_lik
 
 
-def posterior_mean_var(ts, posterior, *, fixed_node_set=None):
+def posterior_mean_var(ts, posterior, *, save_metadata=True, fixed_node_set=None):
     """
     Mean and variance of node age. Fixed nodes will be given a mean
     of their exact time in the tree sequence, and zero variance (as long as they are
     identified by the fixed_node_set).
     If fixed_node_set is None, we attempt to date all the non-sample nodes
-    Also assigns the estimated mean and variance of the age of each node
-    as metadata in the tree sequence.
+
+    If save_metadata is True, the estimated mean and variance of the age of each node
+    is assigned as metadata in the returned tree sequence, otherwise the tree
+    sequence that was paseed in is returned unchanged.
     """
     mn_post = np.full(ts.num_nodes, np.nan)  # Fill with NaNs so we detect when there's
     vr_post = np.full(ts.num_nodes, np.nan)  # been an error
-    tables = ts.dump_tables()
 
     if fixed_node_set is None:
-        fixed_node_set = ts.samples()
+        fixed_node_set = set(ts.samples())
     fixed_nodes = np.array(list(fixed_node_set))
-    mn_post[fixed_nodes] = tables.nodes.time[fixed_nodes]
+    mn_post[fixed_nodes] = ts.nodes_time[fixed_nodes]
     vr_post[fixed_nodes] = 0
 
-    metadata_array = tskit.unpack_bytes(
-        ts.tables.nodes.metadata, ts.tables.nodes.metadata_offset
-    )
     for u in posterior.nonfixed_nodes:
         probs = posterior[u]
         times = posterior.timepoints
         mn_post[u] = np.sum(probs * times) / np.sum(probs)
         vr_post[u] = np.sum(((mn_post[u] - (times)) ** 2) * (probs / np.sum(probs)))
-        metadata_array[u] = json.dumps({"mn": mn_post[u], "vr": vr_post[u]}).encode()
-    md, md_offset = tskit.pack_bytes(metadata_array)
-    tables.nodes.set_columns(
-        flags=tables.nodes.flags,
-        time=tables.nodes.time,
-        population=tables.nodes.population,
-        individual=tables.nodes.individual,
-        metadata=md,
-        metadata_offset=md_offset,
-    )
-    ts = tables.tree_sequence()
+
+    if save_metadata:
+        ts = metadata.save_node_metadata(ts, mn_post, vr_post, fixed_node_set)
     return ts, mn_post, vr_post
 
 
@@ -1138,6 +1128,7 @@ def date(
     *,
     Ne=None,
     return_posteriors=None,
+    set_metadata=None,
     progress=False,
     **kwargs,
 ):
@@ -1194,7 +1185,17 @@ def date(
         conditional coalescent prior with a standard set of time points as given by
         :func:`build_prior_grid`.
     :param bool return_posteriors: If ``True``, instead of returning just a dated tree
-        sequence, return a tuple of ``(dated_ts, posteriors)`` (see note above).
+        sequence, return a tuple of ``(dated_ts, posteriors)`` (see note above). Default:
+        ``None`` (treated as ``False``).
+    :param bool set_metadata: If ``True``, replace all existing node metadata with
+        details of the times (means and variances) for each node. If ``False``,
+        do not touch any existing metadata in the tree sequence. If ``None``
+        (default), attempt to modify any existing node metadata to add the
+        times (means and variances) for each node, overwriting only those specific
+        metadata values. If no node metadata schema has been set, this will be possible
+        only if either (a) the raw metadata can be decoded as JSON, in which case the
+        schema is set to permissive_json or (b) no node metadata exists (in which case
+        a default schema will be set), otherwise an error will be raised.
     :param float eps: Specify minimum distance separating time points. Also specifies
         the error factor in time difference calculations. Default: 1e-6
     :param int num_threads: The number of threads to use. A simpler unthreaded algorithm
@@ -1227,41 +1228,47 @@ def date(
             )
         else:
             population_size = Ne
-
+    ts, save_metadata = metadata.set_tsdate_node_md_schema(tree_sequence, set_metadata)
     if isinstance(population_size, dict):
         population_size = demography.PopulationSizeHistory(**population_size)
 
     if method == "variational_gamma":
-        tree_sequence, dates, posteriors, timepoints, eps, nds = variational_dates(
-            tree_sequence,
+        ts, dates, posteriors, timepoints, eps, nds = variational_dates(
+            ts,
             population_size=population_size,
             mutation_rate=mutation_rate,
             recombination_rate=recombination_rate,
             priors=priors,
             progress=progress,
+            save_metadata=save_metadata,
             **kwargs,
         )
     else:
-        tree_sequence, dates, posteriors, timepoints, eps, nds = get_dates(
-            tree_sequence,
+        ts, dates, posteriors, timepoints, eps, nds = get_dates(
+            ts,
             population_size=population_size,
             mutation_rate=mutation_rate,
             recombination_rate=recombination_rate,
             priors=priors,
             progress=progress,
             method=method,
+            save_metadata=save_metadata,
             **kwargs,
         )
-    constrained = constrain_ages_topo(tree_sequence, dates, eps, progress)
-    tables = tree_sequence.dump_tables()
+    constrained = constrain_ages_topo(ts, dates, eps, progress)
+    tables = ts.dump_tables()
     tables.time_units = time_units
     tables.nodes.time = constrained
     # Remove any times associated with mutations
-    tables.mutations.time = np.full(tree_sequence.num_mutations, tskit.UNKNOWN_TIME)
+    tables.mutations.time = np.full(ts.num_mutations, tskit.UNKNOWN_TIME)
     tables.sort()
     params = dict(
         mutation_rate=mutation_rate,
         recombination_rate=recombination_rate,
+        time_units=time_units,
+        method=method,
+        set_metadata=set_metadata,
+        return_posteriors=return_posteriors,
         progress=progress,
     )
     if isinstance(population_size, (int, float)):
@@ -1298,12 +1305,18 @@ def get_dates(
     progress=False,
     cache_inside=False,
     probability_space=None,
+    save_metadata=True,
 ):
     """
     Infer dates for the nodes in a tree sequence, returning an array of inferred dates
     for nodes, plus other variables such as the posteriors object
     etc. Parameters are identical to the date() method, which calls this method, then
     injects the resulting date estimates into the tree sequence
+
+    If ``save_metadata`` is ``True``, "mn" and "vr" fields are set in the node metdata of
+    the returned tree sequence, representing the mean and variance of the node ages. This
+    assumes that the node metadata schema allows "mn" and "vr" fields to be set (if not,
+    use ``save_metadata=False``).
 
     :return: a tuple of ``(mn_post, posteriors, timepoints, eps, nodes_to_date)``.
         If the "inside_outside" method is used, ``posteriors`` will contain the
@@ -1383,7 +1396,10 @@ def get_dates(
         posterior.force_probability_space(base.LIN)
         posterior.to_probabilities()
         tree_sequence, mn_post, _ = posterior_mean_var(
-            tree_sequence, posterior, fixed_node_set=fixed_nodes
+            tree_sequence,
+            posterior,
+            fixed_node_set=fixed_nodes,
+            save_metadata=save_metadata,
         )
     elif method == "maximization":
         if mutation_rate is not None:
@@ -1405,47 +1421,39 @@ def get_dates(
     )
 
 
-def variational_mean_var(ts, posterior, *, fixed_node_set=None):
+def variational_mean_var(ts, posterior, *, save_metadata=True, fixed_node_set=None):
     """
-    Mean and variance of node age from variational posterior (e.g. gamma
-    distributions).  Fixed nodes will be given a mean of their exact time in
-    the tree sequence, and zero variance (as long as they are identified by the
+    Return the mean and variance of node age from variational posterior (e.g. gamma
+    distributions).  The returned mean for fixed nodes will be their exact time in
+    the tree sequence with zero variance (as long as they are identified by the
     fixed_node_set).  If fixed_node_set is None, we attempt to date all the
-    non-sample nodes Also assigns the estimated mean and variance of the age of
+    non-sample nodes. Also assigns the estimated mean and variance of the age of
     each node as metadata in the tree sequence.
+
+
+    TODO - we should be able to get the set of fixed nodes from the posterior
     """
     mn_post = np.full(ts.num_nodes, np.nan)  # Fill with NaNs so we detect when there's
     vr_post = np.full(ts.num_nodes, np.nan)  # been an error
-    tables = ts.dump_tables()
 
     if fixed_node_set is None:
-        fixed_node_set = ts.samples()
+        fixed_node_set = set(ts.samples())
     fixed_nodes = np.array(list(fixed_node_set))
-    mn_post[fixed_nodes] = tables.nodes.time[fixed_nodes]
+    mn_post[fixed_nodes] = ts.nodes_time[fixed_nodes]
     vr_post[fixed_nodes] = 0
 
     assert np.all(posterior.grid_data[:, 0] > 0), "Invalid posterior"
 
-    metadata_array = tskit.unpack_bytes(
-        ts.tables.nodes.metadata, ts.tables.nodes.metadata_offset
-    )
     for u in posterior.nonfixed_nodes:
         # TODO: with method posterior.mean_and_var(node_id) this could be
         # easily combined with posterior_mean_var
         pars = posterior[u]
         mn_post[u] = pars[0] / pars[1]
         vr_post[u] = pars[0] / pars[1] ** 2
-        metadata_array[u] = json.dumps({"mn": mn_post[u], "vr": vr_post[u]}).encode()
-    md, md_offset = tskit.pack_bytes(metadata_array)
-    tables.nodes.set_columns(
-        flags=tables.nodes.flags,
-        time=tables.nodes.time,
-        population=tables.nodes.population,
-        individual=tables.nodes.individual,
-        metadata=md,
-        metadata_offset=md_offset,
-    )
-    ts = tables.tree_sequence()
+
+    if save_metadata:
+        ts = metadata.save_node_metadata(ts, mn_post, vr_post, fixed_node_set)
+
     return ts, mn_post, vr_post
 
 
@@ -1460,6 +1468,7 @@ def variational_dates(
     global_prior=True,
     eps=1e-6,
     progress=False,
+    save_metadata=True,
     num_threads=None,  # Unused, matches get_dates()
     probability_space=None,  # Can only be None, simply to match get_dates()
     ignore_oldest_root=False,  # Can only be False, simply to match get_dates()
@@ -1547,7 +1556,10 @@ def variational_dates(
         dynamic_prog.iterate(iter_num=it)
     posterior = dynamic_prog.posterior
     tree_sequence, mn_post, _ = variational_mean_var(
-        tree_sequence, posterior, fixed_node_set=fixed_nodes
+        tree_sequence,
+        posterior,
+        fixed_node_set=fixed_nodes,
+        save_metadata=save_metadata,
     )
 
     return (

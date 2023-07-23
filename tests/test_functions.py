@@ -25,7 +25,6 @@
 Test cases for the python API for tsdate.
 """
 import collections
-import json
 import logging
 import unittest
 
@@ -1619,7 +1618,9 @@ class TestPosteriorMeanVar:
         ts = utility_functions.single_tree_ts_n2()
         for distr in ("gamma", "lognorm"):
             posterior, algo = TestTotalFunctionalValueTree().find_posterior(ts, distr)
-            ts_node_metadata, mn_post, vr_post = posterior_mean_var(ts, posterior)
+            ts_node_metadata, mn_post, vr_post = posterior_mean_var(
+                ts, posterior, save_metadata=False
+            )
             assert np.array_equal(
                 mn_post,
                 [
@@ -1631,31 +1632,35 @@ class TestPosteriorMeanVar:
 
     def test_node_metadata_single_tree_n2(self):
         ts = utility_functions.single_tree_ts_n2()
+        tables = ts.dump_tables()
+        tables.nodes.metadata_schema = tskit.MetadataSchema.permissive_json()
+        ts = tables.tree_sequence()
         posterior, algo = TestTotalFunctionalValueTree().find_posterior(ts, "lognorm")
         ts_node_metadata, mn_post, vr_post = posterior_mean_var(ts, posterior)
-        assert json.loads(ts_node_metadata.node(2).metadata)["mn"] == mn_post[2]
-        assert json.loads(ts_node_metadata.node(2).metadata)["vr"] == vr_post[2]
+        assert ts_node_metadata.node(2).metadata["mn"] == mn_post[2]
+        assert ts_node_metadata.node(2).metadata["vr"] == vr_post[2]
 
     def test_node_metadata_simulated_tree(self):
         larger_ts = msprime.simulate(
             10, mutation_rate=1, recombination_rate=1, length=20, random_seed=12
         )
-        _, mn_post, _, _, eps, _ = get_dates(
-            larger_ts, mutation_rate=None, population_size=10000
+        is_sample = np.zeros(larger_ts.num_nodes, dtype=bool)
+        is_sample[larger_ts.samples()] = True
+        is_not_sample = np.logical_not(is_sample)
+        # This calls posterior_mean_var
+        _, mn_post, _, _, _, _ = get_dates(
+            larger_ts,
+            method="inside_outside",
+            population_size=1,
+            mutation_rate=1,
+            save_metadata=False,
         )
-        dated_ts = date(larger_ts, population_size=10000, mutation_rate=None)
-        metadata = dated_ts.tables.nodes.metadata
-        metadata_offset = dated_ts.tables.nodes.metadata_offset
-        unconstrained_mn = [
-            json.loads(met.decode())["mn"]
-            for met in tskit.unpack_bytes(metadata, metadata_offset)
-            if len(met.decode()) > 0
-        ]
-        assert np.allclose(unconstrained_mn, mn_post[larger_ts.num_samples :])
-        assert np.all(
-            dated_ts.tables.nodes.time[larger_ts.num_samples :]
-            >= mn_post[larger_ts.num_samples :]
-        )
+        constrained_time = constrain_ages_topo(larger_ts, mn_post, eps=1e-6)
+        # Samples identical in all methods
+        assert np.allclose(larger_ts.nodes_time[is_sample], mn_post[is_sample])
+        assert np.allclose(constrained_time[is_sample], mn_post[is_sample])
+        # Non-samples should adhere to constraints
+        assert np.all(constrained_time[is_not_sample] >= mn_post[is_not_sample])
 
 
 class TestConstrainAgesTopo:
@@ -1855,7 +1860,9 @@ class TestSiteTimes:
     def test_sites_time_insideoutside(self):
         ts = utility_functions.two_tree_mutation_ts()
         dated = tsdate.date(ts, mutation_rate=None, population_size=1)
-        _, mn_post, _, _, eps, _ = get_dates(ts, mutation_rate=None, population_size=1)
+        _, mn_post, _, _, eps, _ = get_dates(
+            ts, mutation_rate=None, population_size=1, save_metadata=False
+        )
         assert np.array_equal(
             mn_post[ts.tables.mutations.node],
             tsdate.sites_time_from_ts(dated, unconstrained=True, min_time=0),
@@ -1959,15 +1966,15 @@ class TestSiteTimes:
             10, mutation_rate=1, recombination_rate=1, length=20, random_seed=12
         )
         _, mn_post, _, _, _, _ = get_dates(
-            larger_ts, mutation_rate=None, population_size=10000
+            larger_ts, mutation_rate=None, population_size=10000, save_metadata=False
         )
         dated = date(larger_ts, mutation_rate=None, population_size=10000)
         assert np.allclose(
-            mn_post[larger_ts.tables.mutations.node],
+            mn_post[larger_ts.mutations_node],
             tsdate.sites_time_from_ts(dated, unconstrained=True, min_time=0),
         )
         assert np.allclose(
-            dated.tables.nodes.time[larger_ts.tables.mutations.node],
+            dated.tables.nodes.time[larger_ts.mutations_node],
             tsdate.sites_time_from_ts(dated, unconstrained=False, min_time=0),
         )
 
