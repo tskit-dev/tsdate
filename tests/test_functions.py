@@ -1838,7 +1838,7 @@ class TestNodeTimes:
 
     def test_fails_unconstrained(self):
         ts = utility_functions.two_tree_mutation_ts()
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="must be tsdated"):
             nodes_time_unconstrained(ts)
 
 
@@ -1852,9 +1852,14 @@ class TestSiteTimes:
         with pytest.raises(ValueError):
             tsdate.sites_time_from_ts(ts)
 
+    def test_undated(self):
+        ts = utility_functions.two_tree_mutation_ts()
+        with pytest.raises(ValueError, match="Try calling"):
+            tsdate.sites_time_from_ts(ts, unconstrained=True)
+
     def test_node_selection_param(self):
         ts = utility_functions.two_tree_mutation_ts()
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="node_selection parameter"):
             tsdate.sites_time_from_ts(ts, node_selection="sibling")
 
     def test_sites_time_insideoutside(self):
