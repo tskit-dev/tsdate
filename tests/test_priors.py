@@ -24,6 +24,7 @@ Test cases for prior functionality used in tsdate
 """
 import logging
 
+import numpy as np
 import pytest
 import utility_functions
 
@@ -61,6 +62,43 @@ class TestConditionalCoalescentTimes:
         caplog.set_level(logging.DEBUG)
         priors.clear_precalculated_priors()
         assert "not yet created" in caplog.text
+
+    @pytest.mark.parametrize("logwt", [True, False])
+    def test_mixture_expect_and_var(self, logwt):
+        priors = ConditionalCoalescentTimes(None)
+        priors.add(3)
+        params = {3: {"descendant_tips": [3, 2], "span": np.array([0, 200])}}
+        mean1, var1 = priors.mixture_expect_and_var(params, weight_by_log_span=logwt)
+        params = {3: {"descendant_tips": [2], "span": np.array([100])}}
+        mean2, var2 = priors.mixture_expect_and_var(params, weight_by_log_span=logwt)
+        assert mean1 == pytest.approx(1 / 3)  # 1/N for a cherry
+        assert var1 == pytest.approx(1 / 9)
+        assert mean1 == mean2
+        assert var1 == var2
+
+    def test_mixture_expect_and_var_weight(self):
+        priors = ConditionalCoalescentTimes(None)
+        priors.add(4)
+        priors.add(5)
+        span = np.array([1, 3])
+        params = {
+            4: {"descendant_tips": [2], "span": span[0]},
+            5: {"descendant_tips": [2], "span": span[1]},
+        }
+        linwt = priors.mixture_expect_and_var(params, weight_by_log_span=False)
+        assert linwt[0] == pytest.approx(
+            (1 / 4 * span[0] + 1 / 5 * span[1]) / np.sum(span)
+        )
+
+        # use exponential version to test log weights
+        # The log weighting adds one to the value, so here we subtract one
+        exp_span = np.exp(span) - 1
+        params = {
+            4: {"descendant_tips": [2], "span": exp_span[0]},
+            5: {"descendant_tips": [2], "span": exp_span[1]},
+        }
+        logwt = priors.mixture_expect_and_var(params, weight_by_log_span=True)
+        assert np.allclose(linwt, logwt)
 
 
 class TestSpansBySamples:
