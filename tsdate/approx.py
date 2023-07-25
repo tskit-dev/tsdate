@@ -23,10 +23,16 @@
 """
 Tools for approximating combinations of Gamma variates with Gamma distributions
 """
+import mpmath
 import numba
 import numpy as np
 
 from . import hypergeo
+
+# TODO: these are reasonable defaults but could
+# be set via a control dict
+_KLMIN_MAXITER = 1000
+_KLMIN_TOL = np.sqrt(np.finfo(np.float64).eps)
 
 
 @numba.njit("UniTuple(float64, 3)(float64, float64)")
@@ -59,20 +65,68 @@ def approximate_gamma_kl(x, logx):
     """
     assert np.isfinite(x) and np.isfinite(logx)
     alpha = 0.5 / (np.log(x) - logx)  # lower bound on alpha
-    assert alpha > 0, "kl-min: bad initial condition"
-    last = np.inf
+    assert alpha > 0
+    # asymptotically the lower bound becomes sharp
+    if 1.0 / alpha < 1e-4:
+        return alpha, alpha / x
     itt = 0
+    delta = np.inf
     # determine convergence when the change in alpha falls below
     # some small value (e.g. square root of machine precision)
-    while np.abs(alpha - last) > alpha * np.sqrt(np.finfo(np.float64).eps):
-        last = alpha
-        numer = hypergeo._digamma(alpha) - np.log(alpha) - logx + np.log(x)
-        denom = hypergeo._trigamma(alpha) - 1 / alpha
-        alpha -= numer / denom
+    while np.abs(delta) > alpha * _KLMIN_TOL:
+        if itt > _KLMIN_MAXITER:
+            raise Exception("Maximum iterations reached in KL minimization")
+        delta = hypergeo._digamma(alpha) - np.log(alpha) + np.log(x) - logx
+        delta /= hypergeo._trigamma(alpha) - 1 / alpha
+        alpha -= delta
         itt += 1
-    assert np.isfinite(alpha) and alpha > 0, "kl-min: failed"
-    beta = alpha / x
+    assert np.isfinite(alpha) and alpha > 0
+    return alpha, alpha / x
+
+
+@numba.njit("UniTuple(float64, 2)(float64, float64)")
+def approximate_gamma_mom(mean, variance):
+    """
+    Use the method of moments to approximate a distribution with a gamma of the
+    same mean and variance
+    """
+    assert mean > 0
+    assert variance > 0
+    alpha = mean**2 / variance
+    beta = mean / variance
     return alpha, beta
+
+
+# @numba.njit("UniTuple(float64, 2)(float64[:], float64[:])")
+def rescale_gammas(posterior, edges_in, edges_out, new_shape):
+    """
+    Given a factorization of gamma parameters in `posterior` into additive
+    terms `edges_in` and `edges_out` and a prior, rescale so that the posterior
+    shape has a fixed value.
+    """
+
+    in_shape, in_rate = edges_in[:, 0], edges_in[:, 1]
+    out_shape, out_rate = edges_out[:, 0], edges_out[:, 1]
+    post_shape, post_rate = posterior[0], posterior[1]
+
+    assert post_shape > 0 and post_rate > 0
+
+    # new posterior parameters
+    new_rate = new_shape * post_rate / post_shape
+
+    # rescale messages to match desired shape
+    shape_scale = (new_shape - 1) / (post_shape - 1)
+    rate_scale = new_rate / post_rate
+    in_shape = (in_shape - 1) * shape_scale + 1
+    out_shape = (out_shape - 1) * shape_scale + 1
+    in_rate = in_rate * rate_scale
+    out_rate = out_rate * rate_scale
+
+    return (
+        np.array([new_shape, new_rate]),
+        np.column_stack([in_shape, in_rate]),
+        np.column_stack([out_shape, out_rate]),
+    )
 
 
 @numba.njit("UniTuple(float64, 2)(float64[:], float64[:])")
@@ -143,10 +197,60 @@ def sufficient_statistics(a_i, b_i, a_j, b_j, y_ij, mu_ij):
     return logconst, t_i, ln_t_i, t_j, ln_t_j
 
 
-@numba.njit(
-    "Tuple((float64, float64[:], float64[:]))"
-    "(float64, float64, float64, float64, float64, float64)"
-)
+def mean_and_variance(a_i, b_i, a_j, b_j, y_ij, mu_ij, dps=100, maxterms=1e7):
+    """
+    Calculate mean and variance for the PDF proportional to
+    :math:`Ga(t_j | a_j, b_j) Ga(t_i | a_i, b_i) Po(y_{ij} |
+    \\mu_{ij} t_i - t_j)`, where :math:`i` is the parent and :math:`j` is
+    the child.
+
+    This is intended to provide a stable approximation when calculation of
+    gamma sufficient statistics fails (e.g. when the log-normalizer is close to
+    singular). Calculations are done at arbitrary precision and are slow.
+
+    :param float a_i: the shape parameter of the cavity distribution for the parent
+    :param float b_i: the rate parameter of the cavity distribution for the parent
+    :param float a_j: the shape parameter of the cavity distribution for the child
+    :param float b_j: the rate parameter of the cavity distribution for the child
+    :param float y_ij: the number of mutations on the edge
+    :param float mu_ij: the span-weighted mutation rate of the edge
+    :param int dps: decimal places for multiprecision computations
+
+    :return: normalizing constant, E[t_i], V[t_i], E[t_j], V[t_j]
+    """
+
+    a = a_i + a_j + y_ij
+    b = a_j
+    c = a_j + y_ij + 1
+    t = mu_ij + b_i
+    z = (mu_ij - b_j) / t
+
+    assert a > 0
+    assert b > 0
+    assert c > 0
+    assert t > 0
+
+    # 2F1 and first/second derivatives of argument, in arbitrary precision
+    with mpmath.workdps(dps):
+        s0 = a * b / c
+        s1 = s0 * (a + 1) * (b + 1) / (c + 1)
+        v0 = mpmath.hyp2f1(a, b, c, z, maxterms=maxterms)
+        v1 = s0 * (mpmath.hyp2f1(a + 1, b + 1, c + 1, z, maxterms=maxterms) / v0)
+        v2 = s1 * (mpmath.hyp2f1(a + 2, b + 2, c + 2, z, maxterms=maxterms) / v0)
+        logconst = float(mpmath.log(v0))
+        dz = float(v1)
+        d2z = float(v2)
+
+    # mean / variance of child and parent age
+    logconst += hypergeo._betaln(y_ij + 1, b) + hypergeo._gammaln(a) - a * np.log(t)
+    t_i = dz * z / t + a / t
+    va_t_i = z / t**2 * (d2z * z + 2 * dz * (1 + a)) + a * (1 + a) / t**2 - t_i**2
+    t_j = dz / t
+    va_t_j = d2z / t**2 - t_j**2
+
+    return logconst, t_i, va_t_i, t_j, va_t_j
+
+
 def gamma_projection(a_i, b_i, a_j, b_j, y_ij, mu_ij):
     """
     Match a pair of gamma distributions to the potential function
@@ -163,11 +267,17 @@ def gamma_projection(a_i, b_i, a_j, b_j, y_ij, mu_ij):
 
     :return: gamma parameters for parent and child
     """
-    logconst, t_i, ln_t_i, t_j, ln_t_j = sufficient_statistics(
-        a_i, b_i, a_j, b_j, y_ij, mu_ij
-    )
+    try:
+        logconst, t_i, ln_t_i, t_j, ln_t_j = sufficient_statistics(
+            a_i, b_i, a_j, b_j, y_ij, mu_ij
+        )
+        proj_i = approximate_gamma_kl(t_i, ln_t_i)
+        proj_j = approximate_gamma_kl(t_j, ln_t_j)
+    except:  # noqa: E722,B001
+        logconst, t_i, va_t_i, t_j, va_t_j = mean_and_variance(
+            a_i, b_i, a_j, b_j, y_ij, mu_ij
+        )
+        proj_i = approximate_gamma_mom(t_i, va_t_i)
+        proj_j = approximate_gamma_mom(t_j, va_t_j)
 
-    alpha_i, beta_i = approximate_gamma_kl(t_i, ln_t_i)
-    alpha_j, beta_j = approximate_gamma_kl(t_j, ln_t_j)
-
-    return logconst, np.array([alpha_i, beta_i]), np.array([alpha_j, beta_j])
+    return logconst, np.array(proj_i), np.array(proj_j)

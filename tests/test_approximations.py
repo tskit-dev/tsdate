@@ -44,18 +44,6 @@ _gamma_trio_test_cases = [  # [shape1, rate1, shape2, rate2, muts, rate]
 ]
 
 
-def approximate_gamma_mom(mean, variance):
-    """
-    Use the method of moments to approximate a distribution with a gamma of the
-    same mean and variance
-    """
-    assert mean > 0
-    assert variance > 0
-    alpha = mean**2 / variance
-    beta = mean / variance
-    return alpha, beta
-
-
 @pytest.mark.parametrize("pars", _gamma_trio_test_cases)
 class TestPosteriorMomentMatching:
     """
@@ -129,6 +117,60 @@ class TestPosteriorMomentMatching:
         )[0]
         assert np.isclose(ln_t_j, ck_ln_t_j, rtol=1e-3)
 
+    def test_mean_and_variance(self, pars):
+        logconst, t_i, var_t_i, t_j, var_t_j = approx.mean_and_variance(*pars)
+        ck_normconst = scipy.integrate.dblquad(
+            lambda ti, tj: self.pdf(ti, tj, *pars),
+            0,
+            np.inf,
+            lambda tj: tj,
+            np.inf,
+            epsabs=0,
+        )[0]
+        assert np.isclose(logconst, np.log(ck_normconst), rtol=1e-3)
+        ck_t_i = scipy.integrate.dblquad(
+            lambda ti, tj: ti * self.pdf(ti, tj, *pars) / ck_normconst,
+            0,
+            np.inf,
+            lambda tj: tj,
+            np.inf,
+            epsabs=0,
+        )[0]
+        assert np.isclose(t_i, ck_t_i, rtol=1e-3)
+        ck_t_j = scipy.integrate.dblquad(
+            lambda ti, tj: tj * self.pdf(ti, tj, *pars) / ck_normconst,
+            0,
+            np.inf,
+            lambda tj: tj,
+            np.inf,
+            epsabs=0,
+        )[0]
+        assert np.isclose(t_j, ck_t_j, rtol=1e-3)
+        ck_var_t_i = (
+            scipy.integrate.dblquad(
+                lambda ti, tj: ti**2 * self.pdf(ti, tj, *pars) / ck_normconst,
+                0,
+                np.inf,
+                lambda tj: tj,
+                np.inf,
+                epsabs=0,
+            )[0]
+            - ck_t_i**2
+        )
+        assert np.isclose(var_t_i, ck_var_t_i, rtol=1e-3)
+        ck_var_t_j = (
+            scipy.integrate.dblquad(
+                lambda ti, tj: tj**2 * self.pdf(ti, tj, *pars) / ck_normconst,
+                0,
+                np.inf,
+                lambda tj: tj,
+                np.inf,
+                epsabs=0,
+            )[0]
+            - ck_t_j**2
+        )
+        assert np.isclose(var_t_j, ck_var_t_j, rtol=1e-3)
+
     def test_approximate_gamma(self, pars):
         _, t_i, ln_t_i, t_j, ln_t_j = approx.sufficient_statistics(*pars)
         alpha_i, beta_i = approx.approximate_gamma_kl(t_i, ln_t_i)
@@ -183,7 +225,7 @@ class TestPriorMomentMatching:
         x = self.priors[self.n][k][mean_column]
         xvar = self.priors[self.n][k][var_column]
         # match mean/variance
-        alpha_0, beta_0 = approximate_gamma_mom(x, xvar)
+        alpha_0, beta_0 = approx.approximate_gamma_mom(x, xvar)
         ck_x = alpha_0 / beta_0
         ck_xvar = alpha_0 / beta_0**2
         assert np.isclose(x, ck_x)
@@ -205,3 +247,37 @@ class TestPriorMomentMatching:
             lambda x: scipy.stats.gamma.logpdf(x, alpha_1, scale=1 / beta_1),
         )
         assert kl_1 < kl_0
+
+
+@pytest.mark.parametrize(
+    "pars",
+    [
+        # taken from issue tsdate/290
+        # TODO: strangely, the sufficient statistic calculation works if the
+        # second argument is rounded to the next decimal place: so it'd be good
+        # to use a more problematic example
+        [34.64243, 0.0017707277, 662123.70387, 16.3125724739, 2.0, 0.00275263],
+    ],
+)
+class TestSingular2F1:
+    """
+    Test approximation of marginal pairwise joint distributions by a gamma via
+    arbitrary precision mean/variance matching, when sufficient statistics
+    calculation fails
+    """
+
+    def test_sufficient_statistics_throws_exception(self, pars):
+        with pytest.raises(Exception, match="did not converge"):
+            approx.sufficient_statistics(*pars)
+
+    def test_exception_uses_mean_and_variance(self, pars):
+        _, t_i, va_t_i, t_j, va_t_j = approx.mean_and_variance(*pars)
+        ai1, bi1 = approx.approximate_gamma_mom(t_i, va_t_i)
+        aj1, bj1 = approx.approximate_gamma_mom(t_j, va_t_j)
+        _, par_i, par_j = approx.gamma_projection(*pars)
+        ai2, bi2 = par_i
+        aj2, bj2 = par_j
+        assert np.isclose(ai1, ai2)
+        assert np.isclose(bi1, bi2)
+        assert np.isclose(aj1, aj2)
+        assert np.isclose(bj1, bj2)

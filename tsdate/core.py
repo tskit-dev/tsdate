@@ -989,7 +989,23 @@ class ExpectationPropagation(InOutAlgorithms):
                 )
                 # self.factor_norm[edge.id] += ... # TODO
 
-    def propagate(self, *, edges, desc=None, progress=None):
+        # store factorization into messages: the edge ids pointing
+        # towards roots/leaves for each node
+        self.parent_factors, self.child_factors = self.factorize()
+
+    def factorize(self):
+        """
+        Find incoming/outgoing edge IDs for each node
+        """
+        parent_factors = defaultdict(list)
+        child_factors = defaultdict(list)
+        for node, edgelist in self.edges_by_parent_asc():
+            parent_factors[node].extend([edge.id for edge in edgelist])
+        for node, edgelist in self.edges_by_child_desc():
+            child_factors[node].extend([edge.id for edge in edgelist])
+        return parent_factors, child_factors
+
+    def propagate(self, *, edges, desc=None, progress=None, max_shape=None):
         """
         Update approximating factor for each edge
         """
@@ -1031,12 +1047,30 @@ class ExpectationPropagation(InOutAlgorithms):
             self.child_message[edge.id] = self.lik.ratio(
                 self.posterior[edge.child], child_cavity
             )
+            # Constrain the messages such that the gamma shape parameter is
+            # upper-bounded. Otherwise, the approximation can become degenerate
+            # which will cause numerical issues.
+            for node in [edge.parent, edge.child]:
+                if max_shape is not None and self.posterior[node][0] > max_shape:
+                    edges_out = self.child_factors[node]
+                    edges_in = self.parent_factors[node]
+                    (
+                        self.posterior[node],
+                        self.child_message[edges_out],
+                        self.parent_message[edges_in],
+                    ) = approx.rescale_gamma(
+                        self.posterior[node],
+                        self.child_message[edges_out],
+                        self.parent_message[edges_in],
+                        new_shape=max_shape,
+                    )
+
             # Get the contribution to the (approximate) marginal likelihood from
             # the edge.
             # TODO not complete
             self.factor_norm[edge.id] = norm_const
 
-    def iterate(self, *, iter_num=None, progress=None):
+    def iterate(self, *, iter_num=None, progress=None, max_shape=None):
         """
         Update edge factors from leaves to root then from root to leaves,
         and return approximate log marginal likelihood
@@ -1052,6 +1086,7 @@ class ExpectationPropagation(InOutAlgorithms):
             tasks.items(), f"Iteration {it}", disable=not progress, leave=False
         ):
             self.propagate(edges=func(grouped=False), desc=desc, progress=progress)
+
         # TODO
         # marginal_lik = np.sum(self.factor_norm)
         # return marginal_lik
@@ -1463,6 +1498,9 @@ def variational_dates(
     num_threads=None,  # Unused, matches get_dates()
     probability_space=None,  # Can only be None, simply to match get_dates()
     ignore_oldest_root=False,  # Can only be False, simply to match get_dates()
+    debug_out=None,  # DEBUG
+    plot_subset=None,  # DEBUG
+    max_shape=None,  # DEBUG
 ):
     """
     Infer dates for the nodes in a tree sequence using expectation propagation,
@@ -1544,7 +1582,43 @@ def variational_dates(
         np.arange(max_iterations),
         desc="Expectation Propagation",
     ):
-        dynamic_prog.iterate(iter_num=it)
+        dynamic_prog.iterate(iter_num=it, max_shape=max_shape)
+        # DEBUG: track progress
+        if debug_out is not None:
+            _, mn, va = variational_mean_var(
+                tree_sequence, dynamic_prog.posterior, fixed_node_set=fixed_nodes
+            )
+            sh = mn**2 / va
+            # mn = constrain_ages_topo(tree_sequence, mn, eps, priors.nonfixed_nodes)
+            tr = tree_sequence.tables.nodes.time
+            if plot_subset is not None:
+                tr = tr[plot_subset]
+                mn = mn[plot_subset]
+                sh = sh[plot_subset]
+            else:
+                tr = tr[tree_sequence.num_samples :]
+                mn = mn[tree_sequence.num_samples :]
+                sh = sh[tree_sequence.num_samples :]
+            print(
+                "Iteration",
+                it,
+                "err",
+                np.mean(np.abs(mn - tr) / tr),
+                "max sh",
+                sh.max(),
+                flush=True,
+            )  # only meaningful when ts has true times
+            import matplotlib.pyplot as plt
+
+            pts = plt.scatter(tr, mn, s=2, c=sh, cmap="plasma")
+            plt.colorbar(pts)
+            plt.axline((0, 0), slope=1, c="black")
+            plt.xlabel("Level order")
+            plt.ylabel("Inferred time")
+            plt.title(f"Iteration {it}")
+            plt.savefig(f"{debug_out}.{it:05}.png")
+            plt.clf()
+
     posterior = dynamic_prog.posterior
     tree_sequence, mn_post, _ = variational_mean_var(
         tree_sequence, posterior, fixed_node_set=fixed_nodes
