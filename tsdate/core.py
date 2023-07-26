@@ -1062,7 +1062,7 @@ class ExpectationPropagation(InOutAlgorithms):
                         self.posterior[node],
                         self.child_message[edges_out],
                         self.parent_message[edges_in],
-                        new_shape=max_shape,
+                        max_shape,
                     )
 
             # Get the contribution to the (approximate) marginal likelihood from

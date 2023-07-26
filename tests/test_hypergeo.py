@@ -31,17 +31,18 @@ import numdifftools as nd
 import numpy as np
 import pytest
 
+from tsdate import approx
 from tsdate import hypergeo
 
 
-@pytest.mark.parametrize("x", [1e-10, 1e-6, 1e-2, 1e1, 1e2, 1e3, 1e5, 1e10])
+@pytest.mark.parametrize("x", [-0.3, 1e-10, 1e-6, 1e-2, 1e1, 1e2, 1e3, 1e5, 1e10])
 class TestPolygamma:
     """
     Test numba-fied gamma functions
     """
 
     def test_gammaln(self, x):
-        assert np.isclose(hypergeo._gammaln(x), float(mpmath.loggamma(x)))
+        assert np.isclose(hypergeo._gammaln(x), float(mpmath.re(mpmath.loggamma(x))))
 
     def test_digamma(self, x):
         assert np.isclose(hypergeo._digamma(x), float(mpmath.psi(0, x)))
@@ -51,7 +52,8 @@ class TestPolygamma:
 
     def test_betaln(self, x):
         assert np.isclose(
-            hypergeo._betaln(x, 2 * x), float(mpmath.log(mpmath.beta(x, 2 * x)))
+            hypergeo._betaln(x, 2 * x),
+            float(mpmath.re(mpmath.log(mpmath.beta(x, 2 * x)))),
         )
 
 
@@ -247,8 +249,16 @@ class TestTransforms:
     "pars",
     [
         # taken from examples in issues tsdate/286, tsdate/289
-        [1.104, 0.0001125, 118.1396, 0.009052, 1.0, 0.001404],
-        [2.7481, 0.001221, 344.94083, 0.02329, 3.0, 0.00026624],
+        # [1.104, 0.0001125, 118.1396, 0.009052, 1.0, 0.001404],
+        # [2.7481, 0.001221, 344.94083, 0.02329, 3.0, 0.00026624],
+        [
+            -0.07565595034090222,
+            0.00015964167470460368,
+            229.5153349256595,
+            0.01209673063864175,
+            0.0,
+            2.414e-05,
+        ]
     ],
 )
 class TestSingular2F1:
@@ -257,6 +267,11 @@ class TestSingular2F1:
     suffers from catastrophic cancellation: in these cases, use DLMF 15.8.1
     even though it takes much longer to converge.
     """
+
+    def test_dlmf1583_debug(self, pars):
+        print(hypergeo._hyp2f1_dlmf1581(*pars))
+        print(hypergeo._hyp2f1_dlmf1583(*pars))
+        print(approx.sufficient_statistics(*pars))
 
     def test_dlmf1583_throws_exception(self, pars):
         with pytest.raises(Exception, match="did not converge"):

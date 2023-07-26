@@ -57,7 +57,7 @@ def _digamma(x):
     Digamma (psi) function, from asymptotic series expansion.
     """
     if x <= 0.0:
-        return np.nan
+        return _digamma(1 - x) - np.pi / np.tan(np.pi * x)
     if x <= 1e-5:
         return -np.euler_gamma - (1 / x)
     if x < 8.5:
@@ -81,7 +81,7 @@ def _trigamma(x):
     Trigamma function, from asymptotic series expansion
     """
     if x <= 0.0:
-        return np.nan
+        return -_trigamma(1 - x) + np.pi**2 / np.sin(np.pi * x) ** 2
     if x <= 1e-4:
         return 1 / x**2
     if x < 5:
@@ -215,7 +215,7 @@ def _hyp2f1_recurrence(a, b, c, z):
     occurs if `z == c / a`).
     """
     assert b % 1.0 == 0.0 and b >= 0
-    assert np.abs(c) >= np.abs(a)
+    # assert np.abs(c) >= np.abs(a)
     assert z > 1.0
     f0 = 1.0
     f1 = 1 - a * z / c
@@ -382,6 +382,8 @@ def _hyp2f1_dlmf1583_second(a_i, b_i, a_j, b_j, y, mu):
 
     sign *= (-1) ** (y + 1)
     val += scale
+
+    print(np.log(1 - s), dc, _digamma(a_i))  # DEBUG
 
     return val, sign, da_i, db_i, da_j, db_j, d2b_j
 

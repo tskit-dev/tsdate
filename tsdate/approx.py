@@ -176,6 +176,11 @@ def sufficient_statistics(a_i, b_i, a_j, b_j, y_ij, mu_ij):
     c = a_j + y_ij + 1
     t = mu_ij + b_i
 
+    assert a > 0
+    assert b > 0
+    assert c > 0
+    assert t > 0
+
     log_f, sign_f, da_i, db_i, da_j, db_j = hypergeo._hyp2f1(
         a_i, b_i, a_j, b_j, y_ij, mu_ij
     )
@@ -196,8 +201,11 @@ def sufficient_statistics(a_i, b_i, a_j, b_j, y_ij, mu_ij):
     )
 
     # check that Jensen's inequality holds
-    assert np.log(t_i) > ln_t_i
-    assert np.log(t_j) > ln_t_j
+    if not (np.log(t_i) > ln_t_i and np.log(t_j) > ln_t_j):
+        print([a_i, b_i, a_j, b_j, y_ij, mu_ij])
+        print(np.log(t_i), ln_t_i, np.log(t_j), ln_t_j)
+        print(logconst, da_i, db_i, da_j, db_j)
+        assert False, "bad bad bad!"
 
     return logconst, t_i, ln_t_i, t_j, ln_t_j
 
