@@ -31,8 +31,8 @@ from numba.extending import get_cython_function_address
 
 # TODO: these are reasonable defaults, but could
 # be made settable via a control dict
-_HYP2F1_TOL = 1e-10  # np.sqrt(np.finfo(np.float64).eps)
-_HYP2F1_MAXTERM = int(1e6)
+_HYP2F1_TOL = 1e-10
+_HYP2F1_MAXTERM = int(1e5)
 
 _PTR = ctypes.POINTER
 _dbl = ctypes.c_double
@@ -261,6 +261,37 @@ def _hyp2f1_recurrence(a, b, c, z):
 
 
 @numba.njit(
+    "UniTuple(float64, 6)(float64, float64, float64, float64, float64, float64)"
+)
+def _hyp2f1_dlmf1581(a_i, b_i, a_j, b_j, y, mu):
+    """
+    DLMF 15.8.1, series expansion with Pfaff transformation
+    """
+    assert b_i >= 0
+    assert 0 <= mu <= b_j
+    assert y >= 0 and y % 1 == 0.0
+
+    y = int(y)
+    a = a_i + a_j + y
+    c = a_j + y + 1
+    z = (b_j - mu) / (b_i + b_j)
+    scale = -a * np.log(1 - z / (z - 1))
+
+    # 2F1(a, y+1; c; z) via series expansion
+    val, sign, da, _, dc, dz, _ = _hyp2f1_taylor_series(a, y + 1, c, z)
+
+    # map gradient to parameters
+    da_i = da - np.log(1 - z / (z - 1))
+    da_j = da + dc - np.log(1 - z / (z - 1))
+    db_i = z * (a / (mu + b_i) - dz / (b_i + b_j))
+    db_j = (z - 1) * (a / (mu + b_i) - dz / (b_i + b_j))
+
+    val += scale
+
+    return val, sign, da_i, db_i, da_j, db_j
+
+
+@numba.njit(
     "UniTuple(float64, 7)(float64, float64, float64, float64, float64, float64)"
 )
 def _hyp2f1_dlmf1583_first(a_i, b_i, a_j, b_j, y, mu):
@@ -384,9 +415,6 @@ def _hyp2f1_dlmf1583(a_i, b_i, a_j, b_j, y, mu):
     f_2 = np.exp(f_2 - f_0) * s_2
     f = f_1 + f_2
 
-    if f <= 0.0:
-        raise Invalid2F1("Cancellation error in hypergeometric series")
-
     da_i = (da_i_1 * f_1 + da_i_2 * f_2) / f
     db_i = (db_i_1 * f_1 + db_i_2 * f_2) / f
     da_j = (da_j_1 * f_1 + da_j_2 * f_2) / f
@@ -407,6 +435,9 @@ def _hyp2f1_dlmf1583(a_i, b_i, a_j, b_j, y, mu):
     dz = -db_j * (mu + b_i)
     d2z = d2b_j * (mu + b_i) ** 2
     if not _is_valid_2f1(dz, d2z, a, b, c, z, _HYP2F1_TOL):
+        # if argument is not close to unity, use direct expansion
+        if z < 0.9:
+            return _hyp2f1_dlmf1581(a_i, b_i, a_j, b_j, y, mu)
         raise Invalid2F1("Hypergeometric series did not converge")
 
     sign = np.sign(f)
@@ -447,37 +478,6 @@ def _hyp2f1_dlmf1521(a_i, b_i, a_j, b_j, y, mu):
 @numba.njit(
     "UniTuple(float64, 6)(float64, float64, float64, float64, float64, float64)"
 )
-def _hyp2f1_dlmf1581(a_i, b_i, a_j, b_j, y, mu):
-    """
-    DLMF 15.8.1, series expansion with Pfaff transformation
-    """
-    assert b_i >= 0
-    assert 0 <= mu <= b_j
-    assert y >= 0 and y % 1 == 0.0
-
-    y = int(y)
-    a = a_i + a_j + y
-    c = a_j + y + 1
-    z = (b_j - mu) / (b_i + b_j)
-    scale = -a * np.log(1 - z / (z - 1))
-
-    # 2F1(a, y+1; c; z) via series expansion
-    val, sign, da, _, dc, dz, _ = _hyp2f1_taylor_series(a, y + 1, c, z)
-
-    # map gradient to parameters
-    da_i = da - np.log(1 - z / (z - 1))
-    da_j = da + dc - np.log(1 - z / (z - 1))
-    db_i = z * (a / (mu + b_i) - dz / (b_i + b_j))
-    db_j = (z - 1) * (a / (mu + b_i) - dz / (b_i + b_j))
-
-    val += scale
-
-    return val, sign, da_i, db_i, da_j, db_j
-
-
-@numba.njit(
-    "UniTuple(float64, 6)(float64, float64, float64, float64, float64, float64)"
-)
 def _hyp2f1(a_i, b_i, a_j, b_j, y, mu):
     """
     Evaluates:
@@ -504,13 +504,4 @@ def _hyp2f1(a_i, b_i, a_j, b_j, y, mu):
     elif -1.0 < z < 0.0:
         return _hyp2f1_dlmf1581(a_i, b_i, a_j, b_j, y, mu)
     else:
-        try:
-            # if posterior marginals are too incompatible (e.g. parent age
-            # younger than child age) then this transform will suffer from
-            # cancellation
-            return _hyp2f1_dlmf1583(a_i, b_i, a_j, b_j, y, mu)
-        except:  # noqa: E722,B001
-            if z < 0.9:
-                return _hyp2f1_dlmf1581(a_i, b_i, a_j, b_j, y, mu)
-            else:
-                raise Invalid2F1("DUMMY ERROR")  # TODO
+        return _hyp2f1_dlmf1583(a_i, b_i, a_j, b_j, y, mu)

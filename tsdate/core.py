@@ -1492,15 +1492,13 @@ def variational_dates(
     priors=None,
     *,
     max_iterations=20,
+    max_shape=None,
     global_prior=True,
     eps=1e-6,
     progress=False,
     num_threads=None,  # Unused, matches get_dates()
     probability_space=None,  # Can only be None, simply to match get_dates()
     ignore_oldest_root=False,  # Can only be False, simply to match get_dates()
-    debug_out=None,  # DEBUG
-    plot_subset=None,  # DEBUG
-    max_shape=None,  # DEBUG
 ):
     """
     Infer dates for the nodes in a tree sequence using expectation propagation,
@@ -1583,41 +1581,6 @@ def variational_dates(
         desc="Expectation Propagation",
     ):
         dynamic_prog.iterate(iter_num=it, max_shape=max_shape)
-        # DEBUG: track progress
-        if debug_out is not None:
-            _, mn, va = variational_mean_var(
-                tree_sequence, dynamic_prog.posterior, fixed_node_set=fixed_nodes
-            )
-            sh = mn**2 / va
-            # mn = constrain_ages_topo(tree_sequence, mn, eps, priors.nonfixed_nodes)
-            tr = tree_sequence.tables.nodes.time
-            if plot_subset is not None:
-                tr = tr[plot_subset]
-                mn = mn[plot_subset]
-                sh = sh[plot_subset]
-            else:
-                tr = tr[tree_sequence.num_samples :]
-                mn = mn[tree_sequence.num_samples :]
-                sh = sh[tree_sequence.num_samples :]
-            print(
-                "Iteration",
-                it,
-                "err",
-                np.mean(np.abs(mn - tr) / tr),
-                "max sh",
-                sh.max(),
-                flush=True,
-            )  # only meaningful when ts has true times
-            import matplotlib.pyplot as plt
-
-            pts = plt.scatter(tr, mn, s=2, c=sh, cmap="plasma")
-            plt.colorbar(pts)
-            plt.axline((0, 0), slope=1, c="black")
-            plt.xlabel("Level order")
-            plt.ylabel("Inferred time")
-            plt.title(f"Iteration {it}")
-            plt.savefig(f"{debug_out}.{it:05}.png")
-            plt.clf()
 
     posterior = dynamic_prog.posterior
     tree_sequence, mn_post, _ = variational_mean_var(

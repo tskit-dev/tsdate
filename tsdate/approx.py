@@ -273,7 +273,7 @@ def gamma_projection(a_i, b_i, a_j, b_j, y_ij, mu_ij):
         )
         proj_i = approximate_gamma_kl(t_i, ln_t_i)
         proj_j = approximate_gamma_kl(t_j, ln_t_j)
-    except:  # noqa: E722,B001
+    except hypergeo.Invalid2F1:
         logconst, t_i, va_t_i, t_j, va_t_j = mean_and_variance(
             a_i, b_i, a_j, b_j, y_ij, mu_ij
         )
