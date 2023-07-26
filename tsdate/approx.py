@@ -35,6 +35,10 @@ _KLMIN_MAXITER = 1000
 _KLMIN_TOL = np.sqrt(np.finfo(np.float64).eps)
 
 
+class KLMinimizationFailed(Exception):
+    pass
+
+
 @numba.njit("UniTuple(float64, 3)(float64, float64)")
 def approximate_log_moments(mean, variance):
     """
@@ -75,12 +79,13 @@ def approximate_gamma_kl(x, logx):
     # some small value (e.g. square root of machine precision)
     while np.abs(delta) > alpha * _KLMIN_TOL:
         if itt > _KLMIN_MAXITER:
-            raise Exception("Maximum iterations reached in KL minimization")
+            raise KLMinimizationFailed("Maximum iterations reached in KL minimization")
         delta = hypergeo._digamma(alpha) - np.log(alpha) + np.log(x) - logx
         delta /= hypergeo._trigamma(alpha) - 1 / alpha
         alpha -= delta
         itt += 1
-    assert np.isfinite(alpha) and alpha > 0
+    if not np.isfinite(alpha) or alpha <= 0:
+        raise KLMinimizationFailed("Invalid shape parameter in KL minimization")
     return alpha, alpha / x
 
 
@@ -273,7 +278,7 @@ def gamma_projection(a_i, b_i, a_j, b_j, y_ij, mu_ij):
         )
         proj_i = approximate_gamma_kl(t_i, ln_t_i)
         proj_j = approximate_gamma_kl(t_j, ln_t_j)
-    except hypergeo.Invalid2F1:
+    except (hypergeo.Invalid2F1, KLMinimizationFailed):
         logconst, t_i, va_t_i, t_j, va_t_j = mean_and_variance(
             a_i, b_i, a_j, b_j, y_ij, mu_ij
         )

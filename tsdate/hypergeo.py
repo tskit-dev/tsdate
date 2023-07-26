@@ -435,8 +435,8 @@ def _hyp2f1_dlmf1583(a_i, b_i, a_j, b_j, y, mu):
     dz = -db_j * (mu + b_i)
     d2z = d2b_j * (mu + b_i) ** 2
     if not _is_valid_2f1(dz, d2z, a, b, c, z, _HYP2F1_TOL):
-        # if argument is not close to unity, use direct expansion
-        if z < 0.9:
+        # use Pfaff transform if argument is not close to unity
+        if z / (z - 1) < 0.9:
             return _hyp2f1_dlmf1581(a_i, b_i, a_j, b_j, y, mu)
         raise Invalid2F1("Hypergeometric series did not converge")
 
