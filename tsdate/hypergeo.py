@@ -183,7 +183,7 @@ def _hyp2f1_taylor_series(a, b, c, z):
                 d2z = iz * (iz - 1 / z) + d2z / norm
                 offset = weight
             if not np.isfinite(val):
-                raise Invalid2F1("Hypergeometric series did not converge")
+                raise Invalid2F1("Nonfinite function value in hypergeometric series")
             if weight < ltol + np.log(val) and _is_valid_2f1(
                 dz / val, d2z / val, a, b, c, z, _HYP2F1_TOL
             ):
@@ -198,7 +198,9 @@ def _hyp2f1_taylor_series(a, b, c, z):
         sign = 1.0
         val = np.log(val) + offset
         if k >= _HYP2F1_MAXTERM:
-            raise Invalid2F1("Hypergeometric series did not converge")
+            raise Invalid2F1(
+                "Hypergeometric series did not converge within maximum number of iterations"
+            )
     return val, sign, da, db, dc, dz, d2z
 
 
@@ -382,8 +384,6 @@ def _hyp2f1_dlmf1583_second(a_i, b_i, a_j, b_j, y, mu):
 
     sign *= (-1) ** (y + 1)
     val += scale
-
-    print(np.log(1 - s), dc, _digamma(a_i))  # DEBUG
 
     return val, sign, da_i, db_i, da_j, db_j, d2b_j
 

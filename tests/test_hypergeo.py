@@ -245,6 +245,7 @@ class TestTransforms:
         assert np.allclose(grad, check)
 
 
+# TODO: needs work
 @pytest.mark.parametrize(
     "pars",
     [
@@ -252,13 +253,14 @@ class TestTransforms:
         # [1.104, 0.0001125, 118.1396, 0.009052, 1.0, 0.001404],
         # [2.7481, 0.001221, 344.94083, 0.02329, 3.0, 0.00026624],
         [
-            -0.07565595034090222,
-            0.00015964167470460368,
-            229.5153349256595,
-            0.01209673063864175,
+            21.624020769312185,
+            0.0007429154579977896,
+            25603.81293768426,
+            0.7653563864917118,
             0.0,
-            2.414e-05,
-        ]
+            0.00108972,
+        ]  # jensen
+        # [ -0.07565595034090222, 0.00015964167470460368, 229.5153349256595, 0.01209673063864175, 0.0, 2.414e-05, ] # jensen
     ],
 )
 class TestSingular2F1:
@@ -269,8 +271,9 @@ class TestSingular2F1:
     """
 
     def test_dlmf1583_debug(self, pars):
-        print(hypergeo._hyp2f1_dlmf1581(*pars))
+        # print(hypergeo._hyp2f1_dlmf1581(*pars))
         print(hypergeo._hyp2f1_dlmf1583(*pars))
+        print(approx.mean_and_variance(*pars))
         print(approx.sufficient_statistics(*pars))
 
     def test_dlmf1583_throws_exception(self, pars):

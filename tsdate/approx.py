@@ -23,6 +23,8 @@
 """
 Tools for approximating combinations of Gamma variates with Gamma distributions
 """
+import logging
+
 import mpmath
 import numba
 import numpy as np
@@ -31,7 +33,7 @@ from . import hypergeo
 
 # TODO: these are reasonable defaults but could
 # be set via a control dict
-_KLMIN_MAXITER = 1000
+_KLMIN_MAXITER = 100
 _KLMIN_TOL = np.sqrt(np.finfo(np.float64).eps)
 
 
@@ -69,7 +71,10 @@ def approximate_gamma_kl(x, logx):
     """
     assert np.isfinite(x) and np.isfinite(logx)
     alpha = 0.5 / (np.log(x) - logx)  # lower bound on alpha
-    assert alpha > 0
+    if not alpha > 0:
+        raise KLMinimizationFailed(
+            "Sufficient statistics don't satisfy Jensen's inequality"
+        )
     # asymptotically the lower bound becomes sharp
     if 1.0 / alpha < 1e-4:
         return alpha, alpha / x
@@ -200,13 +205,6 @@ def sufficient_statistics(a_i, b_i, a_j, b_j, y_ij, mu_ij):
         - hypergeo._digamma(c)
     )
 
-    # check that Jensen's inequality holds
-    if not (np.log(t_i) > ln_t_i and np.log(t_j) > ln_t_j):
-        print([a_i, b_i, a_j, b_j, y_ij, mu_ij])
-        print(np.log(t_i), ln_t_i, np.log(t_j), ln_t_j)
-        print(logconst, da_i, db_i, da_j, db_j)
-        assert False, "bad bad bad!"
-
     return logconst, t_i, ln_t_i, t_j, ln_t_j
 
 
@@ -287,6 +285,11 @@ def gamma_projection(a_i, b_i, a_j, b_j, y_ij, mu_ij):
         proj_i = approximate_gamma_kl(t_i, ln_t_i)
         proj_j = approximate_gamma_kl(t_j, ln_t_j)
     except (hypergeo.Invalid2F1, KLMinimizationFailed):
+        logging.warning(
+            f"Matching sufficient statistics failed with parameters: "
+            f"{a_i} {b_i} {a_j} {b_j} {y_ij} {mu_ij},"
+            f"matching mean and variance instead"
+        )
         logconst, t_i, va_t_i, t_j, va_t_j = mean_and_variance(
             a_i, b_i, a_j, b_j, y_ij, mu_ij
         )
