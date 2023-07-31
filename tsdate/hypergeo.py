@@ -417,6 +417,11 @@ def _hyp2f1_dlmf1583(a_i, b_i, a_j, b_j, y, mu):
     f_2 = np.exp(f_2 - f_0) * s_2
     f = f_1 + f_2
 
+    if f <= 0.0:
+        if z / (z - 1) < 0.9:  # use Pfaff transform for small enough argument
+            return _hyp2f1_dlmf1581(a_i, b_i, a_j, b_j, y, mu)
+        raise Invalid2F1("Cancellation error in hypergeometric series")
+
     da_i = (da_i_1 * f_1 + da_i_2 * f_2) / f
     db_i = (db_i_1 * f_1 + db_i_2 * f_2) / f
     da_j = (da_j_1 * f_1 + da_j_2 * f_2) / f
