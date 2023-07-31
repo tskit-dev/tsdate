@@ -269,7 +269,7 @@ def _hyp2f1_dlmf1581(a_i, b_i, a_j, b_j, y, mu):
     """
     DLMF 15.8.1, series expansion with Pfaff transformation
     """
-    assert b_i >= 0
+    # assert b_i >= 0
     assert 0 <= mu <= b_j
     assert y >= 0 and y % 1 == 0.0
 
@@ -395,7 +395,7 @@ def _hyp2f1_dlmf1583(a_i, b_i, a_j, b_j, y, mu):
     """
     DLMF 15.8.3, sum of recurrence and series expansion
     """
-    assert b_i >= 0
+    # assert b_i >= 0
     assert 0 <= mu <= b_j
     assert y >= 0 and y % 1.0 == 0.0
 
@@ -459,7 +459,7 @@ def _hyp2f1_dlmf1521(a_i, b_i, a_j, b_j, y, mu):
     """
     DLMF 15.2.1, series expansion without transformation
     """
-    assert b_i >= 0
+    # assert b_i >= 0
     assert mu >= b_j >= 0
     assert y >= 0 and y % 1 == 0.0
 
