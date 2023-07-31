@@ -249,28 +249,28 @@ class TestTransforms:
         [
             hypergeo._hyp2f1_dlmf1583,
             [-21.62, 0.00074, 1003.8, 0.7653, 100.0, 0.0011],
-            "Cancellation error in hypergeometric polynomial",
+            "Cancellation error",
         ],
         [
             hypergeo._hyp2f1_dlmf1583,
             [1.62, 0.00074, 25603.8, 0.6653, 0.0, 0.0011],
-            "Cancellation error in hypergeometric series",
+            "Cancellation error",
         ],
         # TODO: gives zero function value, but passes through dlmf1581
         # [
         #    hypergeo._hyp2f1_dlmf1583,
         #    [9007.39, 0.241, 10000, 0.2673, 2.0, 0.01019],
-        #    "Cancellation error in hypergeometric series",
+        #    "Cancellation error",
         # ],
         [
             hypergeo._hyp2f1_dlmf1581,
             [1.62, 0.00074, 25603.8, 0.7653, 100.0, 0.0011],
-            "within maximum number of iterations",
+            "Maximum terms",
         ],
         [
             hypergeo._hyp2f1_dlmf1583,
             [1.0, 1.0, 1.0, 1.0, 3.0, 0.0],
-            "Zero division in hypergeometric polynomial",
+            "Zero division",
         ],
     ],
 )

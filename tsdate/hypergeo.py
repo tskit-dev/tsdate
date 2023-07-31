@@ -139,9 +139,8 @@ def _hyp2f1_taylor_series(a, b, c, z):
     derivatives divided by the (unlogged) function value.
     """
     assert 1.0 > z >= 0.0
-    assert a >= 0.0
-    assert b >= 0.0
-    assert c > 0.0
+    if not (a >= 0.0 and b >= 0.0 and c > 0.0):
+        raise Invalid2F1("Negative parameters in Taylor series")
 
     if z == 0.0:
         sign = 1.0
@@ -183,7 +182,7 @@ def _hyp2f1_taylor_series(a, b, c, z):
                 d2z = iz * (iz - 1 / z) + d2z / norm
                 offset = weight
             if not np.isfinite(val):
-                raise Invalid2F1("Nonfinite function value in hypergeometric series")
+                raise Invalid2F1("Nonfinite function value in Taylor series")
             if weight < ltol + np.log(val) and _is_valid_2f1(
                 dz / val, d2z / val, a, b, c, z, _HYP2F1_TOL
             ):
@@ -198,10 +197,7 @@ def _hyp2f1_taylor_series(a, b, c, z):
         sign = 1.0
         val = np.log(val) + offset
         if k >= _HYP2F1_MAXTERM:
-            raise Invalid2F1(
-                "Hypergeometric series did not converge within "
-                "maximum number of iterations"
-            )
+            raise Invalid2F1("Maximum terms reached in Taylor series")
     return val, sign, da, db, dc, dz, d2z
 
 
@@ -224,7 +220,7 @@ def _hyp2f1_recurrence(a, b, c, z):
     s0 = 1.0
     s1 = np.sign(f1)
     if s1 == 0:
-        raise Invalid2F1("Zero division in hypergeometric polynomial")
+        raise Invalid2F1("Zero division in polynomial")
     g0 = np.zeros(4)  # df/da df/db df/dc df/dz
     g1 = np.array([-z / c, 0.0, a * z / c**2, -a / c]) / f1
     p0 = 0.0  # d2f/dz2
@@ -244,7 +240,7 @@ def _hyp2f1_recurrence(a, b, c, z):
         v = s1 * bk + u * ak
         s = np.sign(v)
         if s == 0:
-            raise Invalid2F1("Zero division in hypergeometric polynomial")
+            raise Invalid2F1("Zero division in polynomial")
         f = np.log(np.abs(v)) + f1
         g = (g1 * bk * s1 + g0 * u * ak + dbk * s1 + dak * u) / v
         p = (
@@ -257,7 +253,7 @@ def _hyp2f1_recurrence(a, b, c, z):
         g1, g0 = g, g1
         p1, p0 = p, p1
     if not _is_valid_2f1(g[3], p, a, -b, c, z, _HYP2F1_TOL):
-        raise Invalid2F1("Cancellation error in hypergeometric polynomial")
+        raise Invalid2F1("Cancellation error in polynomial")
     da, db, dc, dz = g
     return f, s, da, db, dc, dz, p
 
@@ -420,7 +416,7 @@ def _hyp2f1_dlmf1583(a_i, b_i, a_j, b_j, y, mu):
     if f <= 0.0:
         if z / (z - 1) < 0.9:  # use Pfaff transform for small enough argument
             return _hyp2f1_dlmf1581(a_i, b_i, a_j, b_j, y, mu)
-        raise Invalid2F1("Cancellation error in hypergeometric series")
+        raise Invalid2F1("Cancellation error in Taylor series")
 
     da_i = (da_i_1 * f_1 + da_i_2 * f_2) / f
     db_i = (db_i_1 * f_1 + db_i_2 * f_2) / f
@@ -444,7 +440,7 @@ def _hyp2f1_dlmf1583(a_i, b_i, a_j, b_j, y, mu):
     if not _is_valid_2f1(dz, d2z, a, b, c, z, _HYP2F1_TOL):
         if z / (z - 1) < 0.9:  # use Pfaff transform for small enough argument
             return _hyp2f1_dlmf1581(a_i, b_i, a_j, b_j, y, mu)
-        raise Invalid2F1("Cancellation error in hypergeometric series")
+        raise Invalid2F1("Cancellation error in Taylor series")
 
     sign = np.sign(f)
     val = np.log(np.abs(f)) + f_0 + scale
