@@ -199,7 +199,8 @@ def _hyp2f1_taylor_series(a, b, c, z):
         val = np.log(val) + offset
         if k >= _HYP2F1_MAXTERM:
             raise Invalid2F1(
-                "Hypergeometric series did not converge within maximum number of iterations"
+                "Hypergeometric series did not converge within "
+                "maximum number of iterations"
             )
     return val, sign, da, db, dc, dz, d2z
 
@@ -217,14 +218,13 @@ def _hyp2f1_recurrence(a, b, c, z):
     occurs if `z == c / a`).
     """
     assert b % 1.0 == 0.0 and b >= 0
-    # assert np.abs(c) >= np.abs(a)
     assert z > 1.0
     f0 = 1.0
     f1 = 1 - a * z / c
     s0 = 1.0
     s1 = np.sign(f1)
     if s1 == 0:
-        raise Invalid2F1("Zero division in hypergeometric recurrence")
+        raise Invalid2F1("Zero division in hypergeometric polynomial")
     g0 = np.zeros(4)  # df/da df/db df/dc df/dz
     g1 = np.array([-z / c, 0.0, a * z / c**2, -a / c]) / f1
     p0 = 0.0  # d2f/dz2
@@ -244,7 +244,7 @@ def _hyp2f1_recurrence(a, b, c, z):
         v = s1 * bk + u * ak
         s = np.sign(v)
         if s == 0:
-            raise Invalid2F1("Zero division in hypergeometric recurrence")
+            raise Invalid2F1("Zero division in hypergeometric polynomial")
         f = np.log(np.abs(v)) + f1
         g = (g1 * bk * s1 + g0 * u * ak + dbk * s1 + dak * u) / v
         p = (
@@ -257,7 +257,7 @@ def _hyp2f1_recurrence(a, b, c, z):
         g1, g0 = g, g1
         p1, p0 = p, p1
     if not _is_valid_2f1(g[3], p, a, -b, c, z, _HYP2F1_TOL):
-        raise Invalid2F1("Hypergeometric series did not converge")
+        raise Invalid2F1("Cancellation error in hypergeometric polynomial")
     da, db, dc, dz = g
     return f, s, da, db, dc, dz, p
 
@@ -437,10 +437,9 @@ def _hyp2f1_dlmf1583(a_i, b_i, a_j, b_j, y, mu):
     dz = -db_j * (mu + b_i)
     d2z = d2b_j * (mu + b_i) ** 2
     if not _is_valid_2f1(dz, d2z, a, b, c, z, _HYP2F1_TOL):
-        # use Pfaff transform if argument is not close to unity
-        if z / (z - 1) < 0.9:
+        if z / (z - 1) < 0.9:  # use Pfaff transform for small enough argument
             return _hyp2f1_dlmf1581(a_i, b_i, a_j, b_j, y, mu)
-        raise Invalid2F1("Hypergeometric series did not converge")
+        raise Invalid2F1("Cancellation error in hypergeometric series")
 
     sign = np.sign(f)
     val = np.log(np.abs(f)) + f_0 + scale

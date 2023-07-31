@@ -1085,7 +1085,12 @@ class ExpectationPropagation(InOutAlgorithms):
         for desc, func in tqdm(
             tasks.items(), f"Iteration {it}", disable=not progress, leave=False
         ):
-            self.propagate(edges=func(grouped=False), desc=desc, progress=progress)
+            self.propagate(
+                edges=func(grouped=False),
+                desc=desc,
+                progress=progress,
+                max_shape=max_shape,
+            )
 
         # TODO
         # marginal_lik = np.sum(self.factor_norm)

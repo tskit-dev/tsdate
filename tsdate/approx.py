@@ -70,11 +70,9 @@ def approximate_gamma_kl(x, logx):
     Returns the shape and rate of the approximating gamma.
     """
     assert np.isfinite(x) and np.isfinite(logx)
+    if not np.log(x) > logx:
+        raise KLMinimizationFailed("log E[t] <= E[log t] violates Jensen's inequality")
     alpha = 0.5 / (np.log(x) - logx)  # lower bound on alpha
-    if not alpha > 0:
-        raise KLMinimizationFailed(
-            "Sufficient statistics don't satisfy Jensen's inequality"
-        )
     # asymptotically the lower bound becomes sharp
     if 1.0 / alpha < 1e-4:
         return alpha, alpha / x
@@ -107,8 +105,7 @@ def approximate_gamma_mom(mean, variance):
     return alpha, beta
 
 
-# @numba.njit("UniTuple(float64, 2)(float64[:], float64[:])")
-def rescale_gammas(posterior, edges_in, edges_out, new_shape):
+def rescale_gamma(posterior, edges_in, edges_out, new_shape):
     """
     Given a factorization of gamma parameters in `posterior` into additive
     terms `edges_in` and `edges_out` and a prior, rescale so that the posterior
@@ -285,7 +282,7 @@ def gamma_projection(a_i, b_i, a_j, b_j, y_ij, mu_ij):
         proj_i = approximate_gamma_kl(t_i, ln_t_i)
         proj_j = approximate_gamma_kl(t_j, ln_t_j)
     except (hypergeo.Invalid2F1, KLMinimizationFailed):
-        logging.warning(
+        logging.info(
             f"Matching sufficient statistics failed with parameters: "
             f"{a_i} {b_i} {a_j} {b_j} {y_ij} {mu_ij},"
             f"matching mean and variance instead"

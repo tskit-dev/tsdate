@@ -27,6 +27,7 @@ Test cases for the gamma-variational approximations in tsdate
 import numpy as np
 import pytest
 import scipy.integrate
+import scipy.special
 import scipy.stats
 from distribution_functions import conditional_coalescent_pdf
 from distribution_functions import kl_divergence
@@ -252,14 +253,10 @@ class TestPriorMomentMatching:
 @pytest.mark.parametrize(
     "pars",
     [
-        # taken from issue tsdate/290
-        # TODO: strangely, the sufficient statistic calculation works if the
-        # second argument is rounded to the next decimal place: so it'd be good
-        # to use a more problematic example
-        [34.64243, 0.0017707277, 662123.70387, 16.3125724739, 2.0, 0.00275263],
+        [1.62, 0.00074, 25603.8, 0.6653, 0.0, 0.0011],  # "Cancellation error"
     ],
 )
-class TestSingular2F1:
+class Test2F1Failsafe:
     """
     Test approximation of marginal pairwise joint distributions by a gamma via
     arbitrary precision mean/variance matching, when sufficient statistics
@@ -267,7 +264,7 @@ class TestSingular2F1:
     """
 
     def test_sufficient_statistics_throws_exception(self, pars):
-        with pytest.raises(Exception, match="did not converge"):
+        with pytest.raises(Exception, match="Cancellation error"):
             approx.sufficient_statistics(*pars)
 
     def test_exception_uses_mean_and_variance(self, pars):
@@ -281,3 +278,81 @@ class TestSingular2F1:
         assert np.isclose(bi1, bi2)
         assert np.isclose(aj1, aj2)
         assert np.isclose(bj1, bj2)
+
+
+class TestGammaFactorization:
+    """
+    Test various functions for manipulating factorizations of gamma distributions
+    """
+
+    def test_rescale_gamma(self):
+        # posterior_shape = prior_shape + sum(in_shape - 1) + sum(out_shape - 1)
+        # posterior_rate = prior_rate + sum(in_rate) + sum(out_rate)
+        in_message = np.array([[1.5, 0.25], [1.5, 0.25]])
+        out_message = np.array([[1.5, 0.25], [1.5, 0.25]])
+        posterior = np.array([4, 1.5])  # prior is implicitly [2, 0.5]
+        prior = np.array(
+            [
+                posterior[0]
+                - np.sum(in_message[:, 0] - 1)
+                - np.sum(out_message[:, 0] - 1),
+                posterior[1] - np.sum(in_message[:, 1]) - np.sum(out_message[:, 1]),
+            ]
+        )
+        # rescale
+        target_shape = 12
+        new_post, new_in, new_out = approx.rescale_gamma(
+            posterior, in_message, out_message, target_shape
+        )
+        new_prior = np.array(
+            [
+                new_post[0] - np.sum(new_in[:, 0] - 1) - np.sum(new_out[:, 0] - 1),
+                new_post[1] - np.sum(new_in[:, 1]) - np.sum(new_out[:, 1]),
+            ]
+        )
+        print(prior, new_prior)
+        assert new_post[0] == target_shape
+        # mean is conserved
+        assert np.isclose(new_post[0] / new_post[1], posterior[0] / posterior[1])
+        # magnitude of messages (in natural parameterization) is conserved
+        assert np.isclose(
+            (new_prior[0] - 1) / np.sum(new_in[:, 0] - 1),
+            (prior[0] - 1) / np.sum(in_message[:, 0] - 1),
+        )
+        assert np.isclose(
+            new_prior[1] / np.sum(new_in[:, 1]),
+            prior[1] / np.sum(in_message[:, 1]),
+        )
+
+    def test_average_gammas(self):
+        # E[x] = shape/rate
+        # E[log x] = digamma(shape) - log(rate)
+        shape = np.array([0.5, 1.5])
+        rate = np.array([1.0, 1.0])
+        avg_shape, avg_rate = approx.average_gammas(shape, rate)
+        E_x = np.mean(shape)
+        E_logx = np.mean(scipy.special.digamma(shape))
+        assert np.isclose(E_x, avg_shape / avg_rate)
+        assert np.isclose(E_logx, scipy.special.digamma(avg_shape) - np.log(avg_rate))
+
+
+class TestKLMinimizationFailed:
+    """
+    Test errors in KL minimization
+    """
+
+    def test_violates_jensen(self):
+        with pytest.raises(approx.KLMinimizationFailed, match="violates Jensen's"):
+            approx.approximate_gamma_kl(1, 0)
+
+    def test_asymptotic_bound(self):
+        # check that bound is returned over threshold (rather than optimization)
+        logx = -0.000001
+        alpha, _ = approx.approximate_gamma_kl(1, logx)
+        alpha_bound = -0.5 / logx
+        assert alpha == alpha_bound and alpha > 1e4
+        # check that bound matches optimization result just under threshold
+        logx = -0.000051
+        alpha, _ = approx.approximate_gamma_kl(1, logx)
+        alpha_bound = -0.5 / logx
+        assert np.abs(alpha - alpha_bound) < 1 and alpha < 1e4
