@@ -28,6 +28,7 @@ import logging
 import mpmath
 import numba
 import numpy as np
+from mpmath.libmp.libhyper import NoConvergence as MPNoConvergence
 
 from . import hypergeo
 
@@ -205,7 +206,7 @@ def sufficient_statistics(a_i, b_i, a_j, b_j, y_ij, mu_ij):
     return logconst, t_i, ln_t_i, t_j, ln_t_j
 
 
-def mean_and_variance(a_i, b_i, a_j, b_j, y_ij, mu_ij, dps=100, maxterms=1e7):
+def mean_and_variance(a_i, b_i, a_j, b_j, y_ij, mu_ij, dps=100, maxterms=1e4):
     """
     Calculate mean and variance for the PDF proportional to
     :math:`Ga(t_j | a_j, b_j) Ga(t_i | a_i, b_i) Po(y_{ij} |
@@ -282,15 +283,24 @@ def gamma_projection(a_i, b_i, a_j, b_j, y_ij, mu_ij):
         proj_i = approximate_gamma_kl(t_i, ln_t_i)
         proj_j = approximate_gamma_kl(t_j, ln_t_j)
     except (hypergeo.Invalid2F1, KLMinimizationFailed):
-        logging.info(
-            f"Matching sufficient statistics failed with parameters: "
-            f"{a_i} {b_i} {a_j} {b_j} {y_ij} {mu_ij},"
-            f"matching mean and variance instead"
-        )
-        logconst, t_i, va_t_i, t_j, va_t_j = mean_and_variance(
-            a_i, b_i, a_j, b_j, y_ij, mu_ij
-        )
-        proj_i = approximate_gamma_mom(t_i, va_t_i)
-        proj_j = approximate_gamma_mom(t_j, va_t_j)
+        try:
+            logging.info(
+                f"Matching sufficient statistics failed with parameters: "
+                f"{a_i} {b_i} {a_j} {b_j} {y_ij} {mu_ij},"
+                f"matching mean and variance instead"
+            )
+            logconst, t_i, va_t_i, t_j, va_t_j = mean_and_variance(
+                a_i, b_i, a_j, b_j, y_ij, mu_ij
+            )
+            proj_i = approximate_gamma_mom(t_i, va_t_i)
+            proj_j = approximate_gamma_mom(t_j, va_t_j)
+        except MPNoConvergence:
+            raise hypergeo.Invalid2F1(
+                "Hypergeometric series does not converge; the approximate "
+                "marginal is likely degenerate.  This may reflect a topological "
+                "constraint that is at odds with the mutational data. Setting "
+                "'max_shape' to a large value (e.g. 1000) will prevent degenerate "
+                "marginals, but the results should be treated with care."
+            )
 
     return logconst, np.array(proj_i), np.array(proj_j)
