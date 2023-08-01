@@ -989,7 +989,23 @@ class ExpectationPropagation(InOutAlgorithms):
                 )
                 # self.factor_norm[edge.id] += ... # TODO
 
-    def propagate(self, *, edges, desc=None, progress=None):
+        # store factorization into messages: the edge ids pointing
+        # towards roots/leaves for each node
+        self.parent_factors, self.child_factors = self.factorize()
+
+    def factorize(self):
+        """
+        Find incoming/outgoing edge IDs for each node
+        """
+        parent_factors = defaultdict(list)
+        child_factors = defaultdict(list)
+        for node, edgelist in self.edges_by_parent_asc():
+            parent_factors[node].extend([edge.id for edge in edgelist])
+        for node, edgelist in self.edges_by_child_desc():
+            child_factors[node].extend([edge.id for edge in edgelist])
+        return parent_factors, child_factors
+
+    def propagate(self, *, edges, desc=None, progress=None, max_shape=None):
         """
         Update approximating factor for each edge
         """
@@ -1031,12 +1047,30 @@ class ExpectationPropagation(InOutAlgorithms):
             self.child_message[edge.id] = self.lik.ratio(
                 self.posterior[edge.child], child_cavity
             )
+            # Constrain the messages such that the gamma shape parameter is
+            # upper-bounded. Otherwise, the approximation can become degenerate
+            # which will cause numerical issues.
+            for node in [edge.parent, edge.child]:
+                if max_shape is not None and self.posterior[node][0] > max_shape:
+                    edges_out = self.child_factors[node]
+                    edges_in = self.parent_factors[node]
+                    (
+                        self.posterior[node],
+                        self.child_message[edges_out],
+                        self.parent_message[edges_in],
+                    ) = approx.rescale_gamma(
+                        self.posterior[node],
+                        self.child_message[edges_out],
+                        self.parent_message[edges_in],
+                        max_shape,
+                    )
+
             # Get the contribution to the (approximate) marginal likelihood from
             # the edge.
             # TODO not complete
             self.factor_norm[edge.id] = norm_const
 
-    def iterate(self, *, iter_num=None, progress=None):
+    def iterate(self, *, iter_num=None, progress=None, max_shape=None):
         """
         Update edge factors from leaves to root then from root to leaves,
         and return approximate log marginal likelihood
@@ -1051,7 +1085,13 @@ class ExpectationPropagation(InOutAlgorithms):
         for desc, func in tqdm(
             tasks.items(), f"Iteration {it}", disable=not progress, leave=False
         ):
-            self.propagate(edges=func(grouped=False), desc=desc, progress=progress)
+            self.propagate(
+                edges=func(grouped=False),
+                desc=desc,
+                progress=progress,
+                max_shape=max_shape,
+            )
+
         # TODO
         # marginal_lik = np.sum(self.factor_norm)
         # return marginal_lik
@@ -1457,6 +1497,7 @@ def variational_dates(
     priors=None,
     *,
     max_iterations=20,
+    max_shape=None,
     global_prior=True,
     eps=1e-6,
     progress=False,
@@ -1544,7 +1585,8 @@ def variational_dates(
         np.arange(max_iterations),
         desc="Expectation Propagation",
     ):
-        dynamic_prog.iterate(iter_num=it)
+        dynamic_prog.iterate(iter_num=it, max_shape=max_shape)
+
     posterior = dynamic_prog.posterior
     tree_sequence, mn_post, _ = variational_mean_var(
         tree_sequence, posterior, fixed_node_set=fixed_nodes

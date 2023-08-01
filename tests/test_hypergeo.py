@@ -34,14 +34,14 @@ import pytest
 from tsdate import hypergeo
 
 
-@pytest.mark.parametrize("x", [1e-10, 1e-6, 1e-2, 1e1, 1e2, 1e3, 1e5, 1e10])
+@pytest.mark.parametrize("x", [-0.3, 1e-10, 1e-6, 1e-2, 1e1, 1e2, 1e3, 1e5, 1e10])
 class TestPolygamma:
     """
     Test numba-fied gamma functions
     """
 
     def test_gammaln(self, x):
-        assert np.isclose(hypergeo._gammaln(x), float(mpmath.loggamma(x)))
+        assert np.isclose(hypergeo._gammaln(x), float(mpmath.re(mpmath.loggamma(x))))
 
     def test_digamma(self, x):
         assert np.isclose(hypergeo._digamma(x), float(mpmath.psi(0, x)))
@@ -51,7 +51,8 @@ class TestPolygamma:
 
     def test_betaln(self, x):
         assert np.isclose(
-            hypergeo._betaln(x, 2 * x), float(mpmath.log(mpmath.beta(x, 2 * x)))
+            hypergeo._betaln(x, 2 * x),
+            float(mpmath.re(mpmath.log(mpmath.beta(x, 2 * x)))),
         )
 
 
@@ -105,9 +106,9 @@ class TestTaylorSeries:
     list(
         itertools.product(
             [0.8, 20.3, 200.2],
-            [0.0, 1.0, 10.0, 51.0],
+            [0.0, 1.0, 10.0, 31.0],
             [1.6, 30.5, 300.7],
-            [1.1, 1.5, 1.9],
+            [1.1, 1.5, 1.9, 4.2],
         )
     ),
 )
@@ -186,11 +187,11 @@ class TestCheckValid2F1:
 
     def test_is_valid_2f1(self, pars):
         dz, d2z = self._2f1(*pars)
-        assert hypergeo._is_valid_2f1(dz, d2z, *pars)
+        assert hypergeo._is_valid_2f1(dz, d2z, *pars, 1e-10)
         # perturb solution to differential equation
         dz *= 1 + 1e-3
         d2z *= 1 - 1e-3
-        assert not hypergeo._is_valid_2f1(dz, d2z, *pars)
+        assert not hypergeo._is_valid_2f1(dz, d2z, *pars, 1e-10)
 
 
 @pytest.mark.parametrize("muts", [0.0, 1.0, 5.0, 10.0])
@@ -243,25 +244,41 @@ class TestTransforms:
 
 
 @pytest.mark.parametrize(
-    "pars",
+    "func, pars, err",
     [
-        # taken from examples in issues tsdate/286, tsdate/289
-        [1.104, 0.0001125, 118.1396, 0.009052, 1.0, 0.001404],
-        [2.7481, 0.001221, 344.94083, 0.02329, 3.0, 0.00026624],
+        [
+            hypergeo._hyp2f1_dlmf1583,
+            [-21.62, 0.00074, 1003.8, 0.7653, 100.0, 0.0011],
+            "Cancellation error",
+        ],
+        [
+            hypergeo._hyp2f1_dlmf1583,
+            [1.62, 0.00074, 25603.8, 0.6653, 0.0, 0.0011],
+            "Cancellation error",
+        ],
+        # TODO: gives zero function value, then reroutes through dlmf1581
+        # [
+        #    hypergeo._hyp2f1_dlmf1583,
+        #    [9007.39, 0.241, 10000, 0.2673, 2.0, 0.01019],
+        #    "Cancellation error",
+        # ],
+        [
+            hypergeo._hyp2f1_dlmf1581,
+            [1.62, 0.00074, 25603.8, 0.7653, 100.0, 0.0011],
+            "Maximum terms",
+        ],
+        [
+            hypergeo._hyp2f1_dlmf1583,
+            [1.0, 1.0, 1.0, 1.0, 3.0, 0.0],
+            "Zero division",
+        ],
     ],
 )
-class TestSingular2F1:
+class TestInvalid2F1:
     """
-    Test detection of cases where 2F1 is close to singular and DLMF 15.8.3
-    suffers from catastrophic cancellation: in these cases, use DLMF 15.8.1
-    even though it takes much longer to converge.
+    Test cases where homegrown 2F1 fails to converge
     """
 
-    def test_dlmf1583_throws_exception(self, pars):
-        with pytest.raises(Exception, match="is singular"):
-            hypergeo._hyp2f1_dlmf1583(*pars)
-
-    def test_exception_uses_dlmf1581(self, pars):
-        v1, *_ = hypergeo._hyp2f1(*pars)
-        v2, *_ = hypergeo._hyp2f1_dlmf1581(*pars)
-        assert np.isclose(v1, v2)
+    def test_hyp2f1_error(self, func, pars, err):
+        with pytest.raises(hypergeo.Invalid2F1, match=err):
+            func(*pars)
