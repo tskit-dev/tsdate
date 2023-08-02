@@ -28,6 +28,7 @@ import os
 from collections import defaultdict
 from collections import namedtuple
 
+import numba
 import numpy as np
 import scipy.stats
 import tskit
@@ -63,6 +64,63 @@ def gamma_approx(mean, variance):
     """
 
     return (mean**2) / variance, mean / variance
+
+
+@numba.njit("float64[:, :](float64[:, :])")
+def _marginalize_over_ancestors(val):
+    """
+    Integrate an expectation over counts of extant ancestors. In a tree with
+    "n" tips, the probability that there are "a" extent ancestors when a
+    subtree of size "k" coalesces is hypergeometric-ish (Wuif & Donnelly 1998),
+    and may be calculated recursively over increasing "a" and decreasing "k"
+    (e.g. using recursive relationships for binomial coefficients).
+    """
+    n, N = val.shape  # number of tips, number of moments
+    pr_a_ln = [np.nan, np.nan, 0.0]  # log Pr(a | k, n)
+    out = np.zeros((n + 1, N))
+    for k in range(n - 1, 1, -1):
+        for a in range(2, n - k + 2):
+            out[k] += np.exp(pr_a_ln[a]) * val[a]
+            if k > 2:  # Pr(a | k, n) to Pr(a | k - 1, n)
+                pr_a_ln[a] += (
+                    np.log(n - k)
+                    - np.log(n - a - k + 2)
+                    + np.log(k - 2)
+                    - np.log(k + 1)
+                )
+        if k > 2:  # Pr(n - k + 1 | k - 1, n) to Pr(n - k + 2 | k - 1, n)
+            pr_a_ln.append(
+                pr_a_ln[-1] - np.log(k - 2) + np.log(n - k + 2) - np.log(n - k)
+            )
+    out[n] = val[1]
+    return out
+
+
+@numba.njit("float64[:](uint64)")
+def conditional_coalescent_variance(num_tips):
+    """
+    Variance of node age conditional on the number of descendant leaves, under
+    the standard coalescent. Returns array indexed by number of descendant
+    leaves.
+    """
+
+    coal_rates = np.array(
+        [2 / (i * (i - 1)) if i > 1 else 0.0 for i in range(1, num_tips + 1)]
+    )
+
+    # hypoexponential mean and variance; e.g. conditional on the number of
+    # extant ancestors when the node coalesces, the expected time of
+    # coalescence is the sum of exponential RVs (Wuif and Donnelly 1998)
+    mean = coal_rates.copy()
+    variance = coal_rates.copy() ** 2
+    for i in range(coal_rates.size - 2, 0, -1):
+        mean[i] += mean[i + 1]
+        variance[i] += variance[i + 1]
+
+    # marginalize over number of ancestors using recursive algorithm
+    moments = _marginalize_over_ancestors(np.stack((mean, variance + mean**2), 1))
+
+    return moments[:, 1] - moments[:, 0] ** 2
 
 
 class ConditionalCoalescentTimes:
@@ -130,7 +188,8 @@ class ConditionalCoalescentTimes:
     def prior_with_max_total_tips(self):
         return self.prior_store.get(max(self.prior_store.keys()))
 
-    def add(self, total_tips, approximate=None):
+    # TODO: remove old variance calculation
+    def add(self, total_tips, approximate=None, old_var=True):
         """
         Create and store a numpy array used to lookup prior params and mean + variance
         of ages for nodes with descendant sample tips range from 2..``total_tips``
@@ -142,7 +201,7 @@ class ConditionalCoalescentTimes:
         if approximate is not None:
             self.approximate = approximate
         else:
-            if total_tips >= 100:
+            if total_tips >= 100:  # TODO: this should be higher probably?
                 self.approximate = True
             else:
                 self.approximate = False
@@ -167,7 +226,11 @@ class ConditionalCoalescentTimes:
         if self.approximate:
             get_tau_var = self.tau_var_lookup
         else:
-            get_tau_var = self.tau_var_exact
+            # TODO: remove old_var
+            if old_var:
+                get_tau_var = self.tau_var_exact_old
+            else:
+                get_tau_var = self.tau_var_exact
 
         all_tips = np.arange(2, total_tips + 1)
         variances = get_tau_var(total_tips, all_tips)
@@ -205,6 +268,10 @@ class ConditionalCoalescentTimes:
         prior_lookup_table = np.zeros((n, 2))
         all_tips = np.arange(2, n + 1)
         prior_lookup_table[1:, 0] = all_tips / n
+        # TODO: this doesn't match -- don't quite understand the rationale
+        # behind the precomputation here -- shouldn't it match the exact
+        # computation for n tips?
+        # prior_lookup_table[1:, 1] = conditional_coalescent_variance(n)[all_tips]
         prior_lookup_table[1:, 1] = [self.tau_var(val, n + 1) for val in all_tips]
         np.savetxt(self.get_precalc_cache(n), prior_lookup_table)
         return prior_lookup_table
@@ -291,7 +358,7 @@ class ConditionalCoalescentTimes:
         )
         return interpolated_priors
 
-    def tau_var_exact(self, total_tips, all_tips):
+    def tau_var_exact_old(self, total_tips, all_tips):
         # TODO, vectorize this properly
         return [
             self.tau_var(tips, total_tips)
@@ -301,6 +368,9 @@ class ConditionalCoalescentTimes:
                 disable=not self.progress,
             )
         ]
+
+    def tau_var_exact(self, total_tips, all_tips):
+        return conditional_coalescent_variance(total_tips)[all_tips]
 
     def mixture_expect_and_var(self, mixture, weight_by_log_span=False):
         """
