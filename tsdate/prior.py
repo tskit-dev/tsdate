@@ -32,7 +32,6 @@ import numba
 import numpy as np
 import scipy.stats
 import tskit
-from scipy.special import comb
 from tqdm.auto import tqdm
 
 from . import base
@@ -79,19 +78,13 @@ def _marginalize_over_ancestors(val):
     pr_a_ln = [np.nan, np.nan, 0.0]  # log Pr(a | k, n)
     out = np.zeros((n + 1, N))
     for k in range(n - 1, 1, -1):
+        const = np.log(n - k) + np.log(k - 2) - np.log(k + 1)
         for a in range(2, n - k + 2):
             out[k] += np.exp(pr_a_ln[a]) * val[a]
             if k > 2:  # Pr(a | k, n) to Pr(a | k - 1, n)
-                pr_a_ln[a] += (
-                    np.log(n - k)
-                    - np.log(n - a - k + 2)
-                    + np.log(k - 2)
-                    - np.log(k + 1)
-                )
+                pr_a_ln[a] += const - np.log(n - a - k + 2)
         if k > 2:  # Pr(n - k + 1 | k - 1, n) to Pr(n - k + 2 | k - 1, n)
-            pr_a_ln.append(
-                pr_a_ln[-1] - np.log(k - 2) + np.log(n - k + 2) - np.log(n - k)
-            )
+            pr_a_ln.append(pr_a_ln[-1] + np.log(n - k + 2) - np.log(k + 1) - const)
     out[n] = val[1]
     return out
 
@@ -133,7 +126,6 @@ class ConditionalCoalescentTimes:
         precalc_approximation_n,
         prior_distr="lognorm",
         progress=False,
-        old_var=True,  # DEBUG
     ):
         """
         :param bool precalc_approximation_n: the size of tree used for
@@ -146,7 +138,6 @@ class ConditionalCoalescentTimes:
         self.progress = progress
         self.mean_column = PriorParams.field_index("mean")
         self.var_column = PriorParams.field_index("var")
-        self.old_var = old_var  # DEBUG
 
         if precalc_approximation_n:
             # Create lookup table based on a large n that can be used for n > ~50
@@ -158,7 +149,6 @@ class ConditionalCoalescentTimes:
                 # Calc and store
                 self.approx_priors = self.precalculate_priors_for_approximation(
                     precalc_approximation_n,
-                    old_var=old_var,  # DEBUG
                 )
         else:
             self.approx_priors = None
@@ -204,7 +194,7 @@ class ConditionalCoalescentTimes:
         if approximate is not None:
             self.approximate = approximate
         else:
-            if total_tips >= 100:  # TODO: this should be higher probably?
+            if total_tips >= 20000:
                 self.approximate = True
             else:
                 self.approximate = False
@@ -229,10 +219,7 @@ class ConditionalCoalescentTimes:
         if self.approximate:
             get_tau_var = self.tau_var_lookup
         else:
-            if self.old_var:  # DEBUG
-                get_tau_var = self.tau_var_exact_old
-            else:
-                get_tau_var = self.tau_var_exact
+            get_tau_var = self.tau_var_exact
 
         all_tips = np.arange(2, total_tips + 1)
         variances = get_tau_var(total_tips, all_tips)
@@ -254,9 +241,7 @@ class ConditionalCoalescentTimes:
             )
         self.prior_store[total_tips] = priors
 
-    def precalculate_priors_for_approximation(
-        self, precalc_approximation_n, old_var=True
-    ):  # DEBUG
+    def precalculate_priors_for_approximation(self, precalc_approximation_n):
         n = precalc_approximation_n
         logging.warning(
             "Initialising your tsdate installation by creating a user cache of "
@@ -271,14 +256,8 @@ class ConditionalCoalescentTimes:
         # The first value should be zero tips, we don't want the 1 tip value
         prior_lookup_table = np.zeros((n, 2))
         all_tips = np.arange(2, n + 1)
-        if old_var:  # DEBUG
-            prior_lookup_table[1:, 0] = all_tips / n
-            prior_lookup_table[1:, 1] = [self.tau_var(val, n + 1) for val in all_tips]
-        else:
-            # TODO: this doesn't match -- don't quite understand the rationale
-            # behind the precomputation here -- shouldn't it match the exact
-            # computation for n tips?
-            prior_lookup_table[1:, 1] = conditional_coalescent_variance(n)[all_tips]
+        prior_lookup_table[1:, 0] = all_tips / n
+        prior_lookup_table[1:, 1] = conditional_coalescent_variance(n + 1)[all_tips]
         np.savetxt(self.get_precalc_cache(n), prior_lookup_table)
         return prior_lookup_table
 
@@ -300,49 +279,11 @@ class ConditionalCoalescentTimes:
         )
 
     @staticmethod
-    def m_prob(m, i, n):
-        """
-        Corollary 2 in Wiuf and Donnelly (1999). Probability of one
-        ancestor to entire sample at time tau
-        """
-        return (comb(n - m - 1, i - 2, exact=True) * comb(m, 2, exact=True)) / comb(
-            n, i + 1, exact=True
-        )
-
-    @staticmethod
     def tau_expect(i, n):
         if i == n:
             return 2 * (1 - (1 / n))
         else:
             return (i - 1) / n
-
-    @staticmethod
-    def tau_squared_conditional(m, n):
-        """
-        Gives expectation of tau squared conditional on m
-        Equation (10) from Wiuf and Donnelly (1999).
-        """
-        t_sum = np.sum(1 / np.arange(m, n + 1) ** 2)
-        return 8 * t_sum + (8 / n) - (8 / m) - (8 / (n * m))
-
-    @staticmethod
-    def tau_var(i, n):
-        """
-        For the last coalesence (n=2), calculate the Tmrca of the whole sample
-        """
-        if i == n:
-            value = np.arange(2, n + 1)
-            var = np.sum(1 / ((value**2) * ((value - 1) ** 2)))
-            return np.abs(4 * var)
-        else:
-            tau_square_sum = 0
-            for m in range(2, n - i + 2):
-                tau_square_sum += ConditionalCoalescentTimes.m_prob(
-                    m, i, n
-                ) * ConditionalCoalescentTimes.tau_squared_conditional(m, n)
-            return np.abs(
-                (ConditionalCoalescentTimes.tau_expect(i, n) ** 2) - (tau_square_sum)
-            )
 
     # The following are not static as they may need to access self.approx_priors for this
     # instance
@@ -363,17 +304,6 @@ class ConditionalCoalescentTimes:
             total_tips, total_tips
         )
         return interpolated_priors
-
-    def tau_var_exact_old(self, total_tips, all_tips):
-        # TODO, vectorize this properly
-        return [
-            self.tau_var(tips, total_tips)
-            for tips in tqdm(
-                all_tips,
-                desc="Calculating Node Age Variances",
-                disable=not self.progress,
-            )
-        ]
 
     def tau_var_exact(self, total_tips, all_tips):
         return conditional_coalescent_variance(total_tips)[all_tips]
