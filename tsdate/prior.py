@@ -133,6 +133,7 @@ class ConditionalCoalescentTimes:
         precalc_approximation_n,
         prior_distr="lognorm",
         progress=False,
+        old_var=True,  # DEBUG
     ):
         """
         :param bool precalc_approximation_n: the size of tree used for
@@ -145,6 +146,7 @@ class ConditionalCoalescentTimes:
         self.progress = progress
         self.mean_column = PriorParams.field_index("mean")
         self.var_column = PriorParams.field_index("var")
+        self.old_var = old_var  # DEBUG
 
         if precalc_approximation_n:
             # Create lookup table based on a large n that can be used for n > ~50
@@ -155,7 +157,8 @@ class ConditionalCoalescentTimes:
             else:
                 # Calc and store
                 self.approx_priors = self.precalculate_priors_for_approximation(
-                    precalc_approximation_n
+                    precalc_approximation_n,
+                    old_var=old_var,  # DEBUG
                 )
         else:
             self.approx_priors = None
@@ -189,7 +192,7 @@ class ConditionalCoalescentTimes:
         return self.prior_store.get(max(self.prior_store.keys()))
 
     # TODO: remove old variance calculation
-    def add(self, total_tips, approximate=None, old_var=True):
+    def add(self, total_tips, approximate=None):
         """
         Create and store a numpy array used to lookup prior params and mean + variance
         of ages for nodes with descendant sample tips range from 2..``total_tips``
@@ -226,8 +229,7 @@ class ConditionalCoalescentTimes:
         if self.approximate:
             get_tau_var = self.tau_var_lookup
         else:
-            # TODO: remove old_var
-            if old_var:
+            if self.old_var:  # DEBUG
                 get_tau_var = self.tau_var_exact_old
             else:
                 get_tau_var = self.tau_var_exact
@@ -252,7 +254,9 @@ class ConditionalCoalescentTimes:
             )
         self.prior_store[total_tips] = priors
 
-    def precalculate_priors_for_approximation(self, precalc_approximation_n):
+    def precalculate_priors_for_approximation(
+        self, precalc_approximation_n, old_var=True
+    ):  # DEBUG
         n = precalc_approximation_n
         logging.warning(
             "Initialising your tsdate installation by creating a user cache of "
@@ -267,12 +271,14 @@ class ConditionalCoalescentTimes:
         # The first value should be zero tips, we don't want the 1 tip value
         prior_lookup_table = np.zeros((n, 2))
         all_tips = np.arange(2, n + 1)
-        prior_lookup_table[1:, 0] = all_tips / n
-        # TODO: this doesn't match -- don't quite understand the rationale
-        # behind the precomputation here -- shouldn't it match the exact
-        # computation for n tips?
-        # prior_lookup_table[1:, 1] = conditional_coalescent_variance(n)[all_tips]
-        prior_lookup_table[1:, 1] = [self.tau_var(val, n + 1) for val in all_tips]
+        if old_var:  # DEBUG
+            prior_lookup_table[1:, 0] = all_tips / n
+            prior_lookup_table[1:, 1] = [self.tau_var(val, n + 1) for val in all_tips]
+        else:
+            # TODO: this doesn't match -- don't quite understand the rationale
+            # behind the precomputation here -- shouldn't it match the exact
+            # computation for n tips?
+            prior_lookup_table[1:, 1] = conditional_coalescent_variance(n)[all_tips]
         np.savetxt(self.get_precalc_cache(n), prior_lookup_table)
         return prior_lookup_table
 
