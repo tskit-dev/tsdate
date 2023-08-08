@@ -419,13 +419,13 @@ class TestVariational:
         priors = tsdate.prior.MixturePrior(ts, prior_distribution="gamma")
         grid = priors.make_parameter_grid(population_size=1)
         grid.grid_data[:] = [1.0, 0.0]  # noninformative prior
-        tsdate.date(
-            ts,
-            mutation_rate=5,
-            method="variational_gamma",
-            priors=grid,
-            global_prior=False,
-        )
+        with pytest.raises(ValueError, match="not yet implemented"):
+            tsdate.date(
+                ts,
+                mutation_rate=5,
+                method="variational_gamma",
+                priors=grid,
+            )
 
     def test_bad_arguments(self):
         ts = utility_functions.two_tree_mutation_ts()
@@ -436,6 +436,13 @@ class TestVariational:
                 population_size=1,
                 method="variational_gamma",
                 max_iterations=-1,
+            )
+        with pytest.raises(ValueError, match="must be a positive integer"):
+            tsdate.date(
+                ts,
+                mutation_rate=5,
+                method="variational_gamma",
+                global_prior=False,
             )
 
     def test_match_central_moments(self):

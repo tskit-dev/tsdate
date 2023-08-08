@@ -199,6 +199,34 @@ def tsdate_cli_parser():
             "but does not exactly minimize KL divergence in each EP update."
         ),
     )
+    parser.add_argument(
+        "--max-iterations",
+        type=int,
+        help=(
+            "The number of iterations used in the expectation propagation "
+            "algorithm. Default: 20"
+        ),
+        default=20,
+    )
+    parser.add_argument(
+        "--em-iterations",
+        type=int,
+        help=(
+            "The number of expectation-maximization iterations used to optimize the "
+            "global mixture prior at the end of each expectation propagation step. "
+            "Setting to zero disables optimization. Default: 10"
+        ),
+        default=10,
+    )
+    parser.add_argument(
+        "--global-prior",
+        type=int,
+        help=(
+            "The number of components in the i.i.d. mixture prior for node "
+            "ages. Default: 1"
+        ),
+        default=1,
+    )
     parser.set_defaults(runner=run_date)
 
     parser = subparsers.add_parser(
@@ -253,8 +281,11 @@ def run_date(args):
             method=args.method,
             eps=args.epsilon,
             progress=args.progress,
+            max_iterations=args.max_iterations,
             max_shape=args.max_shape,
             match_central_moments=args.match_central_moments,
+            em_iterations=args.em_iterations,
+            global_prior=args.global_prior,
         )
     else:
         params = dict(
