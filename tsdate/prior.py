@@ -37,6 +37,7 @@ from tqdm.auto import tqdm
 from . import base
 from . import cache
 from . import demography
+from . import mixture
 from . import provenance
 from . import util
 
@@ -1161,6 +1162,41 @@ class MixturePrior:
                 shape_param[node], rate_param[node]
             )
         return prior_pars
+
+    def global_gamma_mixture(
+        self,
+        num_components,
+        population_size,
+        progress=False,
+        max_iterations=100,
+        tolerance=1e-4,
+    ):
+        """
+        Fit a mixture of gamma distributions via EM to the mixture prior.
+        """
+
+        prior_pars = self.make_parameter_grid(population_size, progress)
+        # TODO: this is very sloppy, but to avoid numerical issues
+        # need shape parameters of observations to be > 1.
+        t = prior_pars.grid_data[:, 0] / prior_pars.grid_data[:, 1]
+        prior_pars.grid_data[:, 0] += 1.0
+        prior_pars.grid_data[:, 1] = prior_pars.grid_data[:, 0] / t
+        # initialize
+        init_weight = np.ones(num_components)
+        init_shape = np.full(num_components, 10.0)
+        if num_components == 1:
+            init_rate = init_shape / np.mean(t)
+        elif num_components > 1:
+            init_rate = init_shape / np.quantile(
+                t, np.linspace(0.0, 1.0, num_components)
+            )
+        else:
+            raise Exception("Must have at least one mixture component")
+        mix = mixture.GammaMixture(init_weight, init_shape, init_rate)
+        mix.propagate(
+            prior_pars.grid_data, max_iterations=max_iterations, tolerance=tolerance
+        )
+        return mix
 
 
 def build_grid(

@@ -32,63 +32,6 @@ from . import approx
 from . import hypergeo
 
 
-@numba.njit("float64[:, :](float64[:, :])")
-def _marginalize_over_ancestors(val):
-    """
-    Integrate an expectation over counts of extant ancestors. In a tree with
-    "n" tips, the probability that there are "a" extent ancestors when a
-    subtree of size "k" coalesces is hypergeometric-ish (Wuif & Donnelly 1998),
-    and may be calculated recursively over increasing "a" and decreasing "k"
-    (e.g. using recursive relationships for binomial coefficients).
-    """
-    n, N = val.shape  # number of tips, number of moments
-    pr_a_ln = [np.nan, np.nan, 0.0]  # log Pr(a | k, n)
-    out = np.zeros((n + 1, N))
-    for k in range(n - 1, 1, -1):
-        const = np.log(n - k) + np.log(k - 2) - np.log(k + 1)
-        for a in range(2, n - k + 2):
-            out[k] += np.exp(pr_a_ln[a]) * val[a]
-            if k > 2:  # Pr(a | k, n) to Pr(a | k - 1, n)
-                pr_a_ln[a] += const - np.log(n - a - k + 2)
-        if k > 2:  # Pr(n - k + 1 | k - 1, n) to Pr(n - k + 2 | k - 1, n)
-            pr_a_ln.append(pr_a_ln[-1] + np.log(n - k + 2) - np.log(k + 1) - const)
-    out[n] = val[1]
-    return out
-
-
-@numba.njit("float64[:,:](u8, f8)")
-def conditional_coalescent_moments(num_tips, population_size):
-    """
-    Variance of node age conditional on the number of descendant leaves, under
-    the standard coalescent. Returns array indexed by number of descendant
-    leaves.
-    """
-
-    coal_rates = np.array(
-        [2 / (i * (i - 1)) if i > 1 else 0.0 for i in range(1, num_tips + 1)]
-    )
-
-    # hypoexponential mean and variance; e.g. conditional on the number of
-    # extant ancestors when the node coalesces, the expected time of
-    # coalescence is the sum of exponential RVs (Wuif and Donnelly 1998)
-    mean = coal_rates.copy()
-    variance = coal_rates.copy() ** 2
-    for i in range(coal_rates.size - 2, 0, -1):
-        mean[i] += mean[i + 1]
-        variance[i] += variance[i + 1]
-
-    variance += mean**2
-
-    mean *= 2 * population_size
-    variance *= 4 * population_size**2
-
-    # marginalize over number of ancestors using recursive algorithm
-    moments = _marginalize_over_ancestors(np.stack((mean, variance), 1))
-
-    moments[:, 1] -= moments[:, 0] ** 2
-    return moments
-
-
 @numba.njit("UniTuple(f8[:], 4)(f8[:], f8[:], f8[:], f8, f8)")
 def _conditional_posterior(prior_weight, prior_shape, prior_rate, shape, rate):
     r"""
@@ -118,6 +61,9 @@ def _conditional_posterior(prior_weight, prior_shape, prior_rate, shape, rate):
     for i in range(dim):
         post_shape = prior_shape[i] + shape - 1
         post_rate = prior_rate[i] + rate
+        # TODO: if observation shape parameters are too small, negative shape
+        # parameters will occur. Could skip observation when doing updates, but
+        # will need a workaround for projection.
         assert post_shape > 0 and post_rate > 0
         E[i] = (
             prior_shape[i] * np.log(prior_rate[i])
@@ -207,15 +153,18 @@ def _gamma_projection(prior_weight, prior_shape, prior_rate, shape, rate):
 
 class GammaMixture:
     """
-    stuff
+    TODO
     """
 
     def __init__(self, weight, shape, rate):
-        """ """
+        """
+        TODO
+        """
         assert weight.ndim == shape.ndim == rate.ndim == 1
         assert rate.size == shape.size == weight.size
+        assert np.all(weight > 0) and np.all(shape > 0) and np.all(rate > 0)
         self.dim = weight.size
-        self.weight = weight
+        self.weight = weight / np.sum(weight)
         self.shape = shape
         self.rate = rate
 
@@ -240,6 +189,7 @@ class GammaMixture:
             loglik, self.weight, self.shape, self.rate = _em_update(
                 self.weight, self.shape, self.rate, shape, rate
             )
+            print(self.weight, self.shape, self.rate)
             loglik /= float(shape.size)
             delta = np.abs(loglik - last)
             last = loglik
