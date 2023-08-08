@@ -950,13 +950,16 @@ class ExpectationPropagation(InOutAlgorithms):
     Bayesian Inference"
     """
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, global_distribution=None, **kwargs):
         super().__init__(*args, **kwargs)
 
         assert self.priors.probability_space == base.GAMMA_PAR
         assert self.lik.probability_space == base.GAMMA_PAR
         assert self.lik.grid_size == 2
         assert self.priors.timepoints.size == 2
+
+        # Global distribution of node ages
+        self.global_distribution = global_distribution
 
         # Messages passed from factors in the direction of roots
         self.parent_message = np.tile(
@@ -973,13 +976,16 @@ class ExpectationPropagation(InOutAlgorithms):
         # Normalizing constants from each factor
         self.factor_norm = np.full(self.ts.num_edges, 0.0)
 
-        # the approximate posterior marginals
+        # Initialize the prior messages
+        self.prior_message = self.priors.grid_data.copy()
+
+        # The approximate posterior marginals
         self.posterior = self.priors.clone_with_new_data(
             grid_data=self.priors.grid_data.copy(),
             fixed_data=np.nan,
         )
 
-        # factors for edges leading from fixed nodes are invariant
+        # Factors for edges leading from fixed nodes are invariant
         # and can be incorporated into the posterior beforehand
         for edge in self.ts.edges():
             if edge.child in self.fixednodes:
@@ -989,7 +995,7 @@ class ExpectationPropagation(InOutAlgorithms):
                 )
                 # self.factor_norm[edge.id] += ... # TODO
 
-        # store factorization into messages: the edge ids pointing
+        # Store factorization into messages: the edge ids pointing
         # towards roots/leaves for each node
         self.parent_factors, self.child_factors = self.factorize()
 
@@ -1077,6 +1083,8 @@ class ExpectationPropagation(InOutAlgorithms):
         """
         if progress is None:
             progress = self.progress
+
+        # Update edge factors
         it = iter_num + 1  # For display purposes: show 1-based iteration
         tasks = {
             "Rootwards": self.edges_by_parent_asc,
@@ -1091,6 +1099,18 @@ class ExpectationPropagation(InOutAlgorithms):
                 progress=progress,
                 max_shape=max_shape,
             )
+
+        # Update global node age distribution (prior)
+        if self.global_distribution is not None:
+            # TODO: am I overwriting memory here?
+            cavity = self.lik.ratio(self.posterior.grid_data, self.prior_message)
+            _, self.posterior.grid_data = self.global_distribution.propagate(cavity)
+            self.prior_message = self.lik.ratio(self.posterior.grid_data, cavity)
+            print(
+                self.global_distribution.weight,
+                self.global_distribution.shape,
+                self.global_distribution.rate,
+            )  # DEBUG
 
         # TODO
         # marginal_lik = np.sum(self.factor_norm)
@@ -1177,6 +1197,7 @@ def date(
     method="inside_outside",
     *,
     Ne=None,
+    global_distribution=None,  # TODO: document
     return_posteriors=None,
     progress=False,
     **kwargs,
@@ -1279,6 +1300,7 @@ def date(
             recombination_rate=recombination_rate,
             priors=priors,
             progress=progress,
+            global_distribution=global_distribution,
             **kwargs,
         )
     else:
@@ -1308,6 +1330,8 @@ def date(
         params["population_size"] = population_size
     elif isinstance(population_size, demography.PopulationSizeHistory):
         params["population_size"] = population_size.as_dict()
+    if global_distribution is not None:
+        params["global_distribution"] = global_distribution.as_dict()
     provenance.record_provenance(
         tables,
         "date",
@@ -1499,6 +1523,7 @@ def variational_dates(
     max_iterations=20,
     max_shape=None,
     global_prior=True,
+    global_distribution=None,
     eps=1e-6,
     progress=False,
     num_threads=None,  # Unused, matches get_dates()
@@ -1580,7 +1605,9 @@ def variational_dates(
         fixed_node_set=fixed_nodes,
     )
 
-    dynamic_prog = ExpectationPropagation(priors, liklhd, progress=progress)
+    dynamic_prog = ExpectationPropagation(
+        priors, liklhd, progress=progress, global_distribution=global_distribution
+    )
     for it in tqdm(
         np.arange(max_iterations),
         desc="Expectation Propagation",
