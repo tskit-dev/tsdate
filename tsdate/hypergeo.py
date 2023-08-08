@@ -138,9 +138,9 @@ def _hyp2f1_taylor_series(a, b, c, z):
     To avoid overflow, returns the function value on a log scale and the
     derivatives divided by the (unlogged) function value.
     """
-    assert 1.0 > z >= 0.0
-    if not (a >= 0.0 and b >= 0.0 and c > 0.0):
-        raise Invalid2F1("Negative parameters in Taylor series")
+    if not (1.0 > z >= 0.0 and a >= 0.0 and b >= 0.0 and c > 0.0):
+        print("bad taylor:", a, b, c, z)  # DEBUG
+        raise Invalid2F1("Taylor expansion requires nonnegative arguments")
 
     if z == 0.0:
         sign = 1.0
@@ -265,8 +265,6 @@ def _hyp2f1_dlmf1581(a_i, b_i, a_j, b_j, y, mu):
     """
     DLMF 15.8.1, series expansion with Pfaff transformation
     """
-    # assert b_i >= 0
-    assert 0 <= mu <= b_j
     assert y >= 0 and y % 1 == 0.0
 
     y = int(y)
@@ -391,8 +389,6 @@ def _hyp2f1_dlmf1583(a_i, b_i, a_j, b_j, y, mu):
     """
     DLMF 15.8.3, sum of recurrence and series expansion
     """
-    # assert b_i >= 0
-    assert 0 <= mu <= b_j
     assert y >= 0 and y % 1.0 == 0.0
 
     a = a_j
@@ -455,8 +451,6 @@ def _hyp2f1_dlmf1521(a_i, b_i, a_j, b_j, y, mu):
     """
     DLMF 15.2.1, series expansion without transformation
     """
-    # assert b_i >= 0
-    assert mu >= b_j >= 0
     assert y >= 0 and y % 1 == 0.0
 
     y = int(y)
@@ -499,8 +493,22 @@ def _hyp2f1(a_i, b_i, a_j, b_j, y, mu):
     Overflow protection entails log-transforming the function value,
     and dividing the gradient by the function value.
     """
+    a = a_j
+    b = a_j + a_i + y
+    c = a_j + y + 1
     z = (mu - b_j) / (mu + b_i)
-    assert z < 1.0, "Invalid hypergeometric function argument"
+    if a < 0.0:
+        print("bad a:", a)  # DEBUG
+        raise Invalid2F1("Invalid argument for hyp2f1: 'a < 0'")
+    if b < 0.0:
+        print("bad b:", b)  # DEBUG
+        raise Invalid2F1("Invalid argument for hyp2f1: 'b < 0'")
+    if c < 0.0:
+        print("bad c:", c)  # DEBUG
+        raise Invalid2F1("Invalid argument for hyp2f1: 'c < 0'")
+    if z >= 1.0:
+        print("bad z:", z)  # DEBUG
+        raise Invalid2F1("Invalid argument for hyp2f1: 'z > 1'")
     if 0.0 <= z < 1.0:
         return _hyp2f1_dlmf1521(a_i, b_i, a_j, b_j, y, mu)
     elif -1.0 < z < 0.0:

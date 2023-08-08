@@ -226,7 +226,7 @@ class GammaMixture:
             "rate": list(self.rate),
         }
 
-    def propagate(self, observations, max_iterations=2, tolerance=1e-6):
+    def propagate(self, observations, max_iterations=10, tolerance=1e-6):
         """
         Run EM until relative tolerance or maximum number of iterations is
         reached.  Then, perform expectation-propagation update and return new
