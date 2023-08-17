@@ -27,6 +27,7 @@ import logging
 
 import numba
 import numpy as np
+import scipy.stats
 
 from . import approx
 from . import hypergeo
@@ -158,7 +159,7 @@ class GammaMixture:
 
     def __init__(self, weight, shape, rate):
         """
-        TODO
+        TODO set fixed=False to indicate no optimization
         """
         assert weight.ndim == shape.ndim == rate.ndim == 1
         assert rate.size == shape.size == weight.size
@@ -173,9 +174,17 @@ class GammaMixture:
             "weight": list(self.weight),
             "shape": list(self.shape),
             "rate": list(self.rate),
+            # "fixed": self.fixed,
         }
 
-    def propagate(self, observations, max_iterations=10, tolerance=1e-6):
+    def pdf(self, x):
+        logpdf = scipy.stats.gamma.logpdf(x, self.shape, scale=1.0 / self.rate)
+        logpdf += np.log(self.weight)
+        norm = logpdf.max()
+        logpdf = np.log(np.sum(np.exp(logpdf - norm))) + norm
+        return np.exp(logpdf)
+
+    def propagate(self, observations, max_iterations=100, tolerance=1e-6):
         """
         Run EM until relative tolerance or maximum number of iterations is
         reached.  Then, perform expectation-propagation update and return new
@@ -184,12 +193,13 @@ class GammaMixture:
 
         shape, rate = observations[:, 0], observations[:, 1]
 
+        # max_iterations *= 1 - int(self.fixed)
+
         last = np.inf
         for itt in range(max_iterations):
             loglik, self.weight, self.shape, self.rate = _em_update(
                 self.weight, self.shape, self.rate, shape, rate
             )
-            print(self.weight, self.shape, self.rate)
             loglik /= float(shape.size)
             delta = np.abs(loglik - last)
             last = loglik

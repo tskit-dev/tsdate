@@ -29,6 +29,8 @@ from collections import defaultdict
 from collections import namedtuple
 
 import numpy as np
+import scipy.cluster
+import scipy.special
 import scipy.stats
 import tskit
 from scipy.special import comb
@@ -1163,7 +1165,7 @@ class MixturePrior:
             )
         return prior_pars
 
-    def global_gamma_mixture(
+    def to_gamma_mixture(
         self,
         num_components,
         population_size,
@@ -1172,30 +1174,18 @@ class MixturePrior:
         tolerance=1e-4,
     ):
         """
-        Fit a mixture of gamma distributions via EM to the mixture prior.
+        Fit a mixture of gamma distributions via EM to the prior.
         """
 
-        prior_pars = self.make_parameter_grid(population_size, progress)
-        # TODO: this is very sloppy, but to avoid numerical issues
-        # need shape parameters of observations to be > 1.
-        t = prior_pars.grid_data[:, 0] / prior_pars.grid_data[:, 1]
-        prior_pars.grid_data[:, 0] += 1.0
-        prior_pars.grid_data[:, 1] = prior_pars.grid_data[:, 0] / t
-        # initialize
-        init_weight = np.ones(num_components)
-        init_shape = np.full(num_components, 10.0)
-        if num_components == 1:
-            init_rate = init_shape / np.mean(t)
-        elif num_components > 1:
-            init_rate = init_shape / np.quantile(
-                t, np.linspace(0.0, 1.0, num_components)
-            )
-        else:
-            raise Exception("Must have at least one mixture component")
-        mix = mixture.GammaMixture(init_weight, init_shape, init_rate)
-        mix.propagate(
-            prior_pars.grid_data, max_iterations=max_iterations, tolerance=tolerance
-        )
+        prior_pars = self.make_parameter_grid(population_size, progress).grid_data
+        t = prior_pars[:, 0] / prior_pars[:, 1]
+        prior_pars[:, 0] += 1.0
+        prior_pars[:, 1] = prior_pars[:, 0] / t
+        weight = np.ones(num_components)
+        shape = np.full(num_components, 10.0)
+        rate = shape / np.quantile(t, np.linspace(0.1, 0.9, num_components))
+        mix = mixture.GammaMixture(weight, shape, rate)
+        mix.propagate(prior_pars, max_iterations=max_iterations, tolerance=tolerance)
         return mix
 
 
