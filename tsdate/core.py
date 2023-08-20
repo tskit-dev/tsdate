@@ -130,7 +130,8 @@ class Likelihoods:
         """
         mut_edges = np.zeros(ts.num_edges, dtype=np.int64)
         for m in ts.mutations():
-            mut_edges[m.edge] += 1
+            if m.edge != tskit.NULL:
+                mut_edges[m.edge] += 1
         return mut_edges
 
     @staticmethod
