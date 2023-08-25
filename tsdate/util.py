@@ -1,6 +1,7 @@
 # MIT License
 #
 # Copyright (c) 2020 University of Oxford
+# Copyright (c) 2021-23 Tskit Developers
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -23,7 +24,6 @@
 Utility functions for tsdate. Many of these can be removed when tskit is updated to
 a more recent version which has the functionality built-in
 """
-import json
 import logging
 
 import numpy as np
@@ -186,13 +186,12 @@ def nodes_time_unconstrained(tree_sequence):
     not contain this information.
     """
     nodes_time = tree_sequence.tables.nodes.time.copy()
-    metadata = tree_sequence.tables.nodes.metadata
-    metadata_offset = tree_sequence.tables.nodes.metadata_offset
-    for index, met in enumerate(tskit.unpack_bytes(metadata, metadata_offset)):
-        if index not in tree_sequence.samples():
+    sample_set = set(tree_sequence.samples())
+    for node in tree_sequence.nodes():
+        if node.id not in sample_set:
             try:
-                nodes_time[index] = json.loads(met.decode())["mn"]
-            except (KeyError, json.decoder.JSONDecodeError):
+                nodes_time[node.id] = node.metadata["mn"]
+            except (KeyError, TypeError):
                 raise ValueError(
                     "Tree Sequence must be tsdated with the Inside-Outside Method."
                 )
@@ -265,8 +264,9 @@ def sites_time_from_ts(
         try:
             nodes_time = nodes_time_unconstrained(tree_sequence)
         except ValueError as e:
-            e.args += "Try calling sites_time_from_ts() with unconstrained=False."
-            raise
+            raise ValueError(
+                "Try calling sites_time_from_ts() with unconstrained=False."
+            ) from e
     else:
         nodes_time = tree_sequence.tables.nodes.time
     sites_time = np.full(tree_sequence.num_sites, np.nan)
