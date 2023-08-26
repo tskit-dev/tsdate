@@ -580,14 +580,14 @@ class TestPriorVals:
 
 
 class TestLikelihoodClass:
-    def poisson(self, param, x, standardize=True):
+    def poisson(self, param, x, standardize=False):
         ll = np.exp(-param) * param**x / scipy.special.factorial(x)
         if standardize:
             return ll / np.max(ll)
         else:
             return ll
 
-    def log_poisson(self, param, x, standardize=True):
+    def log_poisson(self, param, x, standardize=False):
         with np.errstate(divide="ignore"):
             ll = np.log(np.exp(-param) * param**x / scipy.special.factorial(x))
         if standardize:
@@ -1012,7 +1012,9 @@ class TestAlgorithmClass:
 
 
 class TestInsideAlgorithm:
-    def run_inside_algorithm(self, ts, prior_distr, standardize=True, **kwargs):
+    def run_inside_algorithm(
+        self, ts, prior_distr, standardize=True, logspace=False, **kwargs
+    ):
         Ne = 0.5
         priors = tsdate.build_prior_grid(
             ts,
@@ -1024,11 +1026,14 @@ class TestInsideAlgorithm:
         )
         eps = 1e-6
         mut_rate = 0.5
-        lls = Likelihoods(ts, priors.timepoints, mut_rate, eps=eps)
+        if logspace:
+            lls = LogLikelihoods(ts, priors.timepoints, mut_rate, eps=eps)
+        else:
+            lls = Likelihoods(ts, priors.timepoints, mut_rate, eps=eps)
         lls.precalculate_mutation_likelihoods()
         algo = InOutAlgorithms(priors, lls)
-        algo.inside_pass(standardize=standardize)
-        return algo, priors
+        marg_lik = algo.inside_pass(standardize=standardize)
+        return algo, priors, marg_lik
 
     def test_one_tree_n2(self):
         ts = utility_functions.single_tree_ts_n2()
@@ -1055,7 +1060,9 @@ class TestInsideAlgorithm:
 
     def test_two_tree_ts(self):
         ts = utility_functions.two_tree_ts()
-        algo, priors = self.run_inside_algorithm(ts, "gamma", standardize=False)
+        algo, priors, marg_lik = self.run_inside_algorithm(
+            ts, "gamma", standardize=False
+        )
         mut_rate = 0.5
         # priors[3][1] * Ll_(0->3)(1.2 - 0 + eps) ** 2
         node3_t1 = (
@@ -1121,6 +1128,12 @@ class TestInsideAlgorithm:
             * (scipy.stats.poisson.pmf(0, (2 + 1e-6) * mut_rate * 0.8))
         )
         assert np.allclose(algo.inside[5], np.array([0, node5_t1, node5_t2]))
+        """
+        marginal likelihood is product over roots of sum of inside values
+        0.2 is from geometric scaling (span of node 4 when it is root)
+        """
+        total_lik = (node4_t1**0.2 + node4_t2**0.2) * (node5_t1 + node5_t2)
+        assert np.isclose(marg_lik, total_lik)
 
     def test_tree_disallow_unary_nodes(self):
         ts = utility_functions.single_tree_ts_with_unary()
@@ -1160,6 +1173,18 @@ class TestInsideAlgorithm:
         # algo = InOutAlgorithms(priors, lls)
         # with pytest.raises(ValueError, match="dangling"):
         #     algo.inside_pass()
+
+    def test_standardize_marginal_likelihood(self):
+        ts = utility_functions.two_tree_mutation_ts()
+        lik_std = self.run_inside_algorithm(ts, "gamma", standardize=True)[2]
+        lik_unstd = self.run_inside_algorithm(ts, "gamma", standardize=False)[2]
+        assert np.isclose(lik_std, lik_unstd)
+
+    def test_log_marginal_likelihood(self):
+        ts = utility_functions.two_tree_mutation_ts()
+        lik_log = self.run_inside_algorithm(ts, "gamma", logspace=True)[2]
+        lik_lin = self.run_inside_algorithm(ts, "gamma", logspace=False)[2]
+        assert np.isclose(lik_log, np.log(lik_lin))
 
 
 class TestOutsideAlgorithm:
@@ -1640,7 +1665,7 @@ class TestPosteriorMeanVar:
         larger_ts = msprime.simulate(
             10, mutation_rate=1, recombination_rate=1, length=20, random_seed=12
         )
-        _, mn_post, _, _, eps, _ = get_dates(
+        _, mn_post, _, _, eps, _, _ = get_dates(
             larger_ts, mutation_rate=None, population_size=10000
         )
         dated_ts = date(larger_ts, population_size=10000, mutation_rate=None)
@@ -1855,7 +1880,7 @@ class TestSiteTimes:
     def test_sites_time_insideoutside(self):
         ts = utility_functions.two_tree_mutation_ts()
         dated = tsdate.date(ts, mutation_rate=None, population_size=1)
-        _, mn_post, _, _, eps, _ = get_dates(ts, mutation_rate=None, population_size=1)
+        _, mn_post, _, _, eps, _, _ = get_dates(ts, mutation_rate=None, population_size=1)
         assert np.array_equal(
             mn_post[ts.tables.mutations.node],
             tsdate.sites_time_from_ts(dated, unconstrained=True, min_time=0),
@@ -1958,7 +1983,7 @@ class TestSiteTimes:
         larger_ts = msprime.simulate(
             10, mutation_rate=1, recombination_rate=1, length=20, random_seed=12
         )
-        _, mn_post, _, _, _, _ = get_dates(
+        _, mn_post, _, _, _, _, _ = get_dates(
             larger_ts, mutation_rate=None, population_size=10000
         )
         dated = date(larger_ts, mutation_rate=None, population_size=10000)

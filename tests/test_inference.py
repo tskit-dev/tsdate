@@ -141,6 +141,16 @@ class TestPrebuilt(unittest.TestCase):
                 assert len(posteriors[node.id]) == len(posteriors["start_time"])
                 assert np.isclose(np.sum(posteriors[node.id]), 1)
 
+    def test_marginal_likelihood(self):
+        ts = utility_functions.two_tree_mutation_ts()
+        _, _, marg_lik = tsdate.date(
+            ts, mutation_rate=None, Ne=1, return_posteriors=True, return_likelihood=True
+        )
+        _, marg_lik_again = tsdate.date(
+            ts, mutation_rate=None, Ne=1, return_likelihood=True
+        )
+        assert marg_lik == marg_lik_again
+
     def test_intervals(self):
         ts = utility_functions.two_tree_ts()
         long_ts = utility_functions.two_tree_ts_extra_length()
