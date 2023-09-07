@@ -122,7 +122,7 @@ class TestAccuracy:
         }
 
         expected = ts.nodes_time[nonsamples]
-        for (observed, src) in [
+        for observed, src in [
             (dts.nodes_time[nonsamples], "ts"),
             ([dts.node(i).metadata["mn"] for i in np.where(nonsamples)[0]], "unconstr"),
         ]:
