@@ -252,3 +252,64 @@ def match_node_ages(ts, other):
     matched_time[matched_span == 0] = np.nan
 
     return matched_time, matched_span, best_match
+
+def tree_discrepancy(ts, other):
+    """
+    For two tree sequences `ts` and `other`, the method `tree_discrepancy` returns a value which is the sum of differences in spans between two best matching nodes. 
+    
+    Using `shared_node_spans`, for each node in `ts` we find a best match from the tree `other`. If either tree sequence contains unary nodes there may be multiple matches with the same span for a single node. In this case, the return match is the node with the closest time. 
+    \$ d(ts, other) = 
+    sum_{x\in ts} \min_{y\in other} (t_x - t_y) \max{y \in other}
+    shared_span(x,y) \$
+    
+    Returns two values:
+    `discrepancy` (float) The total shared span divided by the total node span of ts; this is the proportion of span of ts that is represented in other.
+    `root-mean-squared discrespancy` (float) with the average weighted by the span in ts.
+    """
+    
+    shared_spans = shared_node_spans(ts, other)
+    # Find all potential matches for a node based on max shared span length
+    max_span = shared_spans.max(axis=1).toarray().flatten()
+    col_ind = shared_spans.indices
+    row_ind = np.repeat(np.arange(shared_spans.shape[0]),
+                        repeats = np.diff(shared_spans.indptr))
+    
+    match = shared_spans.data == max_span[row_ind]
+    # Construct a matrix of potiential matches and
+    # scale with difference in node times
+    match_matrix = scipy.sparse.coo_matrix(
+    (shared_spans.data[match], (row_ind[match], col_ind[match])),
+    shape = (ts.num_nodes, other.num_nodes),
+    )
+    
+    ts_times = ts.nodes_time[row_ind[match]]
+    other_times = other.nodes_time[col_ind[match]]
+    time_matrix = scipy.sparse.coo_matrix(
+    (np.asarray(ts_times-other_times), (row_ind[match], col_ind[match])),
+    shape = (ts.num_nodes, other.num_nodes),
+    )
+    discrepancy_matrix = match_matrix.multiply(time_matrix).tocsr()
+    # Between each pair of nodes, find the minimum
+    ''' WARNING.
+    argmin will just output arg of the first zero which may not be
+    correct. 
+    if time_matrix has zero explicit entry at (i,j) we auto declare the (i,j) pair to be the best match so that best_match[i]=j
+    '''
+    best_match = discrepancy_matrix.argmin(axis=1).A1
+    for i,j,data in zip(time_matrix.row, time_matrix.col, time_matrix.data):
+        if data == 0:
+            best_match[i] = j
+    # Find the shared_spans of all of the best matches
+    best_match_spans = np.asarray([shared_spans[:,k].data for k in best_match]).ravel()
+    # Return the discrepancy between ts and other
+    total_node_spans = shared_node_spans(ts,ts).trace()
+    discrepancy = np.sum(best_match_spans)/total_node_spans
+    
+    # Compute the root-mean-square discrepancy in time
+    # with averaged weighted by span in ts
+    ' I think this might be correct but im not 100% sure '
+    time_discrepancies = np.asarray([discrepancy_matrix[:,k].data for k in best_match]).ravel()
+    rmse = np.sqrt(np.sum(time_discrepancies)/ts.num_nodes)
+    
+    return discrepancy, rmse
+    
