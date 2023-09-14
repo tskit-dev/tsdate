@@ -300,7 +300,8 @@ def tree_discrepancy(ts, other):
         if data == 0:
             best_match[i] = j
     # Find the shared_spans of all of the best matches
-    best_match_spans = np.asarray([shared_spans[:,k].data for k in best_match]).ravel()
+    best_match_spans = np.asarray([shared_spans[i,j] for i,j in enumerate(best_match)]).reshape(-1)
+    print(best_match_spans)
     # Return the discrepancy between ts and other
     total_node_spans = shared_node_spans(ts,ts).trace()
     discrepancy = np.sum(best_match_spans)/total_node_spans
@@ -308,7 +309,7 @@ def tree_discrepancy(ts, other):
     # Compute the root-mean-square discrepancy in time
     # with averaged weighted by span in ts
     ' I think this might be correct but im not 100% sure '
-    time_discrepancies = np.asarray([discrepancy_matrix[:,k].data for k in best_match]).ravel()
+    time_discrepancies = np.asarray([discrepancy_matrix[i,j] for i,j in enumerate(best_match)]).reshape(-1)
     rmse = np.sqrt(np.sum(time_discrepancies)/ts.num_nodes)
     
     return discrepancy, rmse
