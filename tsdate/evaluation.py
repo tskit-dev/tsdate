@@ -259,7 +259,7 @@ def tree_discrepancy(ts, other):
     
     Using `shared_node_spans`, for each node in `ts` we find a best match from the tree `other`. If either tree sequence contains unary nodes there may be multiple matches with the same span for a single node. In this case, the return match is the node with the closest time. 
     \$ d(ts, other) = 
-    sum_{x\in ts} \min_{y\in other} (t_x - t_y) \max{y \in other}
+    sum_{x\in ts} \min_{y\in other} |t_x - t_y| \max{y \in other}
     shared_span(x,y) \$
     
     Returns two values:
@@ -285,15 +285,14 @@ def tree_discrepancy(ts, other):
     ts_times = ts.nodes_time[row_ind[match]]
     other_times = other.nodes_time[col_ind[match]]
     time_matrix = scipy.sparse.coo_matrix(
-    (np.asarray(ts_times-other_times), (row_ind[match], col_ind[match])),
+    (np.absolute(np.asarray(ts_times-other_times)), (row_ind[match], col_ind[match])),
     shape = (ts.num_nodes, other.num_nodes),
     )
     discrepancy_matrix = match_matrix.multiply(time_matrix).tocsr()
     # Between each pair of nodes, find the minimum
     ''' WARNING.
-    argmin will just output arg of the first zero which may not be
-    correct. 
-    if time_matrix has zero explicit entry at (i,j) we auto declare the (i,j) pair to be the best match so that best_match[i]=j
+    argmin will just output arg of the first zero in each row of the discrepancy matrix which may not be correct. 
+    if time_matrix has zero as an explicit entry at (i,j) we auto declare the (i,j) pair to be the best match so that best_match[i]=j.
     '''
     best_match = discrepancy_matrix.argmin(axis=1).A1
     for i,j,data in zip(time_matrix.row, time_matrix.col, time_matrix.data):
