@@ -141,8 +141,7 @@ class CladeMap:
         Check if a clade is present in the tree
         """
         return clade in self._nodes
-
-
+    
 def shared_node_spans(ts, other):
     """
     Calculate the spans over which pairs of nodes in two tree sequences are
@@ -253,18 +252,42 @@ def match_node_ages(ts, other):
 
     return matched_time, matched_span, best_match
 
+def node_spans(ts):
+    """
+    Returns the array of "node spans", i.e., the `j`th entry gives
+    the total span over which node `j` is in the tree (i.e., does
+    not have 'missing data' there).
+    """
+    child_spans = np.bincount(
+            ts.edges_child,
+            weights=ts.edges_right - ts.edges_left,
+            minlength=ts.num_nodes,
+    )
+
+    for t in ts.trees():
+        span = t.interval[1] - t.interval[0]
+        for r in t.roots:
+            # do this check to exempt 'missing data'
+            if t.num_children[r] > 0:
+                child_spans[r] += span
+
 def tree_discrepancy(ts, other):
     """
-    For two tree sequences `ts` and `other`, the method `tree_discrepancy` returns a value which is the sum of differences in spans between two best matching nodes. 
+    For two tree sequences `ts` and `other`, this method `tree_discrepancy` returns two values:
+    1. the sum across the nodes of `ts` of the length of the discrepancy in span between the node and its best match node in `other` weighted by difference in time.
+    2. The root mean squared difference between the times in the nodes in `ts` and times of their best matching nodes in `other` with the average weighted by the span in `ts`.
     
-    Using `shared_node_spans`, for each node in `ts` we find a best match from the tree `other`. If either tree sequence contains unary nodes there may be multiple matches with the same span for a single node. In this case, the return match is the node with the closest time. 
-    \$ d(ts, other) = 
-    sum_{x\in ts} \min_{y\in other} |t_x - t_y| \max{y \in other}
-    shared_span(x,y) \$
+    This is done as follows:
+    
+    For each node in `ts` the best matching node(s) from `other` has the longest matching span using `shared_node_spans`. If either tree sequence contains unary nodes there may be multiple matches with the same longest shared span for a single node. In this case, the best match is the node closest in time. The discrepancy is:
+    \$ d(ts, other) = 1 -
+    \left(sum_{x\in ts} \min_{y\in other} |t_x - t_y| \max{y \in other}
+    shared_span(x,y)\right)/T, \$
+    where \$T\$ is the sum of spans of all nodes in `ts`.
     
     Returns two values:
-    `discrepancy` (float) The total shared span divided by the total node span of ts; this is the proportion of span of ts that is represented in other.
-    `root-mean-squared discrespancy` (float) with the average weighted by the span in ts.
+    `discrepancy` (float) the value computed above.
+    `root-mean-squared discrepancy` (float) 
     """
     
     shared_spans = shared_node_spans(ts, other)
@@ -278,38 +301,47 @@ def tree_discrepancy(ts, other):
     # Construct a matrix of potiential matches and
     # scale with difference in node times
     match_matrix = scipy.sparse.coo_matrix(
-    (shared_spans.data[match], (row_ind[match], col_ind[match])),
-    shape = (ts.num_nodes, other.num_nodes),
+        (shared_spans.data[match], (row_ind[match], col_ind[match])),
+        shape = (ts.num_nodes, other.num_nodes),
     )
     
     ts_times = ts.nodes_time[row_ind[match]]
     other_times = other.nodes_time[col_ind[match]]
     time_matrix = scipy.sparse.coo_matrix(
-    (np.absolute(np.asarray(ts_times-other_times)), (row_ind[match], col_ind[match])),
-    shape = (ts.num_nodes, other.num_nodes),
+        (np.absolute(np.asarray(ts_times-other_times)), (row_ind[match], col_ind[match])),
+        shape = (ts.num_nodes, other.num_nodes),
     )
     discrepancy_matrix = match_matrix.multiply(time_matrix).tocsr()
+    m = scipy.sparse.csr_matrix(
+        (1/(1+discrepancy_matrix.data), (discrepancy_matrix.indices)),
+        shape = (ts.num_nodes, other.num_nodes)
+    )
     # Between each pair of nodes, find the minimum
     ''' WARNING.
     argmin will just output arg of the first zero in each row of the discrepancy matrix which may not be correct. 
     if time_matrix has zero as an explicit entry at (i,j) we auto declare the (i,j) pair to be the best match so that best_match[i]=j.
     '''
-    best_match = discrepancy_matrix.argmin(axis=1).A1
-    for i,j,data in zip(time_matrix.row, time_matrix.col, time_matrix.data):
-        if data == 0:
-            best_match[i] = j
+    best_match = m.argmax(axis=1).A1
+    # best_match = discrepancy_matrix.argmin(axis=1).A1
+    # for i,j,data in zip(time_matrix.row, time_matrix.col, time_matrix.data):
+    #     if data == 0:
+    #         best_match[i] = j
+        
     # Find the shared_spans of all of the best matches
-    best_match_spans = np.asarray([shared_spans[i,j] for i,j in enumerate(best_match)]).reshape(-1)
-    print(best_match_spans)
+    #best_match_spans = np.asarray([shared_spans[i,j] for i,j in enumerate(best_match)]).reshape(-1)
+    best_match_spans = shared_spans[np.linspace(len(best_match)), best_match].reshape(-1)
+    # print(best_match_spans)
     # Return the discrepancy between ts and other
-    total_node_spans = shared_node_spans(ts,ts).trace()
-    discrepancy = np.sum(best_match_spans)/total_node_spans
-    
+    node_spans = node_span(ts)
+    total_node_spans = np.sum(node_spans)
+    discrepancy = 1 - np.sum(best_match_spans)/total_node_spans
+    ' need to pass over edges and pass over roots '
     # Compute the root-mean-square discrepancy in time
     # with averaged weighted by span in ts
     ' I think this might be correct but im not 100% sure '
-    time_discrepancies = np.asarray([discrepancy_matrix[i,j] for i,j in enumerate(best_match)]).reshape(-1)
-    rmse = np.sqrt(np.sum(time_discrepancies)/ts.num_nodes)
+    time_discrepancies = time_matrix[np.linspace(len(best_match)), best_match].reshape(-1)
+    #time_discrepancies = np.asarray([discrepancy_matrix[i,j] for i,j in enumerate(best_match)]).reshape(-1)
+    rmse = np.sqrt(np.sum(time_discrepancies**2*node_spans)/total_node_spans)
     
     return discrepancy, rmse
     

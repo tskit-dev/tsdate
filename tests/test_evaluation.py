@@ -152,7 +152,7 @@ class TestNodeMatching:
     @pytest.mark.parametrize("pair", [(true_ext, true_unary), (true_ext, true_simpl), (true_simpl, true_unary)])
     def test_tree_discrepancy(self, pair):
         dis, err = evaluation.tree_discrepancy(pair[0],pair[1])
-        assert dis == 1.0
+        assert dis == 0.0
         assert err == 0.0
     
     def get_simple_ts(self, samples = None, time = False, span = False):
@@ -250,12 +250,13 @@ class TestNodeMatching:
         ts = self.get_simple_ts()
         other = self.get_simple_ts(span = True)
         dis, err = evaluation.tree_discrepancy(ts, other)
-        assert dis == 45/46
+        assert dis == 5/46
         assert error == 0
     
     def test_discrepancy_error(self):
         ts = self.get_simple_ts()
         other = self.get_simple_ts(time = True)
         dis, err = evaluation.tree_discrepancy(ts, other)
+        true_error = np.sqrt((2*6*300**2+2*2*150**2)/46)
         assert dis == 0.0
-        assert error == 10.0
+        assert error == true_error
