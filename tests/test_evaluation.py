@@ -84,7 +84,48 @@ def naive_shared_node_spans(ts, other):
                         out[i, j] += span
     return scipy.sparse.csr_matrix(out)
 
+def naive_node_span(ts):
+    """
+    Ineffiecient but transparent function to get total span
+    of each node in a tree sequence, including roots.
+    """
+    node_spans = np.zeros(ts.num_nodes)
+    for c in ts.edges_child:
+        node_spans[c] += ts.edges_right[c] - ts.edges_left[c]
+    for t in ts.trees():
+        span = t.span   
+        for r in t.roots:
+            if t.num_children[r] > 0:
+            node_spans[r] += span
+    return node_spans
 
+def naive_discrepancy(ts, other):
+    """
+    Ineffiecient but transparent function to compute discrepancy
+    and root-mean-square-error between two tree sequences.
+    """
+    shared_spans = naive_shared_node_spans(ts, other).toarray()
+    max_span = np.max(shared_spans,axis=1)
+    match = np.zeros((ts.num_nodes, other.num_nodes))
+    time_array = np.zeros((ts.num_nodes,other.num_nodes))
+    discrepancy = np.zeros((ts.num_nodes,other.num_nodes))
+    for i in range(ts.num_nodes):
+        for j in range(other.num_nodes):
+            if shared_spans[i,j] == max_span[i]:
+                match[i,j] = shared_spans[i,j]
+                time_array[i,j] = ts.nodes_time[i] - other.nodes_time[j]
+                discrepancy[i,j] = 1/(1+match[i,j]*time[i,j])
+    best_match = np.argmax(discreapncy,axis=1)
+    best_match_spans = np.zeros((ts.num_nodes,))
+    time_discrepancies = np.zeros((ts.num_nodes,))
+    for i,j in enumerate(best_match):
+        best_match_spans[i] = shared_spans[i,j]
+        time_discrepancies[i] = time_array[i,j]
+    total_node_spans = np.sum(naive_node_span(ts))
+    discrepancy = 1 - np.sum(best_match_spans)/total_node_spans
+    rmse = np.sqrt(np.sum(best_match_spans*time_discrepancies)/total_node_span)
+    return discrepancy, rmse
+            
 @pytest.mark.parametrize("ts", [true_unary, infr_unary, true_simpl, infr_simpl])
 class TestCladeMap:
     def test_map(self, ts):
@@ -148,6 +189,17 @@ class TestNodeMatching:
         time, _, hit = evaluation.match_node_ages(ts, ts)
         assert np.allclose(time, ts.nodes_time)
         assert np.array_equal(hit, np.arange(ts.num_nodes))
+    
+    @pytest.mark.parametrize("pair", [(true_ext, true_unary), (true_ext, true_simpl), (true_simpl, true_unary)])
+    def test_basic_discrepancy(self, pair):
+        """
+        Check that efficient implementation reutrns the same answer as naive
+        implementation.
+        """
+        check_dis, check_err = naive_discrepancy(pair[0], pair[1])
+        test_dis, test_err = evaluation.tree_discrepancy(pair[0], pair[1])
+        assert np.isclose(check_dis, test_dis)
+        assert np.isclose(check_err, test_err)
     
     @pytest.mark.parametrize("pair", [(true_ext, true_unary), (true_ext, true_simpl), (true_simpl, true_unary)])
     def test_tree_discrepancy(self, pair):
@@ -259,4 +311,4 @@ class TestNodeMatching:
         dis, err = evaluation.tree_discrepancy(ts, other)
         true_error = np.sqrt((2*6*300**2+2*2*150**2)/46)
         assert dis == 0.0
-        assert error == true_error
+        assert np.isclose(err, true_error)

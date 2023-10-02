@@ -265,7 +265,7 @@ def node_spans(ts):
     )
 
     for t in ts.trees():
-        span = t.interval[1] - t.interval[0]
+        span = t.span
         for r in t.roots:
             # do this check to exempt 'missing data'
             if t.num_children[r] > 0:
@@ -312,35 +312,21 @@ def tree_discrepancy(ts, other):
         shape = (ts.num_nodes, other.num_nodes),
     )
     discrepancy_matrix = match_matrix.multiply(time_matrix).tocsr()
+    # determine best matches with the following matrix
     m = scipy.sparse.csr_matrix(
         (1/(1+discrepancy_matrix.data), (discrepancy_matrix.indices)),
         shape = (ts.num_nodes, other.num_nodes)
     )
-    # Between each pair of nodes, find the minimum
-    ''' WARNING.
-    argmin will just output arg of the first zero in each row of the discrepancy matrix which may not be correct. 
-    if time_matrix has zero as an explicit entry at (i,j) we auto declare the (i,j) pair to be the best match so that best_match[i]=j.
-    '''
+    # Between each pair of nodes, find the maximum shared span
     best_match = m.argmax(axis=1).A1
-    # best_match = discrepancy_matrix.argmin(axis=1).A1
-    # for i,j,data in zip(time_matrix.row, time_matrix.col, time_matrix.data):
-    #     if data == 0:
-    #         best_match[i] = j
-        
-    # Find the shared_spans of all of the best matches
-    #best_match_spans = np.asarray([shared_spans[i,j] for i,j in enumerate(best_match)]).reshape(-1)
     best_match_spans = shared_spans[np.linspace(len(best_match)), best_match].reshape(-1)
-    # print(best_match_spans)
     # Return the discrepancy between ts and other
     node_spans = node_span(ts)
     total_node_spans = np.sum(node_spans)
     discrepancy = 1 - np.sum(best_match_spans)/total_node_spans
-    ' need to pass over edges and pass over roots '
     # Compute the root-mean-square discrepancy in time
     # with averaged weighted by span in ts
-    ' I think this might be correct but im not 100% sure '
     time_discrepancies = time_matrix[np.linspace(len(best_match)), best_match].reshape(-1)
-    #time_discrepancies = np.asarray([discrepancy_matrix[i,j] for i,j in enumerate(best_match)]).reshape(-1)
     rmse = np.sqrt(np.sum(time_discrepancies**2*node_spans)/total_node_spans)
     
     return discrepancy, rmse
