@@ -1044,7 +1044,6 @@ class MixturePrior:
         allow_unary=False,
         progress=False,
     ):
-
         if approximate_priors:
             if not approx_prior_size:
                 approx_prior_size = 1000
