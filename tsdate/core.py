@@ -1193,6 +1193,12 @@ def constrain_ages_topo(ts, node_times, eps, progress=False):
             new_node_times[parent] = oldest_child_time + eps
     return new_node_times
 
+def check_method(method):
+    if method not in ["inside_outside", "variational_gamma", "expectation_propagation"]:
+        raise ValueError(
+            "method must be one of 'inside_outside', 'variational_gamma', "
+            "'expectation_propagation'"
+        )
 
 def date(
     tree_sequence,
@@ -1293,17 +1299,8 @@ def date(
     :rtype: tskit.TreeSequence or (tskit.TreeSequence, dict)
     """
 
-    # check if any unary nodes in tree
-    for tree in tree_sequence.trees():
-        if any(tree.num_children_array == 1):
-            raise ValueError(
-                "The input tree sequence has unary nodes: tsdate currently requires that these are removed using `simplify(keep_unary=False)`"
-            )
-
-    if method not in ["inside_outside", "maximization", "variational_gamma"]:
-        raise ValueError(
-            "method must be one of 'inside_outside', 'maximization' or 'variational_gamma'"
-        )
+    # check valid method - raise error if unknown.
+    check_method(method)
 
     if time_units is None:
         time_units = "generations"
