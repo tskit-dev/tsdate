@@ -1292,6 +1292,19 @@ def date(
         from the inside algorithm.
     :rtype: tskit.TreeSequence or (tskit.TreeSequence, dict)
     """
+
+    # check if any unary nodes in tree
+    for tree in tree_sequence.trees():
+        if any(tree.num_children == 1):
+            raise ValueError(
+                "The input tree sequence has unary nodes: tsdate currently requires that these are removed using `simplify(keep_unary=False)`"
+            )
+
+    if method not in ["inside_outside", "maximization", "variational_gamma"]:
+        raise ValueError(
+            "method must be one of 'inside_outside', 'maximization' or 'variational_gamma'"
+        )
+
     if time_units is None:
         time_units = "generations"
     if Ne is not None:
