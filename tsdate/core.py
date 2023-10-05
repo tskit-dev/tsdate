@@ -1295,7 +1295,7 @@ def date(
 
     # check if any unary nodes in tree
     for tree in tree_sequence.trees():
-        if any(tree.num_children == 1):
+        if any(tree.num_children_array == 1):
             raise ValueError(
                 "The input tree sequence has unary nodes: tsdate currently requires that these are removed using `simplify(keep_unary=False)`"
             )
