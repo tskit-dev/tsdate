@@ -462,6 +462,14 @@ class SpansBySamples:
             lambda: defaultdict(lambda: defaultdict(base.FLOAT_DTYPE))
         )
 
+        if not allow_unary:
+            for tree in self.ts.trees():
+                if any(tree.num_children_array == 1):
+                    raise ValueError(
+                        "The input tree sequence has unary nodes: tsdate currently requires that these are removed using `simplify(keep_unary=False)`"
+                    )
+
+
         with tqdm(total=3, desc="TipCount", disable=not self.progress) as progressbar:
             (
                 node_spans,
