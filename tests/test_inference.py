@@ -42,6 +42,11 @@ class TestPrebuilt(unittest.TestCase):
     Tests for tsdate on prebuilt tree sequences
     """
 
+    def test_invalid_method_failure(self):
+        ts = utility_functions.two_tree_mutation_ts()
+        with pytest.raises(ValueError, match="method must be one of"):
+            tsdate.date(ts, population_size=1, mutation_rate=None, method="foo")
+
     def test_no_population_size(self):
         ts = utility_functions.two_tree_mutation_ts()
         with pytest.raises(ValueError, match="Must specify population size"):
