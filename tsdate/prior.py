@@ -464,7 +464,8 @@ class SpansBySamples:
 
         if not allow_unary:
             for tree in self.ts.trees():
-                if any(tree.num_children_array == 1):
+                # final element corresponding to the tree’s virtual_root - don't consider.
+                if any(tree.num_children_array[:-1] == 1):
                     raise ValueError(
                         "The input tree sequence has unary nodes: tsdate currently requires that these are removed using `simplify(keep_unary=False)`"
                     )
