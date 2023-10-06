@@ -1195,10 +1195,10 @@ def constrain_ages_topo(ts, node_times, eps, progress=False):
 
 
 def check_method(method):
-    if method not in ["inside_outside", "variational_gamma", "expectation_propagation"]:
+    if method not in ["inside_outside", "maximization", "variational_gamma"]:
         raise ValueError(
-            "method must be one of 'inside_outside', 'variational_gamma', "
-            "'expectation_propagation'"
+            "method must be one of 'inside_outside', 'maximization', "
+            "'variational_gamma'"
         )
 
 
