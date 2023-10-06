@@ -469,7 +469,6 @@ class SpansBySamples:
                         "The input tree sequence has unary nodes: tsdate currently requires that these are removed using `simplify(keep_unary=False)`"
                     )
 
-
         with tqdm(total=3, desc="TipCount", disable=not self.progress) as progressbar:
             (
                 node_spans,

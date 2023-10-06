@@ -1193,12 +1193,14 @@ def constrain_ages_topo(ts, node_times, eps, progress=False):
             new_node_times[parent] = oldest_child_time + eps
     return new_node_times
 
+
 def check_method(method):
     if method not in ["inside_outside", "variational_gamma", "expectation_propagation"]:
         raise ValueError(
             "method must be one of 'inside_outside', 'variational_gamma', "
             "'expectation_propagation'"
         )
+
 
 def date(
     tree_sequence,
