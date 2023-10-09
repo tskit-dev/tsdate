@@ -141,7 +141,8 @@ class CladeMap:
         Check if a clade is present in the tree
         """
         return clade in self._nodes
-    
+
+
 def shared_node_spans(ts, other):
     """
     Calculate the spans over which pairs of nodes in two tree sequences are
@@ -252,6 +253,7 @@ def match_node_ages(ts, other):
 
     return matched_time, matched_span, best_match
 
+
 def node_spans(ts):
     """
     Returns the array of "node spans", i.e., the `j`th entry gives
@@ -263,28 +265,31 @@ def node_spans(ts):
             weights=ts.edges_right - ts.edges_left,
             minlength=ts.num_nodes,
     )
-
     for t in ts.trees():
         span = t.span
         for r in t.roots:
             # do this check to exempt 'missing data'
             if t.num_children[r] > 0:
                 child_spans[r] += span
+    return child_spans
+
 
 def tree_discrepancy(ts, other):
     """
     For two tree sequences `ts` and `other`, this method `tree_discrepancy` returns two values:
     1. the sum across the nodes of `ts` of the length of the discrepancy in span between the node and its best match node in `other` weighted by difference in time.
     2. The root mean squared difference between the times in the nodes in `ts` and times of their best matching nodes in `other` with the average weighted by the span in `ts`.
-    
+
     This is done as follows:
-    
+
     For each node in `ts` the best matching node(s) from `other` has the longest matching span using `shared_node_spans`. If either tree sequence contains unary nodes there may be multiple matches with the same longest shared span for a single node. In this case, the best match is the node closest in time. The discrepancy is:
-    \$ d(ts, other) = 1 -
-    \left(sum_{x\in ts} \min_{y\in other} |t_x - t_y| \max{y \in other}
-    shared_span(x,y)\right)/T, \$
-    where \$T\$ is the sum of spans of all nodes in `ts`.
-    
+    ..math::
+
+    d(ts, other) = 1 -
+    \left(sum_{x\in \operatorname{ts}} \min_{y\in \operatorname{other}} |t_x - t_y| \max{y \in \operatorname{other}} \frac{1}{T}* \operatorname{shared_span}(x,y)\right),
+
+    where :math: `T` is the sum of spans of all nodes in `ts`.
+
     Returns two values:
     `discrepancy` (float) the value computed above.
     `root-mean-squared discrepancy` (float) 
@@ -304,7 +309,6 @@ def tree_discrepancy(ts, other):
         (shared_spans.data[match], (row_ind[match], col_ind[match])),
         shape = (ts.num_nodes, other.num_nodes),
     )
-    
     ts_times = ts.nodes_time[row_ind[match]]
     other_times = other.nodes_time[col_ind[match]]
     time_matrix = scipy.sparse.coo_matrix(
@@ -314,7 +318,7 @@ def tree_discrepancy(ts, other):
     discrepancy_matrix = match_matrix.multiply(time_matrix).tocsr()
     # determine best matches with the following matrix
     m = scipy.sparse.csr_matrix(
-        (1/(1+discrepancy_matrix.data), (discrepancy_matrix.indices)),
+        (1/(1 + discrepancy_matrix.data), (discrepancy_matrix.indices)),
         shape = (ts.num_nodes, other.num_nodes)
     )
     # Between each pair of nodes, find the maximum shared span
@@ -328,6 +332,5 @@ def tree_discrepancy(ts, other):
     # with averaged weighted by span in ts
     time_discrepancies = time_matrix[np.linspace(len(best_match)), best_match].reshape(-1)
     rmse = np.sqrt(np.sum(time_discrepancies**2*node_spans)/total_node_spans)
-    
+
     return discrepancy, rmse
-    

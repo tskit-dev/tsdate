@@ -96,7 +96,7 @@ def naive_node_span(ts):
         span = t.span   
         for r in t.roots:
             if t.num_children[r] > 0:
-            node_spans[r] += span
+                node_spans[r] += span
     return node_spans
 
 def naive_discrepancy(ts, other):
@@ -142,7 +142,7 @@ class TestCladeMap:
 
     def test_diff(self, ts):
         """
-        test difference in clades between adjacent trees
+        test difference in clades between adjacent trees.
         """
         clade_map = evaluation.CladeMap(ts)
         tree_1 = ts.first()
@@ -162,7 +162,6 @@ class TestCladeMap:
             if tree_2.index == ts.num_trees - 1:
                 break
             tree_1.next()
-
 
 class TestNodeMatching:
     @pytest.mark.parametrize(
@@ -252,7 +251,6 @@ class TestNodeMatching:
                 7: 600.0,
                 8: 600.0,
             }
-        
         # (p, c, l, r)
         if span == False:
             edges = [
@@ -285,7 +283,7 @@ class TestNodeMatching:
                 (6, 4, 5, 6),
                 (6, 7, 1, 5),
                 (6, 8, 5, 6)
-            ]            
+            ]
         tables = tskit.TableCollection(sequence_length = 6)
         if samples is None:
             samples = [0, 1, 2, 3]
@@ -297,18 +295,18 @@ class TestNodeMatching:
         ts = tables.tree_sequence()
         assert ts.num_edges == 13
         return ts
-    
+
     def test_discrepancy_value(self):
         ts = self.get_simple_ts()
         other = self.get_simple_ts(span = True)
         dis, err = evaluation.tree_discrepancy(ts, other)
         assert dis == 5/46
         assert error == 0
-    
+        
     def test_discrepancy_error(self):
         ts = self.get_simple_ts()
         other = self.get_simple_ts(time = True)
         dis, err = evaluation.tree_discrepancy(ts, other)
-        true_error = np.sqrt((2*6*300**2+2*2*150**2)/46)
+        true_error = np.sqrt((2 * 6 * 300**2 + 2 * 2 * 150**2)/46)
         assert dis == 0.0
         assert np.isclose(err, true_error)
