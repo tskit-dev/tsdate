@@ -6,11 +6,12 @@
 
 - The standalone ``preprocess_ts`` function now defaults to not removing unreferenced
   individuals, populations, or sites, aiming to change the tree sequence tables as
-  little as possible.
+  little as possible. :user:`hyanwong`
 
 - Not strictly breaking, as not in the published API, but the "normalize" flag
   in ``get_dates`` and the internal ``normalize`` terminology is changed to
   ``standardize`` to better reflect the fact that the maximum (not sum) is one.
+  :user:`hyanwong`
 
 - The ``Ne`` argument to ``date`` has been deprecated (although it is
   still in the API for backward compatibility).  The equivalent argument
@@ -18,7 +19,7 @@
 
 - The CLI ``-verbosity`` flag no longer takes a number, but uses
   ``action="count"``, so ``-v`` turns verbosity to INFO level,
-  whereas ``-vv`` turns verbosity to DEBUG level.
+  whereas ``-vv`` turns verbosity to DEBUG level. :user:`hyanwong`
 
 **Features**
 
@@ -26,6 +27,16 @@
   which is implemented in the ``demography.PopulationSizeHistory`` class. The
   ``population_size`` argument to ``date`` accepts either a single scalar effective
   population size, or a ``PopulationSizeHistory`` instance.
+- A new fast method, ``variational_gamma``, approximates the posterior distribution of
+  times on each node by a gamma distribution, rather than using discrete time bins.
+  When combined with the iterative expectation propagation algorithm (see next feature)
+  this gives more accurate results, especially for older timepoints. :user:`nspope`
+- An expectation propagation (message passing) algorithm, currently implemented only
+  for the ``variational_gamma`` method, properly accounts for the problem of loopy
+  belief propagation: running the algorithm iteratively results in convergence to
+  a more accurate estimate of the true posterior. Lack of convergence or other
+  problems when dating are likely to indicate a pathological combination of tree
+  topologies and mutations. :user:`nspope`
 
 **Bugfixes**
 
@@ -34,12 +45,13 @@
   "probabilities" whose maximum value is one.
 
 - The population size is saved in provenance metadata when possible (e.g. if it is
-  a single number)
+  a single number). :user:`hyanwong`
 
 - ``preprocess_ts`` always records provenance as being from the ``preprocess_ts``
   command, even if no gaps are removed. The command now has a (rarely used)
   `delete_intervals` parameter, which is normally filled out and saved in provenance
   (as it was before). If no gap deletion is done, the param is saved as ``[]``
+  :user:`hyanwong`
 
 --------------------
 [0.1.5] - 2022-06-07
