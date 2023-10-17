@@ -670,7 +670,48 @@ def two_tree_two_mrcas():
 
 
 def multiroot():
-    return two_tree_two_mrcas().decapitate(1.5)
+    r"""
+    Simple case where we have n = 4, 1 multi-root tree, one mutation.
+
+       4           5
+      / \         / x
+     /   \       /   \
+   [0]   [1]   [2]   [3]
+    """
+    nodes = io.StringIO(
+        """\
+    id      is_sample   time
+    0       1           0
+    1       1           0
+    2       1           0
+    3       1           0
+    4       0           1
+    5       0           1
+    """
+    )
+    edges = io.StringIO(
+        """\
+    left    right   parent  child
+    0       1       4       0,1
+    0       1       5       2,3
+    """
+    )
+    sites = io.StringIO(
+        """\
+    position    ancestral_state
+    0.5         0
+    """
+    )
+    mutations = io.StringIO(
+        """\
+    site    node    derived_state
+    0       3       1
+    """
+    )
+
+    return tskit.load_text(
+        nodes=nodes, edges=edges, sites=sites, mutations=mutations, strict=False
+    )
 
 
 def loopy_tree():
