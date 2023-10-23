@@ -91,13 +91,10 @@ def naive_node_span(ts):
     of each node in a tree sequence, including roots.
     """
     node_spans = np.zeros(ts.num_nodes)
-    for c in ts.edges_child:
-        node_spans[c] += ts.edges_right[c] - ts.edges_left[c]
     for t in ts.trees():
-        span = t.span
-        for r in t.roots:
-            if t.num_children(r) > 0:
-                node_spans[r] += span
+        for n in t.nodes():
+            span = t.span
+            node_spans[n] += span
     return node_spans
 
 
@@ -108,6 +105,7 @@ def naive_discrepancy(ts, other):
     """
     shared_spans = naive_shared_node_spans(ts, other).toarray()
     max_span = np.max(shared_spans, axis=1)
+    assert len(max_span) == ts.num_nodes
     match = np.zeros((ts.num_nodes, other.num_nodes))
     time_array = np.zeros((ts.num_nodes, other.num_nodes))
     discrepancy = np.zeros((ts.num_nodes, other.num_nodes))
@@ -115,7 +113,7 @@ def naive_discrepancy(ts, other):
         for j in range(other.num_nodes):
             if shared_spans[i, j] == max_span[i]:
                 match[i, j] = shared_spans[i, j]
-                time_array[i, j] = ts.nodes_time[i] - other.nodes_time[j]
+                time_array[i, j] = np.abs(ts.nodes_time[i] - other.nodes_time[j])
                 discrepancy[i, j] = 1 / (1 + match[i, j] * time_array[i, j])
     best_match = np.argmax(discrepancy, axis=1)
     best_match_spans = np.zeros((ts.num_nodes,))
@@ -123,11 +121,15 @@ def naive_discrepancy(ts, other):
     for i, j in enumerate(best_match):
         best_match_spans[i] = shared_spans[i, j]
         time_discrepancies[i] = time_array[i, j]
-    total_node_spans = np.sum(naive_node_span(ts))
+    node_span = naive_node_span(ts)
+    total_node_spans = np.sum(node_span)
     discrepancy = 1 - np.sum(best_match_spans) / total_node_spans
-    rmse = np.sqrt(
-        np.sum(best_match_spans * time_discrepancies**2) / total_node_spans
-    )
+    rmse = np.sqrt(np.sum(node_span * time_discrepancies**2) / total_node_spans)
+    print("best_match", best_match_spans)
+    print("node_span", node_span)
+    print("shared_spans", shared_spans)
+    print("match", match)
+    print("time_array", time_array)
     return discrepancy, rmse
 
 
@@ -197,7 +199,7 @@ class TestNodeMatching:
 
     @pytest.mark.parametrize(
         "pair",
-        [(true_ext, true_unary), (true_ext, true_simpl), (true_simpl, true_unary)],
+        [(true_ext, true_ext), (true_simpl, true_ext), (true_simpl, true_unary)],
     )
     def test_basic_discrepancy(self, pair):
         """
@@ -211,7 +213,7 @@ class TestNodeMatching:
 
     @pytest.mark.parametrize(
         "pair",
-        [(true_ext, true_unary), (true_ext, true_simpl), (true_simpl, true_unary)],
+        [(true_ext, true_ext), (true_simpl, true_ext), (true_simpl, true_unary)],
     )
     def test_tree_discrepancy(self, pair):
         dis, err = evaluation.tree_discrepancy(pair[0], pair[1])
@@ -277,6 +279,7 @@ class TestNodeMatching:
                 (8, 5, 4, 6),
                 (6, 4, 0, 2),
                 (6, 4, 4, 6),
+                (6, 5, 0, 4),
                 (6, 7, 2, 4),
                 (6, 8, 4, 6),
             ]
@@ -293,6 +296,7 @@ class TestNodeMatching:
                 (8, 5, 5, 6),
                 (6, 4, 0, 1),
                 (6, 4, 5, 6),
+                (6, 5, 0, 5),
                 (6, 7, 1, 5),
                 (6, 8, 5, 6),
             ]
@@ -308,13 +312,19 @@ class TestNodeMatching:
         for p, c, l, r in edges:
             tables.edges.add_row(parent=p, child=c, left=l, right=r)
         ts = tables.tree_sequence()
-        assert ts.num_edges == 13
+        assert ts.num_edges == 14
         return ts
 
     def test_discrepancy_value(self):
         ts = self.get_simple_ts()
         other = self.get_simple_ts(span=True)
+        for interval, t, o in ts.coiterate(other):
+            print(interval)
+            print(t.draw(format="ascii"))
+            print(o.draw(format="ascii"))
         dis, err = evaluation.tree_discrepancy(ts, other)
+        dtest, etest = naive_discrepancy(ts, other)
+        print(dtest, etest)
         assert dis == 5 / 46
         assert err == 0
 
