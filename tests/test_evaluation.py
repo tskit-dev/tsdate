@@ -56,7 +56,6 @@ infr_unary = tsinfer.infer(sample_dat)
 infr_simpl = infr_unary.simplify(filter_sites=False)
 true_ext = true_simpl.extend_edges()
 
-
 def naive_shared_node_spans(ts, other):
     """
     Inefficient but transparent function to get span where nodes from two tree
@@ -93,8 +92,9 @@ def naive_node_span(ts):
     node_spans = np.zeros(ts.num_nodes)
     for t in ts.trees():
         for n in t.nodes():
-            span = t.span
-            node_spans[n] += span
+            if t.parent(n) != tskit.NULL or t.num_children(n) > 0:
+                span = t.span
+                node_spans[n] += span
     return node_spans
 
 
@@ -172,6 +172,14 @@ class TestCladeMap:
 
 
 class TestNodeMatching:
+    @pytest.mark.parametrize(
+        "ts", [infr_simpl, true_simpl, infr_unary, true_unary],
+    )
+    def test_node_spans(self, ts):
+        eval_ns = evaluation.node_spans(ts)
+        naive_ns = naive_node_span(ts)
+        assert np.allclose(eval_ns, naive_ns)
+
     @pytest.mark.parametrize(
         "pair", combinations([infr_simpl, true_simpl, infr_unary, true_unary], 2)
     )
