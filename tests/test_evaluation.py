@@ -96,7 +96,7 @@ def naive_node_span(ts):
     for t in ts.trees():
         span = t.span
         for r in t.roots:
-            if t.num_children[r] > 0:
+            if t.num_children(r) > 0:
                 node_spans[r] += span
     return node_spans
 
@@ -125,7 +125,9 @@ def naive_discrepancy(ts, other):
         time_discrepancies[i] = time_array[i, j]
     total_node_spans = np.sum(naive_node_span(ts))
     discrepancy = 1 - np.sum(best_match_spans) / total_node_spans
-    rmse = np.sqrt(np.sum(best_match_spans * time_discrepancies) / total_node_spans)
+    rmse = np.sqrt(
+        np.sum(best_match_spans * time_discrepancies**2) / total_node_spans
+    )
     return discrepancy, rmse
 
 
@@ -213,8 +215,8 @@ class TestNodeMatching:
     )
     def test_tree_discrepancy(self, pair):
         dis, err = evaluation.tree_discrepancy(pair[0], pair[1])
-        assert dis == 0.0
-        assert err == 0.0
+        assert np.isclose(dis, 0)
+        assert np.isclose(err, 0)
 
     def get_simple_ts(self, samples=None, time=False, span=False):
         # A simple tree sequence we can use to properly test various
