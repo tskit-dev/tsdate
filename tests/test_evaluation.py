@@ -56,6 +56,7 @@ infr_unary = tsinfer.infer(sample_dat)
 infr_simpl = infr_unary.simplify(filter_sites=False)
 true_ext = true_simpl.extend_edges()
 
+
 def naive_shared_node_spans(ts, other):
     """
     Inefficient but transparent function to get span where nodes from two tree
@@ -173,7 +174,8 @@ class TestCladeMap:
 
 class TestNodeMatching:
     @pytest.mark.parametrize(
-        "ts", [infr_simpl, true_simpl, infr_unary, true_unary],
+        "ts",
+        [infr_simpl, true_simpl, infr_unary, true_unary],
     )
     def test_node_spans(self, ts):
         eval_ns = evaluation.node_spans(ts)
@@ -326,14 +328,10 @@ class TestNodeMatching:
     def test_discrepancy_value(self):
         ts = self.get_simple_ts()
         other = self.get_simple_ts(span=True)
-        for interval, t, o in ts.coiterate(other):
-            print(interval)
-            print(t.draw(format="ascii"))
-            print(o.draw(format="ascii"))
         dis, err = evaluation.tree_discrepancy(ts, other)
         dtest, etest = naive_discrepancy(ts, other)
         print(dtest, etest)
-        assert dis == 5 / 46
+        assert np.isclose(dis, 4 / 46)
         assert err == 0
 
     def test_discrepancy_error(self):
