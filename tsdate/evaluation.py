@@ -277,7 +277,7 @@ def node_spans(ts):
 def tree_discrepancy(ts, other):
     """
     For two tree sequences `ts` and `other`,
-    this method `tree_discrepancy` returns two values:
+    this method returns two values, as a tuple:
     1. the sum across the nodes of `ts`
     of the length of the discrepancy in span between the node
     and its best match node in `other`
