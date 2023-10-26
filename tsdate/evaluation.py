@@ -278,10 +278,8 @@ def tree_discrepancy(ts, other):
     """
     For two tree sequences `ts` and `other`,
     this method returns two values, as a tuple:
-    1. the sum across the nodes of `ts`
-    of the length of the discrepancy in span between the node
-    and its best match node in `other`
-    weighted by difference in time.
+    1. the fraction of the total span of `ts` over which each nodes' descendant
+    sample set does not match its' best match's descendant sample set.
     2. The root mean squared difference
     between the times in the nodes in `ts`
     and times of their best matching nodes in `other`
