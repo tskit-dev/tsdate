@@ -281,9 +281,9 @@ def tree_discrepancy(ts, other):
     1. the fraction of the total span of `ts` over which each nodes' descendant
     sample set does not match its' best match's descendant sample set.
     2. The root mean squared difference
-    between the times in the nodes in `ts`
-    and times of their best matching nodes in `other`
-    with the average weighted by the span in `ts`.
+    between the times of the nodes in `ts`
+    and times of their best matching nodes in `other`,
+    with the average weighted by the nodes' spans in `ts`.
 
     This is done as follows:
 
