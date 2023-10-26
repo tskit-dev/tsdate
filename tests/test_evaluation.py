@@ -220,7 +220,7 @@ class TestNodeMatching:
         "pair",
         [(true_ext, true_ext), (true_simpl, true_ext), (true_simpl, true_unary)],
     )
-    def test_tree_discrepancy(self, pair):
+    def test_zero_discrepancy(self, pair):
         dis, err = evaluation.tree_discrepancy(pair[0], pair[1])
         assert np.isclose(dis, 0)
         assert np.isclose(err, 0)
