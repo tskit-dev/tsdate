@@ -324,15 +324,21 @@ class TestNodeMatching:
         ts = self.get_simple_ts()
         other = self.get_simple_ts(span=True)
         dis, err = evaluation.tree_discrepancy(ts, other)
-        dtest, etest = naive_discrepancy(ts, other)
-        print(dtest, etest)
         assert np.isclose(dis, 4 / 46)
-        assert err == 0
+        assert np.isclose(err, 0.0)
 
     def test_discrepancy_error(self):
         ts = self.get_simple_ts()
         other = self.get_simple_ts(time=True)
         dis, err = evaluation.tree_discrepancy(ts, other)
         true_error = np.sqrt((2 * 6 * 300**2 + 2 * 2 * 150**2) / 46)
-        assert dis == 0.0
+        assert np.isclose(dis, 0.0)
+        assert np.isclose(err, true_error)
+
+    def test_discrepancy_value_and_error(self):
+        ts = self.get_simple_ts()
+        other = self.get_simple_ts(span=True, time=True)
+        dis, err = evaluation.tree_discrepancy(ts, other)
+        true_error = np.sqrt((2 * 6 * 300**2 + 2 * 2 * 150**2) / 46)
+        assert np.isclose(dis, 4 / 46)
         assert np.isclose(err, true_error)
