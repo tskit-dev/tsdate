@@ -289,10 +289,8 @@ def tree_discrepancy(ts, other):
 
     For each node in `ts` the best matching node(s) from `other`
     has the longest matching span using `shared_node_spans`.
-    If either tree sequence contains unary nodes there may be
-    multiple matches with the same longest shared span
-    for a single node.
-    In this case, the best match is the node closest in time.
+    If there are multiple matches with the same longest shared span
+    for a single node, the best match is the match that is closest in time.
     The discrepancy is:
     ..math::
 
