@@ -126,11 +126,6 @@ def naive_discrepancy(ts, other):
     total_node_spans = np.sum(node_span)
     discrepancy = 1 - np.sum(best_match_spans) / total_node_spans
     rmse = np.sqrt(np.sum(node_span * time_discrepancies**2) / total_node_spans)
-    print("best_match", best_match_spans)
-    print("node_span", node_span)
-    print("shared_spans", shared_spans)
-    print("match", match)
-    print("time_array", time_array)
     return discrepancy, rmse
 
 
