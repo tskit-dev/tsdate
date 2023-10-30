@@ -113,7 +113,7 @@ def naive_discrepancy(ts, other):
         for j in range(other.num_nodes):
             if shared_spans[i, j] == max_span[i]:
                 time_array[i, j] = np.abs(ts.nodes_time[i] - other.nodes_time[j])
-                discrepancy[i, j] = 1 / (1 + shared_spans[i, j] * time_array[i, j])
+                discrepancy[i, j] = 1 / (1 + time_array[i, j])
     best_match = np.argmax(discrepancy, axis=1)
     best_match_spans = np.zeros((ts.num_nodes,))
     time_discrepancies = np.zeros((ts.num_nodes,))

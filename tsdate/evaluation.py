@@ -314,22 +314,20 @@ def tree_discrepancy(ts, other):
     row_ind = np.repeat(
         np.arange(shared_spans.shape[0]), repeats=np.diff(shared_spans.indptr)
     )
-
+    # mask to find all potential node matches
     match = shared_spans.data == max_span[row_ind]
-    # Construct a matrix of potiential matches and
-    match_matrix = scipy.sparse.coo_matrix(
-        (shared_spans.data[match], (row_ind[match], col_ind[match])),
-        shape=(ts.num_nodes, other.num_nodes),
-    )
     # scale with difference in node times
     # determine best matches with the best_match_matrix
     ts_times = ts.nodes_time[row_ind[match]]
     other_times = other.nodes_time[col_ind[match]]
     time_difference = np.absolute(np.asarray(ts_times - other_times))
+    # If two nodes have the same time, then
+    # time_difference is zero, which causes problems with argmin
+    # Instead we store data as 1/(1+x) and find argmax
     best_match_matrix = scipy.sparse.coo_matrix(
         (
-            1 / (1 + (match_matrix.data * time_difference)),
-            (match_matrix.row, match_matrix.col),
+            1 / (1 + time_difference),
+            (row_ind[match], col_ind[match]),
         ),
         shape=(ts.num_nodes, other.num_nodes),
     )
