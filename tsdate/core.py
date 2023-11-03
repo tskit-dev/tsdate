@@ -1232,15 +1232,15 @@ def date(
         posterior probabilities by ``end_time - start_time`` when assessing the shape
         of the probability density function over time.
 
-    :param TreeSequence tree_sequence: The input :class:`tskit.TreeSequence`, treated as
-        one whose non-sample nodes are undated.
-    :param PopulationSizeHistory population_size: The estimated (diploid) effective
-        population size used to construct the (default) conditional coalescent
-        prior. For a population with constant size, this can be given as a single
-        value. For a population with time-varying size, this can be given directly as
-        a :class:`PopulationSizeHistory` object or a parameter dictionary passed
-        to initialise a class:`PopulationSizeHistory` object. This is used when
-        ``priors`` is ``None``.  Conversely, if ``priors`` is not ``None``, no
+    :param tskit.TreeSequence tree_sequence: The input tree sequence` to
+        be dated.
+    :param float or demography.PopulationSizeHistory population_size: The estimated
+        (diploid) effective population size used to construct the (default) conditional
+        coalescent prior. For a population with constant size, this can be given as a
+        single value. For a population with time-varying size, this can be given directly
+        as a :class:`~demography.PopulationSizeHistory` object or a parameter dictionary
+        passed to initialise a :class:`~demography.PopulationSizeHistory` object. This is
+        used when ``priors`` is ``None``.  Conversely, if ``priors`` is not ``None``, no
         ``population_size`` value should be specified.
     :param float mutation_rate: The estimated mutation rate per unit of genome per
         unit time. If provided, the dating algorithm will use a mutation rate clock to
@@ -1257,10 +1257,11 @@ def date(
         and are using the conditional coalescent prior, the ``population_size``
         value which you provide must be scaled by multiplying by the number of
         years per generation. If ``None`` (default), assume ``"generations"``.
-    :param NodeGridValues priors: NodeGridValue object containing the prior probabilities
-        for each node at a set of discrete time points. If ``None`` (default), use the
-        conditional coalescent prior with a standard set of time points as given by
-        :func:`build_prior_grid`.
+    :param tsdate.base.NodeGridValues priors: NodeGridValues object containing the prior
+        probabilities for each node-to-be-dated at a set of discrete time points. If
+        ``None`` (default), use the conditional coalescent prior with a standard set of
+        time points as given by :func:`build_prior_grid`, and assume the nodes
+        to be dated are all the non-sample nodes in the input tree sequence.
     :param bool return_posteriors: If ``True``, instead of returning just a dated tree
         sequence, return a tuple of ``(dated_ts, posteriors)`` (see note above).
     :param bool return_likelihood: If ``True``, return the log marginal likelihood
@@ -1336,6 +1337,8 @@ def date(
     params = dict(
         mutation_rate=mutation_rate,
         recombination_rate=recombination_rate,
+        method=method,
+        time_units=time_units,
         progress=progress,
     )
     if isinstance(population_size, (int, float)):
@@ -1627,6 +1630,7 @@ def variational_dates(
     for it in tqdm(
         np.arange(max_iterations),
         desc="Expectation Propagation",
+        disable=not progress,
     ):
         dynamic_prog.iterate(iter_num=it, max_shape=max_shape)
 
