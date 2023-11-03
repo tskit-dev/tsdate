@@ -49,10 +49,13 @@ class TestProvenance:
         ts = utility_functions.single_tree_ts_n2()
         mu = 0.123
         Ne = 9
-        dated_ts = tsdate.date(ts, population_size=Ne, mutation_rate=mu)
+        dated_ts = tsdate.date(
+            ts, population_size=Ne, mutation_rate=mu, method="maximization"
+        )
         rec = json.loads(dated_ts.provenance(-1).record)
         assert np.isclose(rec["parameters"]["mutation_rate"], mu)
         assert np.isclose(rec["parameters"]["population_size"], Ne)
+        assert rec["parameters"]["method"] == "maximization"
 
     @pytest.mark.parametrize(
         "popdict",

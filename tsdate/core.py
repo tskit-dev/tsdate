@@ -1572,6 +1572,9 @@ def variational_dates(
     if not max_iterations >= 1:
         raise ValueError("Maximum number of iterations must be greater than 0")
 
+    if mutation_rate is None:
+        raise ValueError("Variational gamma method requires mutation rate")
+
     # Parameters below are not used in variational dating, but are here
     # to match the signature of get_dates(). We may be able to remove some
     # if we move to specifying some params via a control dictionary

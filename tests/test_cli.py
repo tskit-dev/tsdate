@@ -243,6 +243,18 @@ class TestOutput(RunCLI):
         self.run_tsdate_cli(tmp_path, input_ts, flag, cmd="preprocess")
         assert log_status in caplog.text
 
+    @pytest.mark.parametrize(
+        "method", ["inside_outside", "maximization", "variational_gamma"]
+    )
+    def test_no_progress(self, method, tmp_path, capfd):
+        input_ts = msprime.simulate(4, random_seed=123)
+        params = f"-m 0.1 --method {method}"
+        self.run_tsdate_cli(tmp_path, input_ts, f"{self.popsize} {params}")
+        (out, err) = capfd.readouterr()
+        assert out == ""
+        # run_tsdate_cli print logging to stderr
+        assert err == ""
+
     def test_progress(self, tmp_path, capfd):
         input_ts = msprime.simulate(4, random_seed=123)
         params = "--method inside_outside --progress"

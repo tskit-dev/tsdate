@@ -23,8 +23,6 @@
 """
 Test cases for the python API for tsdate.
 """
-import unittest
-
 import msprime
 import numpy as np
 import pytest
@@ -37,7 +35,7 @@ from tsdate.base import LOG
 from tsdate.demography import PopulationSizeHistory
 
 
-class TestPrebuilt(unittest.TestCase):
+class TestPrebuilt:
     """
     Tests for tsdate on prebuilt tree sequences
     """
@@ -46,6 +44,12 @@ class TestPrebuilt(unittest.TestCase):
         ts = utility_functions.two_tree_mutation_ts()
         with pytest.raises(ValueError, match="Must specify population size"):
             tsdate.date(ts, mutation_rate=None)
+
+    @pytest.mark.parametrize("method", ["maximization", "variational_gamma"])
+    def test_no_mutation(self, method):
+        ts = utility_functions.two_tree_mutation_ts()
+        with pytest.raises(ValueError, match="method requires mutation rate"):
+            tsdate.date(ts, method=method, population_size=1, mutation_rate=None)
 
     def test_not_needed_population_size(self):
         ts = utility_functions.two_tree_mutation_ts()
