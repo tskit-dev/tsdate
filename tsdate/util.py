@@ -69,7 +69,7 @@ def preprocess_ts(
     generally. Removed regions are recorded in the provenance of the resulting tree
     sequence.
 
-    :param TreeSequence tree_sequence: The input :class`tskit.TreeSequence`
+    :param tskit.TreeSequence tree_sequence: The input tree sequence
         to be preprocessed.
     :param float minimum_gap: The minimum gap between sites to remove from the tree
         sequence. Default: ``None`` treated as ``1000000``
@@ -221,7 +221,7 @@ def sites_time_from_ts(
     the same as tskit.UNKNOWN_TIME, which marks sites that could have a meaningful time
     but whose time estimate is unknown).
 
-    :param TreeSequence tree_sequence: The input :class`tskit.TreeSequence`.
+    :param tskit.TreeSequence tree_sequence: The input tree sequence.
     :param bool unconstrained: Use estimated node times which have not been constrained
         by tree topology. If ``True`` (default), this requires a tree sequence which has
         been dated using the ``tsdate`` inside-outside algorithm. If this is not the
@@ -252,7 +252,7 @@ def sites_time_from_ts(
         fine to set this to a small epsilon value.
 
     :return: Array of length tree_sequence.num_sites with estimated time of each site
-    :rtype: numpy.array
+    :rtype: numpy.ndarray(dtype=np.float64)
     """
     if tree_sequence.num_sites < 1:
         raise ValueError("Invalid tree sequence: no sites present")

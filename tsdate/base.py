@@ -25,7 +25,6 @@ Base classes and constants used by tsdate
 """
 import numpy as np
 
-
 FLOAT_DTYPE = np.float64
 LIN = "linear"
 LOG = "logarithmic"
@@ -42,6 +41,13 @@ class NodeGridValues:
     with fixed times, only a single time value needs to be stored. For non-fixed nodes,
     an array of len(timepoints) probabilies is required.
 
+    .. note::
+
+        This class is not intended to be used directly by users and may be subject
+        to change of name or internal structure in future versions. For details on
+        how to create a ``NodeGridValues`` object to be used as a prior, see
+        :ref:`sec_priors`.
+
     :ivar num_nodes: The number of nodes that will be stored in this object
     :vartype num_nodes: int
     :ivar nonfixed_nodes: a (possibly empty) numpy array of unique positive node ids each
@@ -52,7 +58,7 @@ class NodeGridValues:
     :ivar timepoints: Array of time points
     :vartype timepoints: numpy.ndarray
     :ivar fill_value: What should we fill the data arrays with to start with
-    :vartype fill_value: numpy.scalar
+    :vartype fill_value: float
     """
 
     def __init__(

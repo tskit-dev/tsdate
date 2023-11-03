@@ -1180,14 +1180,17 @@ def build_grid(
     each node, given the number of contemporaneous samples below it, and
     the discretised time slices at which to evaluate node age.
 
-    :param TreeSequence tree_sequence: The input :class:`tskit.TreeSequence`, treated as
-        undated.
-    :param float population_size: The estimated (diploid) effective population
-        size: must be specified. May be a single value, or a two-column array with
-        epoch breakpoints and effective population sizes. Using standard (unscaled)
-        values for ``population_size`` results in a prior where times are measured
-        in generations.
-    :param int_or_array_like timepoints: The number of quantiles used to create the
+    :param tskit.TreeSequence tree_sequence: The input :class:`tskit.TreeSequence`,
+        treated as undated.
+    :param float or demography.PopulationSizeHistory population_size: The estimated
+        (diploid) effective population size used to construct the prior.
+        For a population with constant size, this can be given as a single
+        value. For a population with time-varying size, this can be given directly as
+        a :class:`~demography.PopulationSizeHistory` object or a parameter dictionary
+        passed to initialise a :class:`~demography.PopulationSizeHistory` object.
+        Using standard (unscaled) values for ``population_size`` results in a prior where
+        times are measured in generations.
+    :param int or array_like timepoints: The number of quantiles used to create the
         time slices, or manually-specified time slices as a numpy array. Default: 20
     :param bool approximate_priors: Whether to use a precalculated approximate prior or
         exactly calculate prior. If approximate prior has not been precalculated, tsdate
@@ -1202,7 +1205,7 @@ def build_grid(
         "lognorm"
     :return: A prior object to pass to tsdate.date() containing prior values for
         inference and a discretised time grid
-    :rtype:  base.NodeGridValues Object
+    :rtype:  base.NodeGridValues
     """
 
     mixture_prior = MixturePrior(
@@ -1231,7 +1234,7 @@ def parameter_grid(
     each node, given the number of contemporaneous samples below it, and
     return parameters (shape and rate of gamma) in a grid
 
-    :param TreeSequence tree_sequence: The input :class:`tskit.TreeSequence`, treated as
+    :param tskit.TreeSequence tree_sequence: The input tree sequence, treated as
         undated.
     :param float population_size: The estimated (diploid) effective population
         size: must be specified. May be a single value, or a two-column array with
@@ -1244,7 +1247,7 @@ def parameter_grid(
     :param int approx_prior_size: Number of samples from which to precalculate prior.
         Should only enter value if approximate_priors=True. If approximate_priors=True
         and no value specified, defaults to 1000. Default: None
-    :rtype:  base.NodeGridValues Object
+    :rtype:  base.NodeGridValues
     """
 
     mixture_prior = MixturePrior(

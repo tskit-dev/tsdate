@@ -1,0 +1,44 @@
+queue_rules:
+  - name: default
+    conditions:
+      - "#approved-reviews-by>=1"
+      - "#changes-requested-reviews-by=0"
+      - status-success=Lint
+      - status-success=Python (3.8, macos-latest)
+      - status-success=Python (3.10, macos-latest)
+      - status-success=Python (3.8, ubuntu-latest)
+      - status-success=Python (3.10, ubuntu-latest)
+      - status-success=Python (3.8, windows-latest)
+      - status-success=Python (3.10, windows-latest)
+      - "status-success=ci/circleci: build"
+
+pull_request_rules:
+  - name: Automatic rebase, CI and merge
+    conditions:
+      - "-merged"
+      - "#approved-reviews-by>=1"
+      - "#changes-requested-reviews-by=0"
+      - base=main
+      - label=AUTOMERGE-REQUESTED
+      - status-success=Lint
+      - status-success=Python (3.8, macos-latest)
+      - status-success=Python (3.10, macos-latest)
+      - status-success=Python (3.8, ubuntu-latest)
+      - status-success=Python (3.10, ubuntu-latest)
+      - status-success=Python (3.8, windows-latest)
+      - status-success=Python (3.10, windows-latest)
+      - "status-success=ci/circleci: build"
+    actions:
+      queue:
+        name: default
+        method: rebase
+        update_method: rebase
+
+  - name: Remove label after merge
+    conditions:
+      - merged
+      - label=AUTOMERGE-REQUESTED
+    actions:
+      label:
+        remove:
+          - AUTOMERGE-REQUESTED
