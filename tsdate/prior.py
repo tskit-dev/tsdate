@@ -463,12 +463,10 @@ class SpansBySamples:
         )
 
         if not allow_unary:
-            for tree in self.ts.trees():
-                # final element corresponding to the tree’s virtual_root - don't consider.
-                if any(tree.num_children_array[:-1] == 1):
-                    raise ValueError(
-                        "The input tree sequence has unary nodes: tsdate currently requires that these are removed using `simplify(keep_unary=False)`"
-                    )
+            if has_locally_unary_nodes(self.ts):
+                raise ValueError(
+                    "The input tree sequence has unary nodes: tsdate currently requires that these are removed using `simplify(keep_unary=False)`"
+                )
 
         with tqdm(total=3, desc="TipCount", disable=not self.progress) as progressbar:
             (
@@ -1264,3 +1262,13 @@ def parameter_grid(
         progress,
     )
     return mixture_prior.make_parameter_grid(population_size)
+
+
+def has_locally_unary_nodes(ts):
+    for tree, ediff in zip(ts.trees(), ts.edge_diffs()):
+        changed = {
+            e.parent for edges in (ediff.edges_out, ediff.edges_in) for e in edges
+        }
+        if (tree.num_children_array[list(changed)] == 1).any():
+            return True
+    return False
