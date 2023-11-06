@@ -1194,6 +1194,14 @@ def constrain_ages_topo(ts, node_times, eps, progress=False):
     return new_node_times
 
 
+def check_method(method):
+    if method not in ["inside_outside", "maximization", "variational_gamma"]:
+        raise ValueError(
+            "method must be one of 'inside_outside', 'maximization', "
+            "'variational_gamma'"
+        )
+
+
 def date(
     tree_sequence,
     mutation_rate,
@@ -1293,6 +1301,10 @@ def date(
         from the inside algorithm.
     :rtype: tskit.TreeSequence or (tskit.TreeSequence, dict)
     """
+
+    # check valid method - raise error if unknown.
+    check_method(method)
+
     if time_units is None:
         time_units = "generations"
     if Ne is not None:
