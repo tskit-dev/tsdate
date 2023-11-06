@@ -41,8 +41,8 @@ The rest of this documentation is organised into the following sections:
 
 ## Citing
 
-The algorithm is described in [this Science paper](https://www.science.org/doi/10.1126/science.abi8264)
-(preprint [here](https://www.biorxiv.org/content/10.1101/2021.02.16.431497v2)). We also provide
+The algorithm is described in [our Science paper](https://www.science.org/doi/10.1126/science.abi8264)
+(citation below, preprint [here](https://www.biorxiv.org/content/10.1101/2021.02.16.431497v2)). We also provide
 evaluations of the accuracy and computational requirements of the method using both simulated and real
 data; the code to reproduce these results can be found in
 [another repository](https://github.com/awohns/unified_genealogy_paper).
