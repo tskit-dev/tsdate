@@ -3,15 +3,8 @@ queue_rules:
     conditions:
       - "#approved-reviews-by>=1"
       - "#changes-requested-reviews-by=0"
-      - status-success=Lint
-      - status-success=Python (3.8, macos-latest)
-      - status-success=Python (3.10, macos-latest)
-      - status-success=Python (3.8, ubuntu-latest)
-      - status-success=Python (3.10, ubuntu-latest)
-      - status-success=Python (3.8, windows-latest)
-      - status-success=Python (3.10, windows-latest)
       - "status-success=ci/circleci: build"
-
+      - status-success=Docs
 pull_request_rules:
   - name: Automatic rebase, CI and merge
     conditions:
@@ -20,14 +13,8 @@ pull_request_rules:
       - "#changes-requested-reviews-by=0"
       - base=main
       - label=AUTOMERGE-REQUESTED
-      - status-success=Lint
-      - status-success=Python (3.8, macos-latest)
-      - status-success=Python (3.10, macos-latest)
-      - status-success=Python (3.8, ubuntu-latest)
-      - status-success=Python (3.10, ubuntu-latest)
-      - status-success=Python (3.8, windows-latest)
-      - status-success=Python (3.10, windows-latest)
       - "status-success=ci/circleci: build"
+      - status-success=Docs
     actions:
       queue:
         name: default
