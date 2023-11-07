@@ -30,7 +30,8 @@ import scipy.stats
 class PopulationSizeHistory:
     """
     Stores a piecewise constant population size history and tranforms time from
-    a natural (generational) scale to a coalescent one
+    a natural (generational) scale to a coalescent one. See :ref:`sec_variable_popsize`
+    for details.
     """
 
     @staticmethod

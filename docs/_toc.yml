@@ -1,0 +1,17 @@
+format: jb-book
+root: index
+chapters:
+- file: introduction
+- file: installation
+- file: usage
+  sections:
+  - file: methods
+  - file: priors
+  - file: historical_samples
+  - file: variable_popsize
+- file: api
+  sections:
+  - file: python-api
+  - file: cli
+- file: bibliography
+- file: CHANGELOG

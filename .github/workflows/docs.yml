@@ -1,0 +1,48 @@
+name: Build Docs
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+    tags:
+      - '*'
+
+env:
+  COMMIT_EMAIL: ben.jeffery.well+adminbot@gmail.com
+  OWNER: tskit-dev
+  REPO: tsdate
+  REQUIREMENTS: docs/requirements.txt
+
+jobs:
+  build-deploy-docs:
+    name: Docs
+    runs-on: ubuntu-latest
+    steps:
+      - name: Cancel Previous Runs
+        uses: styfle/cancel-workflow-action@0.11.0
+        with:
+          access_token: ${{ github.token }}
+
+      - uses: actions/checkout@v3
+
+      - uses: actions/setup-python@v4
+        with:
+          python-version: "3.10"
+          cache: 'pip'
+
+      - name: Create venv and install deps
+        run: |
+          pip install --upgrade pip wheel
+          pip install -r ${{env.REQUIREMENTS}}          
+
+      - name: Build Docs
+        run: |
+          make -C docs
+
+      - name: Trigger docs site rebuild
+        if: github.ref == 'refs/heads/main'
+        run: |
+          curl -X POST https://api.github.com/repos/tskit-dev/tskit-site/dispatches \
+                    -H 'Accept: application/vnd.github.everest-preview+json' \
+                    -u AdminBot-tskit:${{ secrets.ADMINBOT_TOKEN }} \
+                    --data '{"event_type":"build-docs"}'
