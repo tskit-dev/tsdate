@@ -21,8 +21,8 @@ kernelspec:
 
 Sometimes we wich to infer and date a genetic genealogy from
 data which includes *historical samples*,
-whose time is older that the current generation (i.e. sample with
-node times > 0).
+whose time is older that the current generation (i.e. sample nodes with
+times > 0).
 
 The output of {ref}`tsinfer:sec_introduction` is valid regardless
 of the inclusion of historical samples, but *dating* such a tree sequence

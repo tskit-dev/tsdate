@@ -26,8 +26,8 @@ approaches approximate the probability distribution of times by a continuous
 mathematical function (e.g. a gamma distribution).
 
 In tests, we find that the continuous-time `variational_gamma` approach is
-the most accurate (but can suffer from numerical stability). The discrete-time
-`inside_outside` approach is slightly less accurate, especially for older times,
+the most accurate (but can suffer from {ref}`numerical instability<sec_usage_real_data_stability>`).
+The discrete-time `inside_outside` approach is slightly less accurate, especially for older times,
 but is more numerically robust, and the discrete-time `maximization` approach is
 always stable but is the least accurate.
 
@@ -49,8 +49,8 @@ Currently the default is `inside_outside`, but this may change in future release
 
 ## Discrete-time
 
-The `inside_outside` and `maximization` methods both implement discrete-time
-algorithms. These have the following advantages and disadvantages:
+The available discrete-time algorithms are the `inside_outside` and `maximization` methods.
+They have the following advantages and disadvantages:
 
 Pros
 : allows any shape for the distribution of times
@@ -91,6 +91,7 @@ Pros
     with number of timepoints
 : Old nodes do not suffer from time-discretisation issues caused by forcing
     bounds on the oldest times
+: Iterative updating theoretically solves the "loopy belief propagation" problem
 
 Cons
 : Assumes posterior times can be reasonably modelled by a gamma distribution
@@ -105,6 +106,12 @@ Cons
 The `variational_gamma` method approximates times by fitting a separate gamma
 distribution for each node. Iteration is required to converge
 to a stable solution.
+
+Note that as a result of testing, the default priors used for this method are
+identical for all nodes (i.e. a "global" prior is used), based on a composite
+of all the conditional coalescent priors for all nodes.
+See {ref}`sec_priors_conditional_coalescent`
+for details.
 
 We are in the process of writing a formal description of the algorithm, but in
 summary, this approach uses an expectation propagation ("message passing")
