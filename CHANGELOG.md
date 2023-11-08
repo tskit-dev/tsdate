@@ -20,12 +20,16 @@
   `action="count"`, so `-v` turns verbosity to INFO level,
   whereas `-vv` turns verbosity to DEBUG level.
 
+- Python 3.7 is no longer supported.
+
 **Features**
 
 - Priors may be calculated using a piecewise-constant effective population trajectory,
   which is implemented in the `demography.PopulationSizeHistory` class. The
   `population_size` argument to `date` accepts either a single scalar effective
   population size, or a `PopulationSizeHistory` instance.
+
+- Added support and wheels for Python 3.11
 
 **Bugfixes**
 
