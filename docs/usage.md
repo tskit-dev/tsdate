@@ -74,7 +74,8 @@ redated_ts = tsdate.date(sim_ts, population_size=100, mutation_rate=1e-6)
 
 This simple example has no recombination, infinite sites mutation,
 a high mutation rate, and a known genealogy, so we would expect that the node times
-as estimated by tsdate from the mutations would be very close to the actual node times:
+as estimated by tsdate from the mutations would be very close to the actual node times,
+as indeed they seem to be:
 
 ```{code-cell} ipython3
 :tags: [hide-input]
@@ -124,7 +125,7 @@ print(
 There was not a fixed population size in the simulation used to generate the data,
 so we have used a rough commonly-used
 estimate of an human effective population size of 20,000 (see the
-[Variable population sizes]`sec_variable_popsize` section for more
+[Variable population sizes](sec_variable_popsize) section for more
 sophisticated approaches).
 :::
 
@@ -161,7 +162,7 @@ when calling {func}`tsdate.date`, which then returns both the dated tree sequenc
 and a dictionary specifying the posterior distributions.
 
 The returned posterior is a dictionary keyed by integer node ID, with values representing the
-probability distribution of times. This can be read in to a [pandas](https://pandas.pydata.org
+probability distribution of times. This can be read in to a [pandas](https://pandas.pydata.org)
 dataframe:
 
 ```{code-cell} ipython3
@@ -227,14 +228,20 @@ instability and other problems. Here we detail some common issues found in real 
 
 ### Memory and run time
 
-`Tsdate` is not particularly memory intensive: whole genome tree sequences with
+`Tsdate` can be run on most modern computers: large tree sequences of millions or
+tens of millions of edges will take of the order of hours, and use
+tens of GB of RAM (e.g. 24 GB / 1 hour on a 2022-era laptop
+for a tree sequence of 5 million edges covering
+60 megabases of 7500 samples of human chromosome 6 from {cite}`wohns2022unified`).
+
+
+:::{todo}
+Add some scaling plots.
+:::
 
 Running the dating algorithm is linear in the number of edges in the tree sequence.
-This makes `tsdate` usable even for large tree sequences (e.g. millions of samples).
-Nevertheless, dating large tree sequences with millions of edges is likely to take
-some time (e.g. an hour or more for a tree sequence of 11 million edges covering
-150Mb of 7500 human chromosome 2, e.g. from {cite}`wohns2022unified`).
-If you are running `tsdate` interactively, it can be useful to
+This makes `tsdate` usable even for vary large tree sequences (e.g. millions of samples).
+For large instances, if you are running `tsdate` interactively, it can be useful to
 specify the `progress` option to display a progress bar telling you how long
 different stages of dating will take.
 
