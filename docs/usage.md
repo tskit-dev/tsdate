@@ -232,7 +232,7 @@ instability and other problems. Here we detail some common issues found in real 
 tens of millions of edges will take of the order of hours, and use
 tens of GB of RAM (e.g. 24 GB / 1 hour on a 2022-era laptop
 for a tree sequence of 5 million edges covering
-60 megabases of 7500 samples of human chromosome 6 from {cite}`wohns2022unified`).
+60 megabases of 7500 samples of human chromosome 6 from {cite:t}`wohns2022unified`).
 
 
 :::{todo}
