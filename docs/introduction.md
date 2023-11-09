@@ -81,10 +81,10 @@ svg2 = tsdate.date(inferred, population_size=1000, mutation_rate=4e-6).draw_svg(
 haps = "<br>".join(ts.haplotypes())
 cen = 'style="text-align: center; padding: 0.5em 0"'
 HTML(f"""<table>
-    <caption>An example of using `tsinfer` followed by `tsdate` on some DNA sequence data.
+    <caption style="padding: 0 4em">An example of using `tsinfer` followed by `tsdate` on some DNA sequence data.
     You can see that tsdate sets a timescale and changes node times so that mutations (red crosses)
     are more evenly distributed over edges of the genealogy. This results in more realistic local trees
-    (with coaleascences clustered, as expected from theory, at recent times)</caption>
+    (with coalescences clustered, as expected from theory, at recent times)</caption>
     <t style=""><td {cen}><div style="font-size: 0.6em">{haps}</div></td><td></td><td {cen} width="300">{svg1}</td><td></td><td {cen} width="300">{svg2}</td></tr>
     <tr style="font-size: 2em"><td {cen}">DNA sequence</td><td {cen}>→</td><td {cen}>tsinfer</td><td {cen}>→</td><td {cen}>tsdate</td></tr>
     </table>"""

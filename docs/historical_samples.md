@@ -19,7 +19,7 @@ kernelspec:
 
 # Historical (Ancient) Samples
 
-Sometimes we wich to infer and date a genetic genealogy from
+Sometimes you may wish to infer and date a genetic genealogy from
 data which includes *historical samples*,
 whose time is older that the current generation (i.e. sample nodes with
 times > 0).
@@ -33,7 +33,7 @@ place any historical samples.
 ## The 2 step approach
 
 Currently, the best way to date such tree sequences is 
-to carry out a two step process, in  which inference and dating is first
+to perform a two step process, in  which inference and dating is first
 performed on the modern samples in order to establish a timescale, followed by
 adding the historical samples and re-inferring using the dated timescale as a
 basis for site ages in the `tsinfer` algorithm. The re-inferred tree sequence

@@ -173,10 +173,11 @@ posteriors_df = pd.DataFrame(posteriors)
 posteriors_df.head()  # Show the dataframe
 ```
 
-Since we are using a {ref}`sec_methods_discrete_time` method, each row of this
-posterior dataframe corresponds to a set of probabilities for a given timeslice
-(as specified in the `start_time` and `end_time` columns). Each column corresponds to
-a node (the column header is the node ID in the returned tree sequence).
+Since we are using a {ref}`sec_methods_discrete_time` method, each node
+(numbered column of the dataframe) is associated with a vector of probabilities
+that sum to one: each cell gives the probability that the time of the node
+whose ID is given by the column header lies within the
+timeslice specified by the `start_time` and `end_time` columns.
 
 (sec_usage_popsize)=
 

@@ -76,8 +76,8 @@ specified time intervals). This can them be used to create a prior, via the {fun
 function (see {ref}`sec_priors`).
 
 For example, the following code defines a population that is of effective size
-1 million in the last 200 generations, only two hundred for a period of 10 generations 50,000 generations ago, then
-of size 50,000 for all generations before that, exactly matching the simulated bottleneck
+1 million in the last 50,000 generations, only two hundred for a period of 10 generations 50,000 generations ago, then
+of size 10,000 for all generations before that, exactly matching the simulated bottleneck
 
 ```{code-cell} ipython3
 popsize = tsdate.demography.PopulationSizeHistory(population_size=[1e6, 2e2, 1e4], time_breaks=[50_000, 50_010])
@@ -99,5 +99,6 @@ population size over time, by extimating the number of coalescence points in dif
 intervals, and re-estimating the dates. However, this
 approach has not been fully tested or documented.
 
-If you are interested in doing this, see https://github.com/tskit-dev/tsdate/issues/237#issuecomment-1785655708
+If you are interested in doing this, see
+[GitHub issue #237](https://github.com/tskit-dev/tsdate/issues/237#issuecomment-1785655708)
 for an example.
