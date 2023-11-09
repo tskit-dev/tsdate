@@ -47,7 +47,7 @@ jobs:
       - name: Download wheels
         uses: actions/download-artifact@v3
         with:
-          name: wheels
+          name: sdist-wheel
       - name: Set up Python ${{ matrix.python }}
         uses: actions/setup-python@v4
         with:
@@ -73,7 +73,7 @@ jobs:
       - name: Download wheels
         uses: actions/download-artifact@v3
         with:
-          name: wheels
+          name: sdist-wheel
       - name: Set up Python ${{ matrix.python }}
         uses: actions/setup-python@v4
         with:
@@ -98,7 +98,7 @@ jobs:
       - name: Download wheels
         uses: actions/download-artifact@v3
         with:
-          name: wheels
+          name: sdist-wheel
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
