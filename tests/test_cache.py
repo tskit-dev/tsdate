@@ -37,7 +37,7 @@ class TestSetCacheDir(unittest.TestCase):
         priors_approxNone.add(10)
         assert np.allclose(priors_approx10[10], priors_approxNone[10], equal_nan=True)
         # Test when using a bigger n that we're using the precalculated version
-        priors_approx10.add(100)
+        priors_approx10.add(100, approximate=True)
         assert priors_approx10[100].shape[0] == 100 + 1
         priors_approxNone.add(100, approximate=False)
         assert priors_approxNone[100].shape[0] == 100 + 1

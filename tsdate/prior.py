@@ -181,7 +181,6 @@ class ConditionalCoalescentTimes:
     def prior_with_max_total_tips(self):
         return self.prior_store.get(max(self.prior_store.keys()))
 
-    # TODO: remove old variance calculation
     def add(self, total_tips, approximate=None):
         """
         Create and store a numpy array used to lookup prior params and mean + variance
@@ -285,6 +284,12 @@ class ConditionalCoalescentTimes:
         else:
             return (i - 1) / n
 
+    @staticmethod
+    def tau_var_mrca(n):
+        value = np.arange(2, n + 1)
+        var = np.sum(1 / ((value**2) * ((value - 1) ** 2)))
+        return np.abs(4 * var)
+
     # The following are not static as they may need to access self.approx_priors for this
     # instance
     def tau_var_lookup(self, total_tips, all_tips):
@@ -300,9 +305,7 @@ class ConditionalCoalescentTimes:
         # interpolated_priors = self.approx_priors[insertion_point, 1]
 
         # The final MRCA we calculate exactly
-        interpolated_priors[all_tips == total_tips] = self.tau_var(
-            total_tips, total_tips
-        )
+        interpolated_priors[all_tips == total_tips] = self.tau_var_mrca(total_tips)
         return interpolated_priors
 
     def tau_var_exact(self, total_tips, all_tips):

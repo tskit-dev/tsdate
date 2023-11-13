@@ -28,6 +28,7 @@ import numpy as np
 import pytest
 import utility_functions
 
+from tsdate.prior import conditional_coalescent_variance
 from tsdate.prior import ConditionalCoalescentTimes
 from tsdate.prior import create_timepoints
 from tsdate.prior import PriorParams
@@ -73,8 +74,8 @@ class TestConditionalCoalescentTimes:
         mean2, var2 = priors.mixture_expect_and_var(params, weight_by_log_span=logwt)
         assert mean1 == pytest.approx(1 / 3)  # 1/N for a cherry
         assert var1 == pytest.approx(1 / 9)
-        assert mean1 == mean2
-        assert var1 == var2
+        assert np.isclose(mean1, mean2)
+        assert np.isclose(var1, var2)
 
     def test_mixture_expect_and_var_weight(self):
         priors = ConditionalCoalescentTimes(None)
@@ -99,6 +100,12 @@ class TestConditionalCoalescentTimes:
         }
         logwt = priors.mixture_expect_and_var(params, weight_by_log_span=True)
         assert np.allclose(linwt, logwt)
+
+    def test_fast_equals_naive(self):
+        # test fast recursion against slow but clearly correct version
+        true = utility_functions.conditional_coalescent_variance(100)
+        test = conditional_coalescent_variance(100)
+        np.testing.assert_array_almost_equal(true, test)
 
 
 class TestSpansBySamples:

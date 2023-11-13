@@ -253,7 +253,6 @@ class TestOutput(RunCLI):
         desc = (
             "Find Node Spans",
             "TipCount",
-            "Calculating Node Age Variances",
             "Find Mixture Priors",
             "Inside",
             "Outside",
