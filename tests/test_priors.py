@@ -138,3 +138,26 @@ class TestTimepoints:
         priors.prior_distr = "bad_distr"
         with pytest.raises(ValueError, match="must be lognorm or gamma"):
             create_timepoints(priors, n_points=3)
+
+
+class TestUtilityFunctions:
+    def test_m_prob(self):
+        assert utility_functions.m_prob(2, 2, 3) == 1.0
+        assert utility_functions.m_prob(2, 2, 4) == 0.25
+
+    def test_tau_expect(self):
+        assert utility_functions.tau_expect(10, 10) == 1.8
+        assert utility_functions.tau_expect(10, 100) == 0.09
+        assert utility_functions.tau_expect(100, 100) == 1.98
+        assert utility_functions.tau_expect(5, 10) == 0.4
+
+    def test_tau_squared_conditional(self):
+        assert np.isclose(utility_functions.tau_squared_conditional(1, 10), 4.3981418)
+        assert np.isclose(
+            utility_functions.tau_squared_conditional(100, 100), 4.87890977e-18
+        )
+
+    def test_tau_var(self):
+        assert utility_functions.tau_var(2, 2) == 1
+        assert np.isclose(utility_functions.tau_var(10, 20), 0.0922995960)
+        assert np.isclose(utility_functions.tau_var(50, 50), 1.15946186)
