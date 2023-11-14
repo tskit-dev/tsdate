@@ -193,7 +193,7 @@ class ConditionalCoalescentTimes:
         if approximate is not None:
             self.approximate = approximate
         else:
-            if total_tips >= 20000:
+            if total_tips >= 10000:
                 self.approximate = True
             else:
                 self.approximate = False
@@ -202,6 +202,12 @@ class ConditionalCoalescentTimes:
             raise RuntimeError(
                 "You cannot add an approximate prior unless you initialize"
                 " the ConditionalCoalescentTimes object with a non-zero number"
+            )
+
+        if not self.approximate and total_tips >= 10000:
+            logging.warning(
+                "Calculating exact priors for more than 10000 tips. Consider "
+                "setting `approximate=True` for a faster calculation."
             )
 
         # alpha/beta and mean/var are simply transformations of one another
@@ -1056,7 +1062,7 @@ class MixturePrior:
 
         if approximate_priors:
             if not approx_prior_size:
-                approx_prior_size = 1000
+                approx_prior_size = 10000
         else:
             if approx_prior_size is not None:
                 raise ValueError(
