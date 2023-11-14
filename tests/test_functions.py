@@ -63,28 +63,14 @@ class TestBasicFunctions:
     Test for some of the basic functions used in tsdate
     """
 
-    def test_alpha_prob(self):
-        assert ConditionalCoalescentTimes.m_prob(2, 2, 3) == 1.0
-        assert ConditionalCoalescentTimes.m_prob(2, 2, 4) == 0.25
-
     def test_tau_expect(self):
         assert ConditionalCoalescentTimes.tau_expect(10, 10) == 1.8
         assert ConditionalCoalescentTimes.tau_expect(10, 100) == 0.09
         assert ConditionalCoalescentTimes.tau_expect(100, 100) == 1.98
         assert ConditionalCoalescentTimes.tau_expect(5, 10) == 0.4
 
-    def test_tau_squared_conditional(self):
-        assert ConditionalCoalescentTimes.tau_squared_conditional(
-            1, 10
-        ) == pytest.approx(4.3981418)
-        assert ConditionalCoalescentTimes.tau_squared_conditional(
-            100, 100
-        ) == pytest.approx(4.87890977e-18)
-
-    def test_tau_var(self):
-        assert ConditionalCoalescentTimes.tau_var(2, 2) == 1
-        assert ConditionalCoalescentTimes.tau_var(10, 20) == pytest.approx(0.0922995960)
-        assert ConditionalCoalescentTimes.tau_var(50, 50) == pytest.approx(1.15946186)
+    def test_tau_var_mrca(self):
+        assert np.isclose(ConditionalCoalescentTimes.tau_var_mrca(50), 1.15946186)
 
     def test_gamma_approx(self):
         assert gamma_approx(2, 1) == (4.0, 2.0)
@@ -1880,7 +1866,9 @@ class TestSiteTimes:
     def test_sites_time_insideoutside(self):
         ts = utility_functions.two_tree_mutation_ts()
         dated = tsdate.date(ts, mutation_rate=None, population_size=1)
-        _, mn_post, _, _, eps, _, _ = get_dates(ts, mutation_rate=None, population_size=1)
+        _, mn_post, _, _, eps, _, _ = get_dates(
+            ts, mutation_rate=None, population_size=1
+        )
         assert np.array_equal(
             mn_post[ts.tables.mutations.node],
             tsdate.sites_time_from_ts(dated, unconstrained=True, min_time=0),

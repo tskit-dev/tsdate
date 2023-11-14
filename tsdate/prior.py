@@ -28,10 +28,10 @@ import os
 from collections import defaultdict
 from collections import namedtuple
 
+import numba
 import numpy as np
 import scipy.stats
 import tskit
-from scipy.special import comb
 from tqdm.auto import tqdm
 
 from . import base
@@ -63,6 +63,57 @@ def gamma_approx(mean, variance):
     """
 
     return (mean**2) / variance, mean / variance
+
+
+@numba.njit("float64[:, :](float64[:, :])")
+def _marginalize_over_ancestors(val):
+    """
+    Integrate an expectation over counts of extant ancestors. In a tree with
+    "n" tips, the probability that there are "a" extent ancestors when a
+    subtree of size "k" coalesces is hypergeometric-ish (Wuif & Donnelly 1998),
+    and may be calculated recursively over increasing "a" and decreasing "k"
+    (e.g. using recursive relationships for binomial coefficients).
+    """
+    n, N = val.shape  # number of tips, number of moments
+    pr_a_ln = [np.nan, np.nan, 0.0]  # log Pr(a | k, n)
+    out = np.zeros((n + 1, N))
+    for k in range(n - 1, 1, -1):
+        const = np.log(n - k) + np.log(k - 2) - np.log(k + 1)
+        for a in range(2, n - k + 2):
+            out[k] += np.exp(pr_a_ln[a]) * val[a]
+            if k > 2:  # Pr(a | k, n) to Pr(a | k - 1, n)
+                pr_a_ln[a] += const - np.log(n - a - k + 2)
+        if k > 2:  # Pr(n - k + 1 | k - 1, n) to Pr(n - k + 2 | k - 1, n)
+            pr_a_ln.append(pr_a_ln[-1] + np.log(n - k + 2) - np.log(k + 1) - const)
+    out[n] = val[1]
+    return out
+
+
+@numba.njit("float64[:](uint64)")
+def conditional_coalescent_variance(num_tips):
+    """
+    Variance of node age conditional on the number of descendant leaves, under
+    the standard coalescent. Returns array indexed by number of descendant
+    leaves.
+    """
+
+    coal_rates = np.array(
+        [2 / (i * (i - 1)) if i > 1 else 0.0 for i in range(1, num_tips + 1)]
+    )
+
+    # hypoexponential mean and variance; e.g. conditional on the number of
+    # extant ancestors when the node coalesces, the expected time of
+    # coalescence is the sum of exponential RVs (Wuif and Donnelly 1998)
+    mean = coal_rates.copy()
+    variance = coal_rates.copy() ** 2
+    for i in range(coal_rates.size - 2, 0, -1):
+        mean[i] += mean[i + 1]
+        variance[i] += variance[i + 1]
+
+    # marginalize over number of ancestors using recursive algorithm
+    moments = _marginalize_over_ancestors(np.stack((mean, variance + mean**2), 1))
+
+    return moments[:, 1] - moments[:, 0] ** 2
 
 
 class ConditionalCoalescentTimes:
@@ -97,7 +148,7 @@ class ConditionalCoalescentTimes:
             else:
                 # Calc and store
                 self.approx_priors = self.precalculate_priors_for_approximation(
-                    precalc_approximation_n
+                    precalc_approximation_n,
                 )
         else:
             self.approx_priors = None
@@ -142,7 +193,7 @@ class ConditionalCoalescentTimes:
         if approximate is not None:
             self.approximate = approximate
         else:
-            if total_tips >= 100:
+            if total_tips >= 10000:
                 self.approximate = True
             else:
                 self.approximate = False
@@ -151,6 +202,12 @@ class ConditionalCoalescentTimes:
             raise RuntimeError(
                 "You cannot add an approximate prior unless you initialize"
                 " the ConditionalCoalescentTimes object with a non-zero number"
+            )
+
+        if not self.approximate and total_tips >= 10000:
+            logging.warning(
+                "Calculating exact priors for more than 10000 tips. Consider "
+                "setting `approximate=True` for a faster calculation."
             )
 
         # alpha/beta and mean/var are simply transformations of one another
@@ -205,7 +262,7 @@ class ConditionalCoalescentTimes:
         prior_lookup_table = np.zeros((n, 2))
         all_tips = np.arange(2, n + 1)
         prior_lookup_table[1:, 0] = all_tips / n
-        prior_lookup_table[1:, 1] = [self.tau_var(val, n + 1) for val in all_tips]
+        prior_lookup_table[1:, 1] = conditional_coalescent_variance(n + 1)[all_tips]
         np.savetxt(self.get_precalc_cache(n), prior_lookup_table)
         return prior_lookup_table
 
@@ -227,16 +284,6 @@ class ConditionalCoalescentTimes:
         )
 
     @staticmethod
-    def m_prob(m, i, n):
-        """
-        Corollary 2 in Wiuf and Donnelly (1999). Probability of one
-        ancestor to entire sample at time tau
-        """
-        return (comb(n - m - 1, i - 2, exact=True) * comb(m, 2, exact=True)) / comb(
-            n, i + 1, exact=True
-        )
-
-    @staticmethod
     def tau_expect(i, n):
         if i == n:
             return 2 * (1 - (1 / n))
@@ -244,32 +291,10 @@ class ConditionalCoalescentTimes:
             return (i - 1) / n
 
     @staticmethod
-    def tau_squared_conditional(m, n):
-        """
-        Gives expectation of tau squared conditional on m
-        Equation (10) from Wiuf and Donnelly (1999).
-        """
-        t_sum = np.sum(1 / np.arange(m, n + 1) ** 2)
-        return 8 * t_sum + (8 / n) - (8 / m) - (8 / (n * m))
-
-    @staticmethod
-    def tau_var(i, n):
-        """
-        For the last coalesence (n=2), calculate the Tmrca of the whole sample
-        """
-        if i == n:
-            value = np.arange(2, n + 1)
-            var = np.sum(1 / ((value**2) * ((value - 1) ** 2)))
-            return np.abs(4 * var)
-        else:
-            tau_square_sum = 0
-            for m in range(2, n - i + 2):
-                tau_square_sum += ConditionalCoalescentTimes.m_prob(
-                    m, i, n
-                ) * ConditionalCoalescentTimes.tau_squared_conditional(m, n)
-            return np.abs(
-                (ConditionalCoalescentTimes.tau_expect(i, n) ** 2) - (tau_square_sum)
-            )
+    def tau_var_mrca(n):
+        value = np.arange(2, n + 1)
+        var = np.sum(1 / ((value**2) * ((value - 1) ** 2)))
+        return np.abs(4 * var)
 
     # The following are not static as they may need to access self.approx_priors for this
     # instance
@@ -286,21 +311,11 @@ class ConditionalCoalescentTimes:
         # interpolated_priors = self.approx_priors[insertion_point, 1]
 
         # The final MRCA we calculate exactly
-        interpolated_priors[all_tips == total_tips] = self.tau_var(
-            total_tips, total_tips
-        )
+        interpolated_priors[all_tips == total_tips] = self.tau_var_mrca(total_tips)
         return interpolated_priors
 
     def tau_var_exact(self, total_tips, all_tips):
-        # TODO, vectorize this properly
-        return [
-            self.tau_var(tips, total_tips)
-            for tips in tqdm(
-                all_tips,
-                desc="Calculating Node Age Variances",
-                disable=not self.progress,
-            )
-        ]
+        return conditional_coalescent_variance(total_tips)[all_tips]
 
     def mixture_expect_and_var(self, mixture, weight_by_log_span=False):
         """
@@ -1052,7 +1067,7 @@ class MixturePrior:
     ):
         if approximate_priors:
             if not approx_prior_size:
-                approx_prior_size = 1000
+                approx_prior_size = 10000
         else:
             if approx_prior_size is not None:
                 raise ValueError(

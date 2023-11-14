@@ -27,6 +27,7 @@ import io
 import msprime
 import numpy as np
 import tskit
+from scipy.special import comb
 
 
 def add_grand_mrca(ts):
@@ -1066,3 +1067,51 @@ def truncate_ts_samples(ts, average_span, random_seed, min_span=5):
         filter_sites=False,
         keep_unary=True,
     )
+
+
+def m_prob(m, i, n):
+    """
+    Corollary 2 in Wiuf and Donnelly (1999). Probability of one
+    ancestor to entire sample at time tau
+    """
+    return (comb(n - m - 1, i - 2, exact=True) * comb(m, 2, exact=True)) / comb(
+        n, i + 1, exact=True
+    )
+
+
+def tau_expect(i, n):
+    if i == n:
+        return 2 * (1 - (1 / n))
+    else:
+        return (i - 1) / n
+
+
+def tau_squared_conditional(m, n):
+    """
+    Gives expectation of tau squared conditional on m
+    Equation (10) from Wiuf and Donnelly (1999).
+    """
+    t_sum = np.sum(1 / np.arange(m, n + 1) ** 2)
+    return 8 * t_sum + (8 / n) - (8 / m) - (8 / (n * m))
+
+
+def tau_var(i, n):
+    """
+    For the last coalesence (n=2), calculate the Tmrca of the whole sample
+    """
+    if i == n:
+        value = np.arange(2, n + 1)
+        var = np.sum(1 / ((value**2) * ((value - 1) ** 2)))
+        return np.abs(4 * var)
+    elif i == 0:
+        return 0.0
+    else:
+        tau_square_sum = 0
+        for m in range(2, n - i + 2):
+            tau_square_sum += m_prob(m, i, n) * tau_squared_conditional(m, n)
+        return np.abs((tau_expect(i, n) ** 2) - (tau_square_sum))
+
+
+def conditional_coalescent_variance(n_tips):
+    """Variance calculation for prior, slow but clear version"""
+    return np.array([tau_var(i, n_tips) for i in range(n_tips + 1)])

@@ -166,6 +166,8 @@ class PopulationSizeHistory:
         )
         return coalescent_time_ago
 
+    # TODO: multiprecision implementation -- remove at some point
+
     # @staticmethod
     # def _Gamma(z, a=0, b=np.inf):
     #    """
