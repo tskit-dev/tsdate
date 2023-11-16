@@ -18,8 +18,10 @@ kernelspec:
 
 # Introduction
 
-`Tsdate` {cite}`wohns2022unified` infers dates for nodes in a genetic genealogy. More precisely, it takes a
-[tree sequence](https://tskit.dev/tutorials/what_is.html) as input
+`Tsdate` {cite}`wohns2022unified` infers dates for nodes in a genetic genealogy,
+sometimes loosely known as an ancestral recombination graph or ARG
+{cite}`wong2023general`. More precisely, it takes a genealogy in 
+[tree sequence](https://tskit.dev/tutorials/what_is.html) format as an input
 and returns a copy of that tree sequence with altered node times. These
 times have been estimated on the basis of the number of mutations
 along the edges connecting genomes in the genealogy (i.e. using the "molecular clock").
