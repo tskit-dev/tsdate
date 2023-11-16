@@ -19,11 +19,15 @@ kernelspec:
 # Methods
 
 The methods available for `tsdate` inference can be divided into _discrete-time_
-and _continuous-time_ approaches. Discrete-time approaches define time grid based on
-discrete timepoints, and assign a probability to each node being at
-each timepoint. Continuous-time
-approaches approximate the probability distribution of times by a continuous
-mathematical function (e.g. a gamma distribution).
+and _continuous-time_ approaches. 
+Both approaches iteratively propagate information between nodes to
+construct an approximation of the marginal posterior distribution for the age of each node,
+given the mutational information in the tree sequence.
+Discrete-time approaches approximate the posterior across a grid of 
+discrete timepoints (e.g. assign a probability to each node being at
+each timepoint). 
+Continuous-time approaches approximate the posterior by a continuous
+univariate distribution (e.g. a gamma distribution).
 
 In tests, we find that the continuous-time `variational_gamma` approach is
 the most accurate (but can suffer from {ref}`numerical instability<sec_usage_real_data_stability>`).
@@ -61,8 +65,8 @@ Cons
     based on the conditional coalescent)
 : Inferred times are imprecise due to discretization: a denser timegrid can increase
     precision, but also increases computational cost (quadratic with number of timepoints)
-: In particular, the oldest nodes can suffer from poor dating, as time into the past
-    is an unbounded value, but a single oldest timepoint must be chosen.
+: In particular, the oldest/youngest nodes can suffer from poor dating, as time into the past
+    is an unbounded value, but a single oldest/youngest timepoint must be chosen.
 
 ### Inside Outside vs Maximization
 
@@ -96,15 +100,15 @@ Pros
 Cons
 : Assumes posterior times can be reasonably modelled by a gamma distribution
     (e.g. they are not bimodal)
-: The "Expectation propagation" approach requires multiple rounds of iteration
-    until convergence.
+: The "expectation propagation" algorithm used to fit the posterior requires
+    multiple rounds of iteration until convergence.
 : Numerical stability issues are more common (but often indicate pathological
     of otherwise problematic tree sequences)
 
 ### The variational gamma method
 
 The `variational_gamma` method approximates times by fitting a separate gamma
-distribution for each node. Iteration is required to converge
+distribution to approximate the posterior for each node. Iteration is required to converge
 to a stable solution.
 
 Note that as a result of testing, the default priors used for this method are
@@ -115,13 +119,13 @@ for details.
 
 We are in the process of writing a formal description of the algorithm, but in
 summary, this approach uses an expectation propagation ("message passing")
-approach to update the gamma distribution for each node based on the times of connected
+approach to update the gamma distribution for each node based on the ages of connected
 nodes and the mutations on connected edges. Updates take the form of moment matching
 against an iteratively refined approximation to the posterior, which makes this method
 very fast.
 
 The iterative expectation propagation should converge to a fixed
-point that approximately minimizes KL divergence between the true posterior
+point that approximately minimizes Kullback-Leibler divergence between the true posterior
 distribution and the approximation {cite}`minka2001expectation`.
 At the moment, when `method="variational_gamma"`,
 a relatively large number of iterations is used (which testing indicates is
