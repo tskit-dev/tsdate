@@ -24,7 +24,7 @@ data which includes *historical samples*,
 whose time is older that the current generation (i.e. sample nodes with
 times > 0).
 
-The output of {ref}`tsinfer:sec_introduction` is valid regardless
+The output of [`tsinfer`](tsinfer:sec_introduction) is valid regardless
 of the inclusion of historical samples, but *dating* such a tree sequence
 is more complicated. This is because the time scale of a tsinferred
 tree sequence is uncalibrated, so it is unclear where in time to
