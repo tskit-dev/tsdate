@@ -94,10 +94,10 @@ plot_real_vs_tsdate_times(ts.nodes_time, redated_ts.nodes_time, ts, redated_ts, 
 
 ## Estimating population size
 
-If you don't know the population size, it is possible to use `tsdate`` to *estimate* changes in 
-population size over time, by extimating the number of coalescence points in different time
-intervals, and re-estimating the dates. However, this
-approach has not been fully tested or documented.
+If you don't know the population size, it is possible to use `tsdate` to
+*estimate* changes in population size over time, by first estimating the rate
+of coalescence in different time intervals, and then re-estimating the dates.
+However, this approach has not been fully tested or documented.
 
 If you are interested in doing this, see
 [GitHub issue #237](https://github.com/tskit-dev/tsdate/issues/237#issuecomment-1785655708)
