@@ -23,6 +23,7 @@ from .cache import *  # NOQA: F401,F403
 from .core import date  # NOQA: F401
 from .core import get_dates  # NOQA: F401
 from .prior import build_grid as build_prior_grid  # NOQA: F401
+from .prior import parameter_grid as build_parameter_grid  # NOQA: F401
 from .provenance import __version__  # NOQA: F401
 from .util import add_sampledata_times  # NOQA: F401
 from .util import preprocess_ts  # NOQA: F401
