@@ -179,6 +179,10 @@ that sum to one: each cell gives the probability that the time of the node
 whose ID is given by the column header lies within the
 timeslice specified by the `start_time` and `end_time` columns.
 
+For the continuous-time `variational_gamma` method, the posterior for
+each node is represented by the shape and rate parameter of the gamma approximation,
+and the `start_time` and `end_time` entries may be ignored.
+
 (sec_usage_popsize)=
 
 ## Population sizes
@@ -229,7 +233,7 @@ instability and other problems. Here we detail some common issues found in real 
 
 ### Memory and run time
 
-`Tsdate` can be run on most modern computers: large tree sequences of millions or
+`tsdate` can be run on most modern computers: large tree sequences of millions or
 tens of millions of edges will take of the order of hours, and use
 tens of GB of RAM (e.g. 24 GB / 1 hour on a 2022-era laptop
 for a tree sequence of 5 million edges covering
