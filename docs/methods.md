@@ -22,7 +22,7 @@ The methods available for `tsdate` inference can be divided into _discrete-time_
 and _continuous-time_ approaches. Discrete-time approaches define time grid based on
 discrete timepoints, and assign a probability to each node being at
 each timepoint. Continuous-time
-approaches approximate the probability distribution of times by a continuous
+approaches approximate the probability distribution for each node time using a continuous
 mathematical function (e.g. a gamma distribution).
 
 In tests, we find that the continuous-time `variational_gamma` approach is
@@ -53,7 +53,7 @@ The available discrete-time algorithms are the `inside_outside` and `maximizatio
 They have the following advantages and disadvantages:
 
 Pros
-: allows any shape for the distribution of times
+: allows any shape for the distributions of times
 : Currently require just a single upwards and downward pass through the edges
 
 Cons
@@ -94,7 +94,7 @@ Pros
 : Iterative updating theoretically solves the "loopy belief propagation" problem
 
 Cons
-: Assumes posterior times can be reasonably modelled by a gamma distribution
+: Assumes posterior times can be reasonably modelled by gamma distributions
     (e.g. they are not bimodal)
 : The "Expectation propagation" approach requires multiple rounds of iteration
     until convergence.
@@ -103,19 +103,25 @@ Cons
 
 ### The variational gamma method
 
-The `variational_gamma` method approximates times by fitting a separate gamma
-distribution for each node. Iteration is required to converge
-to a stable solution.
+The `variational_gamma` method approximates times by fitting separate gamma
+distributions for each node, in a similar spirit to {cite:t}`schweiger2023ultra`.
+The directed graph that represents the genealogy can (in its undirected form) contain
+cycles, so a technique called "expectation propagation" is used, in which
+local estimates to each gamma distribution are iteratively refined until
+they converge to a stable solution.
 
-Note that as a result of testing, the default priors used for this method are
+:::{note}
+As a result of testing, the default priors used for this method are
 identical for all nodes (i.e. a "global" prior is used), based on a composite
 of all the conditional coalescent priors for all nodes.
-See {ref}`sec_priors_conditional_coalescent`
-for details.
+See {ref}`sec_priors_conditional_coalescent` for details.
+:::
+
+#### Expectation propagation
 
 We are in the process of writing a formal description of the algorithm, but in
-summary, this approach uses an expectation propagation ("message passing")
-approach to update the gamma distribution for each node based on the times of connected
+summary, the expectation propagation ("message passing")
+approach updates the gamma distribution for each node based on the times of connected
 nodes and the mutations on connected edges. Updates take the form of moment matching
 against an iteratively refined approximation to the posterior, which makes this method
 very fast.
