@@ -57,11 +57,11 @@ The available discrete-time algorithms are the `inside_outside` and `maximizatio
 They have the following advantages and disadvantages:
 
 Pros
-: allows any shape for the distributions of times
+: Methods allow any shape for the distributions of times
 : Currently require just a single upwards and downward pass through the edges
 
 Cons
-: Choice of grid timpoints is somewhat arbitrary (but reasonable defaults picked
+: Choice of grid timepoints is somewhat arbitrary (but reasonable defaults are picked
     based on the conditional coalescent)
 : Inferred times are imprecise due to discretization: a denser timegrid can increase
     precision, but also increases computational cost (quadratic with number of timepoints)
@@ -71,10 +71,14 @@ Cons
 ### Inside Outside vs Maximization
 
 The `inside_outside` approach has been shown to perform better empirically, but
-suffers from the theoretical problem of "loopy belief propagation". Occasionally
-it also has issues with numerical stability, although this is commonly indicative
+in theory the appraoch used does not properly account for cycles in the underlying
+genealogical network when updating posterior probabilities (a potential solution
+would be to implement a "loopy belief propagation" algorithm as in the continuous-time
+[`variational_gamma`](sec_methods_continuous_time_vgamma) method, below).
+Occasionally the `inside_outside` method also
+has issues with numerical stability, although this is commonly indicative
 of pathological combinations of tree sequence topology and mutation patterns.
-Issues like this are often caused by long regions of the genome that
+Problems like this are often caused by long regions of the genome that
 have no mapped mutations (e.g. in the centromere), which can be removed by
 {ref}`preprocessing<sec_usage_real_data_stability>`.
 
@@ -95,7 +99,7 @@ Pros
     with number of timepoints
 : Old nodes do not suffer from time-discretisation issues caused by forcing
     bounds on the oldest times
-: Iterative updating theoretically solves the "loopy belief propagation" problem
+: Iterative updating properly accounts for cycles in the genealogy
 
 Cons
 : Assumes posterior times can be reasonably modelled by gamma distributions
@@ -105,6 +109,8 @@ Cons
 : Numerical stability issues are more common (but often indicate pathological
     of otherwise problematic tree sequences)
 
+(sec_methods_continuous_time_vgamma)=
+
 ### The variational gamma method
 
 The `variational_gamma` method approximates times by fitting separate gamma
@@ -112,7 +118,15 @@ distributions for each node, in a similar spirit to {cite:t}`schweiger2023ultra`
 The directed graph that represents the genealogy can (in its undirected form) contain
 cycles, so a technique called "expectation propagation" is used, in which
 local estimates to each gamma distribution are iteratively refined until
-they converge to a stable solution.
+they converge to a stable solution.  This comes under a class of approaches
+sometimes known as "loopy belief propagation".
+
+:::{todo}
+Add details about [numerical instability](sec_usage_real_data_stability),
+describing expected errors (e.g. about non-convergence of a hypergeometric series),
+and detailing potential workarounds using the `max_shape` option to constrain the
+gamma variance.
+:::
 
 :::{note}
 As a result of testing, the default priors used for this method are
@@ -120,6 +134,7 @@ identical for all nodes (i.e. a "global" prior is used), based on a composite
 of all the conditional coalescent priors for all nodes.
 See {ref}`sec_priors_conditional_coalescent` for details.
 :::
+
 
 #### Expectation propagation
 
