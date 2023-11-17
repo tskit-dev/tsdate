@@ -297,9 +297,9 @@ The {func}`tsdate.preprocess_ts()` function can help remove topology from these
 regions. See the documentation for that function for details on how to increase
 or decrease its stringency.
 
-The `variational_gamma` method is more prone to instability, and switching to
-another method may help. Note, however, that this is usually a sign that
-you should re-inspect the original tree sequence, which is likely to
+The [`variational_gamma`](sec_methods_continuous_time_vgamma) method is more prone to
+instability, and switching to another method may help. Note, however, that this is usually
+a sign that you should re-inspect the original tree sequence, which is likely to
 have poorly inferred topologies.
 
 (sec_usage_real_data_simplify)=

@@ -20,7 +20,7 @@ kernelspec:
 
 ## Basic usage
 
-The {func}`build_prior_grid` and `build_parameter_grid` functions allow you to create a bespoke prior
+The {func}`build_prior_grid` and {func}`build_parameter_grid` functions allow you to create a bespoke prior
 for the {ref}`sec_methods_discrete_time` and {ref}`sec_methods_continuous_time`, respectively.
 This can be passed in to {func}`date` using the `priors` argument. It provides
 a tuneable alternative to passing the {ref}`population size<sec_usage_popsize>`
