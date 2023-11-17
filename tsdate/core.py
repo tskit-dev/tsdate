@@ -1603,9 +1603,9 @@ def variational_dates(
         )
 
     # Default to not creating approximate priors unless ts has
-    # greater than NTIPS_DEFAULT_PRIOR_APPROX samples
+    # greater than DEFAULT_APPROX_PRIOR_SIZE samples
     approx_priors = False
-    if tree_sequence.num_samples > base.NTIPS_DEFAULT_PRIOR_APPROX:
+    if tree_sequence.num_samples > base.DEFAULT_APPROX_PRIOR_SIZE:
         approx_priors = True
 
     if priors is None:

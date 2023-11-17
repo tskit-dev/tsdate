@@ -34,6 +34,8 @@ This page provides formal documentation for the `tsdate` Python API.
 .. autofunction:: tsdate.build_parameter_grid
 
 .. autoclass:: tsdate.base.NodeGridValues
+
+.. autodata:: tsdate.base.DEFAULT_APPROX_PRIOR_SIZE
 ```
 
 ## Variable population sizes
