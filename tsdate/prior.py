@@ -193,7 +193,7 @@ class ConditionalCoalescentTimes:
         if approximate is not None:
             self.approximate = approximate
         else:
-            if total_tips >= base.NTIPS_DEFAULT_PRIOR_APPROX:
+            if total_tips >= base.DEFAULT_APPROX_PRIOR_SIZE:
                 self.approximate = True
             else:
                 self.approximate = False
@@ -204,10 +204,10 @@ class ConditionalCoalescentTimes:
                 " the ConditionalCoalescentTimes object with a non-zero number"
             )
 
-        if not self.approximate and total_tips >= base.NTIPS_DEFAULT_PRIOR_APPROX:
+        if not self.approximate and total_tips >= base.DEFAULT_APPROX_PRIOR_SIZE:
             logging.warning(
                 "Calculating exact priors for more than "
-                f"{base.NTIPS_DEFAULT_PRIOR_APPROX} tips. Consider "
+                f"{base.DEFAULT_APPROX_PRIOR_SIZE} tips. Consider "
                 "setting `approximate=True` for a faster calculation."
             )
 
@@ -1069,7 +1069,7 @@ class MixturePrior:
     ):
         if approximate_priors:
             if not approx_prior_size:
-                approx_prior_size = base.NTIPS_DEFAULT_PRIOR_APPROX
+                approx_prior_size = base.DEFAULT_APPROX_PRIOR_SIZE
         else:
             if approx_prior_size is not None:
                 raise ValueError(
@@ -1215,12 +1215,13 @@ def build_grid(
         times are measured in generations.
     :param int or array_like timepoints: The number of quantiles used to create the
         time slices, or manually-specified time slices as a numpy array. Default: 20
-    :param bool approximate_priors: Whether to use a precalculated approximate prior or
-        exactly calculate prior. If approximate prior has not been precalculated, tsdate
-        will do so and cache the result. Default: False
-    :param int approx_prior_size: Number of samples from which to precalculate prior.
-        Should only enter value if approximate_priors=True. If approximate_priors=True
-        and no value specified, defaults to 1000. Default: None
+    :param bool approximate_priors: Whether to use a precalculated approximation to the
+        treewise conditional coalescent prior if there are large numbers of sample tips.
+        If an approximate prior has not been precalculated, tsdate will do so and cache
+        the result. Default: False
+    :param int approx_prior_size: Number of samples above which a precalculated prior is
+        used. Only valid if ``approximate_priors`` is True. Default: ``None``, treated as
+        :data:`~tsdate.base.DEFAULT_APPROX_PRIOR_SIZE` if ``approximate_priors`` is True.
     :param string prior_distr: What distribution to use to approximate the conditional
         coalescent prior. Can be "lognorm" for the lognormal distribution (generally a
         better fit, but slightly slower to calculate) or "gamma" for the gamma
@@ -1264,12 +1265,13 @@ def parameter_grid(
         epoch breakpoints and effective population sizes. Using standard (unscaled)
         values for ``population_size`` results in a prior where times are measured
         in generations.
-    :param bool approximate_priors: Whether to use a precalculated approximate prior or
-        exactly calculate prior. If approximate prior has not been precalculated, tsdate
-        will do so and cache the result. Default: False
-    :param int approx_prior_size: Number of samples from which to precalculate prior.
-        Should only enter value if approximate_priors=True. If approximate_priors=True
-        and no value specified, defaults to 1000. Default: None
+    :param bool approximate_priors: Whether to use a precalculated approximation to the
+        treewise conditional coalescent prior if there are large numbers of sample tips.
+        If an approximate prior has not been precalculated, tsdate will do so and cache
+        the result. Default: False
+    :param int approx_prior_size: Number of samples above which a precalculated prior is
+        used. Only valid if ``approximate_priors`` is True. Default: ``None``, treated as
+        :data:`~tsdate.base.DEFAULT_APPROX_PRIOR_SIZE` if ``approximate_priors`` is True.
     :rtype:  base.NodeGridValues
     """
 

@@ -29,7 +29,11 @@ FLOAT_DTYPE = np.float64
 LIN = "linear"
 LOG = "logarithmic"
 GAMMA_PAR = "gamma_parameter"
-NTIPS_DEFAULT_PRIOR_APPROX = 10000  # n_tips above which to use an approx for the prior
+
+#: The default value for `approx_prior_size` (see :func:`~tsdate.build_prior_grid` and
+#: :func:`~tsdate.build_parameter_grid`)
+DEFAULT_APPROX_PRIOR_SIZE = 10000
+
 # Bit 20 is set in node flags when they are samples not at time zero in the sampledata
 # file
 NODE_IS_HISTORIC_SAMPLE = 1 << 20
