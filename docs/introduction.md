@@ -18,7 +18,7 @@ kernelspec:
 
 # Introduction
 
-`Tsdate` {cite}`wohns2022unified` infers dates for nodes in a genetic genealogy,
+`tsdate` {cite}`wohns2022unified` infers dates for nodes in a genetic genealogy,
 sometimes loosely known as an ancestral recombination graph or ARG
 {cite}`wong2023general`. More precisely, it takes a genealogy in 
 [tree sequence](https://tskit.dev/tutorials/what_is.html) format as an input
@@ -43,7 +43,7 @@ for each of the nodes to date. By default, `tsdate` calculates priors from the
 [conditional coalescent](http://dx.doi.org/10.1006/tpbi.1998.1411), although
 alternative prior distributions can also be specified.
 
-`Tsdate` provides several methods for assigning probabilities to different times,
+`tsdate` provides several methods for assigning probabilities to different times,
 and updating information through the genealogy. These include discrete-time and
 continuous-time methods, see {ref}`sec_methods` for more details.
 
