@@ -193,7 +193,7 @@ class ConditionalCoalescentTimes:
         if approximate is not None:
             self.approximate = approximate
         else:
-            if total_tips >= 10000:
+            if total_tips >= base.NTIPS_DEFAULT_PRIOR_APPROX:
                 self.approximate = True
             else:
                 self.approximate = False
@@ -204,9 +204,10 @@ class ConditionalCoalescentTimes:
                 " the ConditionalCoalescentTimes object with a non-zero number"
             )
 
-        if not self.approximate and total_tips >= 10000:
+        if not self.approximate and total_tips >= base.NTIPS_DEFAULT_PRIOR_APPROX:
             logging.warning(
-                "Calculating exact priors for more than 10000 tips. Consider "
+                "Calculating exact priors for more than "
+                f"{base.NTIPS_DEFAULT_PRIOR_APPROX} tips. Consider "
                 "setting `approximate=True` for a faster calculation."
             )
 
@@ -480,7 +481,8 @@ class SpansBySamples:
         if not allow_unary:
             if has_locally_unary_nodes(self.ts):
                 raise ValueError(
-                    "The input tree sequence has unary nodes: tsdate currently requires that these are removed using `simplify(keep_unary=False)`"
+                    "The input tree sequence has unary nodes: tsdate currently requires "
+                    "that these are removed using `simplify(keep_unary=False)`"
                 )
 
         with tqdm(total=3, desc="TipCount", disable=not self.progress) as progressbar:
@@ -1067,7 +1069,7 @@ class MixturePrior:
     ):
         if approximate_priors:
             if not approx_prior_size:
-                approx_prior_size = 10000
+                approx_prior_size = base.NTIPS_DEFAULT_PRIOR_APPROX
         else:
             if approx_prior_size is not None:
                 raise ValueError(
