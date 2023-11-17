@@ -192,7 +192,7 @@ def tsdate_cli_parser():
         "--verbosity",
         action="count",
         default=0,
-        help="How much verbosity to output.",
+        help="How much verbosity to output (max is -vv).",
     )
     parser.set_defaults(runner=run_preprocess)
     return top_parser

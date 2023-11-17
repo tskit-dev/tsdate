@@ -1602,9 +1602,10 @@ def variational_dates(
             "Ignoring the oldes root is not implemented in variational dating"
         )
 
-    # Default to not creating approximate priors unless ts has > 20000 samples
+    # Default to not creating approximate priors unless ts has
+    # greater than NTIPS_DEFAULT_PRIOR_APPROX samples
     approx_priors = False
-    if tree_sequence.num_samples > 20000:
+    if tree_sequence.num_samples > base.NTIPS_DEFAULT_PRIOR_APPROX:
         approx_priors = True
 
     if priors is None:
