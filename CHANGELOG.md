@@ -25,10 +25,10 @@
 **Features**
 
 - A new continuous-time method, `"variational_gamma"` has been introduced, which
-  uses an iterative expectation propagation approach. Tests show this
-  increases accuracy, especially at older times, although the current implementation
-  is not always numerically stable. Future releases may
-  switch to using this as the default method.
+  uses an iterative expectation propagation approach. Tests show this increases
+  accuracy, especially at older times. A Laplace approximation and damping are
+  used to ensure numerical stability. Future releases may switch to using this
+  as the default method.
 
 - Priors may be calculated using a piecewise-constant effective population trajectory,
   which is implemented in the `demography.PopulationSizeHistory` class. The

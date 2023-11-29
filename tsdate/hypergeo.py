@@ -24,15 +24,14 @@
 Numerically stable implementations of the Gauss hypergeometric function with numba.
 """
 import ctypes
+from math import log
 
 import numba
 import numpy as np
 from numba.extending import get_cython_function_address
 
-# TODO: these are reasonable defaults, but could
-# be made settable via a control dict
 _HYP2F1_TOL = 1e-10
-_HYP2F1_MAXTERM = int(1e5)
+_HYP2F1_MAXTERM = int(1e6)
 
 _PTR = ctypes.POINTER
 _dbl = ctypes.c_double
@@ -128,12 +127,12 @@ def _is_valid_2f1(f1, f2, a, b, c, z, tol):
     return numer / denom < tol
 
 
-@numba.njit("UniTuple(float64, 7)(float64, float64, float64, float64)")
+@numba.njit("UniTuple(float64, 5)(float64, float64, float64, float64)")
 def _hyp2f1_taylor_series(a, b, c, z):
     """
     Evaluate a Gaussian hypergeometric function, via its Taylor series at the
-    origin.  Also returns the gradient with regard to `a`, `b`, and `c`; and
-    first and second partial derivatives wrt `z`. Requires :math:`1 > z >= 0`.
+    origin.  Also returns the gradient with regard to `a`, `b`, `c`, and `z`.
+    Requires that :math:`1 > z >= 0`, :math:`a,b,c >= 0`.
 
     To avoid overflow, returns the function value on a log scale and the
     derivatives divided by the (unlogged) function value.
@@ -143,7 +142,6 @@ def _hyp2f1_taylor_series(a, b, c, z):
         raise Invalid2F1("Negative parameters in Taylor series")
 
     if z == 0.0:
-        sign = 1.0
         val = 0.0
         da = 0.0
         db = 0.0
@@ -194,279 +192,160 @@ def _hyp2f1_taylor_series(a, b, c, z):
         dc = -argp[2]
         dz /= val
         d2z /= val
-        sign = 1.0
         val = np.log(val) + offset
         if k >= _HYP2F1_MAXTERM:
             raise Invalid2F1("Maximum terms reached in Taylor series")
-    return val, sign, da, db, dc, dz, d2z
+    return val, da, db, dc, dz
 
 
-@numba.njit("UniTuple(float64, 7)(float64, float64, float64, float64)")
-def _hyp2f1_recurrence(a, b, c, z):
+@numba.njit("UniTuple(float64, 5)(float64, float64, float64, float64)")
+def _hyp2f1_laplace_approx(a, b, c, x):
     """
-    Evaluate 2F1(a, -b; c; z) where b is an integer using (0, -1, 0) recurrence.
-    See https://doi.org/10.48550/arXiv.1909.10765
+    Approximate a Gaussian hypergeometric function, using Laplace's method
+    as per Butler & Wood 2002 Annals of Statistics. Also returns the gradient
+    with regard to `a`, `b`, `c`, and `x`. Requires that :math:`1 > x > 0`,
+    :math:`c > a > 0` and :math:`b >= 0`.
 
-    Returns log function value, sign, gradient, and second derivative wrt z. The
-    derivatives are divided by the function value.
-
-    Aborts on the rare occasions when one of the polynomial terms is zero (only
-    occurs if `z == c / a`).
+    To avoid overflow, returns the function value on a log scale and the
+    derivatives divided by the (unlogged) function value.
     """
-    assert b % 1.0 == 0.0 and b >= 0
-    assert z > 1.0
-    f0 = 1.0
-    f1 = 1 - a * z / c
-    s0 = 1.0
-    s1 = np.sign(f1)
-    if s1 == 0:
-        raise Invalid2F1("Zero division in polynomial")
-    g0 = np.zeros(4)  # df/da df/db df/dc df/dz
-    g1 = np.array([-z / c, 0.0, a * z / c**2, -a / c]) / f1
-    p0 = 0.0  # d2f/dz2
-    p1 = 0.0
-    f0 = np.log(np.abs(f0))
-    f1 = np.log(np.abs(f1))
-    if b == 0:
-        return f0, s0, g0[0], g0[1], g0[2], g0[3], p0
-    if b == 1:
-        return f1, s1, g1[0], g1[1], g1[2], g1[3], p1
-    for n in range(1, int(b)):
-        ak = n * (z - 1) / (c + n)
-        dak = np.array([0.0, 0.0, -ak / (c + n), ak / (z - 1)])
-        bk = (2 * n + c - z * (a + n)) / (c + n)
-        dbk = np.array([-z / (c + n), 0.0, (1 - bk) / (c + n), -(a + n) / (c + n)])
-        u = s0 * np.exp(f0 - f1)
-        v = s1 * bk + u * ak
-        s = np.sign(v)
-        if s == 0:
-            raise Invalid2F1("Zero division in polynomial")
-        f = np.log(np.abs(v)) + f1
-        g = (g1 * bk * s1 + g0 * u * ak + dbk * s1 + dak * u) / v
-        p = (
-            p1 * bk * s1
-            + p0 * u * ak
-            + 2 / (c + n) * (u * g0[3] * n - s1 * g1[3] * (a + n))
-        ) / v
-        f1, f0 = f, f1
-        s1, s0 = s, s1
-        g1, g0 = g, g1
-        p1, p0 = p, p1
-    if not _is_valid_2f1(g[3], p, a, -b, c, z, _HYP2F1_TOL):
-        raise Invalid2F1("Cancellation error in polynomial")
-    da, db, dc, dz = g
-    return f, s, da, db, dc, dz, p
+    assert c > 0.0
+    assert a >= 0.0
+    assert b >= 0.0
+    assert c >= a
+    assert 1.0 > x >= 0.0
+
+    if x == 0.0:
+        return 0.0, 0.0, 0.0, 0.0, a * b / c
+
+    # Equations 19, 24, 25 in Butler & Wood
+    t = x * (b - a) - c
+    u = np.sqrt(t**2 - 4 * a * x * (c - b)) - t
+    y = 2 * a / u
+    yy = y**2 / a
+    my = (1 - y) ** 2 / (c - a)
+    ymy = x**2 * b * yy * my / (1 - x * y) ** 2
+    r = yy + my - ymy
+    f = (
+        (c - 1 / 2) * log(c)
+        - log(r) / 2
+        + a * (log(y) - log(a))
+        + (c - a) * (log(1 - y) - log(c - a))
+        - b * log(1 - x * y)
+    )
+
+    # Eq. 24, derivatives
+    df_dr = -1 / (2 * r)
+    df_da = log(y) - log(a) - log(1 - y) + log(c - a)
+    df_db = -log(1 - x * y)
+    df_dc = log(c) - 0.5 / c + log(1 - y) - log(c - a)
+    df_dx = y * b / (1 - x * y)
+
+    # Eq. 25, derivatives
+    df_dy = (
+        yy * 2 / y
+        - my * 2 / (1 - y)
+        - ymy * (2 / y - 2 / (1 - y) + 2 * x / (1 - x * y))
+    ) * df_dr
+    df_da += (my * a - yy * (c - a) + ymy * (c - 2 * a)) / (a * (c - a)) * df_dr
+    df_db += -ymy / b * df_dr
+    df_dc += (ymy - my) / (c - a) * df_dr
+    df_dx += -ymy * (2 / x + 2 * y / (1 - x * y)) * df_dr
+
+    # Eq. 19, derivatives
+    uy = y**2 / (u + t)
+    df_dt = uy / y * df_dy
+    df_da += uy * (x * (c - b) + u / y + t / y) / a * df_dy
+    df_db += -uy * x * df_dy
+    df_dc += uy * x * df_dy
+    df_dx += uy * (c - b) * df_dy
+
+    # Finally,
+    df_da += -x * df_dt
+    df_db += x * df_dt
+    df_dc += -df_dt
+    df_dx += (b - a) * df_dt
+
+    return f, df_da, df_db, df_dc, df_dx
+
+
+# @numba.njit("UniTuple(float64, 5)(float64, float64, float64, float64)")
+# def _hyp2f1_laplace_recurrence(a, b, c, x):
+#    """
+#    Use contiguous relations to stabilize the calculation of 2F1
+#    """
+#
+#    if x == 0.0:
+#        return 0.0, 0.0, 0.0, 0.0, a * b / c
+#
+#    A = x * (1 - x) * (a + 1) * (b + 1) / (c * (c + 1))
+#    dA_da = A / (a + 1)
+#    dA_db = A / (b + 1)
+#    dA_dc = -A / (c * (c + 1)) * (2 * c + 1)
+#
+#    B = 1 - (a + b + 1) * x / c
+#    dB_da = -x / c
+#    dB_db = -x / c
+#    dB_dc = (a + b + 1) * x / c**2
+#
+#    Af, dAf_da, dAf_db, dAf_dc, _ = _hyp2f1_laplace_approx(a + 2, b + 2, c + 2, x)
+#    Bf, dBf_da, dBf_db, dBf_dc, _ = _hyp2f1_laplace_approx(a + 1, b + 1, c + 1, x)
+#    Mx = max(Af, Bf)
+#    Cf = np.log(A * np.exp(Af - Mx) + B * np.exp(Bf - Mx)) + Mx
+#
+#    sA = np.exp(Af - Cf)
+#    sB = np.exp(Bf - Cf)
+#
+#    v = Cf
+#    da = sA * (dA_da + A * dAf_da) + sB * (dB_da + B * dBf_da)
+#    db = sA * (dA_db + A * dAf_db) + sB * (dB_db + B * dBf_db)
+#    dc = sA * (dA_dc + A * dAf_dc) + sB * (dB_dc + B * dBf_dc)
+#    dx = sB * a * b / c
+#
+#    return v, da, db, dc, dx
 
 
 @numba.njit(
-    "UniTuple(float64, 6)(float64, float64, float64, float64, float64, float64)"
+    "UniTuple(float64, 5)(float64, float64, float64, float64, float64, float64)"
 )
 def _hyp2f1_dlmf1581(a_i, b_i, a_j, b_j, y, mu):
     """
     DLMF 15.8.1, series expansion with Pfaff transformation
     """
-    # assert b_i >= 0
-    assert 0 <= mu <= b_j
-    assert y >= 0 and y % 1 == 0.0
 
-    y = int(y)
-    a = a_i + a_j + y
-    c = a_j + y + 1
-    z = (b_j - mu) / (b_i + b_j)
-    scale = -a * np.log(1 - z / (z - 1))
-
-    # 2F1(a, y+1; c; z) via series expansion
-    val, sign, da, _, dc, dz, _ = _hyp2f1_taylor_series(a, y + 1, c, z)
-
-    # map gradient to parameters
-    da_i = da - np.log(1 - z / (z - 1))
-    da_j = da + dc - np.log(1 - z / (z - 1))
-    db_i = z * (a / (mu + b_i) - dz / (b_i + b_j))
-    db_j = (z - 1) * (a / (mu + b_i) - dz / (b_i + b_j))
-
-    val += scale
-
-    return val, sign, da_i, db_i, da_j, db_j
-
-
-@numba.njit(
-    "UniTuple(float64, 7)(float64, float64, float64, float64, float64, float64)"
-)
-def _hyp2f1_dlmf1583_first(a_i, b_i, a_j, b_j, y, mu):
-    """
-    DLMF 15.8.3, first term
-
-    F(a_j, 1 - a_i; 1 - a_i - y; 1/(1 - z))
-
-    Use Pfaff transform,
-
-    (1 - 1 / (1 - z))**(-a_j) F(a_j, -y; 1 - a_i - y; 1 / z)
-
-    Then rearrange terms in series to get,
-
-    (1 - a_i - a_j - y)_y / (1 - a_i - y)_y \\times
-      (1 - 1/(1-z))^(-a_j) \\times
-        F(a_j, -y; a_j + a_i; 1 - 1/z)
-    """
-    a = a_j
-    c = a_j + a_i
-    z = (b_j + b_i) / (b_j - mu)
-    scale = (
-        a_j * np.log(z)
-        + _gammaln(a_j + y + 1)
-        - _gammaln(y + 1)
-        + _gammaln(a_i)
-        - _gammaln(a_i + a_j)
-    )
-
-    # 2F1(a, -y; c; z) via backwards recurrence
-    val, sign, da, _, dc, dz, d2z = _hyp2f1_recurrence(a, y, c, z)
-
-    # map gradient to parameters
-    da_i = dc - _digamma(a_i + a_j) + _digamma(a_i)
-    da_j = da + dc + np.log(z) + _digamma(a_j + y + 1) - _digamma(a_i + a_j)
-    db_i = dz / (b_j - mu) + a_j / z / (b_j - mu)
-    db_j = dz * (1 - z) / (b_j - mu) + a_j * (1 - z) / z / (b_j - mu)
-
-    # needed to verify result
-    d2b_j = (
-        (1 - z) ** 2 / (b_j - mu) ** 2 * d2z
-        - 2 * (1 - z) * dz / (b_j - mu) ** 2
-        + 2 * dz * (1 - z) / (b_j - mu) * a_j * (1 - z) / z / (b_j - mu)
-        + a_j * (a_j - 1) * (1 - z) ** 2 / z**2 / (b_j - mu) ** 2
-        - 2 * a_j * (1 - z) / z / (b_j - mu) ** 2
-    )
-
-    val += scale
-
-    return val, sign, da_i, db_i, da_j, db_j, d2b_j
-
-
-@numba.njit(
-    "UniTuple(float64, 7)(float64, float64, float64, float64, float64, float64)"
-)
-def _hyp2f1_dlmf1583_second(a_i, b_i, a_j, b_j, y, mu):
-    """
-    DLMF 15.8.3, second term
-    """
-    y = int(y)
-    a = a_i + a_j + y
-    c = a_i + y + 1
-    s = (mu - b_j) / (mu + b_i)
-    z = (b_i + mu) / (b_i + b_j)
-    scale = (
-        -(a_i + y) * np.log(1 - s)
-        + _gammaln(a_j + y + 1)
-        - _gammaln(a_j)
-        + _gammaln(a_i)
-        - _gammaln(a_i + y + 1)
-    )
-
-    # 2F1(a, y+1; c; z) via series expansion
-    val, sign, da, _, dc, dz, d2z = _hyp2f1_taylor_series(a, y + 1, c, z)
-
-    # map gradient to parameters
-    da_i = da - np.log(1 - s) + dc + _digamma(a_i) - _digamma(a_i + y + 1)
-    da_j = da + _digamma(a_j + y + 1) - _digamma(a_j)
-    db_i = (1 - z) * dz / (b_i + b_j) + (1 - z) * (a_i + y) / (mu + b_i)
-    db_j = -z * dz / (b_i + b_j) - (a_i + y) / (mu + b_i) / (1 - s)
-
-    # needed to verify result
-    d2b_j = (
-        z**2 / (b_i + b_j) ** 2 * d2z
-        + 2 * dz * z / (b_i + b_j) * (a_i + y + 1) / (mu + b_i) / (1 - s)
-        + (a_i + y) * (a_i + y + 1) / (1 - s) ** 2 / (mu + b_i) ** 2
-    )
-
-    sign *= (-1) ** (y + 1)
-    val += scale
-
-    return val, sign, da_i, db_i, da_j, db_j, d2b_j
-
-
-@numba.njit(
-    "UniTuple(float64, 6)(float64, float64, float64, float64, float64, float64)"
-)
-def _hyp2f1_dlmf1583(a_i, b_i, a_j, b_j, y, mu):
-    """
-    DLMF 15.8.3, sum of recurrence and series expansion
-    """
-    # assert b_i >= 0
-    assert 0 <= mu <= b_j
-    assert y >= 0 and y % 1.0 == 0.0
-
-    a = a_j
     b = a_i + a_j + y
     c = a_j + y + 1
-    z = (mu - b_j) / (mu + b_i)
+    z = (b_j - mu) / (b_i + b_j)
+    scale = -b * np.log(1 - z / (z - 1))
 
-    f_1, s_1, da_i_1, db_i_1, da_j_1, db_j_1, d2b_j_1 = _hyp2f1_dlmf1583_first(
-        a_i, b_i, a_j, b_j, y, mu
-    )
+    # 2F1(y+1, b; c; z) via series expansion
+    val, _, db, dc, dz = _hyp2f1_laplace_approx(y + 1, b, c, z)
 
-    f_2, s_2, da_i_2, db_i_2, da_j_2, db_j_2, d2b_j_2 = _hyp2f1_dlmf1583_second(
-        a_i, b_i, a_j, b_j, y, mu
-    )
+    # map gradient to parameters
+    da_i = db - np.log(1 - z / (z - 1))
+    da_j = db + dc - np.log(1 - z / (z - 1))
+    db_i = z * (b / (mu + b_i) - dz / (b_i + b_j))
+    db_j = (z - 1) * (b / (mu + b_i) - dz / (b_i + b_j))
 
-    f_0 = max(f_1, f_2)
-    f_1 = np.exp(f_1 - f_0) * s_1
-    f_2 = np.exp(f_2 - f_0) * s_2
-    f = f_1 + f_2
+    val += scale
 
-    if f <= 0.0:
-        if z / (z - 1) < 0.9:  # use Pfaff transform for small enough argument
-            return _hyp2f1_dlmf1581(a_i, b_i, a_j, b_j, y, mu)
-        raise Invalid2F1("Cancellation error in Taylor series")
-
-    da_i = (da_i_1 * f_1 + da_i_2 * f_2) / f
-    db_i = (db_i_1 * f_1 + db_i_2 * f_2) / f
-    da_j = (da_j_1 * f_1 + da_j_2 * f_2) / f
-    db_j = (db_j_1 * f_1 + db_j_2 * f_2) / f
-    d2b_j = (d2b_j_1 * f_1 + d2b_j_2 * f_2) / f
-
-    # shared scaling
-    scale = -a_j * np.log(1 - z)
-    da_j += -np.log(1 - z)
-    db_i += -a_j / (mu + b_i) * z / (1 - z)
-    d2b_j += (
-        -2 * db_j * a_j / (mu + b_i) / (1 - z)
-        + a_j * (a_j + 1) / (1 - z) ** 2 / (mu + b_i) ** 2
-    )
-    db_j += -a_j / (mu + b_i) / (1 - z)
-
-    # use differential equation to check results
-    dz = -db_j * (mu + b_i)
-    d2z = d2b_j * (mu + b_i) ** 2
-    if not _is_valid_2f1(dz, d2z, a, b, c, z, _HYP2F1_TOL):
-        if z / (z - 1) < 0.9:  # use Pfaff transform for small enough argument
-            return _hyp2f1_dlmf1581(a_i, b_i, a_j, b_j, y, mu)
-        raise Invalid2F1("Cancellation error in Taylor series")
-
-    sign = np.sign(f)
-    val = np.log(np.abs(f)) + f_0 + scale
-
-    return val, sign, da_i, db_i, da_j, db_j
+    return val, da_i, db_i, da_j, db_j
 
 
 @numba.njit(
-    "UniTuple(float64, 6)(float64, float64, float64, float64, float64, float64)"
+    "UniTuple(float64, 5)(float64, float64, float64, float64, float64, float64)"
 )
 def _hyp2f1_dlmf1521(a_i, b_i, a_j, b_j, y, mu):
     """
     DLMF 15.2.1, series expansion without transformation
     """
-    # assert b_i >= 0
-    assert mu >= b_j >= 0
-    assert y >= 0 and y % 1 == 0.0
-
-    y = int(y)
     a = a_j
     b = a_i + a_j + y
     c = a_j + y + 1
     z = (mu - b_j) / (mu + b_i)
 
     # 2F1(a, y+1; c; z) via series expansion
-    val, sign, da, db, dc, dz, _ = _hyp2f1_taylor_series(a, b, c, z)
+    val, da, db, dc, dz = _hyp2f1_laplace_approx(a, b, c, z)
 
     # map gradient to parameters
     da_i = db
@@ -474,11 +353,11 @@ def _hyp2f1_dlmf1521(a_i, b_i, a_j, b_j, y, mu):
     db_i = -dz * z / (mu + b_i)
     db_j = -dz / (mu + b_i)
 
-    return val, sign, da_i, db_i, da_j, db_j
+    return val, da_i, db_i, da_j, db_j
 
 
 @numba.njit(
-    "UniTuple(float64, 6)(float64, float64, float64, float64, float64, float64)"
+    "UniTuple(float64, 5)(float64, float64, float64, float64, float64, float64)"
 )
 def _hyp2f1(a_i, b_i, a_j, b_j, y, mu):
     """
@@ -501,9 +380,7 @@ def _hyp2f1(a_i, b_i, a_j, b_j, y, mu):
     """
     z = (mu - b_j) / (mu + b_i)
     assert z < 1.0, "Invalid hypergeometric function argument"
-    if 0.0 <= z < 1.0:
+    if z > 0.0:
         return _hyp2f1_dlmf1521(a_i, b_i, a_j, b_j, y, mu)
-    elif -1.0 < z < 0.0:
-        return _hyp2f1_dlmf1581(a_i, b_i, a_j, b_j, y, mu)
     else:
-        return _hyp2f1_dlmf1583(a_i, b_i, a_j, b_j, y, mu)
+        return _hyp2f1_dlmf1581(a_i, b_i, a_j, b_j, y, mu)
