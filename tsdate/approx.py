@@ -172,10 +172,11 @@ def sufficient_statistics(a_i, b_i, a_j, b_j, y_ij, mu_ij):
 @numba.njit("UniTuple(f8, 7)(f8, f8, f8, f8, f8, f8)")
 def taylor_approximation(a_i, b_i, a_j, b_j, y_ij, mu_ij):
     """
-    Calculate gamma sufficient statistics for the PDF proportional to
+    Calculate sufficient statistics for the PDF proportional to
     :math:`Ga(t_j | a_j, b_j) Ga(t_i | a_i, b_i) Po(y_{ij} |
     \\mu_{ij} t_i - t_j)`, where :math:`i` is the parent and :math:`j` is
-    the child.
+    the child. The logarithmic moments are approximated via a Taylor
+    expansion around the mean.
 
     :param float a_i: the shape parameter of the cavity distribution for the parent
     :param float b_i: the rate parameter of the cavity distribution for the parent
@@ -184,7 +185,8 @@ def taylor_approximation(a_i, b_i, a_j, b_j, y_ij, mu_ij):
     :param float y_ij: the number of mutations on the edge
     :param float mu_ij: the span-weighted mutation rate of the edge
 
-    :return: normalizing constant, E[t_i], E[log t_i], E[t_j], E[log t_j]
+    :return: normalizing constant, E[t_i], E[log t_i], V[t_i],
+        E[t_j], E[log t_j], V[t_j]
     """
 
     a = a_j
@@ -193,14 +195,9 @@ def taylor_approximation(a_i, b_i, a_j, b_j, y_ij, mu_ij):
     t = mu_ij + b_i
     z = (mu_ij - b_j) / t
 
-    assert a > 0
-    assert b > 0
-    assert c > 0
-    assert t > 0
-
-    f0, _, _, _, _ = hypergeo._hyp2f1(a_i, b_i, a_j + 0, b_j, y_ij, mu_ij)
-    f1, _, _, _, _ = hypergeo._hyp2f1(a_i, b_i, a_j + 1, b_j, y_ij, mu_ij)
-    f2, _, _, _, _ = hypergeo._hyp2f1(a_i, b_i, a_j + 2, b_j, y_ij, mu_ij)
+    f0 = hypergeo._hyp2f1_fast(a, b, c, z)
+    f1 = hypergeo._hyp2f1_fast(a + 1, b + 1, c + 1, z)
+    f2 = hypergeo._hyp2f1_fast(a + 2, b + 2, c + 2, z)
     s1 = a * b / c
     s2 = s1 * (a + 1) * (b + 1) / (c + 1)
     d1 = s1 * np.exp(f1 - f0)
@@ -208,14 +205,15 @@ def taylor_approximation(a_i, b_i, a_j, b_j, y_ij, mu_ij):
 
     logl = f0 + hypergeo._betaln(y_ij + 1, a) + hypergeo._gammaln(b) - b * np.log(t)
 
-    mn_i = d1 * z / t + b / t
     mn_j = d1 / t
-    sq_i = z / t**2 * (d2 * z + 2 * d1 * (1 + b)) + b * (1 + b) / t**2
     sq_j = d2 / t**2
-    va_i = sq_i - mn_i**2
     va_j = sq_j - mn_j**2
-    ln_i = np.log(mn_i) - va_i / 2 / mn_i**2
     ln_j = np.log(mn_j) - va_j / 2 / mn_j**2
+
+    mn_i = mn_j * z + b / t
+    sq_i = sq_j * z**2 + (b + 1) * (mn_i + mn_j * z) / t
+    va_i = sq_i - mn_i**2
+    ln_i = np.log(mn_i) - va_i / 2 / mn_i**2
 
     return logl, mn_i, ln_i, va_i, mn_j, ln_j, va_j
 
@@ -271,7 +269,6 @@ def gamma_projection(pars_i, pars_j, pars_ij, min_kl):
         proj_i = approximate_gamma_kl(t_i, ln_t_i)
         proj_j = approximate_gamma_kl(t_j, ln_t_j)
     else:
-        # TODO: test
         logconst, t_i, _, va_t_i, t_j, _, va_t_j = taylor_approximation(
             a_i + 1.0, b_i, a_j + 1.0, b_j, y_ij, mu_ij
         )
