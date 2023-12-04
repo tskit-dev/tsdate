@@ -56,6 +56,57 @@ class TestPolygamma:
         )
 
 
+@pytest.mark.parametrize("a_i", [1.0, 10.0, 100.0, 1000.0])
+@pytest.mark.parametrize("b_i", [0.001, 0.01, 0.1, 1.0])
+@pytest.mark.parametrize("a_j", [1.0, 10.0, 100.0, 1000.0])
+@pytest.mark.parametrize("b_j", [0.001, 0.01, 0.1, 1.0])
+@pytest.mark.parametrize("y", [0.0, 1.0, 10.0, 1000.0])
+@pytest.mark.parametrize("mu", [0.005, 0.05, 0.5, 5.0])
+class TestLaplaceApprox:
+    """
+    Test that Laplace approximation to 2F1 returns reasonable answers
+    """
+
+    @staticmethod
+    def _2f1_validate(a_i, b_i, a_j, b_j, y, mu, offset=1.0):
+        A = a_j
+        B = a_i + a_j + y
+        C = a_j + y + 1
+        z = (mu - b_j) / (mu + b_i)
+        val = mpmath.re(mpmath.hyp2f1(A, B, C, z, maxterms=1e6))
+        return val / offset
+
+    def test_2f1(self, a_i, b_i, a_j, b_j, y, mu):
+        pars = [a_i, b_i, a_j, b_j, y, mu]
+        f, *_ = hypergeo._hyp2f1(*pars)
+        check = float(mpmath.log(self._2f1_validate(*pars)))
+        assert np.isclose(f, check, rtol=2e-2)
+
+    def test_grad(self, a_i, b_i, a_j, b_j, y, mu):
+        pars = [a_i, b_i, a_j, b_j, y, mu]
+        _, *grad = hypergeo._hyp2f1(*pars)
+        da_i = nd.Derivative(
+            lambda a_i: hypergeo._hyp2f1(a_i, b_i, a_j, b_j, y, mu)[0], step=1e-3
+        )
+        db_i = nd.Derivative(
+            lambda b_i: hypergeo._hyp2f1(a_i, b_i, a_j, b_j, y, mu)[0], step=1e-5
+        )
+        da_j = nd.Derivative(
+            lambda a_j: hypergeo._hyp2f1(a_i, b_i, a_j, b_j, y, mu)[0], step=1e-3
+        )
+        db_j = nd.Derivative(
+            lambda b_j: hypergeo._hyp2f1(a_i, b_i, a_j, b_j, y, mu)[0], step=1e-5
+        )
+        check = [da_i(a_i), db_i(b_i), da_j(a_j), db_j(b_j)]
+        assert np.allclose(grad, check, rtol=1e-3)
+
+
+# ------------------------------------------------- #
+# The routines below aren't used in tsdate anymore, #
+# but may be useful in the future                   #
+# ------------------------------------------------- #
+
+
 @pytest.mark.parametrize(
     "pars",
     list(
@@ -88,68 +139,14 @@ class TestTaylorSeries:
         return grad(p)
 
     def test_2f1(self, pars):
-        f, s, *_ = hypergeo._hyp2f1_taylor_series(*pars)
+        f, *_ = hypergeo._hyp2f1_taylor_series(*pars)
         check = self._2f1_validate(*pars)
-        assert s == mpmath.sign(check)
         assert np.isclose(f, float(mpmath.log(mpmath.fabs(check))))
 
     def test_2f1_grad(self, pars):
-        _, _, *grad = hypergeo._hyp2f1_taylor_series(*pars)
-        grad = grad[:-1]
+        _, *grad = hypergeo._hyp2f1_taylor_series(*pars)
         offset = self._2f1_validate(*pars)
         check = self._2f1_grad_validate(*pars, offset=offset)
-        assert np.allclose(grad, check)
-
-
-@pytest.mark.parametrize(
-    "pars",
-    list(
-        itertools.product(
-            [0.8, 20.3, 200.2],
-            [0.0, 1.0, 10.0, 31.0],
-            [1.6, 30.5, 300.7],
-            [1.1, 1.5, 1.9, 4.2],
-        )
-    ),
-)
-class TestRecurrence:
-    """
-    Test recurrence for 2F1 when one parameter is a negative integer
-    """
-
-    @staticmethod
-    def _transform_pars(a, b, c, z):
-        return a, b, c + a, z
-
-    @staticmethod
-    def _2f1_validate(a, b, c, z, offset=1.0):
-        val = mpmath.re(mpmath.hyp2f1(a, -b, c, z))
-        return val / offset
-
-    @staticmethod
-    def _2f1_grad_validate(a, b, c, z, offset=1.0):
-        p = [a, b, c, z]
-        grad = nd.Gradient(
-            lambda x: float(TestRecurrence._2f1_validate(*x, offset=offset)),
-            step=1e-6,
-            richardson_terms=4,
-        )
-        return grad(p)
-
-    def test_2f1(self, pars):
-        pars = self._transform_pars(*pars)
-        f, s, *_ = hypergeo._hyp2f1_recurrence(*pars)
-        check = self._2f1_validate(*pars)
-        assert s == mpmath.sign(check)
-        assert np.isclose(f, float(mpmath.log(mpmath.fabs(check))))
-
-    def test_2f1_grad(self, pars):
-        pars = self._transform_pars(*pars)
-        _, _, *grad = hypergeo._hyp2f1_recurrence(*pars)
-        grad = grad[:-1]
-        offset = self._2f1_validate(*pars)
-        check = self._2f1_grad_validate(*pars, offset=offset)
-        check[1] = 0.0  # integer parameter has no gradient
         assert np.allclose(grad, check)
 
 
@@ -192,93 +189,3 @@ class TestCheckValid2F1:
         dz *= 1 + 1e-3
         d2z *= 1 - 1e-3
         assert not hypergeo._is_valid_2f1(dz, d2z, *pars, 1e-10)
-
-
-@pytest.mark.parametrize("muts", [0.0, 1.0, 5.0, 10.0])
-@pytest.mark.parametrize(
-    "hyp2f1_func, pars",
-    [
-        (hypergeo._hyp2f1_dlmf1521, [1.4, 0.018, 2.34, 2.3e-05, 0.0, 0.0395]),
-        (hypergeo._hyp2f1_dlmf1581, [1.4, 0.018, 20.3, 0.04, 0.0, 2.3e-05]),
-        (hypergeo._hyp2f1_dlmf1583, [5.4, 0.018, 10.34, 0.04, 0.0, 2.3e-05]),
-    ],
-)
-class TestTransforms:
-    """
-    Test numerically stable transformations of hypergeometric functions
-    """
-
-    @staticmethod
-    def _2f1_validate(a_i, b_i, a_j, b_j, y, mu, offset=1.0):
-        A = a_j
-        B = a_i + a_j + y
-        C = a_j + y + 1
-        z = (mu - b_j) / (mu + b_i)
-        val = mpmath.re(mpmath.hyp2f1(A, B, C, z, maxterms=1e6))
-        return val / offset
-
-    @staticmethod
-    def _2f1_grad_validate(a_i, b_i, a_j, b_j, y, mu, offset=1.0):
-        p = [a_i, b_i, a_j, b_j]
-        grad = nd.Gradient(
-            lambda x: float(TestTransforms._2f1_validate(*x, y, mu, offset=offset)),
-            step=1e-6,
-            richardson_terms=4,
-        )
-        return grad(p)
-
-    def test_2f1(self, muts, hyp2f1_func, pars):
-        pars[4] = muts
-        f, s, *_ = hyp2f1_func(*pars)
-        assert s > 0
-        check = float(mpmath.log(self._2f1_validate(*pars)))
-        assert np.isclose(f, check)
-
-    def test_2f1_grad(self, muts, hyp2f1_func, pars):
-        pars[4] = muts
-        _, s, *grad = hyp2f1_func(*pars)
-        assert s > 0
-        offset = self._2f1_validate(*pars)
-        check = self._2f1_grad_validate(*pars, offset=offset)
-        assert np.allclose(grad, check)
-
-
-@pytest.mark.parametrize(
-    "func, pars, err",
-    [
-        [
-            hypergeo._hyp2f1_dlmf1583,
-            [-21.62, 0.00074, 1003.8, 0.7653, 100.0, 0.0011],
-            "Cancellation error",
-        ],
-        [
-            hypergeo._hyp2f1_dlmf1583,
-            [1.62, 0.00074, 25603.8, 0.6653, 0.0, 0.0011],
-            "Cancellation error",
-        ],
-        # TODO: gives zero function value, then reroutes through dlmf1581
-        # [
-        #    hypergeo._hyp2f1_dlmf1583,
-        #    [9007.39, 0.241, 10000, 0.2673, 2.0, 0.01019],
-        #    "Cancellation error",
-        # ],
-        [
-            hypergeo._hyp2f1_dlmf1581,
-            [1.62, 0.00074, 25603.8, 0.7653, 100.0, 0.0011],
-            "Maximum terms",
-        ],
-        [
-            hypergeo._hyp2f1_dlmf1583,
-            [1.0, 1.0, 1.0, 1.0, 3.0, 0.0],
-            "Zero division",
-        ],
-    ],
-)
-class TestInvalid2F1:
-    """
-    Test cases where homegrown 2F1 fails to converge
-    """
-
-    def test_hyp2f1_error(self, func, pars, err):
-        with pytest.raises(hypergeo.Invalid2F1, match=err):
-            func(*pars)

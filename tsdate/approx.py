@@ -23,12 +23,8 @@
 """
 Tools for approximating combinations of Gamma variates with Gamma distributions
 """
-import logging
-
-import mpmath
 import numba
 import numpy as np
-from mpmath.libmp.libhyper import NoConvergence as MPNoConvergence
 
 from . import hypergeo
 
@@ -42,7 +38,7 @@ class KLMinimizationFailed(Exception):
     pass
 
 
-@numba.njit("UniTuple(float64, 3)(float64, float64)")
+@numba.njit("UniTuple(f8, 3)(f8, f8)")
 def approximate_log_moments(mean, variance):
     """
     Approximate log moments via a second-order Taylor series expansion around
@@ -60,23 +56,24 @@ def approximate_log_moments(mean, variance):
     return logx, xlogx, logx2
 
 
-@numba.njit("UniTuple(float64, 2)(float64, float64)")
+@numba.njit("UniTuple(f8, 2)(f8, f8)")
 def approximate_gamma_kl(x, logx):
     """
-    Use Newton root finding to get gamma parameters matching the sufficient
+    Use Newton root finding to get gamma natural parameters matching the sufficient
     statistics :math:`E[x]` and :math:`E[\\log x]`, minimizing KL divergence.
 
     The initial condition uses the upper bound :math:`digamma(x) \\leq log(x) - 1/2x`.
 
     Returns the shape and rate of the approximating gamma.
     """
-    assert np.isfinite(x) and np.isfinite(logx)
+    if x <= 0.0 or np.isinf(logx):
+        raise KLMinimizationFailed("Nonpositive or nonfinite moments")
     if not np.log(x) > logx:
         raise KLMinimizationFailed("log E[t] <= E[log t] violates Jensen's inequality")
     alpha = 0.5 / (np.log(x) - logx)  # lower bound on alpha
     # asymptotically the lower bound becomes sharp
     if 1.0 / alpha < 1e-4:
-        return alpha, alpha / x
+        return alpha - 1.0, alpha / x
     itt = 0
     delta = np.inf
     # determine convergence when the change in alpha falls below
@@ -90,73 +87,41 @@ def approximate_gamma_kl(x, logx):
         itt += 1
     if not np.isfinite(alpha) or alpha <= 0:
         raise KLMinimizationFailed("Invalid shape parameter in KL minimization")
-    return alpha, alpha / x
+    return alpha - 1.0, alpha / x
 
 
-@numba.njit("UniTuple(float64, 2)(float64, float64)")
+@numba.njit("UniTuple(f8, 2)(f8, f8)")
 def approximate_gamma_mom(mean, variance):
     """
     Use the method of moments to approximate a distribution with a gamma of the
-    same mean and variance
+    same mean and variance, returning natural parameters
     """
     assert mean > 0
     assert variance > 0
-    alpha = mean**2 / variance
-    beta = mean / variance
-    return alpha, beta
+    shape = mean**2 / variance
+    rate = mean / variance
+    return shape - 1.0, rate
 
 
-def rescale_gamma(posterior, edges_in, edges_out, new_shape):
+@numba.njit("UniTuple(f8, 2)(f8[:], f8[:])")
+def average_gammas(alpha, beta):
     """
-    Given a factorization of gamma parameters in `posterior` into additive
-    terms `edges_in` and `edges_out` and a prior, rescale so that the posterior
-    shape has a fixed value.
+    Given natural parameters for a set of gammas, average sufficient
+    statistics so as to get a "global" gamma, returning natural
+    parameters
     """
-
-    in_shape, in_rate = edges_in[:, 0], edges_in[:, 1]
-    out_shape, out_rate = edges_out[:, 0], edges_out[:, 1]
-    post_shape, post_rate = posterior[0], posterior[1]
-
-    assert post_shape > 0 and post_rate > 0
-
-    # new posterior parameters
-    new_rate = new_shape * post_rate / post_shape
-
-    # rescale messages to match desired shape
-    shape_scale = (new_shape - 1) / (post_shape - 1)
-    rate_scale = new_rate / post_rate
-    in_shape = (in_shape - 1) * shape_scale + 1
-    out_shape = (out_shape - 1) * shape_scale + 1
-    in_rate = in_rate * rate_scale
-    out_rate = out_rate * rate_scale
-
-    return (
-        np.array([new_shape, new_rate]),
-        np.column_stack([in_shape, in_rate]),
-        np.column_stack([out_shape, out_rate]),
-    )
-
-
-@numba.njit("UniTuple(float64, 2)(float64[:], float64[:])")
-def average_gammas(shape, rate):
-    """
-    Given shape and rate parameters for a set of gammas, average sufficient
-    statistics so as to get a "global" gamma
-    """
-    assert shape.size == rate.size, "Array sizes are not equal"
+    assert alpha.size == beta.size, "Array sizes are not equal"
     avg_x = 0.0
     avg_logx = 0.0
-    for a, b in zip(shape, rate):
-        avg_logx += hypergeo._digamma(a) - np.log(b)
-        avg_x += a / b
-    avg_x /= shape.size
-    avg_logx /= shape.size
+    for shape, rate in zip(alpha + 1.0, beta):
+        avg_logx += hypergeo._digamma(shape) - np.log(rate)
+        avg_x += shape / rate
+    avg_x /= alpha.size
+    avg_logx /= alpha.size
     return approximate_gamma_kl(avg_x, avg_logx)
 
 
-@numba.njit(
-    "UniTuple(float64, 5)(float64, float64, float64, float64, float64, float64)"
-)
+@numba.njit("UniTuple(f8, 5)(f8, f8, f8, f8, f8, f8)")
 def sufficient_statistics(a_i, b_i, a_j, b_j, y_ij, mu_ij):
     """
     Calculate gamma sufficient statistics for the PDF proportional to
@@ -184,9 +149,7 @@ def sufficient_statistics(a_i, b_i, a_j, b_j, y_ij, mu_ij):
     assert c > 0
     assert t > 0
 
-    log_f, sign_f, da_i, db_i, da_j, db_j = hypergeo._hyp2f1(
-        a_i, b_i, a_j, b_j, y_ij, mu_ij
-    )
+    log_f, da_i, db_i, da_j, db_j = hypergeo._hyp2f1(a_i, b_i, a_j, b_j, y_ij, mu_ij)
 
     logconst = (
         log_f + hypergeo._betaln(y_ij + 1, b) + hypergeo._gammaln(a) - a * np.log(t)
@@ -206,16 +169,13 @@ def sufficient_statistics(a_i, b_i, a_j, b_j, y_ij, mu_ij):
     return logconst, t_i, ln_t_i, t_j, ln_t_j
 
 
-def mean_and_variance(a_i, b_i, a_j, b_j, y_ij, mu_ij, dps=100, maxterms=1e4):
+@numba.njit("UniTuple(f8, 7)(f8, f8, f8, f8, f8, f8)")
+def taylor_approximation(a_i, b_i, a_j, b_j, y_ij, mu_ij):
     """
-    Calculate mean and variance for the PDF proportional to
+    Calculate gamma sufficient statistics for the PDF proportional to
     :math:`Ga(t_j | a_j, b_j) Ga(t_i | a_i, b_i) Po(y_{ij} |
     \\mu_{ij} t_i - t_j)`, where :math:`i` is the parent and :math:`j` is
     the child.
-
-    This is intended to provide a stable approximation when calculation of
-    gamma sufficient statistics fails (e.g. when the log-normalizer is close to
-    singular). Calculations are done at arbitrary precision and are slow.
 
     :param float a_i: the shape parameter of the cavity distribution for the parent
     :param float b_i: the rate parameter of the cavity distribution for the parent
@@ -223,13 +183,12 @@ def mean_and_variance(a_i, b_i, a_j, b_j, y_ij, mu_ij, dps=100, maxterms=1e4):
     :param float b_j: the rate parameter of the cavity distribution for the child
     :param float y_ij: the number of mutations on the edge
     :param float mu_ij: the span-weighted mutation rate of the edge
-    :param int dps: decimal places for multiprecision computations
 
-    :return: normalizing constant, E[t_i], V[t_i], E[t_j], V[t_j]
+    :return: normalizing constant, E[t_i], E[log t_i], E[t_j], E[log t_j]
     """
 
-    a = a_i + a_j + y_ij
-    b = a_j
+    a = a_j
+    b = a_i + a_j + y_ij
     c = a_j + y_ij + 1
     t = mu_ij + b_i
     z = (mu_ij - b_j) / t
@@ -239,68 +198,84 @@ def mean_and_variance(a_i, b_i, a_j, b_j, y_ij, mu_ij, dps=100, maxterms=1e4):
     assert c > 0
     assert t > 0
 
-    # 2F1 and first/second derivatives of argument, in arbitrary precision
-    with mpmath.workdps(dps):
-        s0 = a * b / c
-        s1 = s0 * (a + 1) * (b + 1) / (c + 1)
-        v0 = mpmath.hyp2f1(a, b, c, z, maxterms=maxterms)
-        v1 = s0 * (mpmath.hyp2f1(a + 1, b + 1, c + 1, z, maxterms=maxterms) / v0)
-        v2 = s1 * (mpmath.hyp2f1(a + 2, b + 2, c + 2, z, maxterms=maxterms) / v0)
-        logconst = float(mpmath.log(v0))
-        dz = float(v1)
-        d2z = float(v2)
+    f0, _, _, _, _ = hypergeo._hyp2f1(a_i, b_i, a_j + 0, b_j, y_ij, mu_ij)
+    f1, _, _, _, _ = hypergeo._hyp2f1(a_i, b_i, a_j + 1, b_j, y_ij, mu_ij)
+    f2, _, _, _, _ = hypergeo._hyp2f1(a_i, b_i, a_j + 2, b_j, y_ij, mu_ij)
+    s1 = a * b / c
+    s2 = s1 * (a + 1) * (b + 1) / (c + 1)
+    d1 = s1 * np.exp(f1 - f0)
+    d2 = s2 * np.exp(f2 - f0)
 
-    # mean / variance of child and parent age
-    logconst += hypergeo._betaln(y_ij + 1, b) + hypergeo._gammaln(a) - a * np.log(t)
-    t_i = dz * z / t + a / t
-    va_t_i = z / t**2 * (d2z * z + 2 * dz * (1 + a)) + a * (1 + a) / t**2 - t_i**2
-    t_j = dz / t
-    va_t_j = d2z / t**2 - t_j**2
+    logl = f0 + hypergeo._betaln(y_ij + 1, a) + hypergeo._gammaln(b) - b * np.log(t)
 
-    return logconst, t_i, va_t_i, t_j, va_t_j
+    mn_i = d1 * z / t + b / t
+    mn_j = d1 / t
+    sq_i = z / t**2 * (d2 * z + 2 * d1 * (1 + b)) + b * (1 + b) / t**2
+    sq_j = d2 / t**2
+    va_i = sq_i - mn_i**2
+    va_j = sq_j - mn_j**2
+    ln_i = np.log(mn_i) - va_i / 2 / mn_i**2
+    ln_j = np.log(mn_j) - va_j / 2 / mn_j**2
+
+    return logl, mn_i, ln_i, va_i, mn_j, ln_j, va_j
 
 
-def gamma_projection(a_i, b_i, a_j, b_j, y_ij, mu_ij):
+@numba.njit("b1(f8, f8, f8, f8)")
+def _valid_sufficient_statistics(t_i, ln_t_i, t_j, ln_t_j):
+    if t_i <= 0:
+        return False
+    if t_j <= 0:
+        return False
+    if np.isinf(ln_t_i):
+        return False
+    if np.isinf(ln_t_j):
+        return False
+    if np.log(t_i) <= ln_t_i:
+        return False
+    if np.log(t_j) <= ln_t_j:
+        return False
+    return True
+
+
+@numba.njit("Tuple((f8, f8[:], f8[:]))(f8[:], f8[:], f8[:], b1)")
+def gamma_projection(pars_i, pars_j, pars_ij, min_kl):
     """
     Match a pair of gamma distributions to the potential function
-    :math:`Ga(t_j | a_j, b_j) Ga(t_i | a_i, b_i) Po(y_{ij} |
+    :math:`Ga(t_j | a_j + 1, b_j) Ga(t_i | a_i + 1, b_i) Po(y_{ij} |
     \\mu_{ij} t_i - t_j)`, where :math:`i` is the parent and :math:`j` is
     the child, by minimizing KL divergence.
 
-    :param float a_i: the shape parameter of the cavity distribution for the parent
-    :param float b_i: the rate parameter of the cavity distribution for the parent
-    :param float a_j: the shape parameter of the cavity distribution for the child
-    :param float b_j: the rate parameter of the cavity distribution for the child
+    :param float a_i: the first parameter of the cavity distribution for the parent
+    :param float b_i: the second parameter of the cavity distribution for the parent
+    :param float a_j: the first parameter of the cavity distribution for the child
+    :param float b_j: the second parameter of the cavity distribution for the child
     :param float y_ij: the number of mutations on the edge
     :param float mu_ij: the span-weighted mutation rate of the edge
+    :param bool min_kl: minimize KL divergence (match central moments if False)
 
-    :return: gamma parameters for parent and child
+    :return: gamma natural parameters for parent and child
     """
-    try:
+
+    a_i, b_i = pars_i
+    a_j, b_j = pars_j
+    y_ij, mu_ij = pars_ij
+
+    if min_kl:
         logconst, t_i, ln_t_i, t_j, ln_t_j = sufficient_statistics(
-            a_i, b_i, a_j, b_j, y_ij, mu_ij
+            a_i + 1.0, b_i, a_j + 1.0, b_j, y_ij, mu_ij
         )
+        if not _valid_sufficient_statistics(t_i, ln_t_i, t_j, ln_t_j):
+            logconst, t_i, ln_t_i, _, t_j, ln_t_j, _ = taylor_approximation(
+                a_i + 1.0, b_i, a_j + 1.0, b_j, y_ij, mu_ij
+            )
         proj_i = approximate_gamma_kl(t_i, ln_t_i)
         proj_j = approximate_gamma_kl(t_j, ln_t_j)
-    except (hypergeo.Invalid2F1, KLMinimizationFailed):
-        try:
-            logging.info(
-                f"Matching sufficient statistics failed with parameters: "
-                f"{a_i} {b_i} {a_j} {b_j} {y_ij} {mu_ij},"
-                f"matching mean and variance instead"
-            )
-            logconst, t_i, va_t_i, t_j, va_t_j = mean_and_variance(
-                a_i, b_i, a_j, b_j, y_ij, mu_ij
-            )
-            proj_i = approximate_gamma_mom(t_i, va_t_i)
-            proj_j = approximate_gamma_mom(t_j, va_t_j)
-        except MPNoConvergence:
-            raise hypergeo.Invalid2F1(
-                "Hypergeometric series does not converge; the approximate "
-                "marginal is likely degenerate.  This may reflect a topological "
-                "constraint that is at odds with the mutational data. Setting "
-                "'max_shape' to a large value (e.g. 1000) will prevent degenerate "
-                "marginals, but the results should be treated with care."
-            )
+    else:
+        # TODO: test
+        logconst, t_i, _, va_t_i, t_j, _, va_t_j = taylor_approximation(
+            a_i + 1.0, b_i, a_j + 1.0, b_j, y_ij, mu_ij
+        )
+        proj_i = approximate_gamma_mom(t_i, va_t_i)
+        proj_j = approximate_gamma_mom(t_j, va_t_j)
 
     return logconst, np.array(proj_i), np.array(proj_j)

@@ -1174,14 +1174,13 @@ class MixturePrior:
         )
         prior_pars.probability_space = base.GAMMA_PAR
 
-        shape_param = self.prior_params[:, PriorParams.field_index("alpha")]
-        rate_param = self.prior_params[:, PriorParams.field_index("beta")]
+        shape = self.prior_params[:, PriorParams.field_index("alpha")]
+        rate = self.prior_params[:, PriorParams.field_index("beta")]
         for node in tqdm(
             datable_nodes, desc="Assign Prior to Each Node", disable=not progress
         ):
-            prior_pars[node] = population_size.to_gamma(
-                shape_param[node], rate_param[node]
-            )
+            prior_pars[node] = population_size.gamma_to_natural(shape[node], rate[node])
+
         return prior_pars
 
 

@@ -532,7 +532,7 @@ class VariationalLikelihoods:
     """
 
     probability_space = base.GAMMA_PAR
-    identity_constant = np.array([1.0, 0.0], dtype=float)  # "improper" gamma prior
+    identity_constant = np.array([0.0, 0.0], dtype=float)
     null_constant = 0.0
     timepoints = np.array([0, np.inf], dtype=float)
     grid_size = 2
@@ -555,18 +555,14 @@ class VariationalLikelihoods:
         self.identity_constant.flags.writeable = False
         self.timepoints.flags.writeable = False
 
-    def to_gamma(self, edge, natural=False):
+    def to_natural(self, edge):
         """
-        Return the shape and rate parameters of the (gamma) posterior of edge
-        length, given an improper (constant) prior. If ``natural`` is ``True``,
-        return the natural parameterization instead.
+        Return the natural parameters of the (gamma) posterior of edge
+        length, given a Poisson likelihood for mutation counts
         """
         y = self.mut_edges[edge.id]
         mu = edge.span * self.mut_rate
-        if natural:
-            return np.array([y, mu])
-        else:
-            return np.array([y + 1, mu])
+        return np.array([y, mu])
 
     @staticmethod
     def get_mut_edges(ts):
@@ -574,26 +570,6 @@ class VariationalLikelihoods:
         Get the number of mutations on each edge in the tree sequence.
         """
         return Likelihoods.get_mut_edges(ts)
-
-    @staticmethod
-    def combine(base, message):
-        """
-        Multiply two gamma PDFs in shape/rate parameterization. This
-        is equivalent to addition of natural parameters. Because the natural
-        parametrization is (shape - 1, rate), the operation returns
-        [(base_shape - 1) + (message_shape - 1) + 1, base_rate + message_rate]
-        """
-        return base + message + [-1, 0]
-
-    @staticmethod
-    def ratio(base, message):
-        """
-        Divide two gamma PDFs in shape/rate parameterization. This
-        is equivalent to subtraction of natural parameters. Because the natural
-        parametrization is (shape - 1, rate), the operation returns
-        [(base_shape - 1) - (message_shape - 1) + 1, base_rate - message_rate]
-        """
-        return base - message + [1, 0]
 
 
 class InOutAlgorithms:
@@ -985,139 +961,161 @@ class ExpectationPropagation(InOutAlgorithms):
         assert self.lik.grid_size == 2
         assert self.priors.timepoints.size == 2
 
-        # Messages passed from factors in the direction of roots
-        self.parent_message = np.tile(
-            self.lik.identity_constant,
-            (self.ts.num_edges, 1),
-        )
+        # mutation likelihoods, as gamma natural parameters
+        self.likelihoods = np.zeros((self.ts.num_edges, 2))
+        for e in self.ts.edges():
+            self.likelihoods[e.id] = self.lik.to_natural(e)
 
-        # Messages passed from factors in the direction of leaves
-        self.child_message = np.tile(
-            self.lik.identity_constant,
-            (self.ts.num_edges, 1),
-        )
+        # messages passed from factors to nodes
+        self.messages = np.zeros((self.ts.num_edges, 2, 2))
 
-        # Normalizing constants from each factor
-        self.factor_norm = np.full(self.ts.num_edges, 0.0)
+        # normalizing constants from each factor
+        self.log_partition = np.zeros(self.ts.num_edges)
 
         # the approximate posterior marginals
-        self.posterior = self.priors.clone_with_new_data(
-            grid_data=self.priors.grid_data.copy(),
-            fixed_data=np.nan,
-        )
+        self.posterior = np.zeros((self.ts.num_nodes, 2))
+        for n in self.priors.nonfixed_nodes:
+            self.posterior[n] = self.priors[n]
+
+        # edge traversal order
+        self.edges, self.leaves = self.factorize(self.ts.edges(), self.fixednodes)
 
         # factors for edges leading from fixed nodes are invariant
         # and can be incorporated into the posterior beforehand
-        for edge in self.ts.edges():
-            if edge.child in self.fixednodes:
-                self.parent_message[edge.id] = self.lik.to_gamma(edge, natural=False)
-                self.posterior[edge.parent] = self.lik.combine(
-                    self.posterior[edge.parent], self.parent_message[edge.id]
-                )
-                # self.factor_norm[edge.id] += ... # TODO
+        for i, p, c in self.leaves:
+            if self.ts.nodes_time[c] != 0.0:
+                raise ValueError("Fixed nodes must be at time zero")
+            self.messages[i, 0] = self.likelihoods[i]
+            self.posterior[p] += self.likelihoods[i]
+            # self.log_partition[i] += ... # TODO
 
-        # store factorization into messages: the edge ids pointing
-        # towards roots/leaves for each node
-        self.parent_factors, self.child_factors = self.factorize()
+        # scaling factor for posterior: posterior is the sum of messages and
+        # prior, multiplied by a scaling term in (0, 1]
+        self.scale = np.ones(self.ts.num_nodes)
 
-    def factorize(self):
+    @staticmethod
+    def factorize(edge_list, fixed_nodes):
+        """Split edges into internal and external"""
+        internal = []
+        external = []
+        for edge in edge_list:
+            i, p, c = edge.id, edge.parent, edge.child
+            if p in fixed_nodes:
+                raise ValueError("Internal nodes cannot be fixed")
+            if c in fixed_nodes:
+                external.extend([i, p, c])
+            else:
+                internal.extend([i, p, c])
+        internal = np.array(internal, dtype=np.int32).reshape(-1, 3)
+        external = np.array(external, dtype=np.int32).reshape(-1, 3)
+        return internal, external
+
+    @staticmethod
+    @numba.njit("f8(i4[:, :], f8[:, :], f8[:, :], f8[:, :, :], f8[:], f8[:], f8, b1)")
+    def propagate(
+        edges, likelihoods, posterior, messages, scale, log_partition, max_shape, min_kl
+    ):
         """
-        Find incoming/outgoing edge IDs for each node
-        """
-        parent_factors = defaultdict(list)
-        child_factors = defaultdict(list)
-        for node, edgelist in self.edges_by_parent_asc():
-            parent_factors[node].extend([edge.id for edge in edgelist])
-        for node, edgelist in self.edges_by_child_desc():
-            child_factors[node].extend([edge.id for edge in edgelist])
-        return parent_factors, child_factors
+        Update approximating factors for each edge, returning average relative
+        difference in natural parameters (TODO)
 
-    def propagate(self, *, edges, desc=None, progress=None, max_shape=None):
+        :param ndarray edges: integer array of dimension `[num_edges, 3]`
+            containing edge id, parent id, and child id.
+        :param ndarray likelihoods: array of dimension `[num_edges, 2]`
+            containing mutation count and mutational target size per edge.
+        :param ndarray posterior: array of dimension `[num_nodes, 2]`
+            containing natural parameters for each node, updated in-place.
+        :param ndarray messages: array of dimension `[num_edges, 2, 2]`
+            containing parent/child messages (natural parameters) for each edge,
+            updated in-place.
+        :param ndarray scale: array of dimension `[num_nodes]`
+            containing the scaling factor for the posterior, updated in place
+        :param ndarray log_partition: array of dimension `[num_edges]`
+            containing the approximate normalizing constants per edge,
+            updated in-place.
         """
-        Update approximating factor for each edge
-        """
-        if progress is None:
-            progress = self.progress
-        # TODO: this will still converge if parallelized (potentially slower)
-        for edge in tqdm(
-            edges, desc, total=self.ts.num_edges, disable=not progress, leave=False
-        ):
-            if edge.child in self.fixednodes:
-                continue
-            if edge.parent in self.fixednodes:
-                raise ValueError("Internal nodes can not be fixed in EP algorithm")
-            # Get the edge likelihood (Poisson) in terms of a gamma distribution
-            edge_lik = self.lik.to_gamma(edge, natural=True)
-            # Get the cavity posteriors: that is, the rest of the approximation
-            # without the factor for this edge. This only involves updating the
-            # variational parameters for the parent and child on the edge.
-            parent_cavity = self.lik.ratio(
-                self.posterior[edge.parent], self.parent_message[edge.id]
-            )
-            child_cavity = self.lik.ratio(
-                self.posterior[edge.child], self.child_message[edge.id]
-            )
-            # Get the target posterior: that is, the cavity multiplied by the
-            # edge likelihood, and projected onto a gamma distribution via
-            # moment matching.
-            (
-                norm_const,
-                self.posterior[edge.parent],
-                self.posterior[edge.child],
-            ) = approx.gamma_projection(*parent_cavity, *child_cavity, *edge_lik)
-            # Get the messages: that is, the multiplicative difference between
-            # the target and cavity posteriors. This only involves updating the
-            # variational parameters for the parent and child on the edge.
-            self.parent_message[edge.id] = self.lik.ratio(
-                self.posterior[edge.parent], parent_cavity
-            )
-            self.child_message[edge.id] = self.lik.ratio(
-                self.posterior[edge.child], child_cavity
-            )
-            # Constrain the messages such that the gamma shape parameter is
-            # upper-bounded. Otherwise, the approximation can become degenerate
-            # which will cause numerical issues.
-            for node in [edge.parent, edge.child]:
-                if max_shape is not None and self.posterior[node][0] > max_shape:
-                    edges_out = self.child_factors[node]
-                    edges_in = self.parent_factors[node]
-                    (
-                        self.posterior[node],
-                        self.child_message[edges_out],
-                        self.parent_message[edges_in],
-                    ) = approx.rescale_gamma(
-                        self.posterior[node],
-                        self.child_message[edges_out],
-                        self.parent_message[edges_in],
-                        max_shape,
-                    )
 
-            # Get the contribution to the (approximate) marginal likelihood from
-            # the edge.
-            # TODO not complete
-            self.factor_norm[edge.id] = norm_const
+        assert max_shape >= 1.0
 
-    def iterate(self, *, iter_num=None, progress=None, max_shape=None):
+        upper = max_shape - 1.0
+        lower = 1.0 / max_shape - 1.0
+
+        def cavity_damping(x, y):
+            d = 1.0
+            if x[0] - y[0] < lower:
+                d = min(d, (x[0] - lower) / y[0])
+            if x[1] - y[1] < 0.0:
+                d = min(d, x[1] / y[1])
+            assert 0.0 < d <= 1.0
+            return d
+
+        def posterior_damping(x):
+            assert x[0] > -1.0 and x[1] > 0.0
+            d = min(1.0, upper / abs(x[0]))
+            assert 0.0 < d <= 1.0
+            return d
+
+        for i, p, c in edges:
+            # Damped downdate to ensure proper cavity distributions
+            parent_message = messages[i, 0] * scale[p]
+            child_message = messages[i, 1] * scale[c]
+            parent_delta = cavity_damping(posterior[p], parent_message)
+            child_delta = cavity_damping(posterior[c], child_message)
+            delta = min(parent_delta, child_delta)
+            # The cavity posteriors: the approximation omitting the variational
+            # factors for this edge.
+            parent_cavity = posterior[p] - delta * parent_message
+            child_cavity = posterior[c] - delta * child_message
+            # The edge likelihood, scaled by the damping factor
+            edge_likelihood = delta * likelihoods[i]
+            # The target posterior: the cavity multiplied by the edge
+            # likelihood then projected onto a gamma via moment matching.
+            logconst, parent_post, child_post = approx.gamma_projection(
+                parent_cavity, child_cavity, edge_likelihood, min_kl
+            )
+            # The messages: the difference in natural parameters between the
+            # target and cavity posteriors.
+            messages[i, 0] += (parent_post - posterior[p]) / scale[p]
+            messages[i, 1] += (child_post - posterior[c]) / scale[c]
+            # Contribution to the marginal likelihood from the edge
+            log_partition[i] = logconst  # TODO: incomplete
+            # Constrain the messages so that the gamma shape parameter for each
+            # posterior is bounded (e.g. set a maximum precision for log(age)).
+            parent_eta = posterior_damping(parent_post)
+            child_eta = posterior_damping(child_post)
+            posterior[p] = parent_eta * parent_post
+            posterior[c] = child_eta * child_post
+            scale[p] *= parent_eta
+            scale[c] *= child_eta
+
+        return 0.0  # TODO, placeholder
+
+    def iterate(self, max_shape=1000, min_kl=True):
         """
         Update edge factors from leaves to root then from root to leaves,
-        and return approximate log marginal likelihood
+        and return approximate log marginal likelihood (TODO)
         """
-        if progress is None:
-            progress = self.progress
-        it = iter_num + 1  # For display purposes: show 1-based iteration
-        tasks = {
-            "Rootwards": self.edges_by_parent_asc,
-            "Leafwards": self.edges_by_child_desc,
-        }
-        for desc, func in tqdm(
-            tasks.items(), f"Iteration {it}", disable=not progress, leave=False
-        ):
-            self.propagate(
-                edges=func(grouped=False),
-                desc=desc,
-                progress=progress,
-                max_shape=max_shape,
-            )
+
+        self.propagate(
+            self.edges,
+            self.likelihoods,
+            self.posterior,
+            self.messages,
+            self.scale,
+            self.log_partition,
+            max_shape,
+            min_kl,
+        )
+        self.propagate(
+            self.edges[::-1],
+            self.likelihoods,
+            self.posterior,
+            self.messages,
+            self.scale,
+            self.log_partition,
+            max_shape,
+            min_kl,
+        )
 
         # TODO
         # marginal_lik = np.sum(self.factor_norm)
@@ -1555,13 +1553,14 @@ def variational_dates(
     priors=None,
     *,
     max_iterations=20,
-    max_shape=None,
+    max_shape=1000,
     global_prior=True,
     eps=1e-6,
     progress=False,
     num_threads=None,  # Unused, matches get_dates()
     probability_space=None,  # Can only be None, simply to match get_dates()
     ignore_oldest_root=False,  # Can only be False, simply to match get_dates()
+    min_kl=True,  # Minimize KL divergence or match central moments
 ):
     """
     Infer dates for the nodes in a tree sequence using expectation propagation,
@@ -1629,6 +1628,12 @@ def variational_dates(
                 "tsdate.build_parameter_grid()"
             )
         priors = priors
+
+    # convert priors to natural parameterization and average
+    for n in priors.nonfixed_nodes:
+        priors[n][0] -= 1.0
+        assert priors[n][0] > -1.0
+        assert priors[n][1] >= 0.0
     if global_prior:
         logging.info("Pooling node-specific priors into global prior")
         priors.grid_data[:] = approx.average_gammas(
@@ -1643,14 +1648,17 @@ def variational_dates(
     )
 
     dynamic_prog = ExpectationPropagation(priors, liklhd, progress=progress)
-    for it in tqdm(
+    for _ in tqdm(
         np.arange(max_iterations),
         desc="Expectation Propagation",
         disable=not progress,
     ):
-        dynamic_prog.iterate(iter_num=it, max_shape=max_shape)
+        dynamic_prog.iterate(max_shape=max_shape, min_kl=min_kl)
 
-    posterior = dynamic_prog.posterior
+    posterior = priors.clone_with_new_data(
+        grid_data=dynamic_prog.posterior[priors.nonfixed_nodes, :]
+    )
+    posterior.grid_data[:, 0] += 1  # to shape/rate parameterization
     tree_sequence, mn_post, _ = variational_mean_var(
         tree_sequence, posterior, fixed_node_set=fixed_nodes
     )

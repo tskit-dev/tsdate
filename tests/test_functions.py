@@ -2189,7 +2189,7 @@ class TestPopulationSizeHistory:
             np.inf,
         )
         numer_va -= numer_mn**2
-        shape, rate = demography.to_gamma(shape=alpha, rate=beta)
+        shape, rate = demography.gamma_to_natural(shape=alpha, rate=beta)
         analy_mn = scipy.stats.gamma.mean(shape, scale=1 / rate)
         analy_va = scipy.stats.gamma.var(shape, scale=1 / rate)
         assert np.isclose(numer_mn, analy_mn)
