@@ -1696,6 +1696,10 @@ def variational_dates(
         disable=not progress,
     ):
         dynamic_prog.iterate(max_shape=max_shape, min_kl=min_kl, debug=debug)
+    # (DEBUG) check how many messages were skipped
+    skipped = np.sum(np.isnan(dynamic_prog.log_partition))
+    print("Skipped", skipped, "messages")
+    # (END DEBUG)
 
     posterior = priors.clone_with_new_data(
         grid_data=dynamic_prog.posterior[priors.nonfixed_nodes, :]
