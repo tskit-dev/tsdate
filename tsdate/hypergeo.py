@@ -215,7 +215,7 @@ def _hyp2f1_laplace_approx(a, b, c, x):
     assert c >= a
     assert 1.0 > x >= 0.0
 
-    if x == 0.0:
+    if np.isclose(x, 0.0):
         return 0.0, 0.0, 0.0, 0.0, a * b / c
 
     # Equations 19, 24, 25 in Butler & Wood
@@ -284,7 +284,7 @@ def _hyp2f1_fast(a, b, c, x):
     assert c >= a
     assert x < 1.0
 
-    if x == 0.0:
+    if np.isclose(x, 0.0):
         return 0.0
 
     s = 0.0
@@ -301,15 +301,14 @@ def _hyp2f1_fast(a, b, c, x):
     ymy = x**2 * b * yy * my / (1 - x * y) ** 2
     r = yy + my - ymy
     f = (
-        s
-        + (c - 1 / 2) * log(c)
+        +(c - 1 / 2) * log(c)
         - log(r) / 2
         + a * (log(y) - log(a))
         + (c - a) * (log(1 - y) - log(c - a))
         - b * log(1 - x * y)
     )
 
-    return f
+    return f + s
 
 
 # @numba.njit("UniTuple(f8, 5)(f8, f8, f8, f8)")
@@ -354,17 +353,19 @@ def _hyp2f1_dlmf1581(a_i, b_i, a_j, b_j, y, mu):
     DLMF 15.8.1, series expansion with Pfaff transformation
     """
 
+    a = y + 1
     b = a_i + a_j + y
     c = a_j + y + 1
     z = (b_j - mu) / (b_i + b_j)
-    scale = -b * np.log(1 - z / (z - 1))
+    s = (mu - b_j) / (mu + b_i)
+    scale = -b * np.log(1 - s)
 
     # 2F1(y+1, b; c; z) via series expansion
-    val, _, db, dc, dz = _hyp2f1_laplace_approx(y + 1, b, c, z)
+    val, _, db, dc, dz = _hyp2f1_laplace_approx(a, b, c, z)
 
     # map gradient to parameters
-    da_i = db - np.log(1 - z / (z - 1))
-    da_j = db + dc - np.log(1 - z / (z - 1))
+    da_i = db - np.log(1 - s)
+    da_j = db + dc - np.log(1 - s)
     db_i = z * (b / (mu + b_i) - dz / (b_i + b_j))
     db_j = (z - 1) * (b / (mu + b_i) - dz / (b_i + b_j))
 
@@ -416,7 +417,7 @@ def _hyp2f1(a_i, b_i, a_j, b_j, y, mu):
     and dividing the gradient by the function value.
     """
     z = (mu - b_j) / (mu + b_i)
-    assert z < 1.0, "Invalid hypergeometric function argument"
+    assert z < 1.0 and not np.isclose(z, 1.0), "Invalid argument"
     if z > 0.0:
         return _hyp2f1_dlmf1521(a_i, b_i, a_j, b_j, y, mu)
     else:

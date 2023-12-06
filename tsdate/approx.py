@@ -235,6 +235,31 @@ def _valid_sufficient_statistics(t_i, ln_t_i, t_j, ln_t_j):
     return True
 
 
+@numba.njit("b1(f8, f8, f8, f8, f8, f8)")
+def _valid_parameterization(a_i, b_i, a_j, b_j, y, mu):
+    """Uses shape / rate parameterization"""
+    a = a_j
+    b = a_i + a_j + y
+    c = a_j + y + 1
+    s = mu - b_j
+    t = mu + b_i
+    # check that 2F1 argument is not unity under some transformation
+    if np.isclose(t, 0.0):
+        return False
+    if np.isclose(s / t, 1.0):
+        return False
+    if np.isclose(-s / (t - s), 1.0):
+        return False
+    # check that 2F1 is positive
+    if a <= 0:
+        return False
+    if b <= 0:
+        return False
+    if c <= 0:
+        return False
+    return True
+
+
 @numba.njit("Tuple((f8, f8[:], f8[:]))(f8[:], f8[:], f8[:], b1)")
 def gamma_projection(pars_i, pars_j, pars_ij, min_kl):
     """
@@ -254,23 +279,37 @@ def gamma_projection(pars_i, pars_j, pars_ij, min_kl):
     :return: gamma natural parameters for parent and child
     """
 
+    # switch from natural to canonical parameterization
     a_i, b_i = pars_i
     a_j, b_j = pars_j
     y_ij, mu_ij = pars_ij
+    a_i += 1
+    a_j += 1
+
+    # skip update, zeroing out message
+    if not _valid_parameterization(a_i, b_i, a_j, b_j, y_ij, mu_ij):
+        return np.nan, pars_i, pars_j
+
+    # if min_kl:
+    #    logconst, t_i, ln_t_i, t_j, ln_t_j = sufficient_statistics(
+    #        a_i, b_i, a_j, b_j, y_ij, mu_ij
+    #    )
+    #    if not _valid_sufficient_statistics(t_i, ln_t_i, t_j, ln_t_j):
+    #        logconst, t_i, ln_t_i, _, t_j, ln_t_j, _ = taylor_approximation(
+    #            a_i, b_i, a_j, b_j, y_ij, mu_ij
+    #        )
+    #    proj_i = approximate_gamma_kl(t_i, ln_t_i)
+    #    proj_j = approximate_gamma_kl(t_j, ln_t_j)
 
     if min_kl:
-        logconst, t_i, ln_t_i, t_j, ln_t_j = sufficient_statistics(
-            a_i + 1.0, b_i, a_j + 1.0, b_j, y_ij, mu_ij
+        logconst, t_i, ln_t_i, _, t_j, ln_t_j, _ = taylor_approximation(
+            a_i, b_i, a_j, b_j, y_ij, mu_ij
         )
-        if not _valid_sufficient_statistics(t_i, ln_t_i, t_j, ln_t_j):
-            logconst, t_i, ln_t_i, _, t_j, ln_t_j, _ = taylor_approximation(
-                a_i + 1.0, b_i, a_j + 1.0, b_j, y_ij, mu_ij
-            )
         proj_i = approximate_gamma_kl(t_i, ln_t_i)
         proj_j = approximate_gamma_kl(t_j, ln_t_j)
     else:
         logconst, t_i, _, va_t_i, t_j, _, va_t_j = taylor_approximation(
-            a_i + 1.0, b_i, a_j + 1.0, b_j, y_ij, mu_ij
+            a_i, b_i, a_j, b_j, y_ij, mu_ij
         )
         proj_i = approximate_gamma_mom(t_i, va_t_i)
         proj_j = approximate_gamma_mom(t_j, va_t_j)
