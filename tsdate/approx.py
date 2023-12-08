@@ -244,11 +244,12 @@ def _valid_parameterization(a_i, b_i, a_j, b_j, y, mu):
     s = mu - b_j
     t = mu + b_i
     # check that 2F1 argument is not unity under some transformation
-    if np.isclose(t, 0.0):
+    if t <= 0.0:
         return False
-    if np.isclose(s / t, 1.0):
+    z = s / t
+    if z >= 1.0:
         return False
-    if np.isclose(-s / (t - s), 1.0):
+    if z / (z - 1) >= 1.0:
         return False
     # check that 2F1 is positive
     if a <= 0:

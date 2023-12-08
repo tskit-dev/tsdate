@@ -215,7 +215,7 @@ def _hyp2f1_laplace_approx(a, b, c, x):
     assert c >= a
     assert 1.0 > x >= 0.0
 
-    if np.isclose(x, 0.0):
+    if x == 0.0:
         return 0.0, 0.0, 0.0, 0.0, a * b / c
 
     # Equations 19, 24, 25 in Butler & Wood
@@ -284,7 +284,7 @@ def _hyp2f1_fast(a, b, c, x):
     assert c >= a
     assert x < 1.0
 
-    if np.isclose(x, 0.0):
+    if x == 0.0:
         return 0.0
 
     s = 0.0
@@ -417,7 +417,7 @@ def _hyp2f1(a_i, b_i, a_j, b_j, y, mu):
     and dividing the gradient by the function value.
     """
     z = (mu - b_j) / (mu + b_i)
-    assert z < 1.0 and not np.isclose(z, 1.0), "Invalid argument"
+    assert z < 1.0, "Invalid argument"
     if z > 0.0:
         return _hyp2f1_dlmf1521(a_i, b_i, a_j, b_j, y, mu)
     else:
