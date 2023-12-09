@@ -40,7 +40,9 @@ class TestProvenance:
 
     def test_date_cmd_recorded(self):
         ts = utility_functions.single_tree_ts_n2()
+        num_provenances = ts.num_provenances
         dated_ts = tsdate.date(ts, population_size=1, mutation_rate=None)
+        assert dated_ts.num_provenances == num_provenances + 1
         rec = json.loads(dated_ts.provenance(-1).record)
         assert rec["software"]["name"] == "tsdate"
         assert rec["parameters"]["command"] == "date"
@@ -83,14 +85,18 @@ class TestProvenance:
 
     def test_preprocess_cmd_recorded(self):
         ts = utility_functions.ts_w_data_desert(40, 60, 100)
+        num_provenances = ts.num_provenances
         preprocessed_ts = tsdate.preprocess_ts(ts)
+        assert preprocessed_ts.num_provenances == num_provenances + 1
         rec = json.loads(preprocessed_ts.provenance(-1).record)
         assert rec["software"]["name"] == "tsdate"
         assert rec["parameters"]["command"] == "preprocess_ts"
 
     def test_preprocess_defaults_recorded(self):
         ts = utility_functions.ts_w_data_desert(40, 60, 100)
+        num_provenances = ts.num_provenances
         preprocessed_ts = tsdate.preprocess_ts(ts)
+        assert preprocessed_ts.num_provenances == num_provenances + 1
         rec = json.loads(preprocessed_ts.provenance(-1).record)
         assert rec["parameters"]["remove_telomeres"]
         assert rec["parameters"]["minimum_gap"] == 1000000
@@ -98,11 +104,12 @@ class TestProvenance:
 
     def test_preprocess_interval_recorded(self):
         ts = utility_functions.ts_w_data_desert(40, 60, 100)
+        num_provenances = ts.num_provenances
         preprocessed_ts = tsdate.preprocess_ts(
             ts, minimum_gap=20, remove_telomeres=False
         )
+        assert preprocessed_ts.num_provenances == num_provenances + 1
         rec = json.loads(preprocessed_ts.provenance(-1).record)
-        print(rec)
         assert rec["parameters"]["minimum_gap"] == 20
         assert rec["parameters"]["remove_telomeres"] is not None
         assert not rec["parameters"]["remove_telomeres"]
