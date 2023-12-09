@@ -241,7 +241,10 @@ for a tree sequence of 5 million edges covering
 
 
 :::{todo}
-Add some scaling plots.
+Add some scaling plots. Some real-world examples: a dataset of 10K samples of half a
+million sites (~4M edges) on one node of a
+2023 Intel Platinum cluster takes ~30 mins (20GB max memory) for the `inside-outside`
+method and ~10 mins (1.5GB max memory) using the `variational_gamma` method.
 :::
 
 Running the dating algorithm is linear in the number of edges in the tree sequence.
