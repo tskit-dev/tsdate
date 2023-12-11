@@ -1011,9 +1011,7 @@ class ExpectationPropagation(InOutAlgorithms):
         return internal, external
 
     @staticmethod
-    @numba.njit(
-        "f8(i4[:, :], f8[:, :], f8[:, :], f8[:, :, :], f8[:], f8[:], f8, b1, b1)"
-    )
+    @numba.njit("f8(i4[:, :], f8[:, :], f8[:, :], f8[:, :, :], f8[:], f8[:], f8, b1)")
     def propagate(
         edges,
         likelihoods,
