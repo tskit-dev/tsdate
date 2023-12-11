@@ -1023,7 +1023,6 @@ class ExpectationPropagation(InOutAlgorithms):
         log_partition,
         max_shape,
         min_kl,
-        debug,
     ):
         """
         Update approximating factors for each edge, returning average relative
@@ -1066,61 +1065,41 @@ class ExpectationPropagation(InOutAlgorithms):
             return d
 
         for i, p, c in edges:
-            if debug:
-                print("---\nedge:", i, "parent:", p, "child:", c)
             # Damped downdate to ensure proper cavity distributions
             parent_message = messages[i, 0] * scale[p]
             child_message = messages[i, 1] * scale[c]
-            if debug:
-                print("p-mess:", parent_message, "c-mess:", child_message)
             parent_delta = cavity_damping(posterior[p], parent_message)
             child_delta = cavity_damping(posterior[c], child_message)
             delta = min(parent_delta, child_delta)
-            if debug:
-                print("delta:", delta)
             # The cavity posteriors: the approximation omitting the variational
             # factors for this edge.
             parent_cavity = posterior[p] - delta * parent_message
             child_cavity = posterior[c] - delta * child_message
-            if debug:
-                print("p-cavi:", parent_cavity, "c-cavi:", child_cavity)
             # The edge likelihood, scaled by the damping factor
             edge_likelihood = delta * likelihoods[i]
-            if debug:
-                print("e-like:", edge_likelihood)
             # The target posterior: the cavity multiplied by the edge
             # likelihood then projected onto a gamma via moment matching.
             logconst, parent_post, child_post = approx.gamma_projection(
                 parent_cavity, child_cavity, edge_likelihood, min_kl
             )
-            if debug:
-                print("logconst:", logconst)
-            if debug:
-                print("p-post:", parent_post, "c-post:", child_post)
             # The messages: the difference in natural parameters between the
             # target and cavity posteriors.
             messages[i, 0] += (parent_post - posterior[p]) / scale[p]
             messages[i, 1] += (child_post - posterior[c]) / scale[c]
-            if debug:
-                print("p-updt:", messages[i, 0], "c-updt:", messages[i, 1])
             # Contribution to the marginal likelihood from the edge
             log_partition[i] = logconst  # TODO: incomplete
             # Constrain the messages so that the gamma shape parameter for each
             # posterior is bounded (e.g. set a maximum precision for log(age)).
             parent_eta = posterior_damping(parent_post)
             child_eta = posterior_damping(child_post)
-            if debug:
-                print("p-scal:", parent_eta, "c-scal:", child_eta)
             posterior[p] = parent_eta * parent_post
             posterior[c] = child_eta * child_post
             scale[p] *= parent_eta
             scale[c] *= child_eta
-            if debug:
-                print("p-end:", posterior[p], "c-end:", posterior[c])
 
         return 0.0  # TODO, placeholder
 
-    def iterate(self, max_shape=1000, min_kl=True, debug=False):
+    def iterate(self, max_shape=1000, min_kl=True):
         """
         Update edge factors from leaves to root then from root to leaves,
         and return approximate log marginal likelihood (TODO)
@@ -1135,7 +1114,6 @@ class ExpectationPropagation(InOutAlgorithms):
             self.log_partition,
             max_shape,
             min_kl,
-            debug,
         )
         self.propagate(
             self.edges[::-1],
@@ -1146,7 +1124,6 @@ class ExpectationPropagation(InOutAlgorithms):
             self.log_partition,
             max_shape,
             min_kl,
-            debug,
         )
 
         # TODO
@@ -1599,7 +1576,6 @@ def variational_dates(
     num_threads=None,  # Unused, matches get_dates()
     probability_space=None,  # Can only be None, simply to match get_dates()
     ignore_oldest_root=False,  # Can only be False, simply to match get_dates()
-    debug=False,  # Print a ton of extra information
 ):
     """
     Infer dates for the nodes in a tree sequence using expectation propagation,
@@ -1695,11 +1671,11 @@ def variational_dates(
         desc="Expectation Propagation",
         disable=not progress,
     ):
-        dynamic_prog.iterate(max_shape=max_shape, min_kl=min_kl, debug=debug)
-    # (DEBUG) check how many messages were skipped
-    skipped = np.sum(np.isnan(dynamic_prog.log_partition))
-    print("Skipped", skipped, "messages")
-    # (END DEBUG)
+        dynamic_prog.iterate(max_shape=max_shape, min_kl=min_kl)
+
+    num_skipped = np.sum(np.isnan(dynamic_prog.log_partition))
+    if num_skipped > 0:
+        logging.info(f"Skipped {num_skipped} messages with invalid posterior updates.")
 
     posterior = priors.clone_with_new_data(
         grid_data=dynamic_prog.posterior[priors.nonfixed_nodes, :]
