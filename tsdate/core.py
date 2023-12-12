@@ -1281,12 +1281,6 @@ def date(
         from the inside algorithm in addition to the dated tree sequence. If
         ``return_posteriors`` is also ``True``, then the marginal likelihood
         will be the last element of the tuple.
-    :param bool method_of_moments: If ``True`` match central moments in variational gamma
-        algorithm, otherwise match sufficient statistics. Matching central moments
-        is faster, but introduces a small amount of bias. Default: ``False``.
-    :param float max_shape: The maximum allowed shape for the posterior in the
-        variational gamma algorithm. The shape parameter is the inverse of the
-        variance for ``log(age)``. Default: ``1000``.
     :param float eps: Specify minimum distance separating time points. Also specifies
         the error factor in time difference calculations. Default: 1e-6
     :param int num_threads: The number of threads to use. A simpler unthreaded algorithm
@@ -1311,6 +1305,16 @@ def date(
         "inside_outside" estimation ``method`` and/or the marginal likelihood
         from the inside algorithm.
     :rtype: tskit.TreeSequence or (tskit.TreeSequence, dict)
+    """
+
+    # TODO: docstrings for variational gamma parameters
+    """
+    :param bool method_of_moments: If ``True`` match central moments in variational gamma
+        algorithm, otherwise match sufficient statistics. Matching central moments
+        is faster, but introduces a small amount of bias. Default: ``False``.
+    :param float max_shape: The maximum allowed shape for the posterior in the
+        variational gamma algorithm. The shape parameter is the inverse of the
+        variance for ``log(age)``. Default: ``1000``.
     """
 
     # check valid method - raise error if unknown.
