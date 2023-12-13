@@ -78,8 +78,14 @@ class TestLaplaceApprox:
 
     def test_2f1(self, a_i, b_i, a_j, b_j, y, mu):
         pars = [a_i, b_i, a_j, b_j, y, mu]
+        A = a_j
+        B = a_i + a_j + y
+        C = a_j + y + 1
+        z = (mu - b_j) / (mu + b_i)
         f, *_ = hypergeo._hyp2f1(*pars)
+        ff = hypergeo._hyp2f1_fast(A, B, C, z)
         check = float(mpmath.log(self._2f1_validate(*pars)))
+        assert np.isclose(f, ff)
         assert np.isclose(f, check, rtol=2e-2)
 
     def test_grad(self, a_i, b_i, a_j, b_j, y, mu):

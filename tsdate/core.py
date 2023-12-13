@@ -1013,7 +1013,14 @@ class ExpectationPropagation(InOutAlgorithms):
     @staticmethod
     @numba.njit("f8(i4[:, :], f8[:, :], f8[:, :], f8[:, :, :], f8[:], f8[:], f8, b1)")
     def propagate(
-        edges, likelihoods, posterior, messages, scale, log_partition, max_shape, min_kl
+        edges,
+        likelihoods,
+        posterior,
+        messages,
+        scale,
+        log_partition,
+        max_shape,
+        min_kl,
     ):
         """
         Update approximating factors for each edge, returning average relative
@@ -1042,16 +1049,16 @@ class ExpectationPropagation(InOutAlgorithms):
 
         def cavity_damping(x, y):
             d = 1.0
-            if x[0] - y[0] < lower:
+            if (y[0] > 0.0) and (x[0] - y[0] < lower):
                 d = min(d, (x[0] - lower) / y[0])
-            if x[1] - y[1] < 0.0:
+            if (y[1] > 0.0) and (x[1] - y[1] < 0.0):
                 d = min(d, x[1] / y[1])
             assert 0.0 < d <= 1.0
             return d
 
         def posterior_damping(x):
             assert x[0] > -1.0 and x[1] > 0.0
-            d = min(1.0, upper / abs(x[0]))
+            d = min(1.0, upper / abs(x[0])) if (x[0] > 0) else 1.0
             assert 0.0 < d <= 1.0
             return d
 
@@ -1298,6 +1305,16 @@ def date(
         "inside_outside" estimation ``method`` and/or the marginal likelihood
         from the inside algorithm.
     :rtype: tskit.TreeSequence or (tskit.TreeSequence, dict)
+    """
+
+    # TODO: docstrings for variational gamma parameters
+    """
+    :param bool method_of_moments: If ``True`` match central moments in variational gamma
+        algorithm, otherwise match sufficient statistics. Matching central moments
+        is faster, but introduces a small amount of bias. Default: ``False``.
+    :param float max_shape: The maximum allowed shape for the posterior in the
+        variational gamma algorithm. The shape parameter is the inverse of the
+        variance for ``log(age)``. Default: ``1000``.
     """
 
     # check valid method - raise error if unknown.
@@ -1554,13 +1571,13 @@ def variational_dates(
     *,
     max_iterations=20,
     max_shape=1000,
+    method_of_moments=False,
     global_prior=True,
     eps=1e-6,
     progress=False,
     num_threads=None,  # Unused, matches get_dates()
     probability_space=None,  # Can only be None, simply to match get_dates()
     ignore_oldest_root=False,  # Can only be False, simply to match get_dates()
-    min_kl=True,  # Minimize KL divergence or match central moments
 ):
     """
     Infer dates for the nodes in a tree sequence using expectation propagation,
@@ -1647,6 +1664,9 @@ def variational_dates(
         fixed_node_set=fixed_nodes,
     )
 
+    # minimize KL divergence or match central moments
+    min_kl = not method_of_moments
+
     dynamic_prog = ExpectationPropagation(priors, liklhd, progress=progress)
     for _ in tqdm(
         np.arange(max_iterations),
@@ -1654,6 +1674,10 @@ def variational_dates(
         disable=not progress,
     ):
         dynamic_prog.iterate(max_shape=max_shape, min_kl=min_kl)
+
+    num_skipped = np.sum(np.isnan(dynamic_prog.log_partition))
+    if num_skipped > 0:
+        logging.info(f"Skipped {num_skipped} messages with invalid posterior updates.")
 
     posterior = priors.clone_with_new_data(
         grid_data=dynamic_prog.posterior[priors.nonfixed_nodes, :]

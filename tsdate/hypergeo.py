@@ -38,19 +38,19 @@ _dbl = ctypes.c_double
 _ptr_dbl = _PTR(_dbl)
 _gammaln_addr = get_cython_function_address("scipy.special.cython_special", "gammaln")
 _gammaln_functype = ctypes.CFUNCTYPE(_dbl, _dbl)
-_gammaln_float64 = _gammaln_functype(_gammaln_addr)
+_gammaln_f8 = _gammaln_functype(_gammaln_addr)
 
 
 class Invalid2F1(Exception):
     pass
 
 
-@numba.njit("float64(float64)")
+@numba.njit("f8(f8)")
 def _gammaln(x):
-    return _gammaln_float64(x)
+    return _gammaln_f8(x)
 
 
-@numba.njit("float64(float64)")
+@numba.njit("f8(f8)")
 def _digamma(x):
     """
     Digamma (psi) function, from asymptotic series expansion.
@@ -74,7 +74,7 @@ def _digamma(x):
     )
 
 
-@numba.njit("float64(float64)")
+@numba.njit("f8(f8)")
 def _trigamma(x):
     """
     Trigamma function, from asymptotic series expansion
@@ -100,12 +100,12 @@ def _trigamma(x):
     )
 
 
-@numba.njit("float64(float64, float64)")
+@numba.njit("f8(f8, f8)")
 def _betaln(p, q):
     return _gammaln(p) + _gammaln(q) - _gammaln(p + q)
 
 
-@numba.njit("boolean(float64, float64, float64, float64, float64, float64, float64)")
+@numba.njit("b1(f8, f8, f8, f8, f8, f8, f8)")
 def _is_valid_2f1(f1, f2, a, b, c, z, tol):
     """
     Use the contiguous relation between the Gauss hypergeometric function and
@@ -127,7 +127,7 @@ def _is_valid_2f1(f1, f2, a, b, c, z, tol):
     return numer / denom < tol
 
 
-@numba.njit("UniTuple(float64, 5)(float64, float64, float64, float64)")
+@numba.njit("UniTuple(f8, 5)(f8, f8, f8, f8)")
 def _hyp2f1_taylor_series(a, b, c, z):
     """
     Evaluate a Gaussian hypergeometric function, via its Taylor series at the
@@ -198,7 +198,7 @@ def _hyp2f1_taylor_series(a, b, c, z):
     return val, da, db, dc, dz
 
 
-@numba.njit("UniTuple(float64, 5)(float64, float64, float64, float64)")
+@numba.njit("UniTuple(f8, 5)(f8, f8, f8, f8)")
 def _hyp2f1_laplace_approx(a, b, c, x):
     """
     Approximate a Gaussian hypergeometric function, using Laplace's method
@@ -269,7 +269,49 @@ def _hyp2f1_laplace_approx(a, b, c, x):
     return f, df_da, df_db, df_dc, df_dx
 
 
-# @numba.njit("UniTuple(float64, 5)(float64, float64, float64, float64)")
+@numba.njit("f8(f8, f8, f8, f8)")
+def _hyp2f1_fast(a, b, c, x):
+    """
+    Approximate a Gaussian hypergeometric function, using Laplace's method
+    as per Butler & Wood 2002 Annals of Statistics.
+
+    Shortcut bypassing the lengthly derivative computation.
+    """
+
+    assert c > 0.0
+    assert a >= 0.0
+    assert b >= 0.0
+    assert c >= a
+    assert x < 1.0
+
+    if x == 0.0:
+        return 0.0
+
+    s = 0.0
+    if x < 0.0:
+        s = -b * log(1 - x)
+        a = c - a
+        x = x / (x - 1)
+
+    t = x * (b - a) - c
+    u = np.sqrt(t**2 - 4 * a * x * (c - b)) - t
+    y = 2 * a / u
+    yy = y**2 / a
+    my = (1 - y) ** 2 / (c - a)
+    ymy = x**2 * b * yy * my / (1 - x * y) ** 2
+    r = yy + my - ymy
+    f = (
+        +(c - 1 / 2) * log(c)
+        - log(r) / 2
+        + a * (log(y) - log(a))
+        + (c - a) * (log(1 - y) - log(c - a))
+        - b * log(1 - x * y)
+    )
+
+    return f + s
+
+
+# @numba.njit("UniTuple(f8, 5)(f8, f8, f8, f8)")
 # def _hyp2f1_laplace_recurrence(a, b, c, x):
 #    """
 #    Use contiguous relations to stabilize the calculation of 2F1
@@ -305,25 +347,25 @@ def _hyp2f1_laplace_approx(a, b, c, x):
 #    return v, da, db, dc, dx
 
 
-@numba.njit(
-    "UniTuple(float64, 5)(float64, float64, float64, float64, float64, float64)"
-)
+@numba.njit("UniTuple(f8, 5)(f8, f8, f8, f8, f8, f8)")
 def _hyp2f1_dlmf1581(a_i, b_i, a_j, b_j, y, mu):
     """
     DLMF 15.8.1, series expansion with Pfaff transformation
     """
 
+    a = y + 1
     b = a_i + a_j + y
     c = a_j + y + 1
     z = (b_j - mu) / (b_i + b_j)
-    scale = -b * np.log(1 - z / (z - 1))
+    s = (mu - b_j) / (mu + b_i)
+    scale = -b * np.log(1 - s)
 
     # 2F1(y+1, b; c; z) via series expansion
-    val, _, db, dc, dz = _hyp2f1_laplace_approx(y + 1, b, c, z)
+    val, _, db, dc, dz = _hyp2f1_laplace_approx(a, b, c, z)
 
     # map gradient to parameters
-    da_i = db - np.log(1 - z / (z - 1))
-    da_j = db + dc - np.log(1 - z / (z - 1))
+    da_i = db - np.log(1 - s)
+    da_j = db + dc - np.log(1 - s)
     db_i = z * (b / (mu + b_i) - dz / (b_i + b_j))
     db_j = (z - 1) * (b / (mu + b_i) - dz / (b_i + b_j))
 
@@ -332,9 +374,7 @@ def _hyp2f1_dlmf1581(a_i, b_i, a_j, b_j, y, mu):
     return val, da_i, db_i, da_j, db_j
 
 
-@numba.njit(
-    "UniTuple(float64, 5)(float64, float64, float64, float64, float64, float64)"
-)
+@numba.njit("UniTuple(f8, 5)(f8, f8, f8, f8, f8, f8)")
 def _hyp2f1_dlmf1521(a_i, b_i, a_j, b_j, y, mu):
     """
     DLMF 15.2.1, series expansion without transformation
@@ -356,9 +396,7 @@ def _hyp2f1_dlmf1521(a_i, b_i, a_j, b_j, y, mu):
     return val, da_i, db_i, da_j, db_j
 
 
-@numba.njit(
-    "UniTuple(float64, 5)(float64, float64, float64, float64, float64, float64)"
-)
+@numba.njit("UniTuple(f8, 5)(f8, f8, f8, f8, f8, f8)")
 def _hyp2f1(a_i, b_i, a_j, b_j, y, mu):
     """
     Evaluates:
@@ -379,7 +417,7 @@ def _hyp2f1(a_i, b_i, a_j, b_j, y, mu):
     and dividing the gradient by the function value.
     """
     z = (mu - b_j) / (mu + b_i)
-    assert z < 1.0, "Invalid hypergeometric function argument"
+    assert z < 1.0, "Invalid argument"
     if z > 0.0:
         return _hyp2f1_dlmf1521(a_i, b_i, a_j, b_j, y, mu)
     else:

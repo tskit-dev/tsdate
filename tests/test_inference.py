@@ -427,3 +427,21 @@ class TestVariational:
                 method="variational_gamma",
                 max_iterations=-1,
             )
+
+    def test_match_central_moments(self):
+        ts = msprime.simulate(8, mutation_rate=5, recombination_rate=5, random_seed=2)
+        ts0 = tsdate.date(
+            ts,
+            mutation_rate=5,
+            population_size=1,
+            method="variational_gamma",
+            method_of_moments=False,
+        )
+        ts1 = tsdate.date(
+            ts,
+            mutation_rate=5,
+            population_size=1,
+            method="variational_gamma",
+            method_of_moments=True,
+        )
+        assert np.any(np.not_equal(ts0.nodes_time, ts1.nodes_time))
