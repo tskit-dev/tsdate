@@ -20,6 +20,13 @@
   `action="count"`, so `-v` turns verbosity to INFO level,
   whereas `-vv` turns verbosity to DEBUG level.
 
+- The `return_posteriors=True` option with `method="inside_outside"`
+  previously returned a dict that included keys `start_time` and `end_time`,
+  giving the impression that the posterior for node age is discretized over
+  time slices in this algorithm. In actuality, the posterior is discretized
+  atomically over time points, so `start_time` and `end_time` have been
+  replaced by a single key `time`.
+
 - Python 3.7 is no longer supported.
 
 **Features**

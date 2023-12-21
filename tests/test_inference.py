@@ -128,27 +128,37 @@ class TestPrebuilt:
             method="maximization",
             mutation_rate=1,
         )
-        assert len(posteriors) == ts.num_nodes - ts.num_samples + 2
-        assert len(posteriors["start_time"]) == len(posteriors["end_time"])
-        assert len(posteriors["start_time"]) > 0
-        for node in ts.nodes():
-            if not node.is_sample():
-                assert node.id in posteriors
-                assert posteriors[node.id] is None
+        assert posteriors is None
 
-    def test_posteriors(self):
+    def test_discretised_posteriors(self):
         ts = utility_functions.two_tree_mutation_ts()
         ts, posteriors = tsdate.date(
             ts, mutation_rate=None, population_size=1, return_posteriors=True
         )
-        assert len(posteriors) == ts.num_nodes - ts.num_samples + 2
-        assert len(posteriors["start_time"]) == len(posteriors["end_time"])
-        assert len(posteriors["start_time"]) > 0
+        assert len(posteriors) == ts.num_nodes - ts.num_samples + 1
+        assert len(posteriors["time"]) > 0
         for node in ts.nodes():
             if not node.is_sample():
                 assert node.id in posteriors
-                assert len(posteriors[node.id]) == len(posteriors["start_time"])
+                assert len(posteriors[node.id]) == len(posteriors["time"])
                 assert np.isclose(np.sum(posteriors[node.id]), 1)
+
+    def test_variational_posteriors(self):
+        ts = utility_functions.two_tree_mutation_ts()
+        ts, posteriors = tsdate.date(
+            ts,
+            mutation_rate=1e-2,
+            population_size=1,
+            method="variational_gamma",
+            return_posteriors=True,
+        )
+        assert len(posteriors) == ts.num_nodes - ts.num_samples + 1
+        assert len(posteriors["parameter"]) == 2
+        for node in ts.nodes():
+            if not node.is_sample():
+                assert node.id in posteriors
+                assert len(posteriors[node.id]) == 2
+                assert np.all(posteriors[node.id] > 0)
 
     def test_marginal_likelihood(self):
         ts = utility_functions.two_tree_mutation_ts()
@@ -419,7 +429,7 @@ class TestVariational:
 
     def test_bad_arguments(self):
         ts = utility_functions.two_tree_mutation_ts()
-        with pytest.raises(ValueError, match="Maximum number of iterations"):
+        with pytest.raises(ValueError, match="Maximum number of EP iterations"):
             tsdate.date(
                 ts,
                 mutation_rate=5,
@@ -435,13 +445,13 @@ class TestVariational:
             mutation_rate=5,
             population_size=1,
             method="variational_gamma",
-            method_of_moments=False,
+            match_central_moments=False,
         )
         ts1 = tsdate.date(
             ts,
             mutation_rate=5,
             population_size=1,
             method="variational_gamma",
-            method_of_moments=True,
+            match_central_moments=True,
         )
         assert np.any(np.not_equal(ts0.nodes_time, ts1.nodes_time))

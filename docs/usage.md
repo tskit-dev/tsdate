@@ -255,7 +255,7 @@ different stages of dating will take.
 
 If the {ref}`method<sec_methods>` used for dating involves discrete time slices, `tsdate` scales
 quadratically in the number of time slices chosen. For greater temporal resolution,
-you are thus advised to use the `variational_gamma` method, which does not discretize time.
+you are thus advised to use the `variational_gamma` method, which does not discretise time.
 
 #### Optimisations
 

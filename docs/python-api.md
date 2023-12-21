@@ -25,6 +25,8 @@ This page provides formal documentation for the `tsdate` Python API.
 
 ```{eval-rst}
 .. autofunction:: tsdate.date
+.. autofunction:: tsdate.discretised_dates
+.. autofunction:: tsdate.variational_dates
 ```
 
 ## Prior and Time Discretisation Options
