@@ -54,7 +54,7 @@ See below for more explanation of the interpretation of the parameters passed to
 For {ref}`sec_methods_discrete_time` methods, it is possible to switch from the
 (default) lognormal approximation to a gamma distribution, used when building a
 mixture prior for nodes that have variable numbers of children in different
-genomic regions. The discretized prior is then constructed by evaluating the
+genomic regions. The discretised prior is then constructed by evaluating the
 lognormal (or gamma) distribution across a grid of fixed times. Tests have shown that the
 lognormal is usually a better fit to the true prior in most cases.
 

@@ -1124,50 +1124,62 @@ class ExpectationPropagation(InOutAlgorithms):
             min_kl,
         )
 
-        # TODO
-        # marginal_lik = np.sum(self.factor_norm)
-        # return marginal_lik
+        return np.nan  # TODO: placeholder for marginal likelihood
 
 
-def posterior_mean_var(ts, posterior, *, fixed_node_set=None):
+def discretised_mean_var(ts, posterior, fixed_node_set=None):
     """
-    Mean and variance of node age. Fixed nodes will be given a mean
-    of their exact time in the tree sequence, and zero variance (as long as they are
-    identified by the fixed_node_set).
-    If fixed_node_set is None, we attempt to date all the non-sample nodes
-    Also assigns the estimated mean and variance of the age of each node
-    as metadata in the tree sequence.
+    Mean and variance of node age gived an atomic time discretization. Fixed
+    nodes will be given a mean of their exact time in the tree sequence, and
+    zero variance (as long as they are identified by the fixed_node_set).
+    If fixed_node_set is None, we attempt to date all the non-sample nodes.
     """
+
     mn_post = np.full(ts.num_nodes, np.nan)  # Fill with NaNs so we detect when there's
-    vr_post = np.full(ts.num_nodes, np.nan)  # been an error
-    tables = ts.dump_tables()
+    va_post = np.full(ts.num_nodes, np.nan)  # been an error
 
     if fixed_node_set is None:
         fixed_node_set = ts.samples()
     fixed_nodes = np.array(list(fixed_node_set))
-    mn_post[fixed_nodes] = tables.nodes.time[fixed_nodes]
-    vr_post[fixed_nodes] = 0
+    mn_post[fixed_nodes] = ts.nodes_time[fixed_nodes]
+    va_post[fixed_nodes] = 0
 
-    metadata_array = tskit.unpack_bytes(
-        ts.tables.nodes.metadata, ts.tables.nodes.metadata_offset
-    )
     for u in posterior.nonfixed_nodes:
         probs = posterior[u]
         times = posterior.timepoints
         mn_post[u] = np.sum(probs * times) / np.sum(probs)
-        vr_post[u] = np.sum(((mn_post[u] - (times)) ** 2) * (probs / np.sum(probs)))
-        metadata_array[u] = json.dumps({"mn": mn_post[u], "vr": vr_post[u]}).encode()
-    md, md_offset = tskit.pack_bytes(metadata_array)
-    tables.nodes.set_columns(
-        flags=tables.nodes.flags,
-        time=tables.nodes.time,
-        population=tables.nodes.population,
-        individual=tables.nodes.individual,
-        metadata=md,
-        metadata_offset=md_offset,
-    )
-    ts = tables.tree_sequence()
-    return ts, mn_post, vr_post
+        va_post[u] = np.sum(((mn_post[u] - (times)) ** 2) * (probs / np.sum(probs)))
+
+    return mn_post, va_post
+
+
+def variational_mean_var(ts, posterior, *, fixed_node_set=None):
+    """
+    Mean and variance of node age from variational posterior (e.g. gamma
+    distributions).  Fixed nodes will be given a mean of their exact time in
+    the tree sequence, and zero variance (as long as they are identified by the
+    fixed_node_set).  If fixed_node_set is None, we attempt to date all the
+    non-sample nodes.
+    """
+
+    assert posterior.grid_data.shape[1] == 2
+    assert np.all(posterior.grid_data > 0)
+
+    mn_post = np.full(ts.num_nodes, np.nan)  # Fill with NaNs so we detect when there's
+    va_post = np.full(ts.num_nodes, np.nan)  # been an error
+
+    if fixed_node_set is None:
+        fixed_node_set = ts.samples()
+    fixed_nodes = np.array(list(fixed_node_set))
+    mn_post[fixed_nodes] = ts.nodes_time[fixed_nodes]
+    va_post[fixed_nodes] = 0
+
+    for node in posterior.nonfixed_nodes:
+        pars = posterior[node]
+        mn_post[node] = pars[0] / pars[1]
+        va_post[node] = pars[0] / pars[1] ** 2
+
+    return mn_post, va_post
 
 
 def constrain_ages_topo(ts, node_times, eps, progress=False):
@@ -1207,230 +1219,72 @@ def check_method(method):
         )
 
 
-def date(
+def discretised_dates(
     tree_sequence,
     mutation_rate,
     population_size=None,
     recombination_rate=None,
-    time_units=None,
     priors=None,
-    method="inside_outside",
-    *,
-    Ne=None,
-    return_posteriors=None,
-    return_likelihood=None,
     progress=False,
-    **kwargs,
-):
-    """
-    Take a tree sequence (which could have
-    :data:`uncalibrated <tskit.TIME_UNITS_UNCALIBRATED>` node times) and assign new times
-    to non-sample nodes using the `tsdate` algorithm. If a mutation_rate is given,
-    the mutation clock is used. The recombination clock is unsupported at this time.
-    If neither a mutation_rate nor a
-    recombination_rate is given, a topology-only clock is used. Times associated with
-    mutations and non-sample nodes in the input tree sequence are not used in inference
-    and will be removed.
-
-    .. note::
-        If posteriors are returned via the ``return_posteriors`` option, the output will
-        be a tuple ``(ts, posteriors)``, where ``posteriors`` is a dictionary suitable
-        for reading as a pandas ``DataFrame`` object, using ``pd.DataFrame(posteriors)``.
-        Each node whose time was inferred corresponds to an item in this dictionary,
-        with the key being the node ID and the value a 1D array of probabilities of the
-        node being in a given time slice (or ``None`` if the "inside_outside" method
-        was not used). The start and end times of each time slice are given as 1D
-        arrays in the dictionary, under keys named ``"start_time"`` and ``end_time"``.
-        As timeslices may not be not of uniform width, it is important to divide the
-        posterior probabilities by ``end_time - start_time`` when assessing the shape
-        of the probability density function over time.
-
-    :param tskit.TreeSequence tree_sequence: The input tree sequence` to
-        be dated.
-    :param float or demography.PopulationSizeHistory population_size: The estimated
-        (diploid) effective population size used to construct the (default) conditional
-        coalescent prior. For a population with constant size, this can be given as a
-        single value. For a population with time-varying size, this can be given directly
-        as a :class:`~demography.PopulationSizeHistory` object or a parameter dictionary
-        passed to initialise a :class:`~demography.PopulationSizeHistory` object. This is
-        used when ``priors`` is ``None``.  Conversely, if ``priors`` is not ``None``, no
-        ``population_size`` value should be specified.
-    :param float mutation_rate: The estimated mutation rate per unit of genome per
-        unit time. If provided, the dating algorithm will use a mutation rate clock to
-        help estimate node dates. Default: ``None``
-    :param float recombination_rate: The estimated recombination rate per unit of genome
-        per unit time. If provided, the dating algorithm will use a recombination rate
-        clock to help estimate node dates. Default: ``None``
-    :param str time_units: The time units used by the ``mutation_rate`` and
-        ``recombination_rate`` values, and stored in the ``time_units`` attribute of the
-        output tree sequence. If the conditional coalescent prior is used,
-        then this is also applies to the value of ``population_size``, which in
-        standard coalescent theory is measured in generations. Therefore if you
-        wish to use mutation and recombination rates measured in (say) years,
-        and are using the conditional coalescent prior, the ``population_size``
-        value which you provide must be scaled by multiplying by the number of
-        years per generation. If ``None`` (default), assume ``"generations"``.
-    :param tsdate.base.NodeGridValues priors: NodeGridValues object containing the prior
-        probabilities for each node-to-be-dated at a set of discrete time points. If
-        ``None`` (default), use the conditional coalescent prior with a standard set of
-        time points as given by :func:`build_prior_grid`, and assume the nodes
-        to be dated are all the non-sample nodes in the input tree sequence.
-    :param bool return_posteriors: If ``True``, instead of returning just a dated tree
-        sequence, return a tuple of ``(dated_ts, posteriors)`` (see note above).
-    :param bool return_likelihood: If ``True``, return the log marginal likelihood
-        from the inside algorithm in addition to the dated tree sequence. If
-        ``return_posteriors`` is also ``True``, then the marginal likelihood
-        will be the last element of the tuple.
-    :param float eps: Specify minimum distance separating time points. Also specifies
-        the error factor in time difference calculations. Default: 1e-6
-    :param int num_threads: The number of threads to use. A simpler unthreaded algorithm
-        is used unless this is >= 1. Default: None
-    :param string method: What estimation method to use: can be
-        "variational_gamma" (variational approximation, empirically most accurate),
-        "inside_outside" (empirically better, theoretically problematic) or
-        "maximization" (worse empirically, especially with gamma approximated priors,
-        but theoretically robust). If ``None`` (default) use "inside_outside"
-    :param string probability_space: Should the internal algorithm save probabilities in
-        "logarithmic" (slower, less liable to to overflow) or "linear" space (fast, may
-        overflow). Does not apply to method ``variational_gamma``. Default: "logarithmic"
-    :param bool ignore_oldest_root: Should the oldest root in the tree sequence be
-        ignored in the outside algorithm (if "inside_outside" is used as the method).
-        Ignoring outside root provides greater stability when dating tree sequences
-        inferred from real data. Default: False
-    :param bool progress: Whether to display a progress bar. Default: False
-    :param float Ne: Deprecated, use the``population_size`` argument instead.
-    :return: A copy of the input tree sequence but with altered node times, or (if
-        ``return_posteriors`` or ``return_likelihood`` is True) a tuple of that
-        tree sequence plus a dictionary of posterior probabilities from the
-        "inside_outside" estimation ``method`` and/or the marginal likelihood
-        from the inside algorithm.
-    :rtype: tskit.TreeSequence or (tskit.TreeSequence, dict)
-    """
-
-    # TODO: docstrings for variational gamma parameters
-    """
-    :param bool method_of_moments: If ``True`` match central moments in variational gamma
-        algorithm, otherwise match sufficient statistics. Matching central moments
-        is faster, but introduces a small amount of bias. Default: ``False``.
-    :param float max_shape: The maximum allowed shape for the posterior in the
-        variational gamma algorithm. The shape parameter is the inverse of the
-        variance for ``log(age)``. Default: ``1000``.
-    """
-
-    # check valid method - raise error if unknown.
-    check_method(method)
-
-    if time_units is None:
-        time_units = "generations"
-    if Ne is not None:
-        if population_size is not None:
-            raise ValueError(
-                "Only one of Ne (deprecated) or population_size may be specified"
-            )
-        else:
-            population_size = Ne
-
-    if isinstance(population_size, dict):
-        population_size = demography.PopulationSizeHistory(**population_size)
-
-    if method == "variational_gamma":
-        tree_sequence, dates, posteriors, timepoints, eps, nds, lik = variational_dates(
-            tree_sequence,
-            population_size=population_size,
-            mutation_rate=mutation_rate,
-            recombination_rate=recombination_rate,
-            priors=priors,
-            progress=progress,
-            **kwargs,
-        )
-    else:
-        tree_sequence, dates, posteriors, timepoints, eps, nds, lik = get_dates(
-            tree_sequence,
-            population_size=population_size,
-            mutation_rate=mutation_rate,
-            recombination_rate=recombination_rate,
-            priors=priors,
-            progress=progress,
-            method=method,
-            **kwargs,
-        )
-    constrained = constrain_ages_topo(tree_sequence, dates, eps, progress)
-    tables = tree_sequence.dump_tables()
-    tables.time_units = time_units
-    tables.nodes.time = constrained
-    # Remove any times associated with mutations
-    tables.mutations.time = np.full(tree_sequence.num_mutations, tskit.UNKNOWN_TIME)
-    tables.sort()
-    params = dict(
-        mutation_rate=mutation_rate,
-        recombination_rate=recombination_rate,
-        method=method,
-        time_units=time_units,
-        progress=progress,
-    )
-    if isinstance(population_size, (int, float)):
-        params["population_size"] = population_size
-    elif isinstance(population_size, demography.PopulationSizeHistory):
-        params["population_size"] = population_size.as_dict()
-    provenance.record_provenance(
-        tables,
-        "date",
-        **params,
-        **kwargs,
-    )
-    # TODO: could the likelihood be stored in tree sequence metadata instead?
-    if return_posteriors:
-        pst = {"start_time": timepoints, "end_time": np.append(timepoints[1:], np.inf)}
-        for n in nds:
-            pst[n] = None if posteriors is None else posteriors[n]
-        if return_likelihood:
-            return tables.tree_sequence(), pst, lik
-        else:
-            return tables.tree_sequence(), pst
-    else:
-        if return_likelihood:
-            return tables.tree_sequence(), lik
-        else:
-            return tables.tree_sequence()
-
-
-def get_dates(
-    tree_sequence,
-    mutation_rate,
-    population_size=None,
-    recombination_rate=None,
-    priors=None,
     *,
     eps=1e-6,
     num_threads=None,
     method="inside_outside",
     outside_standardize=True,
     ignore_oldest_root=False,
-    progress=False,
     cache_inside=False,
     probability_space=None,
 ):
     """
-    Infer dates for the nodes in a tree sequence, returning an array of inferred dates
-    for nodes, plus other variables such as the posteriors object
-    etc. Parameters are identical to the date() method, which calls this method, then
-    injects the resulting date estimates into the tree sequence
+    Infer dates for the nodes in a tree sequence using the "inside outside" or
+    "maximization" algorithms, that approximate the marginal posterior
+    distribution of a node's age using an atomic discretization of time (e.g.
+    point masses at particular timepoints). Parameters are passed by
+    :func:`date`, which invokes this method and inserts the resulting node ages
+    into the tree sequence.
 
-    :return: a tuple of
-        ``(mn_post, posteriors, timepoints, eps, nodes_to_date, marginal_lik)``.
-        If the "inside_outside" method is used, ``posteriors`` will contain the
-        posterior probabilities for each node in each time slice, else the returned
-        variable will be ``None``.
+    :param ~tskit.TreeSequence tree_sequence: See :func:`date`.
+    :param float mutation_rate: See :func:`date`.
+    :param float population_size: See :func:`date`.
+    :param float recombination_rate: See :func:`date`.
+    :param bool progress: See :func:`date`.
+    :param ~tsdate.base.NodeGridValues priors: NodeGridValues object containing the prior
+        probabilities for each node-to-be-dated at a set of discrete time points. If
+        ``None`` (default), use the conditional coalescent prior with time points chosen
+        according to population size (as given by :func:`build_prior_grid`), and assume
+        the nodes to be dated are all the non-sample nodes in the input tree
+        sequence.
+    :param string probability_space: Should the internal algorithm save
+        probabilities in "logarithmic" (slower, less liable to to overflow) or
+        "linear" space (fast, may overflow). Does not apply to method
+        ``"variational_gamma"``. Default: "logarithmic"
+    :param bool ignore_oldest_root: Should the oldest root in the tree sequence be
+        ignored in the outside algorithm (if ``"inside_outside"`` is used as the method).
+        Ignoring outside root provides greater stability when dating tree sequences
+        inferred from real data. Default: False
+    :param int num_threads: The number of threads to use. A simpler unthreaded algorithm
+        is used unless this is >= 1. Default: None
+    :param float eps: The error factor in time difference calculations. Default: 1e-6
+    :return: a tuple ``(mn_post, va_post, posteriors, nodes_to_date)``, where:
+        ``mn_post`` (:class:`~numpy.ndarray`) and ``va_post``
+        (:class:`~numpy.ndarray`) are the posterior means and variances of
+        unconstrained node ages; ``posteriors``
+        (:class:`~tsdate.base.NodeGridValues`) contains posterior probabilities
+        that a node is at a specific timepoint (or ``None`` if ``method`` is
+        "maximization"); and ``marginal_lik`` (:class:`float`) is the
+        marginal likelihood of the mutation data.
     """
+
     # Stuff yet to be implemented. These can be deleted once fixed
     for sample in tree_sequence.samples():
         if tree_sequence.node(sample).time != 0:
             raise NotImplementedError("Samples must all be at time 0")
     fixed_nodes = set(tree_sequence.samples())
 
-    # Default to not creating approximate priors unless ts has > 20000 samples
+    # Default to not creating approximate priors unless ts has
+    # greater than DEFAULT_APPROX_PRIOR_SIZE samples
     approx_priors = False
-    if tree_sequence.num_samples > 20000:
+    if tree_sequence.num_samples > base.DEFAULT_APPROX_PRIOR_SIZE:
         approx_priors = True
 
     if priors is None:
@@ -1494,72 +1348,26 @@ def get_dates(
         posterior.standardize()  # Just to make sure there are no floating point issues
         posterior.force_probability_space(base.LIN)
         posterior.to_probabilities()
-        tree_sequence, mn_post, _ = posterior_mean_var(
+        mn_post, va_post = discretised_mean_var(
             tree_sequence, posterior, fixed_node_set=fixed_nodes
         )
     elif method == "maximization":
         if mutation_rate is not None:
             mn_post = dynamic_prog.outside_maximization(eps=eps)
+            va_post = np.zeros(mn_post.size)
         else:
             raise ValueError("Outside maximization method requires mutation rate")
     else:
         raise ValueError(
-            "estimation method must be either 'inside_outside' or 'maximization'"
+            "Estimation method must be either 'inside_outside' or 'maximization'"
         )
 
     return (
-        tree_sequence,
         mn_post,
+        va_post,
         posterior,
-        priors.timepoints,
-        eps,
-        priors.nonfixed_nodes,
         marginal_likelihood,
     )
-
-
-def variational_mean_var(ts, posterior, *, fixed_node_set=None):
-    """
-    Mean and variance of node age from variational posterior (e.g. gamma
-    distributions).  Fixed nodes will be given a mean of their exact time in
-    the tree sequence, and zero variance (as long as they are identified by the
-    fixed_node_set).  If fixed_node_set is None, we attempt to date all the
-    non-sample nodes Also assigns the estimated mean and variance of the age of
-    each node as metadata in the tree sequence.
-    """
-    mn_post = np.full(ts.num_nodes, np.nan)  # Fill with NaNs so we detect when there's
-    vr_post = np.full(ts.num_nodes, np.nan)  # been an error
-    tables = ts.dump_tables()
-
-    if fixed_node_set is None:
-        fixed_node_set = ts.samples()
-    fixed_nodes = np.array(list(fixed_node_set))
-    mn_post[fixed_nodes] = tables.nodes.time[fixed_nodes]
-    vr_post[fixed_nodes] = 0
-
-    assert np.all(posterior.grid_data[:, 0] > 0), "Invalid posterior"
-
-    metadata_array = tskit.unpack_bytes(
-        ts.tables.nodes.metadata, ts.tables.nodes.metadata_offset
-    )
-    for u in posterior.nonfixed_nodes:
-        # TODO: with method posterior.mean_and_var(node_id) this could be
-        # easily combined with posterior_mean_var
-        pars = posterior[u]
-        mn_post[u] = pars[0] / pars[1]
-        vr_post[u] = pars[0] / pars[1] ** 2
-        metadata_array[u] = json.dumps({"mn": mn_post[u], "vr": vr_post[u]}).encode()
-    md, md_offset = tskit.pack_bytes(metadata_array)
-    tables.nodes.set_columns(
-        flags=tables.nodes.flags,
-        time=tables.nodes.time,
-        population=tables.nodes.population,
-        individual=tables.nodes.individual,
-        metadata=md,
-        metadata_offset=md_offset,
-    )
-    ts = tables.tree_sequence()
-    return ts, mn_post, vr_post
 
 
 def variational_dates(
@@ -1568,28 +1376,53 @@ def variational_dates(
     population_size=None,
     recombination_rate=None,
     priors=None,
+    progress=False,
     *,
     max_iterations=20,
     max_shape=1000,
-    method_of_moments=False,
+    match_central_moments=False,
     global_prior=True,
-    eps=1e-6,
-    progress=False,
-    num_threads=None,  # Unused, matches get_dates()
-    probability_space=None,  # Can only be None, simply to match get_dates()
-    ignore_oldest_root=False,  # Can only be False, simply to match get_dates()
 ):
     """
     Infer dates for the nodes in a tree sequence using expectation propagation,
-    returning an array of inferred dates for nodes, plus other variables such
-    as the posteriors object etc. Parameters are identical to the date()
-    method, which calls this method, then injects the resulting date estimates
-    into the tree sequence
+    which approximates the marginal posterior distribution of a given node's
+    age with a gamma distribution. Parameters are passed by :func:`date`,
+    which invokes this method and inserts the resulting node ages into the tree
+    sequence.
 
-    :return: a tuple of ``(mn_post, posteriors, timepoints, eps, nodes_to_date)``.
-        ``posteriors`` contains shape/rate parameters for a gamma approximation to
-        the marginal posterior distribution of each node.
+    :param ~tskit.TreeSequence tree_sequence: See :func:`date`.
+    :param float mutation_rate: See :func:`date`.
+    :param float population_size: See :func:`date`.
+    :param float recombination_rate: See :func:`date`.
+    :param bool progress: See :func:`date`.
+    :param ~tsdate.base.NodeGridValues priors: the prior
+        parameters for each node-to-be-dated, assuming a gamma prior on node
+        age and using shape/rate parameterization. If ``None`` (default), use
+        an iid prior derived from the conditional coalescent prior, tilted
+        according to population size, and assume the nodes to be dated are all
+        the non-sample nodes in the input tree sequence.
+    :param int max_iterations: The number of iterations used in the expectation
+        propagation algorithm. Default: 20.
+    :param float max_shape: The maximum value for the shape parameter in the variational
+        posteriors. This is equivalent to the maximum precision (inverse variance) on a
+        logarithmic scale. Default: 1000.
+    :param bool match_central_moments: If `True`, each expectation propgation
+        update matches mean and variance rather than expected gamma sufficient
+        statistics. Faster with a similar accuracy, but does not exactly minimize
+        Kullback-Leibler divergence. Default: False.
+    :param bool global_prior: If `True`, an iid prior is used for all nodes,
+        and is constructed by averaging gamma sufficient statistics over the free
+        nodes in `priors`. Default: True.
+
+    :return: a tuple ``(mn_post, va_post, posteriors, nodes_to_date)``, where:
+        ``mn_post`` (:class:`~numpy.ndarray`) and ``va_post`` (:class:`~numpy.ndarray`)
+        are the posterior means and variances of unconstrained node ages;
+        ``posteriors`` (:class:`~tsdate.base.NodeGridValues`) contains shape and
+        rate parameters for the variational posteriors of node ages;
+        ``marginal_lik`` (:class:`float`) is the marginal likelihood of the mutation
+        data (currently ``np.nan``);
     """
+
     # TODO: non-contemporary samples must have priors specified: if so, they'll
     # work fine with this algorithm.
     for sample in tree_sequence.samples():
@@ -1598,25 +1431,10 @@ def variational_dates(
     fixed_nodes = set(tree_sequence.samples())
 
     if not max_iterations >= 1:
-        raise ValueError("Maximum number of iterations must be greater than 0")
+        raise ValueError("Maximum number of EP iterations must be greater than 0")
 
     if mutation_rate is None:
         raise ValueError("Variational gamma method requires mutation rate")
-
-    # Parameters below are not used in variational dating, but are here
-    # to match the signature of get_dates(). We may be able to remove some
-    # if we move to specifying some params via a control dictionary
-
-    if probability_space is not None:
-        raise ValueError("Cannot specify a probability space in variational dating")
-
-    if num_threads is not None and num_threads != 1:
-        raise ValueError("Variational dating does not currently use multiple threads")
-
-    if ignore_oldest_root:
-        raise ValueError(
-            "Ignoring the oldes root is not implemented in variational dating"
-        )
 
     # Default to not creating approximate priors unless ts has
     # greater than DEFAULT_APPROX_PRIOR_SIZE samples
@@ -1664,8 +1482,8 @@ def variational_dates(
         fixed_node_set=fixed_nodes,
     )
 
-    # minimize KL divergence or match central moments
-    min_kl = not method_of_moments
+    # match sufficient statistics or match central moments
+    min_kl = not match_central_moments
 
     dynamic_prog = ExpectationPropagation(priors, liklhd, progress=progress)
     for _ in tqdm(
@@ -1683,16 +1501,216 @@ def variational_dates(
         grid_data=dynamic_prog.posterior[priors.nonfixed_nodes, :]
     )
     posterior.grid_data[:, 0] += 1  # to shape/rate parameterization
-    tree_sequence, mn_post, _ = variational_mean_var(
+    mn_post, va_post = variational_mean_var(
         tree_sequence, posterior, fixed_node_set=fixed_nodes
     )
 
     return (
-        tree_sequence,
         mn_post,
+        va_post,
         posterior,
-        np.array([0.0]),
-        eps,
-        priors.nonfixed_nodes,
-        np.nan,
+        np.nan,  # TODO: placeholder for marginal likelihood
     )
+
+
+def date(
+    tree_sequence,
+    mutation_rate,
+    population_size=None,
+    recombination_rate=None,
+    time_units=None,
+    priors=None,
+    method="inside_outside",
+    *,
+    eps=1e-6,
+    Ne=None,
+    return_posteriors=None,
+    return_likelihood=None,
+    progress=False,
+    **kwargs,
+):
+    """
+    Take a tree sequence (which could have :data:`uncalibrated
+    <tskit.TIME_UNITS_UNCALIBRATED>` node times) and assign new times to
+    non-sample nodes using the `tsdate` algorithm. If a mutation_rate is given,
+    the mutation clock is used. The recombination clock is unsupported at this
+    time.  If neither a mutation_rate nor a recombination_rate is given, a
+    topology-only clock is used. Times associated with mutations and non-sample
+    nodes in the input tree sequence are not used in inference and will be
+    removed.
+
+    Internally invokes one of :func:`discretised_dates` (if ``method`` is
+    ``inside_outside`` or ``maximization``) or
+    :func:`variational_dates` (if ``method`` is ``variational_gamma``). See the
+    documentation for these methods for details and method-specific options.
+
+    .. note::
+
+        If posteriors are returned via the ``return_posteriors`` option, the
+        output will be a tuple ``(ts, posteriors)``, where ``posteriors`` is a
+        dictionary suitable for reading as a pandas ``DataFrame`` object, using
+        ``pd.DataFrame(posteriors)``.  Each node whose time was inferred
+        corresponds to an item in this dictionary, with the key being the node
+        ID and the value a 1D array of posterior parameters. These are
+        probabilities of the node being at a given time point if the
+        "inside_outside" method is used; or shape and rate parameters if the
+        "variational_gamma" method is used. In the former case, the timepoints
+        are a 1D array in the dictionary with key "time".
+
+    :param ~tskit.TreeSequence tree_sequence: The input tree sequence` to
+        be dated.
+    :param float or ~demography.PopulationSizeHistory population_size: The estimated
+        (diploid) effective population size used to construct the (default) conditional
+        coalescent prior. For a population with constant size, this can be given as a
+        single value. For a population with time-varying size, this can be given directly
+        as a :class:`~demography.PopulationSizeHistory` object or a parameter dictionary
+        passed to initialise a :class:`~demography.PopulationSizeHistory` object. This is
+        used when ``priors`` is ``None``.  Conversely, if ``priors`` is not ``None``, no
+        ``population_size`` value should be specified.
+    :param float mutation_rate: The estimated mutation rate per unit of genome per
+        unit time. If provided, the dating algorithm will use a mutation rate clock to
+        help estimate node dates. Default: ``None``
+    :param float recombination_rate: The estimated recombination rate per unit of genome
+        per unit time. If provided, the dating algorithm will use a recombination rate
+        clock to help estimate node dates. Default: ``None``
+    :param str time_units: The time units used by the ``mutation_rate`` and
+        ``recombination_rate`` values, and stored in the ``time_units`` attribute of the
+        output tree sequence. If the conditional coalescent prior is used,
+        then this is also applies to the value of ``population_size``, which in
+        standard coalescent theory is measured in generations. Therefore if you
+        wish to use mutation and recombination rates measured in (say) years,
+        and are using the conditional coalescent prior, the ``population_size``
+        value which you provide must be scaled by multiplying by the number of
+        years per generation. If ``None`` (default), assume ``"generations"``.
+    :param bool progress: Show a progress bar. Default: False.
+    :param tsdate.base.NodeGridValues priors: NodeGridValues object containing the prior
+        parameters for each node-to-be-dated. See :func:`discretised_dates` and
+        :func:`variational_dates` for more details.
+    :param bool return_posteriors: If ``True``, instead of returning just a dated tree
+        sequence, return a tuple of ``(dated_ts, posteriors)`` (see note above).
+    :param bool return_likelihood: If ``True``, return the log marginal likelihood
+        from the inside algorithm in addition to the dated tree sequence. If
+        ``return_posteriors`` is also ``True``, then the marginal likelihood
+        will be the last element of the tuple.
+    :param float eps: The minimum distance separating parent and child ages.
+        Default: 1e-6
+    :param string method: What estimation method to use: can be
+        "variational_gamma" (variational approximation, empirically most accurate),
+        "inside_outside" (empirically better, theoretically problematic) or
+        "maximization" (worse empirically, especially with gamma approximated priors,
+        but theoretically robust). If ``None`` (default) use "inside_outside"
+    :param bool progress: Whether to display a progress bar. Default: False
+    :param float Ne: Deprecated, use the``population_size`` argument instead.
+    :return: A copy of the input tree sequence but with altered node times, or (if
+        ``return_posteriors`` or ``return_likelihood`` is True) a tuple of that
+        tree sequence plus a dictionary of posterior probabilities from the
+        "inside_outside" estimation ``method`` and/or the marginal likelihood
+        from the inside algorithm.
+    :rtype: ~tskit.TreeSequence or (~tskit.TreeSequence, dict)
+    """
+
+    # check valid method - raise error if unknown.
+    check_method(method)
+
+    if time_units is None:
+        time_units = "generations"
+    if Ne is not None:
+        if population_size is not None:
+            raise ValueError(
+                "Only one of Ne (deprecated) or population_size may be specified"
+            )
+        else:
+            population_size = Ne
+
+    if isinstance(population_size, dict):
+        population_size = demography.PopulationSizeHistory(**population_size)
+
+    if method == "variational_gamma":
+        mn_post, va_post, posteriors, lik = variational_dates(
+            tree_sequence,
+            population_size=population_size,
+            mutation_rate=mutation_rate,
+            recombination_rate=recombination_rate,
+            priors=priors,
+            progress=progress,
+            **kwargs,
+        )
+    else:
+        mn_post, va_post, posteriors, lik = discretised_dates(
+            tree_sequence,
+            population_size=population_size,
+            mutation_rate=mutation_rate,
+            recombination_rate=recombination_rate,
+            priors=priors,
+            progress=progress,
+            method=method,
+            eps=eps,
+            **kwargs,
+        )
+
+    # Constrain node ages
+    constrained = constrain_ages_topo(tree_sequence, mn_post, eps, progress)
+    tables = tree_sequence.dump_tables()
+    tables.time_units = time_units
+    tables.nodes.time = constrained
+    tables.mutations.time = np.full(tree_sequence.num_mutations, tskit.UNKNOWN_TIME)
+
+    # Add posterior mean and variance to node metadata
+    if posteriors is not None:
+        metadata_array = tskit.unpack_bytes(
+            tables.nodes.metadata, tables.nodes.metadata_offset
+        )
+        for u in posteriors.nonfixed_nodes:
+            metadata_array[u] = json.dumps(
+                {"mn": mn_post[u], "vr": va_post[u]}
+            ).encode()
+        md, md_offset = tskit.pack_bytes(metadata_array)
+        tables.nodes.set_columns(
+            flags=tables.nodes.flags,
+            time=tables.nodes.time,
+            population=tables.nodes.population,
+            individual=tables.nodes.individual,
+            metadata=md,
+            metadata_offset=md_offset,
+        )
+    tables.sort()
+
+    # Record provenance
+    params = dict(
+        mutation_rate=mutation_rate,
+        recombination_rate=recombination_rate,
+        method=method,
+        time_units=time_units,
+        progress=progress,
+    )
+    if isinstance(population_size, (int, float)):
+        params["population_size"] = population_size
+    elif isinstance(population_size, demography.PopulationSizeHistory):
+        params["population_size"] = population_size.as_dict()
+    provenance.record_provenance(
+        tables,
+        "date",
+        **params,
+        **kwargs,
+    )
+
+    if return_posteriors:
+        if method == "variational_gamma":
+            pst = {"parameter": ["shape", "rate"]}
+            for n in posteriors.nonfixed_nodes:
+                pst[n] = posteriors[n]
+        elif method == "inside_outside":
+            pst = {"time": posteriors.timepoints}
+            for n in posteriors.nonfixed_nodes:
+                pst[n] = posteriors[n]
+        else:
+            pst = None
+        if return_likelihood:
+            return tables.tree_sequence(), pst, lik
+        else:
+            return tables.tree_sequence(), pst
+    else:
+        if return_likelihood:
+            return tables.tree_sequence(), lik
+        else:
+            return tables.tree_sequence()

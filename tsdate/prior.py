@@ -1055,7 +1055,7 @@ def fill_priors(
 class MixturePrior:
     """
     Maps ConditionalCoalescentPrior onto nodes in a tree sequence and creates
-    time-discretized priors
+    time-discretised priors
     """
 
     def __init__(
@@ -1104,7 +1104,7 @@ class MixturePrior:
         self.tree_sequence = tree_sequence
         self.prior_distribution = prior_distribution
 
-    def make_discretized_prior(self, population_size, timepoints=20, progress=False):
+    def make_discretised_prior(self, population_size, timepoints=20, progress=False):
         """
         Calculate prior grid for a set of timepoints and a population size history
         """
@@ -1239,7 +1239,7 @@ def build_grid(
         allow_unary,
         progress,
     )
-    return mixture_prior.make_discretized_prior(population_size, timepoints)
+    return mixture_prior.make_discretised_prior(population_size, timepoints)
 
 
 def parameter_grid(
