@@ -32,8 +32,10 @@ import numpy as np
 import pytest
 import scipy.sparse
 import tsinfer
+import tskit
 
 from tsdate import evaluation
+
 
 # --- simulate test case ---
 demo = msprime.Demography.isolated_model([1e4])
@@ -52,6 +54,7 @@ true_simpl = true_unary.simplify(filter_sites=False)
 sample_dat = tsinfer.SampleData.from_tree_sequence(true_simpl)
 infr_unary = tsinfer.infer(sample_dat)
 infr_simpl = infr_unary.simplify(filter_sites=False)
+true_ext = true_simpl.extend_edges()
 
 
 def naive_shared_node_spans(ts, other):
@@ -82,6 +85,48 @@ def naive_shared_node_spans(ts, other):
     return scipy.sparse.csr_matrix(out)
 
 
+def naive_node_span(ts):
+    """
+    Ineffiecient but transparent function to get total span
+    of each node in a tree sequence, including roots.
+    """
+    node_spans = np.zeros(ts.num_nodes)
+    for t in ts.trees():
+        for n in t.nodes():
+            if t.parent(n) != tskit.NULL or t.num_children(n) > 0:
+                span = t.span
+                node_spans[n] += span
+    return node_spans
+
+
+def naive_discrepancy(ts, other):
+    """
+    Ineffiecient but transparent function to compute discrepancy
+    and root-mean-square-error between two tree sequences.
+    """
+    shared_spans = naive_shared_node_spans(ts, other).toarray()
+    max_span = np.max(shared_spans, axis=1)
+    assert len(max_span) == ts.num_nodes
+    time_array = np.zeros((ts.num_nodes, other.num_nodes))
+    discrepancy = np.zeros((ts.num_nodes, other.num_nodes))
+    for i in range(ts.num_nodes):
+        for j in range(other.num_nodes):
+            if shared_spans[i, j] == max_span[i]:
+                time_array[i, j] = np.abs(ts.nodes_time[i] - other.nodes_time[j])
+                discrepancy[i, j] = 1 / (1 + time_array[i, j])
+    best_match = np.argmax(discrepancy, axis=1)
+    best_match_spans = np.zeros((ts.num_nodes,))
+    time_discrepancies = np.zeros((ts.num_nodes,))
+    for i, j in enumerate(best_match):
+        best_match_spans[i] = shared_spans[i, j]
+        time_discrepancies[i] = time_array[i, j]
+    node_span = naive_node_span(ts)
+    total_node_spans = np.sum(node_span)
+    discrepancy = 1 - np.sum(best_match_spans) / total_node_spans
+    rmse = np.sqrt(np.sum(node_span * time_discrepancies**2) / total_node_spans)
+    return discrepancy, rmse
+
+
 @pytest.mark.parametrize("ts", [true_unary, infr_unary, true_simpl, infr_simpl])
 class TestCladeMap:
     def test_map(self, ts):
@@ -98,7 +143,7 @@ class TestCladeMap:
 
     def test_diff(self, ts):
         """
-        test difference in clades between adjacent trees
+        test difference in clades between adjacent trees.
         """
         clade_map = evaluation.CladeMap(ts)
         tree_1 = ts.first()
@@ -121,6 +166,15 @@ class TestCladeMap:
 
 
 class TestNodeMatching:
+    @pytest.mark.parametrize(
+        "ts",
+        [infr_simpl, true_simpl, infr_unary, true_unary],
+    )
+    def test_node_spans(self, ts):
+        eval_ns = evaluation.node_spans(ts)
+        naive_ns = naive_node_span(ts)
+        assert np.allclose(eval_ns, naive_ns)
+
     @pytest.mark.parametrize(
         "pair", combinations([infr_simpl, true_simpl, infr_unary, true_unary], 2)
     )
@@ -145,3 +199,144 @@ class TestNodeMatching:
         time, _, hit = evaluation.match_node_ages(ts, ts)
         assert np.allclose(time, ts.nodes_time)
         assert np.array_equal(hit, np.arange(ts.num_nodes))
+
+    @pytest.mark.parametrize(
+        "pair",
+        [(true_ext, true_ext), (true_simpl, true_ext), (true_simpl, true_unary)],
+    )
+    def test_basic_discrepancy(self, pair):
+        """
+        Check that efficient implementation reutrns the same answer as naive
+        implementation.
+        """
+        check_dis, check_err = naive_discrepancy(pair[0], pair[1])
+        test_dis, test_err = evaluation.tree_discrepancy(pair[0], pair[1])
+        assert np.isclose(check_dis, test_dis)
+        assert np.isclose(check_err, test_err)
+
+    @pytest.mark.parametrize(
+        "pair",
+        [(true_ext, true_ext), (true_simpl, true_ext), (true_simpl, true_unary)],
+    )
+    def test_zero_discrepancy(self, pair):
+        dis, err = evaluation.tree_discrepancy(pair[0], pair[1])
+        assert np.isclose(dis, 0)
+        assert np.isclose(err, 0)
+
+    def get_simple_ts(self, samples=None, time=False, span=False):
+        # A simple tree sequence we can use to properly test various
+        # discrepancy and MSRE values.
+        #
+        #    6          6      6
+        #  +-+-+      +-+-+  +-+-+
+        #  |   |      7   |  |   8
+        #  |   |     ++-+ |  | +-++
+        #  4   5     4  | 5  4 |  5
+        # +++ +++   +++ | |  | | +++
+        # 0 1 2 3   0 1 2 3  0 1 2 3
+        #
+        # if time = False:
+        # with node times 0.0, 500.0, 750.0, 1000.0 for each tier,
+        # else:
+        # with node times 0.0, 200.0, 600.0, 1000.0 for each tier,
+        #
+        # if span = False:
+        # each tree spans (0,2), (2,4), and (4,6) respectively.
+        # else:
+        # each tree spans (0,1), (1,5), and (5,6) repectively.
+        if time is False:
+            node_times = {
+                0: 0,
+                1: 0,
+                2: 0,
+                3: 0,
+                4: 500.0,
+                5: 500.0,
+                6: 1000.0,
+                7: 750.0,
+                8: 750.0,
+            }
+        else:
+            node_times = {
+                0: 0,
+                1: 0,
+                2: 0,
+                3: 0,
+                4: 200.0,
+                5: 200.0,
+                6: 1000.0,
+                7: 600.0,
+                8: 600.0,
+            }
+        # (p, c, l, r)
+        if span is False:
+            edges = [
+                (4, 0, 0, 6),
+                (4, 1, 0, 4),
+                (5, 2, 0, 2),
+                (5, 2, 4, 6),
+                (5, 3, 0, 6),
+                (7, 2, 2, 4),
+                (7, 4, 2, 4),
+                (8, 1, 4, 6),
+                (8, 5, 4, 6),
+                (6, 4, 0, 2),
+                (6, 4, 4, 6),
+                (6, 5, 0, 4),
+                (6, 7, 2, 4),
+                (6, 8, 4, 6),
+            ]
+        else:
+            edges = [
+                (4, 0, 0, 6),
+                (4, 1, 0, 5),
+                (5, 2, 0, 1),
+                (5, 2, 5, 6),
+                (5, 3, 0, 6),
+                (7, 2, 1, 5),
+                (7, 4, 1, 5),
+                (8, 1, 5, 6),
+                (8, 5, 5, 6),
+                (6, 4, 0, 1),
+                (6, 4, 5, 6),
+                (6, 5, 0, 5),
+                (6, 7, 1, 5),
+                (6, 8, 5, 6),
+            ]
+        tables = tskit.TableCollection(sequence_length=6)
+        if samples is None:
+            samples = [0, 1, 2, 3]
+        for (
+            n,
+            t,
+        ) in node_times.items():
+            flags = tskit.NODE_IS_SAMPLE if n in samples else 0
+            tables.nodes.add_row(time=t, flags=flags)
+        for p, c, l, r in edges:
+            tables.edges.add_row(parent=p, child=c, left=l, right=r)
+        ts = tables.tree_sequence()
+        assert ts.num_edges == 14
+        return ts
+
+    def test_discrepancy_value(self):
+        ts = self.get_simple_ts()
+        other = self.get_simple_ts(span=True)
+        dis, err = evaluation.tree_discrepancy(ts, other)
+        assert np.isclose(dis, 4 / 46)
+        assert np.isclose(err, 0.0)
+
+    def test_discrepancy_error(self):
+        ts = self.get_simple_ts()
+        other = self.get_simple_ts(time=True)
+        dis, err = evaluation.tree_discrepancy(ts, other)
+        true_error = np.sqrt((2 * 6 * 300**2 + 2 * 2 * 150**2) / 46)
+        assert np.isclose(dis, 0.0)
+        assert np.isclose(err, true_error)
+
+    def test_discrepancy_value_and_error(self):
+        ts = self.get_simple_ts()
+        other = self.get_simple_ts(span=True, time=True)
+        dis, err = evaluation.tree_discrepancy(ts, other)
+        true_error = np.sqrt((2 * 6 * 300**2 + 2 * 2 * 150**2) / 46)
+        assert np.isclose(dis, 4 / 46)
+        assert np.isclose(err, true_error)
