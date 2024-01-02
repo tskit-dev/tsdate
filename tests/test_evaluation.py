@@ -108,13 +108,17 @@ def naive_discrepancy(ts, other):
     max_span = np.max(shared_spans, axis=1)
     assert len(max_span) == ts.num_nodes
     time_array = np.zeros((ts.num_nodes, other.num_nodes))
-    discrepancy = np.zeros((ts.num_nodes, other.num_nodes))
+    discrepancy_matrix = np.zeros((ts.num_nodes, other.num_nodes))
     for i in range(ts.num_nodes):
-        for j in range(other.num_nodes):
-            if shared_spans[i, j] == max_span[i]:
-                time_array[i, j] = np.abs(ts.nodes_time[i] - other.nodes_time[j])
-                discrepancy[i, j] = 1 / (1 + time_array[i, j])
-    best_match = np.argmax(discrepancy, axis=1)
+        # Skip nodes with no match in shared_spans
+        if max_span[i] == 0:
+            continue
+        else:
+            for j in range(other.num_nodes):
+                if shared_spans[i, j] == max_span[i]:
+                    time_array[i, j] = np.abs(ts.nodes_time[i] - other.nodes_time[j])
+                    discrepancy_matrix[i, j] = 1 / (1 + time_array[i, j])
+    best_match = np.argmax(discrepancy_matrix, axis=1)
     best_match_spans = np.zeros((ts.num_nodes,))
     time_discrepancies = np.zeros((ts.num_nodes,))
     for i, j in enumerate(best_match):
@@ -223,7 +227,7 @@ class TestNodeMatching:
         assert np.isclose(dis, 0)
         assert np.isclose(err, 0)
 
-    def get_simple_ts(self, samples=None, time=False, span=False):
+    def get_simple_ts(self, samples=None, time=False, span=False, no_match=False):
         # A simple tree sequence we can use to properly test various
         # discrepancy and MSRE values.
         #
@@ -303,6 +307,40 @@ class TestNodeMatching:
                 (6, 7, 1, 5),
                 (6, 8, 5, 6),
             ]
+        if no_match is True:
+            node_times[9] = 100.0
+            if span is False:
+                edges = [
+                    (9, 0, 4, 6),
+                    (4, 0, 0, 4),
+                    (4, 1, 0, 6),
+                    (4, 9, 4, 6),
+                    (5, 2, 0, 2),
+                    (5, 2, 4, 6),
+                    (5, 3, 0, 6),
+                    (7, 2, 2, 4),
+                    (7, 4, 2, 4),
+                    (6, 4, 0, 2),
+                    (6, 4, 4, 6),
+                    (6, 5, 0, 6),
+                    (6, 7, 2, 4),
+                ]
+            else:
+                edges = [
+                    (9, 0, 5, 6),
+                    (4, 0, 0, 5),
+                    (4, 1, 0, 6),
+                    (4, 9, 5, 6),
+                    (5, 2, 0, 2),
+                    (5, 2, 5, 6),
+                    (5, 3, 0, 6),
+                    (7, 2, 2, 5),
+                    (7, 4, 2, 5),
+                    (6, 4, 0, 2),
+                    (6, 4, 5, 6),
+                    (6, 5, 0, 6),
+                    (6, 7, 2, 5),
+                ]
         tables = tskit.TableCollection(sequence_length=6)
         if samples is None:
             samples = [0, 1, 2, 3]
@@ -315,7 +353,10 @@ class TestNodeMatching:
         for p, c, l, r in edges:
             tables.edges.add_row(parent=p, child=c, left=l, right=r)
         ts = tables.tree_sequence()
-        assert ts.num_edges == 14
+        if no_match is True:
+            assert ts.num_edges == 13
+        if no_match is False:
+            assert ts.num_edges == 14
         return ts
 
     def test_discrepancy_value(self):
@@ -340,3 +381,11 @@ class TestNodeMatching:
         true_error = np.sqrt((2 * 6 * 300**2 + 2 * 2 * 150**2) / 46)
         assert np.isclose(dis, 4 / 46)
         assert np.isclose(err, true_error)
+
+    def test_discrepancy_and_naive_discrepancy_with_no_match(self):
+        ts = self.get_simple_ts()
+        other = self.get_simple_ts(span=True, time=True, no_match=True)
+        check_dis, check_err = naive_discrepancy(ts, other)
+        test_dis, test_err = evaluation.tree_discrepancy(ts, other)
+        assert np.isclose(check_dis, test_dis)
+        assert np.isclose(check_err, test_err)

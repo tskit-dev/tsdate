@@ -321,6 +321,11 @@ def tree_discrepancy(ts, other):
     ts_times = ts.nodes_time[row_ind[match]]
     other_times = other.nodes_time[col_ind[match]]
     time_difference = np.absolute(np.asarray(ts_times - other_times))
+    # If a node x in `ts` has no match then we set time_difference to zero
+    # This node then does not effect the rmse
+    for j in range(len(shared_spans.data[match])):
+        if shared_spans.data[match][j] == 0:
+            time_difference[j] = 0.0
     # If two nodes have the same time, then
     # time_difference is zero, which causes problems with argmin
     # Instead we store data as 1/(1+x) and find argmax
