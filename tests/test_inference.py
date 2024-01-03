@@ -121,14 +121,14 @@ class TestPrebuilt:
 
     def test_no_posteriors(self):
         ts = utility_functions.two_tree_mutation_ts()
-        ts, posteriors = tsdate.date(
-            ts,
-            population_size=1,
-            return_posteriors=True,
-            method="maximization",
-            mutation_rate=1,
-        )
-        assert posteriors is None
+        with pytest.raises(ValueError, match="Cannot return posterior"):
+            tsdate.date(
+                ts,
+                population_size=1,
+                return_posteriors=True,
+                method="maximization",
+                mutation_rate=1,
+            )
 
     def test_discretised_posteriors(self):
         ts = utility_functions.two_tree_mutation_ts()
@@ -327,7 +327,7 @@ class TestSimulated:
             msprime.Sample(population=0, time=1.0),
         ]
         ts = msprime.simulate(samples=samples, Ne=1, mutation_rate=2, random_seed=12)
-        with pytest.raises(NotImplementedError):
+        with pytest.raises(ValueError, match="noncontemporaneous"):
             tsdate.date(ts, population_size=1, mutation_rate=2)
 
     def test_no_mutation_times(self):

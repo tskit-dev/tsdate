@@ -41,12 +41,11 @@ import tsdate
 from tsdate import base
 from tsdate.core import constrain_ages_topo
 from tsdate.core import date
-from tsdate.core import discretised_dates
-from tsdate.core import discretised_mean_var
+from tsdate.core import DiscreteTimeMethod
 from tsdate.core import InOutAlgorithms
+from tsdate.core import InsideOutsideMethod
 from tsdate.core import Likelihoods
 from tsdate.core import LogLikelihoods
-from tsdate.core import variational_dates
 from tsdate.core import VariationalLikelihoods
 from tsdate.demography import PopulationSizeHistory
 from tsdate.prior import ConditionalCoalescentTimes
@@ -797,14 +796,16 @@ class TestVariational:
     def test_variational_nosize(self):
         ts = utility_functions.two_tree_mutation_ts()
         with pytest.raises(ValueError, match="Must specify population size"):
-            variational_dates(ts, mutation_rate=1)
+            tsdate.variational_gamma(ts, mutation_rate=1)
 
     def test_variational_toomanysizes(self):
         ts = utility_functions.two_tree_mutation_ts()
         Ne = 1
         priors = tsdate.build_prior_grid(ts, Ne, np.array([0, 1.2, 2]))
         with pytest.raises(ValueError, match="Cannot specify"):
-            variational_dates(ts, mutation_rate=1, population_size=Ne, priors=priors)
+            tsdate.variational_gamma(
+                ts, mutation_rate=1, population_size=Ne, priors=priors
+            )
 
 
 class TestNodeGridValuesClass:
@@ -1604,14 +1605,14 @@ class TestBuildPriorGrid:
 
 class TestDiscretisedMeanVar:
     """
-    Test discretised_mean_var works as expected
+    Test discretised mean_var works as expected
     """
 
     def test_discretised_mean_var(self):
         ts = utility_functions.single_tree_ts_n2()
         for distr in ("gamma", "lognorm"):
             posterior, algo = TestTotalFunctionalValueTree().find_posterior(ts, distr)
-            mn_post, vr_post = discretised_mean_var(ts, posterior)
+            mn_post, vr_post = DiscreteTimeMethod.mean_var(ts, posterior)
             assert np.array_equal(
                 mn_post,
                 [
@@ -1625,9 +1626,10 @@ class TestDiscretisedMeanVar:
         larger_ts = msprime.simulate(
             10, mutation_rate=1, recombination_rate=1, length=20, random_seed=12
         )
-        mn_post, *_ = discretised_dates(
-            larger_ts, mutation_rate=None, population_size=10000, eps=1e-6
+        algorithm = InsideOutsideMethod(
+            larger_ts, mutation_rate=None, population_size=10000
         )
+        mn_post, *_ = algorithm.run(eps=1e-6, outside_standardize=True)
         dated_ts = date(larger_ts, population_size=10000, mutation_rate=None)
         metadata = dated_ts.tables.nodes.metadata
         metadata_offset = dated_ts.tables.nodes.metadata_offset
@@ -1840,9 +1842,8 @@ class TestSiteTimes:
     def test_sites_time_insideoutside(self):
         ts = utility_functions.two_tree_mutation_ts()
         dated = tsdate.date(ts, mutation_rate=None, population_size=1)
-        mn_post, *_ = discretised_dates(
-            ts, mutation_rate=None, population_size=1, eps=1e-6
-        )
+        algorithm = InsideOutsideMethod(ts, mutation_rate=None, population_size=1)
+        mn_post, *_ = algorithm.run(eps=1e-6, outside_standardize=True)
         assert np.array_equal(
             mn_post[ts.tables.mutations.node],
             tsdate.sites_time_from_ts(dated, unconstrained=True, min_time=0),
@@ -1945,9 +1946,10 @@ class TestSiteTimes:
         larger_ts = msprime.simulate(
             10, mutation_rate=1, recombination_rate=1, length=20, random_seed=12
         )
-        mn_post, *_ = discretised_dates(
+        algorithm = InsideOutsideMethod(
             larger_ts, mutation_rate=None, population_size=10000
         )
+        mn_post, *_ = algorithm.run(eps=1e-6, outside_standardize=True)
         dated = date(larger_ts, mutation_rate=None, population_size=10000)
         assert np.allclose(
             mn_post[larger_ts.tables.mutations.node],

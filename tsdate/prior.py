@@ -1184,7 +1184,7 @@ class MixturePrior:
         return prior_pars
 
 
-def build_grid(
+def prior_grid(
     tree_sequence,
     population_size,
     timepoints=20,
@@ -1193,7 +1193,6 @@ def build_grid(
     approx_prior_size=None,
     prior_distribution="lognorm",
     # Parameters below undocumented
-    eps=1e-6,  # placeholder
     progress=False,
     allow_unary=False,
 ):
@@ -1226,8 +1225,8 @@ def build_grid(
         better fit, but slightly slower to calculate) or "gamma" for the gamma
         distribution (slightly faster, but a poorer fit for recent nodes). Default:
         "lognorm"
-    :return: A prior object to pass to tsdate.date() containing prior values for
-        inference and a discretised time grid
+    :return: A prior object to pass to :func:`date` and similar functions containing
+        prior values for inference and a discretised time grid
     :rtype:  base.NodeGridValues
     """
 

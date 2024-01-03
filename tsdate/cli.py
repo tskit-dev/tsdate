@@ -264,9 +264,10 @@ def run_date(args):
             progress=args.progress,
             probability_space=args.probability_space,
             num_threads=args.num_threads,
-            ignore_oldest_root=args.ignore_oldest,
         )
-        # TODO: error out if ignore_oldest_root is set,
+        if args.method == "inside_outside":
+            params["ignore_oldest_root"] = args.ignore_oldest  # For backwards compat
+        # TODO: remove and error out if ignore_oldest_root is set,
         # see https://github.com/tskit-dev/tsdate/issues/262
     dated_ts = tsdate.date(ts, args.mutation_rate, args.population_size, **params)
     dated_ts.dump(args.output)

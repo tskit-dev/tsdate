@@ -241,3 +241,9 @@ class NodeGridValues:
         else:
             new_obj.probability_space = probability_space
         return new_obj
+
+    def nonfixed_dict(self):
+        """
+        Return a dictionary mapping integer node ids to their data.
+        """
+        return {n: self[n] for n in self.nonfixed_nodes}
