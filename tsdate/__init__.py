@@ -21,10 +21,11 @@
 # SOFTWARE.
 from .cache import *  # NOQA: F401,F403
 from .core import date  # NOQA: F401
-from .core import discretised_dates  # NOQA: F401
-from .core import variational_dates  # NOQA: F401
-from .prior import build_grid as build_prior_grid  # NOQA: F401
+from .core import inside_outside  # NOQA: F401
+from .core import maximization  # NOQA: F401
+from .core import variational_gamma  # NOQA: F401
 from .prior import parameter_grid as build_parameter_grid  # NOQA: F401
+from .prior import prior_grid as build_prior_grid  # NOQA: F401
 from .provenance import __version__  # NOQA: F401
 from .util import add_sampledata_times  # NOQA: F401
 from .util import preprocess_ts  # NOQA: F401
