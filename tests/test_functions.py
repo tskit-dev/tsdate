@@ -1629,7 +1629,9 @@ class TestDiscretisedMeanVar:
         algorithm = InsideOutsideMethod(
             larger_ts, mutation_rate=None, population_size=10000
         )
-        mn_post, *_ = algorithm.run(eps=1e-6, outside_standardize=True)
+        mn_post, *_ = algorithm.run(
+            eps=1e-6, outside_standardize=True, probability_space=tsdate.base.LOG
+        )
         dated_ts = date(larger_ts, population_size=10000, mutation_rate=None)
         metadata = dated_ts.tables.nodes.metadata
         metadata_offset = dated_ts.tables.nodes.metadata_offset
@@ -1843,7 +1845,9 @@ class TestSiteTimes:
         ts = utility_functions.two_tree_mutation_ts()
         dated = tsdate.date(ts, mutation_rate=None, population_size=1)
         algorithm = InsideOutsideMethod(ts, mutation_rate=None, population_size=1)
-        mn_post, *_ = algorithm.run(eps=1e-6, outside_standardize=True)
+        mn_post, *_ = algorithm.run(
+            eps=1e-6, outside_standardize=True, probability_space=tsdate.base.LOG
+        )
         assert np.array_equal(
             mn_post[ts.tables.mutations.node],
             tsdate.sites_time_from_ts(dated, unconstrained=True, min_time=0),
