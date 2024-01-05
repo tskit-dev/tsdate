@@ -46,6 +46,12 @@ input_ts = tskit.load("data/basic_example.trees")
 ts = tsdate.date(input_ts, method="variational_gamma", population_size=100, mutation_rate=1e-8)
 ```
 
+Alternatively each method can be called directly as a separate function:
+
+```{code-cell} ipython3
+ts = tsdate.variational_gamma(input_ts, population_size=100, mutation_rate=1e-8)
+```
+
 Currently the default is `inside_outside`, but this may change in future releases.
 
 

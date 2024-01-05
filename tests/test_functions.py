@@ -1630,7 +1630,10 @@ class TestDiscretisedMeanVar:
             larger_ts, mutation_rate=None, population_size=10000
         )
         mn_post, *_ = algorithm.run(
-            eps=1e-6, outside_standardize=True, probability_space=tsdate.base.LOG
+            eps=1e-6,
+            outside_standardize=True,
+            ignore_oldest_root=False,
+            probability_space=tsdate.base.LOG,
         )
         dated_ts = date(larger_ts, population_size=10000, mutation_rate=None)
         metadata = dated_ts.tables.nodes.metadata
@@ -1846,7 +1849,10 @@ class TestSiteTimes:
         dated = tsdate.date(ts, mutation_rate=None, population_size=1)
         algorithm = InsideOutsideMethod(ts, mutation_rate=None, population_size=1)
         mn_post, *_ = algorithm.run(
-            eps=1e-6, outside_standardize=True, probability_space=tsdate.base.LOG
+            eps=1e-6,
+            outside_standardize=True,
+            ignore_oldest_root=False,
+            probability_space=tsdate.base.LOG,
         )
         assert np.array_equal(
             mn_post[ts.tables.mutations.node],
@@ -1953,7 +1959,12 @@ class TestSiteTimes:
         algorithm = InsideOutsideMethod(
             larger_ts, mutation_rate=None, population_size=10000
         )
-        mn_post, *_ = algorithm.run(eps=1e-6, outside_standardize=True)
+        mn_post, *_ = algorithm.run(
+            eps=1e-6,
+            outside_standardize=True,
+            ignore_oldest_root=False,
+            probability_space=tsdate.base.LOG,
+        )
         dated = date(larger_ts, mutation_rate=None, population_size=10000)
         assert np.allclose(
             mn_post[larger_ts.tables.mutations.node],

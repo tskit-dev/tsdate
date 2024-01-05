@@ -768,7 +768,7 @@ class InOutAlgorithms:
         to convert to probabilities, call posterior.to_probabilities()
 
         Standardizing *during* the outside process may be necessary if there is
-        overflow, but means that we cannot  check the total functional value at each node
+        overflow, but means that we cannot check the total functional value at each node
 
         Ignoring the oldest root may also be necessary when the oldest root node
         causes numerical stability issues.
@@ -1344,8 +1344,8 @@ class InsideOutsideMethod(DiscreteTimeMethod):
         self,
         eps,
         outside_standardize,
-        ignore_oldest_root=None,
-        probability_space=None,
+        ignore_oldest_root,
+        probability_space,
         num_threads=None,
         cache_inside=None,
     ):
@@ -1486,8 +1486,10 @@ def maximization(
     *,
     eps=None,
     num_threads=None,
-    cache_inside=None,
     probability_space=None,
+    # below deliberately undocumented
+    cache_inside=None,
+    # Other params documented in `.date()`
     **kwargs,
 ):
     """
@@ -1529,10 +1531,6 @@ def maximization(
         Default: None, treated as 1e-6.
     :param int num_threads: The number of threads to use when precalculating likelihoods.
         A simpler unthreaded algorithm is used unless this is >= 1. Default: None
-    :param bool ignore_oldest_root: Should the oldest root in the tree sequence be
-        ignored in the outside algorithm (if ``"inside_outside"`` is used as the method).
-        Ignoring outside root provides greater stability when dating tree sequences
-        inferred from real data. Default: False
     :param string probability_space: Should the internal algorithm save
         probabilities in "logarithmic" (slower, less liable to to overflow) or
         "linear" space (fast, may overflow). Default: None treated as"logarithmic"
@@ -1569,12 +1567,14 @@ def maximization(
 def inside_outside(
     tree_sequence,
     *,
-    eps=1e-6,
+    eps=None,
     num_threads=None,
-    outside_standardize=True,
-    ignore_oldest_root=False,
-    cache_inside=False,
+    outside_standardize=None,
+    ignore_oldest_root=None,
     probability_space=None,
+    # below deliberately undocumented
+    cache_inside=False,
+    # Other params documented in `.date()`
     **kwargs,
 ):
     """
@@ -1613,13 +1613,20 @@ def inside_outside(
     :param ~tskit.TreeSequence tree_sequence: The input tree sequence to be dated.
     :param float eps: The error factor in time difference calculations, and the
         minimum distance separating parent and child ages in the returned tree sequence.
-        Default: 1e-6.
+        Default: None, treated as 1e-6.
     :param int num_threads: The number of threads to use when precalculating likelihoods.
         A simpler unthreaded algorithm is used unless this is >= 1. Default: None
+    :param bool outside_standardize: Should the likelihoods be standardized during the
+        outside step? This can help to avoid numerical under/overflow. Using
+        unstandardized values is mostly useful for testing (e.g. to obtain, in the
+        outside step, the total functional value for each node).
+        Default: None, treated as True.
     :param bool ignore_oldest_root: Should the oldest root in the tree sequence be
         ignored in the outside algorithm (if ``"inside_outside"`` is used as the method).
-        Ignoring outside root provides greater stability when dating tree sequences
-        inferred from real data. Default: False
+        Ignoring outside root can provide greater stability when dating tree sequences
+        inferred from real data, in particular if all local trees are assumed to coalesce
+        in a single "grand MRCA", as in older versions of ``tsinfer``.
+        Default: None, treated as False.
     :param string probability_space: Should the internal algorithm save
         probabilities in "logarithmic" (slower, less liable to to overflow) or
         "linear" space (fast, may overflow). Default: "logarithmic"
@@ -1650,6 +1657,10 @@ def inside_outside(
         eps = 1e-6
     if probability_space is None:
         probability_space = base.LOG
+    if outside_standardize is None:
+        outside_standardize = True
+    if ignore_oldest_root is None:
+        ignore_oldest_root = False
     dating_method = InsideOutsideMethod(tree_sequence, **kwargs)
     result = dating_method.run(
         eps=eps,
@@ -1759,14 +1770,14 @@ estimation_methods = {
     "variational_gamma": variational_gamma,
 }
 """
-The names of available estimation methods, mapped to the function to carry
-out each estimation method. Names can be passed as strings to the
+The names of available estimation methods, each mapped to a function to carry
+out the appropriate method. Names can be passed as strings to the
 :func:`~tsdate.date` function, or each named function can be called directly:
 
-* :func:`tsdate.inside_outside` (empirically better, theoretically problematic)
-* :func:`tsdate.maximization` (worse empirically, especially with gamma approximated
-  priors, but theoretically robust)
-* :func:`tsdate.variational_gamma` (variational approximation, empirically most accurate)
+* :func:`tsdate.inside_outside`: empirically better, theoretically problematic.
+* :func:`tsdate.maximization`: worse empirically, especially with gamma approximated
+  priors, but theoretically robust
+* :func:`tsdate.variational_gamma`: variational approximation, empirically most accurate.
 """
 
 
