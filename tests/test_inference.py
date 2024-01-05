@@ -414,18 +414,30 @@ class TestVariational:
         ts = msprime.simulate(8, mutation_rate=5, recombination_rate=5, random_seed=2)
         tsdate.date(ts, mutation_rate=5, population_size=1, method="variational_gamma")
 
-    def test_nonglobal_priors(self):
+    def test_invalid_priors(self):
         ts = msprime.simulate(8, mutation_rate=5, recombination_rate=5, random_seed=2)
         priors = tsdate.prior.MixturePrior(ts, prior_distribution="gamma")
         grid = priors.make_parameter_grid(population_size=1)
         grid.grid_data[:] = [1.0, 0.0]  # noninformative prior
-        with pytest.raises(ValueError, match="not yet implemented"):
+        with pytest.raises(ValueError, match="Non-positive shape/rate"):
             tsdate.date(
                 ts,
                 mutation_rate=5,
                 method="variational_gamma",
                 priors=grid,
             )
+
+    def test_custom_priors(self):
+        ts = msprime.simulate(8, mutation_rate=5, recombination_rate=5, random_seed=2)
+        priors = tsdate.prior.MixturePrior(ts, prior_distribution="gamma")
+        grid = priors.make_parameter_grid(population_size=1)
+        grid.grid_data[:] += 1.0
+        tsdate.date(
+            ts,
+            mutation_rate=5,
+            method="variational_gamma",
+            priors=grid,
+        )
 
     def test_bad_arguments(self):
         ts = utility_functions.two_tree_mutation_ts()
@@ -441,6 +453,7 @@ class TestVariational:
             tsdate.date(
                 ts,
                 mutation_rate=5,
+                population_size=1,
                 method="variational_gamma",
                 global_prior=False,
             )

@@ -1487,11 +1487,14 @@ class VariationalGammaMethod(EstimationMethod):
 
     def __init__(self, ts, **kwargs):
         super().__init__(ts, **kwargs)
-        # convert priors to natural parameterization and average
+        # convert priors to natural parameterization
         for n in self.priors.nonfixed_nodes:
+            if not np.all(self.priors[n] > 0.0):
+                raise ValueError(
+                    f"Non-positive shape/rate parameters for node {n}: "
+                    f"{self.priors[n]}"
+                )
             self.priors[n][0] -= 1.0
-            assert self.priors[n][0] > -1.0
-            assert self.priors[n][1] >= 0.0
 
     @staticmethod
     def mean_var(ts, posterior):
@@ -1526,9 +1529,19 @@ class VariationalGammaMethod(EstimationMethod):
             self.recombination_rate,
             fixed_node_set=self.get_fixed_nodes_set(),
         )
-        return ExpectationPropagation(self.priors, lik, progress=self.pbar, global_prior=self.prior_mixture)
+        return ExpectationPropagation(
+            self.priors, lik, progress=self.pbar, global_prior=self.prior_mixture
+        )
 
-    def run(self, eps, max_iterations, max_shape, match_central_moments, global_prior, em_iterations):
+    def run(
+        self,
+        eps,
+        max_iterations,
+        max_shape,
+        match_central_moments,
+        global_prior,
+        em_iterations,
+    ):
         if self.provenance_params is not None:
             self.provenance_params.update(
                 {k: v for k, v in locals().items() if k != "self"}
@@ -1540,8 +1553,10 @@ class VariationalGammaMethod(EstimationMethod):
         if self.mutation_rate is None:
             raise ValueError("Variational gamma method requires mutation rate")
 
-        self.prior_mixture = mixture.initialize_mixture(self.priors.grid_data, global_prior)
-        self.priors.grid_data[:] = [0.0, 0.0] # TODO: support node-specific priors
+        self.prior_mixture = mixture.initialize_mixture(
+            self.priors.grid_data, global_prior
+        )
+        self.priors.grid_data[:] = [0.0, 0.0]  # TODO: support node-specific priors
 
         # match sufficient statistics or match central moments
         min_kl = not match_central_moments

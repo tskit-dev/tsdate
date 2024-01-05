@@ -225,16 +225,20 @@ def fit_gamma_mixture(mixture, observations, max_iterations, tolerance, verbose)
 
 
 def initialize_mixture(parameters, num_components):
-    """initialize clusters by dividing nodes into equal groups"""
+    """
+    Initialize clusters by dividing nodes into equal groups.
+    "parameters" are in natural parameterization (not shape/rate)
+    """
     global_prior = np.empty((num_components, 3))
     num_nodes = parameters.shape[0]
-    age_classes = np.tile(np.arange(num_components), num_nodes // num_components + 1)[
-        :num_nodes
-    ]
+    age_classes = np.tile(
+        np.arange(num_components),
+        num_nodes // num_components + 1,
+    )[:num_nodes]
     for k in range(num_components):
         indices = np.equal(age_classes, k)
         alpha, beta = approx.average_gammas(
-            parameters[indices, 0] - 1.0, parameters[indices, 1]
+            parameters[indices, 0], parameters[indices, 1]
         )
         global_prior[k] = [1.0 / num_components, alpha, beta]
     return global_prior
