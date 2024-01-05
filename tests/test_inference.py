@@ -439,6 +439,18 @@ class TestVariational:
             priors=grid,
         )
 
+    def test_prior_mixture_dim(self):
+        ts = msprime.simulate(8, mutation_rate=5, recombination_rate=5, random_seed=2)
+        priors = tsdate.prior.MixturePrior(ts, prior_distribution="gamma")
+        grid = priors.make_parameter_grid(population_size=1)
+        tsdate.date(
+            ts,
+            mutation_rate=5,
+            method="variational_gamma",
+            priors=grid,
+            prior_mixture_dim=2,
+        )
+
     def test_bad_arguments(self):
         ts = utility_functions.two_tree_mutation_ts()
         with pytest.raises(ValueError, match="Maximum number of EP iterations"):
@@ -455,7 +467,7 @@ class TestVariational:
                 mutation_rate=5,
                 population_size=1,
                 method="variational_gamma",
-                global_prior=False,
+                prior_mixture_dim=0.1,
             )
 
     def test_match_central_moments(self):

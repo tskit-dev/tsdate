@@ -213,13 +213,13 @@ def tsdate_cli_parser():
         type=int,
         help=(
             "The number of expectation-maximization iterations used to optimize the "
-            "global mixture prior at the end of each expectation propagation step. "
+            "i.i.d. mixture prior at the end of each expectation propagation step. "
             "Setting to zero disables optimization. Default: 10"
         ),
         default=10,
     )
     parser.add_argument(
-        "--global-prior",
+        "--prior-mixture-dim",
         type=int,
         help=(
             "The number of components in the i.i.d. mixture prior for node "
@@ -285,7 +285,7 @@ def run_date(args):
             max_shape=args.max_shape,
             match_central_moments=args.match_central_moments,
             em_iterations=args.em_iterations,
-            global_prior=args.global_prior,
+            prior_mixture_dim=args.prior_mixture_dim,
         )
     else:
         params = dict(

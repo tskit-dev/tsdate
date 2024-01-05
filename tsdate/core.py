@@ -1030,8 +1030,9 @@ class ExpectationPropagation(InOutAlgorithms):
         min_kl,
     ):
         """
-        Update approximating factors for each edge, returning average relative
-        difference in natural parameters (TODO)
+        Update approximating factors for each edge.
+
+        TODO: return max difference in natural parameters for stopping criterion
 
         :param ndarray edges: integer array of dimension `[num_edges, 3]`
             containing edge id, parent id, and child id.
@@ -1120,7 +1121,8 @@ class ExpectationPropagation(InOutAlgorithms):
     def propagate_prior(
         nodes, global_prior, posterior, messages, scale, max_shape, em_maxitt, em_reltol
     ):
-        """TODO
+        """
+        Update approximating factors for global prior at each node.
 
         :param ndarray nodes: ids of nodes that should be updated
         :param ndarray global_prior: rows are mixture components, columns are
@@ -1530,7 +1532,7 @@ class VariationalGammaMethod(EstimationMethod):
             fixed_node_set=self.get_fixed_nodes_set(),
         )
         return ExpectationPropagation(
-            self.priors, lik, progress=self.pbar, global_prior=self.prior_mixture
+            self.priors, lik, progress=self.pbar, global_prior=self.global_prior
         )
 
     def run(
@@ -1539,7 +1541,7 @@ class VariationalGammaMethod(EstimationMethod):
         max_iterations,
         max_shape,
         match_central_moments,
-        global_prior,
+        prior_mixture_dim,
         em_iterations,
     ):
         if self.provenance_params is not None:
@@ -1548,13 +1550,13 @@ class VariationalGammaMethod(EstimationMethod):
             )
         if not max_iterations >= 1:
             raise ValueError("Maximum number of EP iterations must be greater than 0")
-        if not (isinstance(global_prior, int) and global_prior > 0):
-            raise ValueError("'global_prior' must be a positive integer")
+        if not (isinstance(prior_mixture_dim, int) and prior_mixture_dim > 0):
+            raise ValueError("Number of mixture components must be a positive integer")
         if self.mutation_rate is None:
             raise ValueError("Variational gamma method requires mutation rate")
 
-        self.prior_mixture = mixture.initialize_mixture(
-            self.priors.grid_data, global_prior
+        self.global_prior = mixture.initialize_mixture(
+            self.priors.grid_data, prior_mixture_dim
         )
         self.priors.grid_data[:] = [0.0, 0.0]  # TODO: support node-specific priors
 
@@ -1788,7 +1790,7 @@ def variational_gamma(
     max_iterations=None,
     max_shape=None,
     match_central_moments=None,
-    global_prior=1,
+    prior_mixture_dim=1,
     em_iterations=10,
     **kwargs,
 ):
@@ -1806,8 +1808,9 @@ def variational_gamma(
 
     An i.i.d. gamma mixture is used as a prior for each node, that is
     initialized from the conditional coalescent and updated via expectation
-    maximization in each iteration. In addition, node-specific priors may be
-    specified via a grid of shape/rate parameters.
+    maximization in each iteration. If node-specific priors are supplied
+    (via a grid of shape/rate parameters) then these are used for
+    initialization.
 
     .. note::
         The prior parameters for each node-to-be-dated take the form of a
@@ -1830,10 +1833,10 @@ def variational_gamma(
         update matches mean and variance rather than expected gamma sufficient
         statistics. Faster with a similar accuracy, but does not exactly minimize
         Kullback-Leibler divergence. Default: None, treated as False.
-    :param int global_prior: The number of components in the i.i.d. mixture prior
+    :param int prior_mixture_dim: The number of components in the i.i.d. mixture prior
         for node ages. Default: None, treated as 1.
     :param int em_iterations: The number of expectation maximization iterations used
-        to optimize the global mixture prior. Setting to zero disables optimization.
+        to optimize the i.i.d. mixture prior. Setting to zero disables optimization.
         Default: None, treated as 10.
     :param \\**kwargs: Other keyword arguments as described in the :func:`date` wrapper
         function, notably ``mutation_rate``, and ``population_size`` or ``priors``.
@@ -1866,8 +1869,8 @@ def variational_gamma(
         max_shape = 1000
     if match_central_moments is None:
         match_central_moments = False
-    if global_prior is None:
-        global_prior = 1
+    if prior_mixture_dim is None:
+        prior_mixture_dim = 1
     if em_iterations is None:
         em_iterations = 10
 
@@ -1877,7 +1880,7 @@ def variational_gamma(
         max_iterations=max_iterations,
         max_shape=max_shape,
         match_central_moments=match_central_moments,
-        global_prior=global_prior,
+        prior_mixture_dim=prior_mixture_dim,
         em_iterations=em_iterations,
     )
     return dating_method.parse_result(result, eps, {"parameter": ["shape", "rate"]})
