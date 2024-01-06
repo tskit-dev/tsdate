@@ -176,12 +176,12 @@ posteriors_df.head()  # Show the dataframe
 Since we are using a {ref}`sec_methods_discrete_time` method, each node
 (numbered column of the dataframe) is associated with a vector of probabilities
 that sum to one: each cell gives the probability that the time of the node
-whose ID is given by the column header lies within the
-timeslice specified by the `start_time` and `end_time` columns.
+whose ID is given by the column header lies at the specific timepoint
+given by the `time` column.
 
 For the continuous-time `variational_gamma` method, the posterior for
 each node is represented by the shape and rate parameter of the gamma approximation,
-and the `start_time` and `end_time` entries may be ignored.
+as described by the `parameter` column.
 
 (sec_usage_popsize)=
 
@@ -192,6 +192,14 @@ or a piecewise constant function of time, specifying a set of fixed population s
 over a number of contiguous time intervals. Functions of this sort are captured by the
 {class}`~demography.PopulationSizeHistory` class: see the {ref}`sec_variable_popsize` page
 for its use and interpretation.
+
+If you don't have an established estimate for the effective population size of your data,
+a rough approximation is to use the (sitewise) genetic diversity divided by
+four-times the mutation rate:
+
+```{code-cell} ipython3
+print("A rough estimate of the effective population size is", sim_ts.diversity() / (4 * 1e-6))
+```
 
 (sec_usage_popsize_timescale)=
 
