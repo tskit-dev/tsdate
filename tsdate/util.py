@@ -148,7 +148,9 @@ def preprocess_ts(
                 delete_intervals.append([gap_start, gap_end])
         delete_intervals = sorted(delete_intervals, key=lambda x: x[0])
     if len(delete_intervals) > 0:
-        tables.delete_intervals(delete_intervals, simplify=False)
+        tables.delete_intervals(
+            delete_intervals, simplify=False, record_provenance=False
+        )
         tables.simplify(
             filter_populations=filter_populations,
             filter_individuals=filter_individuals,

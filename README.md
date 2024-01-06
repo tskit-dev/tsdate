@@ -7,7 +7,7 @@
 ``tsdate`` is a scalable method for estimating the age of ancestral nodes in a 
 [tree sequence](https://tskit.dev/tutorials/what_is.html). The method uses a coalescent prior and updates node times on the basis of the number of mutations along each edge of the tree sequence (i.e. using the "molecular clock").
 
-The method is designed to operate on the output of [tsinfer](https://tskit.dev/tsinfer/docs/latest/), which efficiently infers tree sequence *topologies* from large genetic datasets.
+The method is frequently combined with the [tsinfer](https://tsinfer.readthedocs.io/en/latest/) algorithm, which efficiently infers tree sequence *topologies* from large genetic datasets.
 
 Please refer to the [documentation](https://tskit.dev/tsdate/docs/latest/)) for information on installing and using the software.
 

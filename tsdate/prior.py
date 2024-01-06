@@ -30,6 +30,8 @@ from collections import namedtuple
 
 import numba
 import numpy as np
+import scipy.cluster
+import scipy.special
 import scipy.stats
 import tskit
 from tqdm.auto import tqdm
@@ -1055,7 +1057,7 @@ def fill_priors(
 class MixturePrior:
     """
     Maps ConditionalCoalescentPrior onto nodes in a tree sequence and creates
-    time-discretized priors
+    time-discretised priors
     """
 
     def __init__(
@@ -1104,7 +1106,7 @@ class MixturePrior:
         self.tree_sequence = tree_sequence
         self.prior_distribution = prior_distribution
 
-    def make_discretized_prior(self, population_size, timepoints=20, progress=False):
+    def make_discretised_prior(self, population_size, timepoints=20, progress=False):
         """
         Calculate prior grid for a set of timepoints and a population size history
         """
@@ -1174,18 +1176,17 @@ class MixturePrior:
         )
         prior_pars.probability_space = base.GAMMA_PAR
 
-        shape_param = self.prior_params[:, PriorParams.field_index("alpha")]
-        rate_param = self.prior_params[:, PriorParams.field_index("beta")]
+        shape = self.prior_params[:, PriorParams.field_index("alpha")]
+        rate = self.prior_params[:, PriorParams.field_index("beta")]
         for node in tqdm(
             datable_nodes, desc="Assign Prior to Each Node", disable=not progress
         ):
-            prior_pars[node] = population_size.to_gamma(
-                shape_param[node], rate_param[node]
-            )
+            prior_pars[node] = population_size.gamma_to_natural(shape[node], rate[node])
+
         return prior_pars
 
 
-def build_grid(
+def prior_grid(
     tree_sequence,
     population_size,
     timepoints=20,
@@ -1194,7 +1195,6 @@ def build_grid(
     approx_prior_size=None,
     prior_distribution="lognorm",
     # Parameters below undocumented
-    eps=1e-6,  # placeholder
     progress=False,
     allow_unary=False,
 ):
@@ -1227,8 +1227,8 @@ def build_grid(
         better fit, but slightly slower to calculate) or "gamma" for the gamma
         distribution (slightly faster, but a poorer fit for recent nodes). Default:
         "lognorm"
-    :return: A prior object to pass to tsdate.date() containing prior values for
-        inference and a discretised time grid
+    :return: A prior object to pass to :func:`date` and similar functions containing
+        prior values for inference and a discretised time grid
     :rtype:  base.NodeGridValues
     """
 
@@ -1240,7 +1240,7 @@ def build_grid(
         allow_unary,
         progress,
     )
-    return mixture_prior.make_discretized_prior(population_size, timepoints)
+    return mixture_prior.make_discretised_prior(population_size, timepoints)
 
 
 def parameter_grid(

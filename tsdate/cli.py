@@ -53,8 +53,10 @@ def setup_logging(args):
 
 def tsdate_cli_parser():
     top_parser = argparse.ArgumentParser(
-        description="This is the command line interface for tsdate, a tool to date \
-                tree sequences."
+        description=(
+            "This is the command line interface for tsdate, a tool to date "
+            "tree sequences."
+        ),
     )
     top_parser.add_argument(
         "-V", "--version", action="version", version=f"%(prog)s {tsdate.__version__}"
@@ -73,65 +75,79 @@ def tsdate_cli_parser():
 
     parser.add_argument(
         "tree_sequence",
-        help="The path and name of the input tree sequence from which \
-                        we estimate node ages.",
+        help=(
+            "The path and name of the input tree sequence for which "
+            "node ages are estimated."
+        ),
     )
     parser.add_argument(
         "output",
-        help="The path and name of output file where the dated tree \
-                        sequence will saved.",
+        help=(
+            "The path and name of output file where the dated tree "
+            "sequence will saved."
+        ),
     )
     # TODO array specification from file?
     parser.add_argument(
         "population_size",
         type=float,
-        help="estimated effective (diploid) population size.",
+        help="Estimated effective (diploid) population size.",
     )
     parser.add_argument(
         "-m",
         "--mutation-rate",
         type=float,
         default=None,
-        help="The estimated mutation rate per unit of genome per \
-                        generation. If provided, the dating algorithm will use a \
-                        mutation rate clock to help estimate node dates. Default: None",
+        help=(
+            "The estimated mutation rate per unit of genome per "
+            "generation. If provided, the dating algorithm will use a "
+            "mutation rate clock to help estimate node dates. Default: None"
+        ),
     )
     parser.add_argument(
         "-r",
         "--recombination-rate",
         type=float,
         default=None,
-        help="The estimated recombination rate per unit \
-                        of genome per generation. If provided, the dating algorithm \
-                        will  use a recombination rate clock to help estimate node \
-                        dates. Default: None",
+        help=(
+            "The estimated recombination rate per unit "
+            "of genome per generation. If provided, the dating algorithm "
+            "will use a recombination rate clock to help estimate node "
+            "dates. Default: None"
+        ),
     )
     parser.add_argument(
         "-e",
         "--epsilon",
         type=float,
         default=1e-6,
-        help="Specify minimum distance separating time points. Also \
-                        specifies the error factor in time difference calculations. \
-                        Default: 1e-6",
+        help=(
+            "Specify minimum distance separating time points. Also "
+            "specifies the error factor in time difference calculations. "
+            "Default: 1e-6"
+        ),
     )
     parser.add_argument(
         "-t",
         "--num-threads",
         type=int,
         default=None,
-        help="The number of threads to use. A simpler unthreaded \
-                        algorithm is used unless this is >= 1. Default: None",
+        help=(
+            "The number of threads to use. A simpler unthreaded algorithm "
+            "is used unless this is >= 1. Not relevant for the 'variational_gamma' "
+            "method. Default: None"
+        ),
     )
     parser.add_argument(
         "--probability-space",
         type=str,
         default=None,
-        help="Should the internal algorithm save probabilities in \
-                        'logarithmic' (slower, less liable to to overflow) or 'linear' \
-                        space (faster, may overflow). Not relevant for the \
-                        'variational_gamma' method; default otherwise is `None` \
-                        currently treated as 'logarithmic'",
+        help=(
+            "Should the internal algorithm save probabilities in "
+            "'logarithmic' (slower, less liable to to overflow) or 'linear' "
+            "space (faster, may overflow). Not relevant for the "
+            "'variational_gamma' method. Default: 'logarithmic'"
+        ),
     )
     parser.add_argument(
         "--method",
@@ -139,17 +155,19 @@ def tsdate_cli_parser():
         default="inside_outside",
         help=(
             "Specify which estimation method to use: "
-            "'inside_outside' is empirically better, but theoretically problematic, "
+            "'inside_outside' is empirically better, but theoretically problematic; "
             "'maximization' is worse empirically, especially with a gamma prior, but "
-            "theoretically robust), 'variational_gamma' is a fast experimental "
-            "continuous-time approximation). Current default: 'inside_outside'",
+            "theoretically robust; 'variational_gamma' is a fast experimental "
+            "continuous-time approximation. Current default: 'inside_outside'"
         ),
     )
     parser.add_argument(
         "--ignore-oldest",
         action="store_true",
-        help="Ignore the oldest node in the tree sequence: in older tsinfer versions \
-                        this could be of low quality when using empirical data.",
+        help=(
+            "Ignore the oldest node in the tree sequence: in older tsinfer versions "
+            "this could be of low quality when using empirical data."
+        ),
     )
     parser.add_argument(
         "-p", "--progress", action="store_true", help="Show progress bar."
@@ -161,6 +179,54 @@ def tsdate_cli_parser():
         default=0,
         help="How much verbosity to output.",
     )
+    parser.add_argument(
+        "--max-shape",
+        type=float,
+        help=(
+            "The maximum value for the shape parameter in the variational "
+            'posteriors for the "variational_gamma" algorithm. This is '
+            "equivalent to the maximum precision (inverse variance) on a "
+            "logarithmic scale. Default: 1000"
+        ),
+        default=1000,
+    )
+    parser.add_argument(
+        "--match-central-moments",
+        action="store_true",
+        help=(
+            "Match mean and variance rather than gamma sufficient statistics in "
+            'the "variational_gamma" algorithm. Faster with similar accuracy, '
+            "but does not exactly minimize KL divergence in each EP update."
+        ),
+    )
+    parser.add_argument(
+        "--max-iterations",
+        type=int,
+        help=(
+            "The number of iterations used in the expectation propagation "
+            "algorithm. Default: 20"
+        ),
+        default=20,
+    )
+    parser.add_argument(
+        "--em-iterations",
+        type=int,
+        help=(
+            "The number of expectation-maximization iterations used to optimize the "
+            "i.i.d. mixture prior at the end of each expectation propagation step. "
+            "Setting to zero disables optimization. Default: 10"
+        ),
+        default=10,
+    )
+    parser.add_argument(
+        "--prior-mixture-dim",
+        type=int,
+        help=(
+            "The number of components in the i.i.d. mixture prior for node "
+            "ages. Default: 1"
+        ),
+        default=1,
+    )
     parser.set_defaults(runner=run_date)
 
     parser = subparsers.add_parser(
@@ -169,22 +235,28 @@ def tsdate_cli_parser():
     parser.add_argument("tree_sequence", help="The tree sequence to preprocess.")
     parser.add_argument(
         "output",
-        help="The path and name of output file where the preprocessed \
-                        tree sequence will saved.",
+        help=(
+            "The path and name of output file where the preprocessed "
+            "tree sequence will saved."
+        ),
     )
     parser.add_argument(
         "--minimum_gap",
         type=float,
-        help="The minimum gap between sites to trim from the tree \
-                        sequence. Default: '1000000'",
+        help=(
+            "The minimum gap between sites to trim from the tree "
+            "sequence. Default: 1000000"
+        ),
         default=1000000,
     )
     parser.add_argument(
         "--trim-telomeres",
         type=bool,
-        help="Should all material before the first site and after the \
-                        last site be trimmed, regardless of the length of these \
-                        regions. Default: 'True'",
+        help=(
+            "Should all material before the first site and after the "
+            "last site be trimmed, regardless of the length of these "
+            "regions. Default: True"
+        ),
         default=True,
     )
     parser.add_argument(
@@ -203,17 +275,31 @@ def run_date(args):
         ts = tskit.load(args.tree_sequence)
     except tskit.FileFormatError as ffe:
         error_exit(f"FileFormatError loading '{args.tree_sequence}: {ffe}")
-    params = dict(
-        recombination_rate=args.recombination_rate,
-        method=args.method,
-        eps=args.epsilon,
-        progress=args.progress,
-        probability_space=args.probability_space,
-        num_threads=args.num_threads,
-        ignore_oldest_root=args.ignore_oldest,
-    )
-    # TODO: error out if ignore_oldest_root is set,
-    # see https://github.com/tskit-dev/tsdate/issues/262
+    if args.method == "variational_gamma":
+        params = dict(
+            recombination_rate=args.recombination_rate,
+            method=args.method,
+            eps=args.epsilon,
+            progress=args.progress,
+            max_iterations=args.max_iterations,
+            max_shape=args.max_shape,
+            match_central_moments=args.match_central_moments,
+            em_iterations=args.em_iterations,
+            prior_mixture_dim=args.prior_mixture_dim,
+        )
+    else:
+        params = dict(
+            recombination_rate=args.recombination_rate,
+            method=args.method,
+            eps=args.epsilon,
+            progress=args.progress,
+            probability_space=args.probability_space,
+            num_threads=args.num_threads,
+        )
+        if args.method == "inside_outside":
+            params["ignore_oldest_root"] = args.ignore_oldest  # For backwards compat
+        # TODO: remove and error out if ignore_oldest_root is set,
+        # see https://github.com/tskit-dev/tsdate/issues/262
     dated_ts = tsdate.date(ts, args.mutation_rate, args.population_size, **params)
     dated_ts.dump(args.output)
 

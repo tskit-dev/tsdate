@@ -41,12 +41,11 @@ import tsdate
 from tsdate import base
 from tsdate.core import constrain_ages_topo
 from tsdate.core import date
-from tsdate.core import get_dates
+from tsdate.core import DiscreteTimeMethod
 from tsdate.core import InOutAlgorithms
+from tsdate.core import InsideOutsideMethod
 from tsdate.core import Likelihoods
 from tsdate.core import LogLikelihoods
-from tsdate.core import posterior_mean_var
-from tsdate.core import variational_dates
 from tsdate.core import VariationalLikelihoods
 from tsdate.demography import PopulationSizeHistory
 from tsdate.prior import ConditionalCoalescentTimes
@@ -500,7 +499,7 @@ class TestMixturePrior:
         prior = MixturePrior(ts)
         demography = PopulationSizeHistory(3)
         timepoints = np.array([0, 300, 1000, 2000])
-        prior_grid = prior.make_discretized_prior(demography, timepoints=timepoints)
+        prior_grid = prior.make_discretised_prior(demography, timepoints=timepoints)
         assert np.array_equal(prior_grid.timepoints, timepoints)
 
 
@@ -797,14 +796,16 @@ class TestVariational:
     def test_variational_nosize(self):
         ts = utility_functions.two_tree_mutation_ts()
         with pytest.raises(ValueError, match="Must specify population size"):
-            variational_dates(ts, mutation_rate=1)
+            tsdate.variational_gamma(ts, mutation_rate=1)
 
     def test_variational_toomanysizes(self):
         ts = utility_functions.two_tree_mutation_ts()
         Ne = 1
         priors = tsdate.build_prior_grid(ts, Ne, np.array([0, 1.2, 2]))
         with pytest.raises(ValueError, match="Cannot specify"):
-            variational_dates(ts, mutation_rate=1, population_size=Ne, priors=priors)
+            tsdate.variational_gamma(
+                ts, mutation_rate=1, population_size=Ne, priors=priors
+            )
 
 
 class TestNodeGridValuesClass:
@@ -1602,35 +1603,16 @@ class TestBuildPriorGrid:
             tsdate.build_prior_grid(ts, population_size=-10)
 
 
-class TestCallingErrors:
-    def test_bad_vgamma_probability_space(self):
-        ts = utility_functions.single_tree_ts_n2()
-        with pytest.raises(ValueError, match="Cannot specify"):
-            variational_dates(ts, 1, 1, probability_space=base.LOG)
-
-    def test_bad_vgamma_num_threads(self):
-        # Test can be removed if we specify num_threads in the future
-        ts = utility_functions.single_tree_ts_n2()
-        with pytest.raises(ValueError, match="does not currently"):
-            variational_dates(ts, 1, 1, num_threads=2)
-
-    def test_bad_vgamma_ignore_oldest_root(self):
-        # Test can be removed in the future if this is implemented
-        ts = utility_functions.single_tree_ts_n2()
-        with pytest.raises(ValueError, match="not implemented"):
-            variational_dates(ts, 1, 1, ignore_oldest_root=True)
-
-
-class TestPosteriorMeanVar:
+class TestDiscretisedMeanVar:
     """
-    Test posterior_mean_var works as expected
+    Test discretised mean_var works as expected
     """
 
-    def test_posterior_mean_var(self):
+    def test_discretised_mean_var(self):
         ts = utility_functions.single_tree_ts_n2()
         for distr in ("gamma", "lognorm"):
             posterior, algo = TestTotalFunctionalValueTree().find_posterior(ts, distr)
-            ts_node_metadata, mn_post, vr_post = posterior_mean_var(ts, posterior)
+            mn_post, vr_post = DiscreteTimeMethod.mean_var(ts, posterior)
             assert np.array_equal(
                 mn_post,
                 [
@@ -1640,19 +1622,18 @@ class TestPosteriorMeanVar:
                 ],
             )
 
-    def test_node_metadata_single_tree_n2(self):
-        ts = utility_functions.single_tree_ts_n2()
-        posterior, algo = TestTotalFunctionalValueTree().find_posterior(ts, "lognorm")
-        ts_node_metadata, mn_post, vr_post = posterior_mean_var(ts, posterior)
-        assert json.loads(ts_node_metadata.node(2).metadata)["mn"] == mn_post[2]
-        assert json.loads(ts_node_metadata.node(2).metadata)["vr"] == vr_post[2]
-
     def test_node_metadata_simulated_tree(self):
         larger_ts = msprime.simulate(
             10, mutation_rate=1, recombination_rate=1, length=20, random_seed=12
         )
-        _, mn_post, _, _, eps, _, _ = get_dates(
+        algorithm = InsideOutsideMethod(
             larger_ts, mutation_rate=None, population_size=10000
+        )
+        mn_post, *_ = algorithm.run(
+            eps=1e-6,
+            outside_standardize=True,
+            ignore_oldest_root=False,
+            probability_space=tsdate.base.LOG,
         )
         dated_ts = date(larger_ts, population_size=10000, mutation_rate=None)
         metadata = dated_ts.tables.nodes.metadata
@@ -1866,8 +1847,12 @@ class TestSiteTimes:
     def test_sites_time_insideoutside(self):
         ts = utility_functions.two_tree_mutation_ts()
         dated = tsdate.date(ts, mutation_rate=None, population_size=1)
-        _, mn_post, _, _, eps, _, _ = get_dates(
-            ts, mutation_rate=None, population_size=1
+        algorithm = InsideOutsideMethod(ts, mutation_rate=None, population_size=1)
+        mn_post, *_ = algorithm.run(
+            eps=1e-6,
+            outside_standardize=True,
+            ignore_oldest_root=False,
+            probability_space=tsdate.base.LOG,
         )
         assert np.array_equal(
             mn_post[ts.tables.mutations.node],
@@ -1971,8 +1956,14 @@ class TestSiteTimes:
         larger_ts = msprime.simulate(
             10, mutation_rate=1, recombination_rate=1, length=20, random_seed=12
         )
-        _, mn_post, _, _, _, _, _ = get_dates(
+        algorithm = InsideOutsideMethod(
             larger_ts, mutation_rate=None, population_size=10000
+        )
+        mn_post, *_ = algorithm.run(
+            eps=1e-6,
+            outside_standardize=True,
+            ignore_oldest_root=False,
+            probability_space=tsdate.base.LOG,
         )
         dated = date(larger_ts, mutation_rate=None, population_size=10000)
         assert np.allclose(
@@ -2189,7 +2180,7 @@ class TestPopulationSizeHistory:
             np.inf,
         )
         numer_va -= numer_mn**2
-        shape, rate = demography.to_gamma(shape=alpha, rate=beta)
+        shape, rate = demography.gamma_to_natural(shape=alpha, rate=beta)
         analy_mn = scipy.stats.gamma.mean(shape, scale=1 / rate)
         analy_va = scipy.stats.gamma.var(shape, scale=1 / rate)
         assert np.isclose(numer_mn, analy_mn)

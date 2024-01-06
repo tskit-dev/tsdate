@@ -166,66 +166,16 @@ class PopulationSizeHistory:
         )
         return coalescent_time_ago
 
-    # TODO: multiprecision implementation -- remove at some point
-
-    # @staticmethod
-    # def _Gamma(z, a=0, b=np.inf):
-    #    """
-    #    log |Re| of generalized incomplete gamma function with bounds `a,b`
-    #    and argument `z`
-    #    """
-    #    val = mpmath.log(mpmath.gammainc(z, a=a, b=b))
-    #    return float(val)
-
-    # def to_gamma(self, shape=1, rate=1):
-    #    """
-    #    Given a gamma distribution on a coalescent timescale with parameters
-    #    `shape` and `rate`, return a gamma approximation to the distribution
-    #    under a change of measure to a generational timescale.
-
-    #    :param float shape: Shape parameter of gamma
-    #    :param float rate: Rate parameter of gamma (inverse of scale)
-    #    :return: Shape and rate parameters after change of measure
-    #    """
-    #    assert shape > 0, "Gamma shape parameter must be positive"
-    #    assert rate > 0, "Gamma rate parameter must be positive"
-    #    C = shape * np.log(rate) - self._Gamma(shape)
-    #    mn = 0.0
-    #    va = 0.0
-    #    for a, b, n, t in zip(
-    #        self.coalescent_breaks,
-    #        np.append(self.coalescent_breaks[1:], [np.inf]),
-    #        self.population_size,
-    #        self.time_breaks,
-    #    ):
-    #        gamma = [
-    #            np.exp(
-    #                self._Gamma(shape + i, rate * a, rate * b)
-    #                - (shape + i) * np.log(rate)
-    #                + C
-    #            )
-    #            for i in range(3)
-    #        ]
-    #        mn += (t - n * a) * gamma[0] + n * gamma[1]
-    #        va += (
-    #            gamma[0] * (t - n * a) ** 2
-    #            + 2 * gamma[1] * n * (t - n * a)
-    #            + gamma[2] * n**2
-    #        )
-    #    va -= mn**2
-    #    new_shape = mn**2 / va
-    #    new_rate = mn / va
-    #    return new_shape, new_rate
-
-    def to_gamma(self, shape=1, rate=1):
+    def gamma_to_natural(self, shape=1, rate=1):
         """
         Given a gamma distribution on a coalescent timescale with parameters
-        `shape` and `rate`, return a gamma approximation to the distribution
-        under a change of measure to a generational timescale.
+        `shape` and `rate`, return natural parameters of a gamma approximation
+        to the distribution under a change of measure to a generational
+        timescale.
 
         :param float shape: Shape parameter of gamma
         :param float rate: Rate parameter of gamma (inverse of scale)
-        :return: Shape and rate parameters after change of measure
+        :return: natural parameters after change of measure
         """
         assert shape > 0, "Gamma shape parameter must be positive"
         assert rate > 0, "Gamma rate parameter must be positive"
@@ -260,7 +210,7 @@ class PopulationSizeHistory:
         va -= mn**2
         new_shape = mn**2 / va
         new_rate = mn / va
-        return new_shape, new_rate
+        return np.array([new_shape, new_rate])
 
     # TODO:
     # @staticmethod

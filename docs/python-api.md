@@ -25,6 +25,11 @@ This page provides formal documentation for the `tsdate` Python API.
 
 ```{eval-rst}
 .. autofunction:: tsdate.date
+.. autodata:: tsdate.core.estimation_methods
+   :no-value:
+.. autofunction:: tsdate.inside_outside
+.. autofunction:: tsdate.maximization
+.. autofunction:: tsdate.variational_gamma
 ```
 
 ## Prior and Time Discretisation Options
@@ -32,9 +37,7 @@ This page provides formal documentation for the `tsdate` Python API.
 ```{eval-rst}
 .. autofunction:: tsdate.build_prior_grid
 .. autofunction:: tsdate.build_parameter_grid
-
 .. autoclass:: tsdate.base.NodeGridValues
-
 .. autodata:: tsdate.base.DEFAULT_APPROX_PRIOR_SIZE
 ```
 

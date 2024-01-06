@@ -40,10 +40,12 @@ class TestProvenance:
 
     def test_date_cmd_recorded(self):
         ts = utility_functions.single_tree_ts_n2()
+        num_provenances = ts.num_provenances
         dated_ts = tsdate.date(ts, population_size=1, mutation_rate=None)
+        assert dated_ts.num_provenances == num_provenances + 1
         rec = json.loads(dated_ts.provenance(-1).record)
         assert rec["software"]["name"] == "tsdate"
-        assert rec["parameters"]["command"] == "date"
+        assert rec["parameters"]["command"] == "inside_outside"
 
     def test_date_params_recorded(self):
         ts = utility_functions.single_tree_ts_n2()
@@ -55,7 +57,7 @@ class TestProvenance:
         rec = json.loads(dated_ts.provenance(-1).record)
         assert np.isclose(rec["parameters"]["mutation_rate"], mu)
         assert np.isclose(rec["parameters"]["population_size"], Ne)
-        assert rec["parameters"]["method"] == "maximization"
+        assert rec["parameters"]["command"] == "maximization"
 
     @pytest.mark.parametrize(
         "popdict",
@@ -83,14 +85,18 @@ class TestProvenance:
 
     def test_preprocess_cmd_recorded(self):
         ts = utility_functions.ts_w_data_desert(40, 60, 100)
+        num_provenances = ts.num_provenances
         preprocessed_ts = tsdate.preprocess_ts(ts)
+        assert preprocessed_ts.num_provenances == num_provenances + 1
         rec = json.loads(preprocessed_ts.provenance(-1).record)
         assert rec["software"]["name"] == "tsdate"
         assert rec["parameters"]["command"] == "preprocess_ts"
 
     def test_preprocess_defaults_recorded(self):
         ts = utility_functions.ts_w_data_desert(40, 60, 100)
+        num_provenances = ts.num_provenances
         preprocessed_ts = tsdate.preprocess_ts(ts)
+        assert preprocessed_ts.num_provenances == num_provenances + 1
         rec = json.loads(preprocessed_ts.provenance(-1).record)
         assert rec["parameters"]["remove_telomeres"]
         assert rec["parameters"]["minimum_gap"] == 1000000
@@ -98,11 +104,12 @@ class TestProvenance:
 
     def test_preprocess_interval_recorded(self):
         ts = utility_functions.ts_w_data_desert(40, 60, 100)
+        num_provenances = ts.num_provenances
         preprocessed_ts = tsdate.preprocess_ts(
             ts, minimum_gap=20, remove_telomeres=False
         )
+        assert preprocessed_ts.num_provenances == num_provenances + 1
         rec = json.loads(preprocessed_ts.provenance(-1).record)
-        print(rec)
         assert rec["parameters"]["minimum_gap"] == 20
         assert rec["parameters"]["remove_telomeres"] is not None
         assert not rec["parameters"]["remove_telomeres"]
@@ -111,3 +118,29 @@ class TestProvenance:
         assert deleted_intervals[0][0] < deleted_intervals[0][1]
         assert 40 < deleted_intervals[0][0] < 60
         assert 40 < deleted_intervals[0][1] < 60
+
+    @pytest.mark.parametrize("method", tsdate.core.estimation_methods.keys())
+    def test_named_methods(self, method):
+        ts = utility_functions.single_tree_ts_n2()
+        dated_ts = tsdate.date(ts, method=method, mutation_rate=0.1, population_size=10)
+        dated_ts2 = getattr(tsdate, method)(ts, mutation_rate=0.1, population_size=10)
+        rec = json.loads(dated_ts.provenance(-1).record)
+        assert rec["parameters"]["command"] == method
+        rec = json.loads(dated_ts2.provenance(-1).record)
+        assert rec["parameters"]["command"] == method
+
+    @pytest.mark.parametrize("method", tsdate.core.estimation_methods.keys())
+    def test_identical_methods(self, method):
+        ts = utility_functions.single_tree_ts_n2()
+        dated_ts = tsdate.date(
+            ts,
+            method=method,
+            mutation_rate=0.1,
+            population_size=10,
+            record_provenance=False,
+        )
+        dated_ts2 = getattr(tsdate, method)(
+            ts, mutation_rate=0.1, population_size=10, record_provenance=False
+        )
+        assert dated_ts.num_provenances == ts.num_provenances
+        assert dated_ts == dated_ts2

@@ -20,15 +20,22 @@
   `action="count"`, so `-v` turns verbosity to INFO level,
   whereas `-vv` turns verbosity to DEBUG level.
 
+- The `return_posteriors=True` option with `method="inside_outside"`
+  previously returned a dict that included keys `start_time` and `end_time`,
+  giving the impression that the posterior for node age is discretized over
+  time slices in this algorithm. In actuality, the posterior is discretized
+  atomically over time points, so `start_time` and `end_time` have been
+  replaced by a single key `time`.
+
 - Python 3.7 is no longer supported.
 
 **Features**
 
 - A new continuous-time method, `"variational_gamma"` has been introduced, which
-  uses an iterative expectation propagation approach. Tests show this
-  increases accuracy, especially at older times, although the current implementation
-  is not always numerically stable. Future releases may
-  switch to using this as the default method.
+  uses an iterative expectation propagation approach. Tests show this increases
+  accuracy, especially at older times. A Laplace approximation and damping are
+  used to ensure numerical stability. Future releases may switch to using this
+  as the default method.
 
 - Priors may be calculated using a piecewise-constant effective population trajectory,
   which is implemented in the `demography.PopulationSizeHistory` class. The

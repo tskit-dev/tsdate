@@ -121,34 +121,44 @@ class TestPrebuilt:
 
     def test_no_posteriors(self):
         ts = utility_functions.two_tree_mutation_ts()
-        ts, posteriors = tsdate.date(
-            ts,
-            population_size=1,
-            return_posteriors=True,
-            method="maximization",
-            mutation_rate=1,
-        )
-        assert len(posteriors) == ts.num_nodes - ts.num_samples + 2
-        assert len(posteriors["start_time"]) == len(posteriors["end_time"])
-        assert len(posteriors["start_time"]) > 0
-        for node in ts.nodes():
-            if not node.is_sample():
-                assert node.id in posteriors
-                assert posteriors[node.id] is None
+        with pytest.raises(ValueError, match="Cannot return posterior"):
+            tsdate.date(
+                ts,
+                population_size=1,
+                return_posteriors=True,
+                method="maximization",
+                mutation_rate=1,
+            )
 
-    def test_posteriors(self):
+    def test_discretised_posteriors(self):
         ts = utility_functions.two_tree_mutation_ts()
         ts, posteriors = tsdate.date(
             ts, mutation_rate=None, population_size=1, return_posteriors=True
         )
-        assert len(posteriors) == ts.num_nodes - ts.num_samples + 2
-        assert len(posteriors["start_time"]) == len(posteriors["end_time"])
-        assert len(posteriors["start_time"]) > 0
+        assert len(posteriors) == ts.num_nodes - ts.num_samples + 1
+        assert len(posteriors["time"]) > 0
         for node in ts.nodes():
             if not node.is_sample():
                 assert node.id in posteriors
-                assert len(posteriors[node.id]) == len(posteriors["start_time"])
+                assert len(posteriors[node.id]) == len(posteriors["time"])
                 assert np.isclose(np.sum(posteriors[node.id]), 1)
+
+    def test_variational_posteriors(self):
+        ts = utility_functions.two_tree_mutation_ts()
+        ts, posteriors = tsdate.date(
+            ts,
+            mutation_rate=1e-2,
+            population_size=1,
+            method="variational_gamma",
+            return_posteriors=True,
+        )
+        assert len(posteriors) == ts.num_nodes - ts.num_samples + 1
+        assert len(posteriors["parameter"]) == 2
+        for node in ts.nodes():
+            if not node.is_sample():
+                assert node.id in posteriors
+                assert len(posteriors[node.id]) == 2
+                assert np.all(posteriors[node.id] > 0)
 
     def test_marginal_likelihood(self):
         ts = utility_functions.two_tree_mutation_ts()
@@ -317,7 +327,7 @@ class TestSimulated:
             msprime.Sample(population=0, time=1.0),
         ]
         ts = msprime.simulate(samples=samples, Ne=1, mutation_rate=2, random_seed=12)
-        with pytest.raises(NotImplementedError):
+        with pytest.raises(ValueError, match="noncontemporaneous"):
             tsdate.date(ts, population_size=1, mutation_rate=2)
 
     def test_no_mutation_times(self):
@@ -404,22 +414,46 @@ class TestVariational:
         ts = msprime.simulate(8, mutation_rate=5, recombination_rate=5, random_seed=2)
         tsdate.date(ts, mutation_rate=5, population_size=1, method="variational_gamma")
 
-    def test_nonglobal_priors(self):
+    def test_invalid_priors(self):
         ts = msprime.simulate(8, mutation_rate=5, recombination_rate=5, random_seed=2)
         priors = tsdate.prior.MixturePrior(ts, prior_distribution="gamma")
         grid = priors.make_parameter_grid(population_size=1)
         grid.grid_data[:] = [1.0, 0.0]  # noninformative prior
+        with pytest.raises(ValueError, match="Non-positive shape/rate"):
+            tsdate.date(
+                ts,
+                mutation_rate=5,
+                method="variational_gamma",
+                priors=grid,
+            )
+
+    def test_custom_priors(self):
+        ts = msprime.simulate(8, mutation_rate=5, recombination_rate=5, random_seed=2)
+        priors = tsdate.prior.MixturePrior(ts, prior_distribution="gamma")
+        grid = priors.make_parameter_grid(population_size=1)
+        grid.grid_data[:] += 1.0
         tsdate.date(
             ts,
             mutation_rate=5,
             method="variational_gamma",
             priors=grid,
-            global_prior=False,
+        )
+
+    def test_prior_mixture_dim(self):
+        ts = msprime.simulate(8, mutation_rate=5, recombination_rate=5, random_seed=2)
+        priors = tsdate.prior.MixturePrior(ts, prior_distribution="gamma")
+        grid = priors.make_parameter_grid(population_size=1)
+        tsdate.date(
+            ts,
+            mutation_rate=5,
+            method="variational_gamma",
+            priors=grid,
+            prior_mixture_dim=2,
         )
 
     def test_bad_arguments(self):
         ts = utility_functions.two_tree_mutation_ts()
-        with pytest.raises(ValueError, match="Maximum number of iterations"):
+        with pytest.raises(ValueError, match="Maximum number of EP iterations"):
             tsdate.date(
                 ts,
                 mutation_rate=5,
@@ -427,3 +461,29 @@ class TestVariational:
                 method="variational_gamma",
                 max_iterations=-1,
             )
+        with pytest.raises(ValueError, match="must be a positive integer"):
+            tsdate.date(
+                ts,
+                mutation_rate=5,
+                population_size=1,
+                method="variational_gamma",
+                prior_mixture_dim=0.1,
+            )
+
+    def test_match_central_moments(self):
+        ts = msprime.simulate(8, mutation_rate=5, recombination_rate=5, random_seed=2)
+        ts0 = tsdate.date(
+            ts,
+            mutation_rate=5,
+            population_size=1,
+            method="variational_gamma",
+            match_central_moments=False,
+        )
+        ts1 = tsdate.date(
+            ts,
+            mutation_rate=5,
+            population_size=1,
+            method="variational_gamma",
+            match_central_moments=True,
+        )
+        assert np.any(np.not_equal(ts0.nodes_time, ts1.nodes_time))
