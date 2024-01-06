@@ -956,6 +956,11 @@ class ExpectationPropagation(InOutAlgorithms):
     """
 
     def __init__(self, *args, global_prior, **kwargs):
+        """
+        `global_prior` contains parameters of a gamma mixture, used as an iid
+        prior, wheras `self.priors` (node-specific priors) are not used, except
+        to provide a list of nonfixed nodes.
+        """
         super().__init__(*args, **kwargs)
 
         assert self.priors.probability_space == base.GAMMA_PAR
@@ -1555,6 +1560,9 @@ class VariationalGammaMethod(EstimationMethod):
         if self.mutation_rate is None:
             raise ValueError("Variational gamma method requires mutation rate")
 
+        # initialize weights/shapes/rates for i.i.d mixture prior
+        # note that self.priors (node-specific priors) are not currently
+        # used except for initialization of the mixture
         self.global_prior = mixture.initialize_mixture(
             self.priors.grid_data, prior_mixture_dim
         )
@@ -1790,8 +1798,8 @@ def variational_gamma(
     max_iterations=None,
     max_shape=None,
     match_central_moments=None,
-    prior_mixture_dim=1,
-    em_iterations=10,
+    prior_mixture_dim=None,
+    em_iterations=None,
     **kwargs,
 ):
     """
