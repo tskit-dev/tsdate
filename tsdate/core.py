@@ -180,12 +180,12 @@ class Likelihoods:
                 if e.child not in self.fixednodes
             }
         else:
-            edges = self.ts.tables.edges
             fixed_nodes = np.array(list(self.fixednodes))
             keys = np.unique(
                 np.core.records.fromarrays(
-                    (self.mut_edges, edges.right - edges.left), names="muts,span"
-                )[np.logical_not(np.isin(edges.child, fixed_nodes))]
+                    (self.mut_edges, self.ts.edges_right - self.ts.edges_left),
+                    names="muts,span",
+                )[np.logical_not(np.isin(self.ts.edges_child, fixed_nodes))]
             )
             if unique_method == 1:
                 self.unfixed_likelihood_cache = dict.fromkeys({tuple(t) for t in keys})
@@ -602,8 +602,8 @@ class InOutAlgorithms:
         self.priors.force_probability_space(lik.probability_space)
 
         self.spans = np.bincount(
-            self.ts.tables.edges.child,
-            weights=self.ts.tables.edges.right - self.ts.tables.edges.left,
+            self.ts.edges_child,
+            weights=self.ts.edges_right - self.ts.edges_left,
         )
         self.spans = np.pad(self.spans, (0, self.ts.num_nodes - len(self.spans)))
 
@@ -653,15 +653,15 @@ class InOutAlgorithms:
         """
         wtype = np.dtype(
             [
-                ("child_age", self.ts.tables.nodes.time.dtype),
-                ("child_node", self.ts.tables.edges.child.dtype),
-                ("parent_age", self.ts.tables.nodes.time.dtype),
+                ("child_age", self.ts.nodes_time.dtype),
+                ("child_node", self.ts.edges_child.dtype),
+                ("parent_age", self.ts.nodes_time.dtype),
             ]
         )
         w = np.empty(self.ts.num_edges, dtype=wtype)
-        w["child_age"] = self.ts.tables.nodes.time[self.ts.tables.edges.child]
-        w["child_node"] = self.ts.tables.edges.child
-        w["parent_age"] = -self.ts.tables.nodes.time[self.ts.tables.edges.parent]
+        w["child_age"] = self.ts.nodes_time[self.ts.edges_child]
+        w["child_node"] = self.ts.edges_child
+        w["parent_age"] = -self.ts.nodes_time[self.ts.edges_parent]
         sorted_child_parent = (
             self.ts.edge(i)
             for i in reversed(
@@ -740,9 +740,7 @@ class InOutAlgorithms:
             if standardize:
                 marginal_lik = self.lik.combine(marginal_lik, denominator[parent])
         if cache_inside:
-            self.g_i = self.lik.ratio(
-                g_i, denominator[self.ts.tables.edges.child, None]
-            )
+            self.g_i = self.lik.ratio(g_i, denominator[self.ts.edges_child, None])
         # Keep the results in this object
         self.inside = inside
         self.denominator = denominator
@@ -791,7 +789,7 @@ class InOutAlgorithms:
         for child, edges in tqdm(
             self.edges_by_child_desc(),
             desc="Outside",
-            total=len(np.unique(self.ts.tables.edges.child)),
+            total=len(np.unique(self.ts.edges_child)),
             disable=not progress,
         ):
             if child in self.fixednodes:
@@ -859,9 +857,7 @@ class InOutAlgorithms:
 
         mut_edges = self.lik.mut_edges
         mrcas = np.where(
-            np.isin(
-                np.arange(self.ts.num_nodes), self.ts.tables.edges.child, invert=True
-            )
+            np.isin(np.arange(self.ts.num_nodes), self.ts.edges_child, invert=True)
         )[0]
         for i in mrcas:
             if i not in self.fixednodes:
@@ -870,7 +866,7 @@ class InOutAlgorithms:
         for child, edges in tqdm(
             self.edges_by_child_then_parent_desc(),
             desc="Maximization",
-            total=len(np.unique(self.ts.tables.edges.child)),
+            total=len(np.unique(self.ts.edges_child)),
             disable=not progress,
         ):
             if child in self.fixednodes:

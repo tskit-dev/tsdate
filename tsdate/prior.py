@@ -467,7 +467,7 @@ class SpansBySamples:
 
         self.ts = tree_sequence
         self.sample_node_set = set(self.ts.samples())
-        if np.any(self.ts.tables.nodes.time[self.ts.samples()] != 0):
+        if np.any(self.ts.nodes_time[self.ts.samples()] != 0):
             raise ValueError(
                 "The SpansBySamples class needs a tree seq with all samples at time 0"
             )
@@ -1032,7 +1032,7 @@ def fill_priors(
     # convert timepoints to generational timescale
     prior_times = base.NodeGridValues(
         ts.num_nodes,
-        datable_nodes[np.argsort(ts.tables.nodes.time[datable_nodes])].astype(np.int32),
+        datable_nodes[np.argsort(ts.nodes_time[datable_nodes])].astype(np.int32),
         population_size.to_natural_timescale(timepoints),
     )
 
@@ -1167,9 +1167,7 @@ class MixturePrior:
 
         prior_pars = base.NodeGridValues(
             self.tree_sequence.num_nodes,
-            datable_nodes[np.argsort(ts.tables.nodes.time[datable_nodes])].astype(
-                np.int32
-            ),
+            datable_nodes[np.argsort(ts.nodes_time[datable_nodes])].astype(np.int32),
             np.array([0, np.inf]),
         )
         prior_pars.probability_space = base.GAMMA_PAR

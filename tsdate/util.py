@@ -39,7 +39,7 @@ def reduce_to_contemporaneous(ts):
     Simplify the ts to only the contemporaneous samples, and return the new ts + node map
     """
     samples = ts.samples()
-    contmpr_samples = samples[ts.tables.nodes.time[samples] == 0]
+    contmpr_samples = samples[ts.nodes_time[samples] == 0]
     return ts.simplify(
         contmpr_samples,
         map_nodes=True,
@@ -187,7 +187,7 @@ def nodes_time_unconstrained(tree_sequence):
     stored in the node metadata). Will produce an error if the tree sequence does
     not contain this information.
     """
-    nodes_time = tree_sequence.tables.nodes.time.copy()
+    nodes_time = tree_sequence.nodes_time.copy()
     metadata = tree_sequence.tables.nodes.metadata
     metadata_offset = tree_sequence.tables.nodes.metadata_offset
     for index, met in enumerate(tskit.unpack_bytes(metadata, metadata_offset)):
@@ -270,7 +270,7 @@ def sites_time_from_ts(
             e.args += "Try calling sites_time_from_ts() with unconstrained=False."
             raise
     else:
-        nodes_time = tree_sequence.tables.nodes.time
+        nodes_time = tree_sequence.nodes_time
     sites_time = np.full(tree_sequence.num_sites, np.nan)
 
     for tree in tree_sequence.trees():
