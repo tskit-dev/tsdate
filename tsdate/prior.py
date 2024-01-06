@@ -30,6 +30,8 @@ from collections import namedtuple
 
 import numba
 import numpy as np
+import scipy.cluster
+import scipy.special
 import scipy.stats
 import tskit
 from tqdm.auto import tqdm

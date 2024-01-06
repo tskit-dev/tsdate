@@ -41,6 +41,7 @@ from tqdm.auto import tqdm
 from . import approx
 from . import base
 from . import demography
+from . import mixture
 from . import prior
 from . import provenance
 
@@ -954,7 +955,12 @@ class ExpectationPropagation(InOutAlgorithms):
     Bayesian Inference"
     """
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, global_prior, **kwargs):
+        """
+        `global_prior` contains parameters of a gamma mixture, used as an iid
+        prior, wheras `self.priors` (node-specific priors) are not used, except
+        to provide a list of nonfixed nodes.
+        """
         super().__init__(*args, **kwargs)
 
         assert self.priors.probability_space == base.GAMMA_PAR
@@ -962,24 +968,29 @@ class ExpectationPropagation(InOutAlgorithms):
         assert self.lik.grid_size == 2
         assert self.priors.timepoints.size == 2
 
+        # global distribution of node ages
+        self.global_prior = global_prior.copy()
+
+        # messages passed from prior to nodes
+        self.prior_messages = np.zeros((self.ts.num_nodes, 2))
+
         # mutation likelihoods, as gamma natural parameters
         self.likelihoods = np.zeros((self.ts.num_edges, 2))
         for e in self.ts.edges():
             self.likelihoods[e.id] = self.lik.to_natural(e)
 
-        # messages passed from factors to nodes
+        # messages passed from edge likelihoods to nodes
         self.messages = np.zeros((self.ts.num_edges, 2, 2))
 
-        # normalizing constants from each factor
+        # normalizing constants from each edge likelihood
         self.log_partition = np.zeros(self.ts.num_edges)
 
         # the approximate posterior marginals
         self.posterior = np.zeros((self.ts.num_nodes, 2))
-        for n in self.priors.nonfixed_nodes:
-            self.posterior[n] = self.priors[n]
 
-        # edge traversal order
+        # edge, node traversal order
         self.edges, self.leaves = self.factorize(self.ts.edges(), self.fixednodes)
+        self.freenodes = self.priors.nonfixed_nodes
 
         # factors for edges leading from fixed nodes are invariant
         # and can be incorporated into the posterior beforehand
@@ -1013,7 +1024,7 @@ class ExpectationPropagation(InOutAlgorithms):
 
     @staticmethod
     @numba.njit("f8(i4[:, :], f8[:, :], f8[:, :], f8[:, :, :], f8[:], f8[:], f8, b1)")
-    def propagate(
+    def propagate_likelihood(
         edges,
         likelihoods,
         posterior,
@@ -1024,8 +1035,9 @@ class ExpectationPropagation(InOutAlgorithms):
         min_kl,
     ):
         """
-        Update approximating factors for each edge, returning average relative
-        difference in natural parameters (TODO)
+        Update approximating factors for each edge.
+
+        TODO: return max difference in natural parameters for stopping criterion
 
         :param ndarray edges: integer array of dimension `[num_edges, 3]`
             containing edge id, parent id, and child id.
@@ -1045,13 +1057,20 @@ class ExpectationPropagation(InOutAlgorithms):
 
         assert max_shape >= 1.0
 
-        upper = max_shape - 1.0
-        lower = 1.0 / max_shape - 1.0
+        # Bound the shape parameter for the posterior and cavity distributions
+        # so that lower_cavi < lower_post < upper_post < upper_cavi.
+        upper_post = max_shape - 1.0
+        lower_post = 1.0 / max_shape - 1.0
+        upper_cavi = 2.0 * max_shape - 1.0
+        lower_cavi = 0.5 / max_shape - 1.0
 
         def cavity_damping(x, y):
+            assert upper_cavi > x[0] > lower_cavi
             d = 1.0
-            if (y[0] > 0.0) and (x[0] - y[0] < lower):
-                d = min(d, (x[0] - lower) / y[0])
+            if (y[0] > 0.0) and (x[0] - y[0] < lower_cavi):
+                d = min(d, (x[0] - lower_cavi) / y[0])
+            if (y[0] < 0.0) and (x[0] - y[0] > upper_cavi):
+                d = min(d, (x[0] - upper_cavi) / y[0])
             if (y[1] > 0.0) and (x[1] - y[1] < 0.0):
                 d = min(d, x[1] / y[1])
             assert 0.0 < d <= 1.0
@@ -1059,7 +1078,11 @@ class ExpectationPropagation(InOutAlgorithms):
 
         def posterior_damping(x):
             assert x[0] > -1.0 and x[1] > 0.0
-            d = min(1.0, upper / abs(x[0])) if (x[0] > 0) else 1.0
+            d = 1.0
+            if x[0] > upper_post:
+                d = upper_post / x[0]
+            if x[0] < lower_post:
+                d = lower_post / x[0]
             assert 0.0 < d <= 1.0
             return d
 
@@ -1098,13 +1121,82 @@ class ExpectationPropagation(InOutAlgorithms):
 
         return 0.0  # TODO, placeholder
 
-    def iterate(self, max_shape=1000, min_kl=True):
+    @staticmethod
+    @numba.njit("f8(i4[:], f8[:, :], f8[:, :], f8[:, :], f8[:], f8, i4, f8)")
+    def propagate_prior(
+        nodes, global_prior, posterior, messages, scale, max_shape, em_maxitt, em_reltol
+    ):
+        """
+        Update approximating factors for global prior at each node.
+
+        :param ndarray nodes: ids of nodes that should be updated
+        :param ndarray global_prior: rows are mixture components, columns are
+            zeroth, first, and second natural parameters of gamma mixture
+            components. Updated in place.
+        :param ndarray posterior: rows are nodes, columns are first and
+            second natural parameters of gamma posteriors. Updated in
+            place.
+        :param ndarray messages: rows are edges, columns are first and
+            second natural parameters of prior messages. Updated in place.
+        :param float max_shape: the maximum allowed shape for node posteriors
+        :param int em_maxitt: the maximum number of EM iterations to use when
+            fitting the mixture model
+        :param int em_reltol: the termination criterion for relative change in
+            log-likelihood
+        """
+
+        if global_prior.shape[0] == 0:
+            return 0.0
+
+        assert max_shape >= 1.0
+
+        upper = max_shape - 1.0
+        lower = 1.0 / max_shape - 1.0
+
+        def posterior_damping(x):
+            assert x[0] > -1.0 and x[1] > 0.0
+            d = 1.0
+            if x[0] > upper:
+                d = upper / x[0]
+            if x[0] < lower:
+                d = lower / x[0]
+            assert 0.0 < d <= 1.0
+            return d
+
+        cavity = np.zeros(posterior.shape)
+        cavity[nodes] = posterior[nodes] - messages[nodes] * scale[nodes, np.newaxis]
+        global_prior, posterior[nodes] = mixture.fit_gamma_mixture(
+            global_prior, cavity[nodes], em_maxitt, em_reltol, False
+        )
+        messages[nodes] = (posterior[nodes] - cavity[nodes]) / scale[nodes, np.newaxis]
+
+        for n in nodes:
+            eta = posterior_damping(posterior[n])
+            posterior[n] *= eta
+            scale[n] *= eta
+
+        return 0.0
+
+    def iterate(self, em_maxitt=100, em_reltol=1e-6, max_shape=1000, min_kl=True):
         """
         Update edge factors from leaves to root then from root to leaves,
         and return approximate log marginal likelihood (TODO)
         """
 
-        self.propagate(
+        # prior update
+        self.propagate_prior(
+            self.freenodes,
+            self.global_prior,
+            self.posterior,
+            self.prior_messages,
+            self.scale,
+            max_shape,
+            em_maxitt,
+            em_reltol,
+        )
+
+        # rootward pass
+        self.propagate_likelihood(
             self.edges,
             self.likelihoods,
             self.posterior,
@@ -1114,7 +1206,9 @@ class ExpectationPropagation(InOutAlgorithms):
             max_shape,
             min_kl,
         )
-        self.propagate(
+
+        # leafward pass
+        self.propagate_likelihood(
             self.edges[::-1],
             self.likelihoods,
             self.posterior,
@@ -1400,11 +1494,14 @@ class VariationalGammaMethod(EstimationMethod):
 
     def __init__(self, ts, **kwargs):
         super().__init__(ts, **kwargs)
-        # convert priors to natural parameterization and average
+        # convert priors to natural parameterization
         for n in self.priors.nonfixed_nodes:
+            if not np.all(self.priors[n] > 0.0):
+                raise ValueError(
+                    f"Non-positive shape/rate parameters for node {n}: "
+                    f"{self.priors[n]}"
+                )
             self.priors[n][0] -= 1.0
-            assert self.priors[n][0] > -1.0
-            assert self.priors[n][1] >= 0.0
 
     @staticmethod
     def mean_var(ts, posterior):
@@ -1439,32 +1536,51 @@ class VariationalGammaMethod(EstimationMethod):
             self.recombination_rate,
             fixed_node_set=self.get_fixed_nodes_set(),
         )
-        return ExpectationPropagation(self.priors, lik, progress=self.pbar)
+        return ExpectationPropagation(
+            self.priors, lik, progress=self.pbar, global_prior=self.global_prior
+        )
 
-    def run(self, eps, max_iterations, max_shape, match_central_moments, global_prior):
+    def run(
+        self,
+        eps,
+        max_iterations,
+        max_shape,
+        match_central_moments,
+        prior_mixture_dim,
+        em_iterations,
+    ):
         if self.provenance_params is not None:
             self.provenance_params.update(
                 {k: v for k, v in locals().items() if k != "self"}
             )
         if not max_iterations >= 1:
             raise ValueError("Maximum number of EP iterations must be greater than 0")
+        if not (isinstance(prior_mixture_dim, int) and prior_mixture_dim > 0):
+            raise ValueError("Number of mixture components must be a positive integer")
         if self.mutation_rate is None:
             raise ValueError("Variational gamma method requires mutation rate")
-        if global_prior:
-            logging.info("Pooling node-specific priors into global prior")
-            self.priors.grid_data[:] = approx.average_gammas(
-                self.priors.grid_data[:, 0], self.priors.grid_data[:, 1]
-            )
+
+        # initialize weights/shapes/rates for i.i.d mixture prior
+        # note that self.priors (node-specific priors) are not currently
+        # used except for initialization of the mixture
+        self.global_prior = mixture.initialize_mixture(
+            self.priors.grid_data, prior_mixture_dim
+        )
+        self.priors.grid_data[:] = [0.0, 0.0]  # TODO: support node-specific priors
 
         # match sufficient statistics or match central moments
         min_kl = not match_central_moments
         dynamic_prog = self.main_algorithm()
-        for _ in tqdm(
+        for itt in tqdm(
             np.arange(max_iterations),
             desc="Expectation Propagation",
             disable=not self.pbar,
         ):
-            dynamic_prog.iterate(max_shape=max_shape, min_kl=min_kl)
+            dynamic_prog.iterate(
+                em_maxitt=em_iterations if itt else 0,
+                max_shape=max_shape,
+                min_kl=min_kl,
+            )
 
         num_skipped = np.sum(np.isnan(dynamic_prog.log_partition))
         if num_skipped > 0:
@@ -1682,7 +1798,8 @@ def variational_gamma(
     max_iterations=None,
     max_shape=None,
     match_central_moments=None,
-    global_prior=True,
+    prior_mixture_dim=None,
+    em_iterations=None,
     **kwargs,
 ):
     """
@@ -1696,6 +1813,12 @@ def variational_gamma(
 
       new_ts = tsdate.variational_gamma(
           ts, mutation_rate=1e-8, population_size=1e4, max_iterations=10)
+
+    An i.i.d. gamma mixture is used as a prior for each node, that is
+    initialized from the conditional coalescent and updated via expectation
+    maximization in each iteration. If node-specific priors are supplied
+    (via a grid of shape/rate parameters) then these are used for
+    initialization.
 
     .. note::
         The prior parameters for each node-to-be-dated take the form of a
@@ -1718,9 +1841,11 @@ def variational_gamma(
         update matches mean and variance rather than expected gamma sufficient
         statistics. Faster with a similar accuracy, but does not exactly minimize
         Kullback-Leibler divergence. Default: None, treated as False.
-    :param bool global_prior: If `True`, an iid prior is used for all nodes,
-        and is constructed by averaging gamma sufficient statistics over the free
-        nodes in ``priors``. Default: True.
+    :param int prior_mixture_dim: The number of components in the i.i.d. mixture prior
+        for node ages. Default: None, treated as 1.
+    :param int em_iterations: The number of expectation maximization iterations used
+        to optimize the i.i.d. mixture prior. Setting to zero disables optimization.
+        Default: None, treated as 10.
     :param \\**kwargs: Other keyword arguments as described in the :func:`date` wrapper
         function, notably ``mutation_rate``, and ``population_size`` or ``priors``.
         Further arguments include ``time_units``, ``progress``, and
@@ -1752,6 +1877,10 @@ def variational_gamma(
         max_shape = 1000
     if match_central_moments is None:
         match_central_moments = False
+    if prior_mixture_dim is None:
+        prior_mixture_dim = 1
+    if em_iterations is None:
+        em_iterations = 10
 
     dating_method = VariationalGammaMethod(tree_sequence, **kwargs)
     result = dating_method.run(
@@ -1759,7 +1888,8 @@ def variational_gamma(
         max_iterations=max_iterations,
         max_shape=max_shape,
         match_central_moments=match_central_moments,
-        global_prior=global_prior,
+        prior_mixture_dim=prior_mixture_dim,
+        em_iterations=em_iterations,
     )
     return dating_method.parse_result(result, eps, {"parameter": ["shape", "rate"]})
 

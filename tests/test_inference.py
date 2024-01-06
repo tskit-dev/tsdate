@@ -414,17 +414,41 @@ class TestVariational:
         ts = msprime.simulate(8, mutation_rate=5, recombination_rate=5, random_seed=2)
         tsdate.date(ts, mutation_rate=5, population_size=1, method="variational_gamma")
 
-    def test_nonglobal_priors(self):
+    def test_invalid_priors(self):
         ts = msprime.simulate(8, mutation_rate=5, recombination_rate=5, random_seed=2)
         priors = tsdate.prior.MixturePrior(ts, prior_distribution="gamma")
         grid = priors.make_parameter_grid(population_size=1)
         grid.grid_data[:] = [1.0, 0.0]  # noninformative prior
+        with pytest.raises(ValueError, match="Non-positive shape/rate"):
+            tsdate.date(
+                ts,
+                mutation_rate=5,
+                method="variational_gamma",
+                priors=grid,
+            )
+
+    def test_custom_priors(self):
+        ts = msprime.simulate(8, mutation_rate=5, recombination_rate=5, random_seed=2)
+        priors = tsdate.prior.MixturePrior(ts, prior_distribution="gamma")
+        grid = priors.make_parameter_grid(population_size=1)
+        grid.grid_data[:] += 1.0
         tsdate.date(
             ts,
             mutation_rate=5,
             method="variational_gamma",
             priors=grid,
-            global_prior=False,
+        )
+
+    def test_prior_mixture_dim(self):
+        ts = msprime.simulate(8, mutation_rate=5, recombination_rate=5, random_seed=2)
+        priors = tsdate.prior.MixturePrior(ts, prior_distribution="gamma")
+        grid = priors.make_parameter_grid(population_size=1)
+        tsdate.date(
+            ts,
+            mutation_rate=5,
+            method="variational_gamma",
+            priors=grid,
+            prior_mixture_dim=2,
         )
 
     def test_bad_arguments(self):
@@ -436,6 +460,14 @@ class TestVariational:
                 population_size=1,
                 method="variational_gamma",
                 max_iterations=-1,
+            )
+        with pytest.raises(ValueError, match="must be a positive integer"):
+            tsdate.date(
+                ts,
+                mutation_rate=5,
+                population_size=1,
+                method="variational_gamma",
+                prior_mixture_dim=0.1,
             )
 
     def test_match_central_moments(self):
