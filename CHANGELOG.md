@@ -1,6 +1,6 @@
 # Changelog
 
-## [0.1.6] - ****-**-**
+## [0.1.6] - 2024-01-07
 
 **Breaking changes**
 
@@ -8,9 +8,10 @@
   individuals, populations, or sites, aiming to change the tree sequence tables as
   little as possible.
 
-- Not strictly breaking, as not in the published API, but the "normalize" flag
-  in `get_dates` and the internal `normalize` terminology is changed to
-  `standardize` to better reflect the fact that the maximum (not sum) is one.
+- `get_dates` (previously undocumented) has been removed, as posteriors can be
+  obtained using `return_posterior`. The `normalize` terminology previously used
+  in `get_dates` is changed to `standardize` to better reflect the fact that the
+  maximum (not sum) is one, and exposed via the `outside_standardize` parameter.
 
 - The `Ne` argument to `date` has been deprecated (although it is
   still in the API for backward compatibility).  The equivalent argument
@@ -27,6 +28,9 @@
   atomically over time points, so `start_time` and `end_time` have been
   replaced by a single key `time`.
 
+- The `return_posteriors=True` option with `method="maximization"` is no
+  longer accepted (previously simply returned `None`)
+
 - Python 3.7 is no longer supported.
 
 **Features**
@@ -34,8 +38,9 @@
 - A new continuous-time method, `"variational_gamma"` has been introduced, which
   uses an iterative expectation propagation approach. Tests show this increases
   accuracy, especially at older times. A Laplace approximation and damping are
-  used to ensure numerical stability. Future releases may switch to using this
-  as the default method.
+  used to ensure numerical stability. After testing, the node priors used in this
+  method are based on a global mixture prior, which can be refined during iteration.
+  Future releases may switch to using this as the default method.
 
 - Priors may be calculated using a piecewise-constant effective population trajectory,
   which is implemented in the `demography.PopulationSizeHistory` class. The
@@ -44,14 +49,20 @@
 
 - Added support and wheels for Python 3.11
 
+- The `.date()` function is now a wrapper for the individual dating methods
+  (accessible using `tsdate.core.dating_methods`), which can be called independently.
+  (e.g. `tsdate.inside_outside(...)`). This makes it easier to document method-specific
+  options. The API docs have been revised accordingly. Provenance is now saved with the
+  name of the method used as the celled command, rather than `"command": "date"`.
+
 **Bugfixes**
 
 - The returned posteriors when `return_posteriors=True` now return actual
   probabilities (scaled so that they sum to one) rather than standardized
   "probabilities" whose maximum value is one.
 
-- The population size is saved in provenance metadata when possible (e.g. if it is
-  a single number)
+- The population size is saved in provenance metadata (as a dictionary if
+  it is a `PopulationSizeHistory` instance)
 
 - `preprocess_ts` always records provenance as being from the `preprocess_ts`
   command, even if no gaps are removed. The command now has a (rarely used)
