@@ -55,6 +55,10 @@
   options. The API docs have been revised accordingly. Provenance is now saved with the
   name of the method used as the celled command, rather than `"command": "date"`.
 
+- Major re-write of documentation (now at
+  [https://tskit.dev/tsdate/docs/](https://tskit.dev/tsdate/docs/)), to use the
+  standard tskit jupyterbook framework.
+
 **Bugfixes**
 
 - The returned posteriors when `return_posteriors=True` now return actual
