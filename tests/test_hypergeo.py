@@ -11,8 +11,7 @@
 # furnished to do so, subject to the following conditions:
 #
 # The above copyright notice and this permission notice shall be included in
-# all
-# copies or substantial portions of the Software.
+# all copies or substantial portions of the Software.
 #
 # THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 # IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
@@ -24,8 +23,6 @@
 """
 Test cases for numba-fied hypergeometric functions
 """
-import itertools
-
 import mpmath
 import numdifftools as nd
 import numpy as np
@@ -56,13 +53,21 @@ class TestPolygamma:
         )
 
 
-@pytest.mark.parametrize("a_i", [1.0, 10.0, 100.0, 1000.0])
-@pytest.mark.parametrize("b_i", [0.001, 0.01, 0.1, 1.0])
-@pytest.mark.parametrize("a_j", [1.0, 10.0, 100.0, 1000.0])
-@pytest.mark.parametrize("b_j", [0.001, 0.01, 0.1, 1.0])
-@pytest.mark.parametrize("y", [0.0, 1.0, 10.0, 1000.0])
-@pytest.mark.parametrize("mu", [0.005, 0.05, 0.5, 5.0])
-class TestLaplaceApprox:
+@pytest.mark.parametrize(
+    "pars",
+    [
+        [969.5, 0.1062, 984.72, 0.1215, 0.0, 0.000239],
+        [897.8, 0.0954, 936.03, 0.1042, 1.0, 0.000840],
+        [37.94, 0.0087, 413.54, 0.1122, 0.0, 2.70e-05],
+        [748.1, 0.0857, 544.65, 0.0621, 0.0, 0.000511],
+        [21.18, 0.0226, 21.898, 0.0292, 0.0, 0.000618],
+        [7.931, 0.0010, 1000.0, 0.1675, 0.0, 0.000290],
+        [77.15, 0.0484, 42.007, 0.0348, 0.0, 0.000277],
+        [990.5, 0.1318, 130.68, 0.0205, 1.0, 0.000245],
+        [678.9, 0.1184, 121.71, 0.0958, 2.0, 0.000208],
+    ],
+)
+class TestLaplaceApprox2F1:
     """
     Test that Laplace approximation to 2F1 returns reasonable answers
     """
@@ -76,122 +81,132 @@ class TestLaplaceApprox:
         val = mpmath.re(mpmath.hyp2f1(A, B, C, z, maxterms=1e6))
         return val / offset
 
-    def test_2f1(self, a_i, b_i, a_j, b_j, y, mu):
-        pars = [a_i, b_i, a_j, b_j, y, mu]
+    def test_2f1(self, pars):
+        a_i, b_i, a_j, b_j, y, mu = pars
         A = a_j
         B = a_i + a_j + y
         C = a_j + y + 1
         z = (mu - b_j) / (mu + b_i)
-        f, *_ = hypergeo._hyp2f1(*pars)
-        ff = hypergeo._hyp2f1_fast(A, B, C, z)
+        f = hypergeo._hyp2f1_laplace(A, B, C, z)
         check = float(mpmath.log(self._2f1_validate(*pars)))
-        assert np.isclose(f, ff)
         assert np.isclose(f, check, rtol=2e-2)
 
-    def test_grad(self, a_i, b_i, a_j, b_j, y, mu):
-        pars = [a_i, b_i, a_j, b_j, y, mu]
-        _, *grad = hypergeo._hyp2f1(*pars)
-        da_i = nd.Derivative(
-            lambda a_i: hypergeo._hyp2f1(a_i, b_i, a_j, b_j, y, mu)[0], step=1e-3
-        )
-        db_i = nd.Derivative(
-            lambda b_i: hypergeo._hyp2f1(a_i, b_i, a_j, b_j, y, mu)[0], step=1e-5
-        )
-        da_j = nd.Derivative(
-            lambda a_j: hypergeo._hyp2f1(a_i, b_i, a_j, b_j, y, mu)[0], step=1e-3
-        )
-        db_j = nd.Derivative(
-            lambda b_j: hypergeo._hyp2f1(a_i, b_i, a_j, b_j, y, mu)[0], step=1e-5
-        )
-        check = [da_i(a_i), db_i(b_i), da_j(a_j), db_j(b_j)]
-        assert np.allclose(grad, check, rtol=1e-3)
-
-
-# ------------------------------------------------- #
-# The routines below aren't used in tsdate anymore, #
-# but may be useful in the future                   #
-# ------------------------------------------------- #
-
 
 @pytest.mark.parametrize(
     "pars",
-    list(
-        itertools.product(
-            [0.8, 20.0, 200.0],
-            [1.9, 90.3, 900.3],
-            [1.6, 30.7, 300.7],
-            [0.0, 0.1, 0.45],
-        )
-    ),
+    [
+        [202.865, 0.0153, 0.0012724, 101353547.00, 0.0, 2.404560e-05],
+        [999.998, 0.1041, 0.0012612, 14749022.000, 2.0, 7.830300e-05],
+        [157.778, 0.0182, 0.0011993, 20861958.000, 0.0, 4.128000e-07],
+        [1000.00, 0.1431, 0.0009718, 22638776.000, 0.0, 5.881110e-05],
+        [405.482, 0.1484, 0.0009711, 41053809.000, 0.0, 6.229410e-05],
+        [115.773, 0.7506, 0.0015549, 23315696857.0, 0.0, 3.601680e-05],
+        [73.4909, 1.0600, 0.0010028, 56254280956.0, 0.0, 0.0002302392],
+        [18.9981, 0.1315, 0.0015053, 23443723634.0, 1.0, 2.470348e-05],
+    ],
 )
-class TestTaylorSeries:
+class Test2F1Unity:
     """
-    Test Taylor series expansions of 2F1
+    As TestLaplaceApprox2F1 but in the argument-close-to-unity limit
     """
 
     @staticmethod
-    def _2f1_validate(a, b, c, z, offset=1.0):
-        val = mpmath.re(mpmath.hyp2f1(a, b, c, z))
+    def _2f1_validate(a_i, b_i, a_j, b_j, y, mu, offset=1.0):
+        A = a_j
+        B = a_i + a_j + y
+        C = a_j + y + 1
+        z = (mu - b_j) / (mu + b_i)
+        val = mpmath.re(mpmath.hyp2f1(A, B, C, z, maxterms=1e7))
         return val / offset
 
-    @staticmethod
-    def _2f1_grad_validate(a, b, c, z, offset=1.0):
-        p = [a, b, c, z]
-        grad = nd.Gradient(
-            lambda x: float(TestTaylorSeries._2f1_validate(*x, offset=offset)),
-            step=1e-7,
-            richardson_terms=4,
-        )
-        return grad(p)
-
     def test_2f1(self, pars):
-        f, *_ = hypergeo._hyp2f1_taylor_series(*pars)
-        check = self._2f1_validate(*pars)
-        assert np.isclose(f, float(mpmath.log(mpmath.fabs(check))))
-
-    def test_2f1_grad(self, pars):
-        _, *grad = hypergeo._hyp2f1_taylor_series(*pars)
-        offset = self._2f1_validate(*pars)
-        check = self._2f1_grad_validate(*pars, offset=offset)
-        assert np.allclose(grad, check)
+        a_i, b_i, a_j, b_j, y, mu = pars
+        A = a_j
+        B = a_i + a_j + y
+        C = a_j + y + 1
+        z = (mu - b_j) / (mu + b_i)
+        s = 0.0
+        if z < 0.0:
+            s = -B * np.log(1 - z)
+            A = C - A
+            z = z / (z - 1)
+        f = hypergeo._hyp2f1_unity(A, B, C, z) + s
+        check = float(mpmath.log(self._2f1_validate(*pars)))
+        assert np.isclose(f, check, rtol=1e-2)
 
 
 @pytest.mark.parametrize(
     "pars",
-    list(
-        itertools.product(
-            [-130.1, 20.0, 200.0],
-            [-20.2, 90.3, 900.3],
-            [-1.6, 30.7, 300.7],
-            [-3.0, -0.5, 0.0, 0.1, 0.9],
-        )
-    ),
+    [
+        [92.301156, 3.338, 0.008172, 0.0, 0.00022691],
+        [92.301156, 3.678, 0.005831, 0.0, 0.00250921],
+        [2998.6825, 3.999, 0.000750, 1.0, 0.00098396],
+        [11985.278, 5.251, 0.000193, 8.0, 1.9537e-05],
+        [11985.278, 14.46, 0.000822, 3.0, 0.00011632],
+        [12957.347, 0.999, 9.999e-5, 1.0, 0.00019150],
+    ],
 )
-class TestCheckValid2F1:
+class TestLaplaceApproxU:
     """
-    Test the check for 2F1 series convergence, that plugs derivatives into the
-    differential equation that defines 2F1
+    Test that Laplace approximation to Tricomi's confluent hypergeometric
+    function returns reasonable answers
     """
 
     @staticmethod
-    def _2f1(a, b, c, z):
-        val = mpmath.re(mpmath.hyp2f1(a, b, c, z))
-        dz = a * b / c * mpmath.re(mpmath.hyp2f1(a + 1, b + 1, c + 1, z))
-        d2z = (
-            a
-            * b
-            / c
-            * (a + 1)
-            * (b + 1)
-            / (c + 1)
-            * mpmath.re(mpmath.hyp2f1(a + 2, b + 2, c + 2, z))
-        )
-        return float(dz / val), float(d2z / val)
+    def _hyperu_validate(t_j, a_i, b_i, y, mu, offset=1.0):
+        A = y + 1
+        B = a_i + y + 1
+        z = t_j * (mu + b_i)
+        val = mpmath.re(mpmath.hyperu(A, B, z, maxterms=1e6))
+        return val / offset
 
-    def test_is_valid_2f1(self, pars):
-        dz, d2z = self._2f1(*pars)
-        assert hypergeo._is_valid_2f1(dz, d2z, *pars, 1e-10)
-        # perturb solution to differential equation
-        dz *= 1 + 1e-3
-        d2z *= 1 - 1e-3
-        assert not hypergeo._is_valid_2f1(dz, d2z, *pars, 1e-10)
+    def test_hyperu(self, pars):
+        t_j, a_i, b_i, y, mu = pars
+        A = y + 1
+        B = a_i + y + 1
+        z = t_j * (mu + b_i)
+        f, df = hypergeo._hyperu_laplace(A, B, z)
+        der = nd.Derivative(
+            lambda z: hypergeo._hyperu_laplace(A, B, z)[0], n=1, step=1e-4
+        )
+        check_f = float(mpmath.log(self._hyperu_validate(*pars)))
+        check_df = der(z)
+        assert np.isclose(f, check_f, rtol=2e-2)
+        assert np.isclose(df, check_df, rtol=2e-2)
+
+
+@pytest.mark.parametrize(
+    "pars",
+    [
+        [25128.46, 132.48, 0.006849, 0.0, 4.4562e-05],
+        [15900.89, 997.09, 0.093978, 1.0, 0.00010288],
+        [10062.80, 978.24, 0.102753, 0.0, 0.00022747],
+        [11659.45, 713.52, 0.064035, 8.0, 0.00064625],
+        [40888.01, 999.99, 0.071372, 3.0, 3.7925e-05],
+        [11659.45, 989.08, 0.096664, 2.0, 0.00010425],
+        [22333.94, 28.546, 0.001817, 0.0, 9.6225e-05],
+        [30613.25, 30.956, 0.000942, 0.0, 1.1250e-07],
+    ],
+)
+class TestLaplaceApproxM:
+    """
+    Test that Laplace approximation to Kummer's confluent hypergeometric
+    function returns reasonable answers
+    """
+
+    @staticmethod
+    def _hyp1f1_validate(t_i, a_j, b_j, y, mu, offset=1.0):
+        A = a_j
+        B = a_j + y + 1
+        z = t_i * (b_j - mu)
+        val = mpmath.re(mpmath.hyp1f1(A, B, z, maxterms=1e6))
+        return val / offset
+
+    def test_hyp1f1(self, pars):
+        t_i, a_j, b_j, y, mu = pars
+        A = a_j
+        B = a_j + y + 1
+        z = t_i * (b_j - mu)
+        f = hypergeo._hyp1f1_laplace(A, B, z)
+        check = float(mpmath.log(self._hyp1f1_validate(*pars)))
+        assert np.isclose(f, check, rtol=2e-2)

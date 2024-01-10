@@ -46,7 +46,6 @@ from tsdate.core import InOutAlgorithms
 from tsdate.core import InsideOutsideMethod
 from tsdate.core import Likelihoods
 from tsdate.core import LogLikelihoods
-from tsdate.core import VariationalLikelihoods
 from tsdate.demography import PopulationSizeHistory
 from tsdate.prior import ConditionalCoalescentTimes
 from tsdate.prior import fill_priors
@@ -55,6 +54,8 @@ from tsdate.prior import MixturePrior
 from tsdate.prior import PriorParams
 from tsdate.prior import SpansBySamples
 from tsdate.util import nodes_time_unconstrained
+from tsdate.util import split_disjoint_nodes
+from tsdate.util import split_root_nodes
 
 
 class TestBasicFunctions:
@@ -788,11 +789,6 @@ class TestLikelihoodClass:
 
 class TestVariational:
     # TODO - needs a few more tests in here
-    def test_variational_prob_space(self):
-        ts = utility_functions.two_tree_mutation_ts()
-        lik = VariationalLikelihoods(ts, mutation_rate=None)
-        assert lik.probability_space == base.GAMMA_PAR
-
     def test_variational_nosize(self):
         ts = utility_functions.two_tree_mutation_ts()
         with pytest.raises(ValueError, match="Must specify population size"):
@@ -2213,3 +2209,99 @@ class TestPopulationSizeHistory:
                 demography.to_natural_timescale(time)
             with pytest.raises(ValueError, match="a numpy array"):
                 demography.to_coalescent_timescale(time)
+
+
+class TestNodeSplitting:
+    """
+    Test that node splitting routines have the desired outcome
+    """
+
+    @staticmethod
+    def has_disjoint_nodes(ts):
+        """
+        Brute force check for disjoint nodes, by pulling out edge intervals for
+        each node; taking the union of intervals; checking that a single
+        interval remains
+        """
+
+        def merge_intervals(intervals):
+            intervals = sorted(intervals, key=lambda x: x[0])
+            result = []
+            (start_candidate, stop_candidate) = intervals[0]
+            for start, stop in intervals[1:]:
+                if start <= stop_candidate:
+                    stop_candidate = max(stop, stop_candidate)
+                else:
+                    result.append((start_candidate, stop_candidate))
+                    (start_candidate, stop_candidate) = (start, stop)
+            result.append((start_candidate, stop_candidate))
+            return result
+
+        intervals_by_node = {i: [] for i in range(ts.num_nodes)}
+        for e in ts.edges():
+            intervals_by_node[e.parent].append([e.left, e.right])
+            intervals_by_node[e.child].append([e.left, e.right])
+
+        for n in range(ts.num_nodes):
+            intr = merge_intervals(intervals_by_node[n])
+            if len(intr) != 1:
+                return True
+
+        return False
+
+    @staticmethod
+    def childset_changes_with_root(ts):
+        """
+        If root nodes are split whenever their children change, the next root
+        should have the same child set if it has the same ID
+        """
+        last_childset = frozenset()
+        last_root = tskit.NULL
+        for t in ts.trees():
+            if t.num_edges == 0:
+                last_childset = frozenset()
+                last_root = tskit.NULL
+            else:
+                if t.num_roots > 1:
+                    return False
+                childset = frozenset(list(t.children(t.root)))
+                if t.root == last_root and childset != last_childset:
+                    return False
+                last_childset = childset
+                last_root = t.root
+        return True
+
+    def test_split_disjoint_nodes(self):
+        ts = msprime.sim_ancestry(
+            10,
+            population_size=1e4,
+            recombination_rate=1e-8,
+            sequence_length=1e6,
+            random_seed=1,
+        )
+        ts = msprime.sim_mutations(ts, rate=1e-8, random_seed=1)
+        sample_data = tsinfer.SampleData.from_tree_sequence(ts)
+        inferred_ts = tsinfer.infer(sample_data).simplify()
+        split_ts = split_disjoint_nodes(inferred_ts)
+        assert self.has_disjoint_nodes(inferred_ts)
+        assert not self.has_disjoint_nodes(split_ts)
+        assert split_ts.num_edges == inferred_ts.num_edges
+        assert split_ts.num_nodes > inferred_ts.num_nodes
+
+    def test_split_root_nodes(self):
+        ts = msprime.sim_ancestry(
+            10,
+            population_size=1e4,
+            recombination_rate=1e-8,
+            sequence_length=1e6,
+            random_seed=1,
+        )
+        ts = msprime.sim_mutations(ts, rate=1e-8, random_seed=1)
+        sample_data = tsinfer.SampleData.from_tree_sequence(ts)
+        inferred_ts = tsinfer.infer(sample_data).simplify()
+        split_ts = split_root_nodes(inferred_ts)
+        split_root_nodes(ts)
+        assert not self.childset_changes_with_root(inferred_ts)
+        assert self.childset_changes_with_root(split_ts)
+        assert split_ts.num_edges > inferred_ts.num_edges
+        assert split_ts.num_nodes > inferred_ts.num_nodes

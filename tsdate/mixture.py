@@ -25,12 +25,28 @@ Mixture of gamma distributions that may be fit via EM to distribution-valued obs
 """
 import numba
 import numpy as np
+from numba.types import Tuple as _tuple
+from numba.types import UniTuple as _unituple
 
 from . import approx
 from . import hypergeo
 
+# shorthand for numba readonly array types, [type][dimension][constness]
+# type is one of "i" (int32), "f" (float64)
+# dimension is a nonzero integer
+# constness is one of "r" (read-only) or "w" (writable)
+_f = numba.types.float64
+_i = numba.types.int32
+_b = numba.types.bool_
+_f1w = numba.types.Array(_f, 1, "C", readonly=False)
+_f1r = numba.types.Array(_f, 1, "C", readonly=True)
+_f2w = numba.types.Array(_f, 2, "C", readonly=False)
+_f2r = numba.types.Array(_f, 2, "C", readonly=True)
+_f3w = numba.types.Array(_f, 3, "C", readonly=False)
+_i1r = numba.types.Array(_i, 1, "C", readonly=True)
 
-@numba.njit("UniTuple(f8[:], 4)(f8[:], f8[:], f8[:], f8, f8)")
+
+@numba.njit(_unituple(_f1w, 4)(_f1r, _f1r, _f1r, _f, _f))
 def _conditional_posterior(prior_logweight, prior_alpha, prior_beta, alpha, beta):
     r"""
     Return expectations of node age :math:`t` from the mixture model,
@@ -82,7 +98,7 @@ def _conditional_posterior(prior_logweight, prior_alpha, prior_beta, alpha, beta
     return E, E_t, E_logt, E_tlogt
 
 
-@numba.njit("f8(f8[:], f8[:], f8[:], f8[:], f8[:])")
+@numba.njit(_f(_f1w, _f1w, _f1w, _f1r, _f1r))
 def _em_update(prior_weight, prior_alpha, prior_beta, alpha, beta):
     """
     Perform an expectation maximization step for parameters of mixture components,
@@ -138,7 +154,7 @@ def _em_update(prior_weight, prior_alpha, prior_beta, alpha, beta):
     return loglik
 
 
-@numba.njit("f8[:](f8[:], f8[:], f8[:], f8[:], f8[:])")
+@numba.njit(_f1w(_f1r, _f1r, _f1r, _f1w, _f1w))
 def _gamma_projection(prior_weight, prior_alpha, prior_beta, alpha, beta):
     """
     Given variational approximation to posterior: multiply by exact prior,
@@ -175,13 +191,14 @@ def _gamma_projection(prior_weight, prior_alpha, prior_beta, alpha, beta):
         # tlogt = np.sum(weight * E_tlogt)
         log_const[i] = norm
         alpha[i], beta[i] = approx.approximate_gamma_kl(t, logt)
+        # TODO: do something faster, like
         # beta[i] = 1 / (tlogt - t * logt)
         # alpha[i] = t * beta[i] - 1.0
 
     return log_const
 
 
-@numba.njit("Tuple((f8[:,:], f8[:,:]))(f8[:,:], f8[:,:], i4, f8, b1)")
+@numba.njit(_tuple((_f2w, _f2w, _f1w))(_f2r, _f2r, _i, _f, _b))
 def fit_gamma_mixture(mixture, observations, max_iterations, tolerance, verbose):
     """
     Run EM until relative tolerance or maximum number of iterations is
@@ -192,8 +209,13 @@ def fit_gamma_mixture(mixture, observations, max_iterations, tolerance, verbose)
     assert mixture.shape[1] == 3
     assert observations.shape[1] == 2
 
-    mix_weight, mix_alpha, mix_beta = mixture.T
-    alpha, beta = observations.T
+    # mix_weight, mix_alpha, mix_beta = np.hsplit(mixture, 3)
+    # alpha, beta = np.hsplit(observations, 2)
+    mix_weight = mixture[:, 0].copy()
+    mix_alpha = mixture[:, 1].copy()
+    mix_beta = mixture[:, 2].copy()
+    alpha = observations[:, 0].copy()
+    beta = observations[:, 1].copy()
 
     last = np.inf
     for itt in range(max_iterations):
@@ -210,8 +232,7 @@ def fit_gamma_mixture(mixture, observations, max_iterations, tolerance, verbose)
             break
 
     # conditional posteriors for each observation
-    # log_const = _gamma_projection(mix_weight, mix_alpha, mix_beta, alpha, beta)
-    _gamma_projection(mix_weight, mix_alpha, mix_beta, alpha, beta)
+    log_const = _gamma_projection(mix_weight, mix_alpha, mix_beta, alpha, beta)
 
     new_mixture = np.zeros(mixture.shape)
     new_observations = np.zeros(observations.shape)
@@ -221,7 +242,7 @@ def fit_gamma_mixture(mixture, observations, max_iterations, tolerance, verbose)
     new_mixture[:, 1] = mix_alpha
     new_mixture[:, 2] = mix_beta
 
-    return new_mixture, new_observations
+    return new_mixture, new_observations, log_const
 
 
 def initialize_mixture(parameters, num_components):
@@ -230,6 +251,8 @@ def initialize_mixture(parameters, num_components):
     "parameters" are in natural parameterization (not shape/rate)
     """
     global_prior = np.empty((num_components, 3))
+    if num_components == 0:
+        return global_prior
     num_nodes = parameters.shape[0]
     age_classes = np.tile(
         np.arange(num_components),

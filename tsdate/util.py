@@ -26,10 +26,17 @@ a more recent version which has the functionality built-in
 import json
 import logging
 
+import numba
 import numpy as np
 import tskit
+from numba.types import UniTuple as _unituple
 
 from . import provenance
+from .approx import _b1r
+from .approx import _f1r
+from .approx import _i1r
+from .approx import _i1w
+
 
 logger = logging.getLogger(__name__)
 
@@ -319,3 +326,268 @@ def add_sampledata_times(samples, sites_time):
     copy.sites_time[:] = sites_time
     copy.finalise()
     return copy
+
+
+def mutation_span_array(tree_sequence):
+    """Extract mutation counts and spans per edge into a two-column array"""
+    mutation_spans = np.zeros((tree_sequence.num_edges, 2))
+    for mut in tree_sequence.mutations():
+        if mut.edge != tskit.NULL:
+            mutation_spans[mut.edge, 0] += 1
+    for edge in tree_sequence.edges():
+        mutation_spans[edge.id, 1] = edge.span
+    return mutation_spans
+
+
+@numba.njit(_unituple(_i1w, 4)(_i1r, _i1r, _f1r, _f1r, _i1r, _b1r))
+def _split_disjoint_nodes(
+    edges_parent, edges_child, edges_left, edges_right, mutations_edge, nodes_exclude
+):
+    """
+    Split disconnected regions of nodes into separate nodes.
+
+    Returns updated edges_parent, edges_child, mutations_node, and indices indicating
+    from which original node the new nodes are derived.
+    """
+    assert edges_parent.size == edges_child.size == edges_left.size == edges_right.size
+    num_edges = edges_parent.size
+    num_nodes = nodes_exclude.size
+    num_mutations = mutations_edge.size
+
+    # For each edge, check whether parent/child is separated by a gap from the
+    # previous edge involving either parent/child. Label disconnected segments
+    # per node by integers starting at zero.
+    edges_order = np.argsort(edges_left)
+    edges_segments = np.full((2, num_edges), -1, dtype=np.int32)
+    nodes_segments = np.full(num_nodes, -1, dtype=np.int32)
+    nodes_right = np.full(nodes_exclude.size, -np.inf, dtype=np.float64)
+    for e in edges_order:
+        nodes = edges_parent[e], edges_child[e]
+        for i, n in enumerate(nodes):
+            if nodes_exclude[n]:
+                continue
+            nodes_segments[n] += edges_left[e] > nodes_right[n]
+            edges_segments[i, e] = nodes_segments[n]
+            nodes_right[n] = max(nodes_right[n], edges_right[e])
+
+    # Create "nodes_segments[i]" supplementary nodes by copying node "i".
+    # Store the id of the first supplement for each node in "nodes_map".
+    nodes_order = [i for i in range(num_nodes)]
+    nodes_map = np.full(num_nodes, -1, dtype=np.int32)
+    for i, s in enumerate(nodes_segments):
+        for j in range(s):
+            if j == 0:
+                nodes_map[i] = num_nodes
+            nodes_order.append(i)
+            num_nodes += 1
+    nodes_order = np.array(nodes_order, dtype=np.int32)
+
+    # Relabel the nodes on each edge given "nodes_map"
+    for e in edges_order:
+        nodes = edges_parent[e], edges_child[e]
+        for i, n in enumerate(nodes):
+            if edges_segments[i, e] > 0:
+                edges_segments[i, e] += nodes_map[n] - 1
+            else:
+                edges_segments[i, e] = n
+    edges_parent, edges_child = edges_segments[0, ...], edges_segments[1, ...]
+
+    # Relabel node under each mutation
+    mutations_node = np.full(num_mutations, tskit.NULL, dtype=np.int32)
+    for i, e in enumerate(mutations_edge):
+        if e != tskit.NULL:
+            mutations_node[i] = edges_child[e]
+
+    return edges_parent, edges_child, mutations_node, nodes_order
+
+
+def split_disjoint_nodes(ts):
+    """
+    For each non-sample node, split regions separated by gaps into distinct
+    nodes.
+
+    Where there are multiple disconnected regions, the leftmost one is assigned
+    the ID of the original node, and the remainder are assigned new node IDs.
+    Population, flags, individual, time, and metadata are all copied into the
+    new nodes.
+    """
+
+    mutations_edge = np.full(ts.num_mutations, tskit.NULL, dtype=np.int32)
+    for m in ts.mutations():
+        mutations_edge[m.id] = m.edge
+
+    node_is_sample = np.bitwise_and(ts.nodes_flags, tskit.NODE_IS_SAMPLE).astype(bool)
+    edges_parent, edges_child, mutations_node, nodes_order = _split_disjoint_nodes(
+        ts.edges_parent,
+        ts.edges_child,
+        ts.edges_left,
+        ts.edges_right,
+        mutations_edge,
+        node_is_sample,
+    )
+
+    # TODO: correctly handle mutations above root (m.edge == tskit.NULL)
+    nonsegregating = np.flatnonzero(mutations_node == tskit.NULL)
+    mutations_node[nonsegregating] = ts.mutations_node[nonsegregating]
+
+    tables = ts.dump_tables()
+    tables.nodes.set_columns(
+        flags=tables.nodes.flags[nodes_order],
+        time=tables.nodes.time[nodes_order],
+        population=tables.nodes.population[nodes_order],
+        individual=tables.nodes.individual[nodes_order],
+    )
+    # TODO: copy existing metadata for original nodes
+    # TODO: add new metadata indicating origin for split nodes
+    # TODO: add flag for split nodes
+    tables.edges.parent = edges_parent
+    tables.edges.child = edges_child
+    tables.mutations.node = mutations_node
+    tables.sort()
+
+    return tables.tree_sequence()
+
+
+# TODO: numba.njit
+def _split_root_nodes(ts):
+    """
+    Split roots whenever the set of children changes. Nodes will only be split
+    on the interior of the intervals where they are roots.
+
+    Returns new edges (parent, child, left, right) and the original ids for
+    each node.
+    """
+
+    num_nodes = ts.num_nodes
+    num_edges = ts.num_edges
+
+    # Find locations where root node changes
+    roots_node = []
+    roots_breaks = []
+    last_root = None
+    for t in ts.trees():
+        root = tskit.NULL if t.num_edges == 0 else t.root
+        if root != last_root:
+            roots_node.append(root)
+            roots_breaks.append(t.interval.left)
+        last_root = root
+    roots_breaks.append(ts.sequence_length)
+    roots_node = np.array(roots_node, dtype=np.int32)
+    roots_breaks = np.array(roots_breaks, dtype=np.float64)
+
+    # Segment roots at edge additions/removals
+    add_breaks = {n: list() for n in roots_node if n != tskit.NULL}
+    for e in range(num_edges):
+        p = ts.edges_parent[e]
+        if p in add_breaks:
+            for x in (ts.edges_left[e], ts.edges_right[e]):
+                i = np.searchsorted(roots_breaks, x, side="right") - 1
+                if x == ts.sequence_length:
+                    continue
+                if (
+                    p == roots_node[i] and x > roots_breaks[i]
+                ):  # store *internal* breaks for root segments
+                    add_breaks[p].append(x)
+
+    # Create a new node for each segment except the leftmost
+    add_nodes = {}
+    add_split = {}
+    nodes_order = [i for i in range(num_nodes)]
+    for p in add_breaks:
+        breaks = np.unique(np.asarray(add_breaks[p]))
+        if breaks.size > 0:
+            add_split[p] = breaks
+            add_nodes[p] = [p]  # segment left of first break retains original node ID
+            for _ in range(breaks.size):
+                add_nodes[p].append(num_nodes)
+                nodes_order.append(p)
+                num_nodes += 1
+
+    # Split each edge along the union of parent/child segments
+    new_parent = list(ts.edges_parent)
+    new_child = list(ts.edges_child)
+    new_left = list(ts.edges_left)
+    new_right = list(ts.edges_right)
+    for e in range(num_edges):
+        p, c = ts.edges_parent[e], ts.edges_child[e]
+
+        if not (p in add_nodes or c in add_nodes):  # no breaks in parent/child
+            continue
+
+        # find parent/child breaks on edge
+        left, right = ts.edges_left[e], ts.edges_right[e]
+        p_nodes = add_nodes.get(p, [p])
+        c_nodes = add_nodes.get(c, [c])
+        p_split = add_split.get(p, np.empty(0))
+        c_split = add_split.get(c, np.empty(0))
+        e_split = np.unique(np.append(p_split, c_split))
+        e_split = e_split[np.logical_and(e_split > left, e_split < right)]
+
+        e_split = np.append(e_split, right)
+        p_index = np.searchsorted(p_split, e_split, side="left")
+        c_index = np.searchsorted(c_split, e_split, side="left")
+        for x, i, j in zip(e_split, p_index, c_index):
+            new_p, new_c = p_nodes[i], c_nodes[j]
+            if (
+                left == new_left[e]
+            ):  # segment left of first break retains original edge ID
+                new_parent[e] = new_p
+                new_child[e] = new_c
+                new_left[e] = left
+                new_right[e] = x
+            else:
+                new_parent.append(new_p)
+                new_child.append(new_c)
+                new_left.append(left)
+                new_right.append(x)
+            left = x
+        assert left == right
+
+    nodes_order = np.array(nodes_order, dtype=np.int32)
+    new_parent = np.array(new_parent, dtype=np.int32)
+    new_child = np.array(new_child, dtype=np.int32)
+    new_left = np.array(new_left, dtype=np.float64)
+    new_right = np.array(new_right, dtype=np.float64)
+
+    return new_parent, new_child, new_left, new_right, nodes_order
+
+
+def split_root_nodes(ts):
+    """
+    Split roots whenever the set of children changes. Nodes are only split in the
+    interior of intervals where they are roots.
+    """
+
+    edges_parent, edges_child, edges_left, edges_right, nodes_order = _split_root_nodes(
+        ts
+    )
+
+    # TODO: correctly handle mutations above root (m.edge == tskit.NULL)
+    mutations_node = ts.mutations_node.copy()
+    for m in ts.mutations():
+        if m.edge != tskit.NULL:
+            mutations_node[m.id] = edges_child[m.edge]
+
+    tables = ts.dump_tables()
+    tables.nodes.set_columns(
+        flags=tables.nodes.flags[nodes_order],
+        time=tables.nodes.time[nodes_order],
+        individual=tables.nodes.individual[nodes_order],
+        population=tables.nodes.population[nodes_order],
+    )
+    # TODO: copy existing metadata for original nodes
+    # TODO: add new metadata indicating origin for split nodes
+    # TODO: add flag for split nodes
+    tables.edges.set_columns(
+        parent=edges_parent,
+        child=edges_child,
+        left=edges_left,
+        right=edges_right,
+    )
+    tables.mutations.node = mutations_node
+
+    tables.sort()
+    tables.edges.squash()
+    tables.sort()
+
+    return tables.tree_sequence()
