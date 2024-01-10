@@ -1001,10 +1001,6 @@ class ExpectationPropagation(InOutAlgorithms):
             self.posterior[p] += self.likelihoods[i]
             # self.log_partition[i] += ... # TODO
 
-        # scaling factor for posterior: posterior is the sum of messages and
-        # prior, multiplied by a scaling term in (0, 1]
-        self.scale = np.ones(self.ts.num_nodes)
-
     @staticmethod
     def factorize(edge_list, fixed_nodes):
         """Split edges into internal and external"""
@@ -1023,13 +1019,12 @@ class ExpectationPropagation(InOutAlgorithms):
         return internal, external
 
     @staticmethod
-    @numba.njit("f8(i4[:, :], f8[:, :], f8[:, :], f8[:, :, :], f8[:], f8[:], f8, b1)")
+    @numba.njit("f8(i4[:, :], f8[:, :], f8[:, :], f8[:, :, :], f8[:], f8, b1)")
     def propagate_likelihood(
         edges,
         likelihoods,
         posterior,
         messages,
-        scale,
         log_partition,
         max_shape,
         min_kl,
@@ -1048,8 +1043,6 @@ class ExpectationPropagation(InOutAlgorithms):
         :param ndarray messages: array of dimension `[num_edges, 2, 2]`
             containing parent/child messages (natural parameters) for each edge,
             updated in-place.
-        :param ndarray scale: array of dimension `[num_nodes]`
-            containing the scaling factor for the posterior, updated in place
         :param ndarray log_partition: array of dimension `[num_edges]`
             containing the approximate normalizing constants per edge,
             updated in-place.
@@ -1059,7 +1052,7 @@ class ExpectationPropagation(InOutAlgorithms):
 
         # Bound the shape parameter for the posterior and cavity distributions
         # so that lower_cavi < lower_post < upper_post < upper_cavi.
-        upper_post = max_shape - 1.0
+        upper_post = 1.0 * max_shape - 1.0
         lower_post = 1.0 / max_shape - 1.0
         upper_cavi = 2.0 * max_shape - 1.0
         lower_cavi = 0.5 / max_shape - 1.0
@@ -1086,6 +1079,7 @@ class ExpectationPropagation(InOutAlgorithms):
             assert 0.0 < d <= 1.0
             return d
 
+        scale = np.ones(posterior.shape[0])
         for i, p, c in edges:
             # Damped downdate to ensure proper cavity distributions
             parent_message = messages[i, 0] * scale[p]
@@ -1119,12 +1113,17 @@ class ExpectationPropagation(InOutAlgorithms):
             scale[p] *= parent_eta
             scale[c] *= child_eta
 
+        # move the scaling term into the messages
+        for i, p, c in edges:
+            messages[i, 0] *= scale[p]
+            messages[i, 1] *= scale[c]
+
         return 0.0  # TODO, placeholder
 
     @staticmethod
-    @numba.njit("f8(i4[:], f8[:, :], f8[:, :], f8[:, :], f8[:], f8, i4, f8)")
+    @numba.njit("f8(i4[:], f8[:, :], f8[:, :], f8[:, :], f8, i4, f8)")
     def propagate_prior(
-        nodes, global_prior, posterior, messages, scale, max_shape, em_maxitt, em_reltol
+        nodes, global_prior, posterior, messages, max_shape, em_maxitt, em_reltol
     ):
         """
         Update approximating factors for global prior at each node.
@@ -1164,16 +1163,16 @@ class ExpectationPropagation(InOutAlgorithms):
             return d
 
         cavity = np.zeros(posterior.shape)
-        cavity[nodes] = posterior[nodes] - messages[nodes] * scale[nodes, np.newaxis]
+        cavity[nodes] = posterior[nodes] - messages[nodes]
         global_prior, posterior[nodes] = mixture.fit_gamma_mixture(
             global_prior, cavity[nodes], em_maxitt, em_reltol, False
         )
-        messages[nodes] = (posterior[nodes] - cavity[nodes]) / scale[nodes, np.newaxis]
+        messages[nodes] = posterior[nodes] - cavity[nodes]
 
         for n in nodes:
             eta = posterior_damping(posterior[n])
             posterior[n] *= eta
-            scale[n] *= eta
+            messages[n] *= eta
 
         return 0.0
 
@@ -1189,7 +1188,6 @@ class ExpectationPropagation(InOutAlgorithms):
             self.global_prior,
             self.posterior,
             self.prior_messages,
-            self.scale,
             max_shape,
             em_maxitt,
             em_reltol,
@@ -1201,7 +1199,6 @@ class ExpectationPropagation(InOutAlgorithms):
             self.likelihoods,
             self.posterior,
             self.messages,
-            self.scale,
             self.log_partition,
             max_shape,
             min_kl,
@@ -1213,7 +1210,6 @@ class ExpectationPropagation(InOutAlgorithms):
             self.likelihoods,
             self.posterior,
             self.messages,
-            self.scale,
             self.log_partition,
             max_shape,
             min_kl,
