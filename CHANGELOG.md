@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.7] - 2024-01-11
+
+**Bugfixes**
+
+- In variational gamma, Rescale messages at end of each iteration to avoid numerical
+  instability.
+
 ## [0.1.6] - 2024-01-07
 
 **Breaking changes**
