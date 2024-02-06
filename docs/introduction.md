@@ -52,6 +52,9 @@ The output of tsdate is a new tree sequence with altered
 (optionally) a posterior distribution of node times
 (see {ref}`sec_usage_posterior`).
 
+The ultimate source of technical detail for `tsdate` is the source code on our
+[GitHub repository](http://github.com/tskit-dev/tsdate).
+
 ## Sources of genealogies
 
 The input genealogies to date can come from any source,

@@ -39,6 +39,14 @@ The rest of this documentation is organised into the following sections:
 ```{tableofcontents}
 ```
 
+## Source code
+
+The source code for `tsdate` is freely available on [GitHub](https://github.com/tskit-dev/tsdate).
+Bug reports and suggestions for improvements can be made by opening an issue on that repository:
+we suggest also checking the [discussions list](https://github.com/tskit-dev/tsdate/discussions).
+Pull requests are welcome: we largely follow the
+[tskit development workflow](https://tskit.dev/tskit/docs/latest/development.html#workflow).
+
 ## Citing
 
 The algorithm is described in [our Science paper](https://www.science.org/doi/10.1126/science.abi8264)
