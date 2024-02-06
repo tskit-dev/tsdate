@@ -53,9 +53,9 @@ demography.add_population_parameters_change(time=50000, initial_size=2e2)
 demography.add_population_parameters_change(time=50010, initial_size=1e4)
 
 mutation_rate = 1e-8
-# Simulate a tree sequence with a population size history.
+# Simulate a short tree sequence with a population size history.
 ts = msprime.sim_ancestry(
-    10, sequence_length=1e5, recombination_rate=1e-8, demography=demography, random_seed=123)
+    10, sequence_length=2e4, recombination_rate=2e-8, demography=demography, random_seed=123)
 ts = msprime.sim_mutations(ts, rate=mutation_rate, random_seed=123)
 ```
 
