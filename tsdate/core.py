@@ -38,12 +38,13 @@ import scipy.stats
 import tskit
 from tqdm.auto import tqdm
 
-from . import approx
 from . import base
 from . import demography
 from . import mixture
 from . import prior
 from . import provenance
+from . import util
+from . import variational
 
 FORMAT_NAME = "tsdate"
 
@@ -524,56 +525,6 @@ class LogLikelihoods(Likelihoods):
         return fraction * value
 
 
-class VariationalLikelihoods:
-    """
-    A class to store and process likelihoods for use in variational inference.
-    Has two main purposes: to store mutation counts / rates for Poisson
-    likelihoods per edge, and to perform binary operations gamma distributions
-    in terms of their natural parameterization (e.g. adding / subtracting sufficient
-    statistics is equivalent to multiplying / dividing gamma PDFs).
-    """
-
-    probability_space = base.GAMMA_PAR
-    identity_constant = np.array([0.0, 0.0], dtype=float)
-    null_constant = 0.0
-    timepoints = np.array([0, np.inf], dtype=float)
-    grid_size = 2
-
-    def __init__(
-        self,
-        ts,
-        mutation_rate=None,
-        recombination_rate=None,
-        *,
-        fixed_node_set=None,
-    ):
-        self.ts = ts
-        self.fixednodes = (
-            set(ts.samples()) if fixed_node_set is None else fixed_node_set
-        )
-        self.mut_rate = mutation_rate
-        self.rec_rate = recombination_rate
-        self.mut_edges = self.get_mut_edges(ts)
-        self.identity_constant.flags.writeable = False
-        self.timepoints.flags.writeable = False
-
-    def to_natural(self, edge):
-        """
-        Return the natural parameters of the (gamma) posterior of edge
-        length, given a Poisson likelihood for mutation counts
-        """
-        y = self.mut_edges[edge.id]
-        mu = edge.span * self.mut_rate
-        return np.array([y, mu])
-
-    @staticmethod
-    def get_mut_edges(ts):
-        """
-        Get the number of mutations on each edge in the tree sequence.
-        """
-        return Likelihoods.get_mut_edges(ts)
-
-
 class InOutAlgorithms:
     """
     Contains the inside and outside algorithms
@@ -918,302 +869,6 @@ class InOutAlgorithms:
         return self.lik.timepoints[np.array(maximized_node_times).astype("int")]
 
 
-class ExpectationPropagation(InOutAlgorithms):
-    r"""
-    Expectation propagation (EP) algorithm to infer approximate marginal
-    distributions for node ages.
-
-    The probability model has the form,
-
-    .. math::
-
-        \prod_{i \in \mathcal{N} f(t_i | \theta_i)
-        \prod_{(i,j) \in \mathcal{E}} g(y_ij | t_i - t_j)
-
-    where :math:`f(.)` is a prior distribution on node ages with parameters
-    :math:`\\theta` and :math:`g(.)` are Poisson likelihoods per edge. The
-    EP approximation to the posterior has the form,
-
-    .. math::
-
-        \prod_{i \in \mathcal{N} q(t_i | \eta_i)
-        \prod_{(i,j) \in \mathcal{E}} q(t_i | \gamma_{ij}) q(t_j | \kappa_{ij})
-
-    where :math:`q(.)` are pseudo-gamma distributions (termed 'factors'), and
-    :math:`\eta, \gamma, \kappa` are variational parameters that reflect to
-    prior, inside (leaf-to-root), and outside (root-to-edge) information.
-
-    Thus, the EP approximation results in gamma-distribution marginals.  The
-    factors :math:`q(.)` do not need to be valid distributions (e.g. the
-    shape/rate parameters may be negative), as long as the marginals are valid
-    distributions.  For details on how the variational parameters are
-    optimized, see Minka (2002) "Expectation Propagation for Approximate
-    Bayesian Inference"
-    """
-
-    def __init__(self, *args, global_prior, **kwargs):
-        """
-        `global_prior` contains parameters of a gamma mixture, used as an iid
-        prior, wheras `self.priors` (node-specific priors) are not used, except
-        to provide a list of nonfixed nodes.
-        """
-        super().__init__(*args, **kwargs)
-
-        assert self.priors.probability_space == base.GAMMA_PAR
-        assert self.lik.probability_space == base.GAMMA_PAR
-        assert self.lik.grid_size == 2
-        assert self.priors.timepoints.size == 2
-
-        # global distribution of node ages
-        self.global_prior = global_prior.copy()
-
-        # messages passed from prior to nodes
-        self.prior_messages = np.zeros((self.ts.num_nodes, 2))
-
-        # mutation likelihoods, as gamma natural parameters
-        self.likelihoods = np.zeros((self.ts.num_edges, 2))
-        for e in self.ts.edges():
-            self.likelihoods[e.id] = self.lik.to_natural(e)
-
-        # messages passed from edge likelihoods to nodes
-        self.messages = np.zeros((self.ts.num_edges, 2, 2))
-
-        # normalizing constants from each edge likelihood
-        self.log_partition = np.zeros(self.ts.num_edges)
-
-        # the approximate posterior marginals
-        self.posterior = np.zeros((self.ts.num_nodes, 2))
-
-        # edge, node traversal order
-        self.edges, self.leaves = self.factorize(self.ts.edges(), self.fixednodes)
-        self.freenodes = self.priors.nonfixed_nodes
-
-        # factors for edges leading from fixed nodes are invariant
-        # and can be incorporated into the posterior beforehand
-        for i, p, c in self.leaves:
-            if self.ts.nodes_time[c] != 0.0:
-                raise ValueError("Fixed nodes must be at time zero")
-            self.messages[i, 0] = self.likelihoods[i]
-            self.posterior[p] += self.likelihoods[i]
-            # self.log_partition[i] += ... # TODO
-
-    @staticmethod
-    def factorize(edge_list, fixed_nodes):
-        """Split edges into internal and external"""
-        internal = []
-        external = []
-        for edge in edge_list:
-            i, p, c = edge.id, edge.parent, edge.child
-            if p in fixed_nodes:
-                raise ValueError("Internal nodes cannot be fixed")
-            if c in fixed_nodes:
-                external.extend([i, p, c])
-            else:
-                internal.extend([i, p, c])
-        internal = np.array(internal, dtype=np.int32).reshape(-1, 3)
-        external = np.array(external, dtype=np.int32).reshape(-1, 3)
-        return internal, external
-
-    @staticmethod
-    @numba.njit("f8(i4[:, :], f8[:, :], f8[:, :], f8[:, :, :], f8[:], f8, b1)")
-    def propagate_likelihood(
-        edges,
-        likelihoods,
-        posterior,
-        messages,
-        log_partition,
-        max_shape,
-        min_kl,
-    ):
-        """
-        Update approximating factors for each edge.
-
-        TODO: return max difference in natural parameters for stopping criterion
-
-        :param ndarray edges: integer array of dimension `[num_edges, 3]`
-            containing edge id, parent id, and child id.
-        :param ndarray likelihoods: array of dimension `[num_edges, 2]`
-            containing mutation count and mutational target size per edge.
-        :param ndarray posterior: array of dimension `[num_nodes, 2]`
-            containing natural parameters for each node, updated in-place.
-        :param ndarray messages: array of dimension `[num_edges, 2, 2]`
-            containing parent/child messages (natural parameters) for each edge,
-            updated in-place.
-        :param ndarray log_partition: array of dimension `[num_edges]`
-            containing the approximate normalizing constants per edge,
-            updated in-place.
-        """
-
-        assert max_shape >= 1.0
-
-        # Bound the shape parameter for the posterior and cavity distributions
-        # so that lower_cavi < lower_post < upper_post < upper_cavi.
-        upper_post = 1.0 * max_shape - 1.0
-        lower_post = 1.0 / max_shape - 1.0
-        upper_cavi = 2.0 * max_shape - 1.0
-        lower_cavi = 0.5 / max_shape - 1.0
-
-        def cavity_damping(x, y):
-            assert upper_cavi > x[0] > lower_cavi
-            d = 1.0
-            if (y[0] > 0.0) and (x[0] - y[0] < lower_cavi):
-                d = min(d, (x[0] - lower_cavi) / y[0])
-            if (y[0] < 0.0) and (x[0] - y[0] > upper_cavi):
-                d = min(d, (x[0] - upper_cavi) / y[0])
-            if (y[1] > 0.0) and (x[1] - y[1] < 0.0):
-                d = min(d, x[1] / y[1])
-            assert 0.0 < d <= 1.0
-            return d
-
-        def posterior_damping(x):
-            assert x[0] > -1.0 and x[1] > 0.0
-            d = 1.0
-            if x[0] > upper_post:
-                d = upper_post / x[0]
-            if x[0] < lower_post:
-                d = lower_post / x[0]
-            assert 0.0 < d <= 1.0
-            return d
-
-        scale = np.ones(posterior.shape[0])
-        for i, p, c in edges:
-            # Damped downdate to ensure proper cavity distributions
-            parent_message = messages[i, 0] * scale[p]
-            child_message = messages[i, 1] * scale[c]
-            parent_delta = cavity_damping(posterior[p], parent_message)
-            child_delta = cavity_damping(posterior[c], child_message)
-            delta = min(parent_delta, child_delta)
-            # The cavity posteriors: the approximation omitting the variational
-            # factors for this edge.
-            parent_cavity = posterior[p] - delta * parent_message
-            child_cavity = posterior[c] - delta * child_message
-            # The edge likelihood, scaled by the damping factor
-            edge_likelihood = delta * likelihoods[i]
-            # The target posterior: the cavity multiplied by the edge
-            # likelihood then projected onto a gamma via moment matching.
-            logconst, parent_post, child_post = approx.gamma_projection(
-                parent_cavity, child_cavity, edge_likelihood, min_kl
-            )
-            # The messages: the difference in natural parameters between the
-            # target and cavity posteriors.
-            messages[i, 0] += (parent_post - posterior[p]) / scale[p]
-            messages[i, 1] += (child_post - posterior[c]) / scale[c]
-            # Contribution to the marginal likelihood from the edge
-            log_partition[i] = logconst  # TODO: incomplete
-            # Constrain the messages so that the gamma shape parameter for each
-            # posterior is bounded (e.g. set a maximum precision for log(age)).
-            parent_eta = posterior_damping(parent_post)
-            child_eta = posterior_damping(child_post)
-            posterior[p] = parent_eta * parent_post
-            posterior[c] = child_eta * child_post
-            scale[p] *= parent_eta
-            scale[c] *= child_eta
-
-        # move the scaling term into the messages
-        for i, p, c in edges:
-            messages[i, 0] *= scale[p]
-            messages[i, 1] *= scale[c]
-
-        return 0.0  # TODO, placeholder
-
-    @staticmethod
-    @numba.njit("f8(i4[:], f8[:, :], f8[:, :], f8[:, :], f8, i4, f8)")
-    def propagate_prior(
-        nodes, global_prior, posterior, messages, max_shape, em_maxitt, em_reltol
-    ):
-        """
-        Update approximating factors for global prior at each node.
-
-        :param ndarray nodes: ids of nodes that should be updated
-        :param ndarray global_prior: rows are mixture components, columns are
-            zeroth, first, and second natural parameters of gamma mixture
-            components. Updated in place.
-        :param ndarray posterior: rows are nodes, columns are first and
-            second natural parameters of gamma posteriors. Updated in
-            place.
-        :param ndarray messages: rows are edges, columns are first and
-            second natural parameters of prior messages. Updated in place.
-        :param float max_shape: the maximum allowed shape for node posteriors
-        :param int em_maxitt: the maximum number of EM iterations to use when
-            fitting the mixture model
-        :param int em_reltol: the termination criterion for relative change in
-            log-likelihood
-        """
-
-        if global_prior.shape[0] == 0:
-            return 0.0
-
-        assert max_shape >= 1.0
-
-        upper = max_shape - 1.0
-        lower = 1.0 / max_shape - 1.0
-
-        def posterior_damping(x):
-            assert x[0] > -1.0 and x[1] > 0.0
-            d = 1.0
-            if x[0] > upper:
-                d = upper / x[0]
-            if x[0] < lower:
-                d = lower / x[0]
-            assert 0.0 < d <= 1.0
-            return d
-
-        cavity = np.zeros(posterior.shape)
-        cavity[nodes] = posterior[nodes] - messages[nodes]
-        global_prior, posterior[nodes] = mixture.fit_gamma_mixture(
-            global_prior, cavity[nodes], em_maxitt, em_reltol, False
-        )
-        messages[nodes] = posterior[nodes] - cavity[nodes]
-
-        for n in nodes:
-            eta = posterior_damping(posterior[n])
-            posterior[n] *= eta
-            messages[n] *= eta
-
-        return 0.0
-
-    def iterate(self, em_maxitt=100, em_reltol=1e-6, max_shape=1000, min_kl=True):
-        """
-        Update edge factors from leaves to root then from root to leaves,
-        and return approximate log marginal likelihood (TODO)
-        """
-
-        # prior update
-        self.propagate_prior(
-            self.freenodes,
-            self.global_prior,
-            self.posterior,
-            self.prior_messages,
-            max_shape,
-            em_maxitt,
-            em_reltol,
-        )
-
-        # rootward pass
-        self.propagate_likelihood(
-            self.edges,
-            self.likelihoods,
-            self.posterior,
-            self.messages,
-            self.log_partition,
-            max_shape,
-            min_kl,
-        )
-
-        # leafward pass
-        self.propagate_likelihood(
-            self.edges[::-1],
-            self.likelihoods,
-            self.posterior,
-            self.messages,
-            self.log_partition,
-            max_shape,
-            min_kl,
-        )
-
-        return np.nan  # TODO: placeholder for marginal likelihood
-
-
 def constrain_ages_topo(ts, node_times, epsilon, progress=False):
     # If node_times violate the topology in ts, return increased node_times so that each
     # node is guaranteed to be older than any of its children.
@@ -1522,14 +1177,20 @@ class VariationalGammaMethod(EstimationMethod):
         return mn_post, va_post
 
     def main_algorithm(self):
-        lik = VariationalLikelihoods(
-            self.ts,
-            self.mutation_rate,
-            self.recombination_rate,
-            fixed_node_set=self.get_fixed_nodes_set(),
-        )
-        return ExpectationPropagation(
-            self.priors, lik, progress=self.pbar, global_prior=self.global_prior
+        # edge likelihoods
+        # TODO: variable mutation rates across genome
+        # TODO: truncate edge spans with accessiblity mask
+        likelihoods = util.mutation_span_array(self.ts)
+        likelihoods[:, 1] *= self.mutation_rate
+
+        # lower and upper bounds on node ages
+        sample_idx = list(self.ts.samples())
+        constraints = np.zeros((self.ts.num_nodes, 2))
+        constraints[:, 1] = np.inf
+        constraints[sample_idx, :] = self.ts.nodes_time[sample_idx, np.newaxis]
+
+        return variational.ExpectationPropagation(
+            self.ts, likelihoods, constraints, self.global_prior
         )
 
     def run(
@@ -1547,8 +1208,10 @@ class VariationalGammaMethod(EstimationMethod):
             )
         if not max_iterations >= 1:
             raise ValueError("Maximum number of EP iterations must be greater than 0")
-        if not (isinstance(prior_mixture_dim, int) and prior_mixture_dim > 0):
-            raise ValueError("Number of mixture components must be a positive integer")
+        if not (isinstance(prior_mixture_dim, int) and prior_mixture_dim >= 0):
+            raise ValueError(
+                "Number of mixture components must be a nonnegative integer"
+            )
         if self.mutation_rate is None:
             raise ValueError("Variational gamma method requires mutation rate")
 
@@ -1563,16 +1226,13 @@ class VariationalGammaMethod(EstimationMethod):
         # match sufficient statistics or match central moments
         min_kl = not match_central_moments
         dynamic_prog = self.main_algorithm()
-        for itt in tqdm(
-            np.arange(max_iterations),
-            desc="Expectation Propagation",
-            disable=not self.pbar,
-        ):
-            dynamic_prog.iterate(
-                em_maxitt=em_iterations if itt else 0,
-                max_shape=max_shape,
-                min_kl=min_kl,
-            )
+        dynamic_prog.run(
+            ep_maxitt=max_iterations,
+            em_maxitt=em_iterations,
+            max_shape=max_shape,
+            min_kl=min_kl,
+            progress=self.pbar,
+        )
 
         num_skipped = np.sum(np.isnan(dynamic_prog.log_partition))
         if num_skipped > 0:

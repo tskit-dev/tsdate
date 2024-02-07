@@ -461,7 +461,7 @@ class TestVariational:
                 method="variational_gamma",
                 max_iterations=-1,
             )
-        with pytest.raises(ValueError, match="must be a positive integer"):
+        with pytest.raises(ValueError, match="must be a nonnegative integer"):
             tsdate.date(
                 ts,
                 mutation_rate=5,
