@@ -29,11 +29,11 @@ each timepoint).
 Continuous-time approaches approximate the posterior by a continuous
 univariate distribution (e.g. a gamma distribution).
 
-In tests, we find that the continuous-time `variational_gamma` approach is
-the most accurate (but can suffer from {ref}`numerical instability<sec_usage_real_data_stability>`).
-The discrete-time `inside_outside` approach is slightly less accurate, especially for older times,
-but is more numerically robust, and the discrete-time `maximization` approach is
-always stable but is the least accurate.
+In tests, we find that the continuous-time `variational_gamma` approach is the
+most accurate.  The discrete-time `inside_outside` approach is slightly less
+accurate, especially for older times, but is more numerically robust, and the
+discrete-time `maximization` approach is always stable but is the least
+accurate.
 
 Changing the method is very simple:
 
@@ -43,13 +43,13 @@ import tskit
 import tsdate
 
 input_ts = tskit.load("data/basic_example.trees")
-ts = tsdate.date(input_ts, method="variational_gamma", population_size=100, mutation_rate=1e-8)
+ts = tsdate.date(input_ts, method="variational_gamma", mutation_rate=1e-8)
 ```
 
 Alternatively each method can be called directly as a separate function:
 
 ```{code-cell} ipython3
-ts = tsdate.variational_gamma(input_ts, population_size=100, mutation_rate=1e-8)
+ts = tsdate.variational_gamma(input_ts, mutation_rate=1e-8)
 ```
 
 Currently the default is `inside_outside`, but this may change in future releases.
@@ -127,13 +127,6 @@ local estimates to each gamma distribution are iteratively refined until
 they converge to a stable solution.  This comes under a class of approaches
 sometimes known as "loopy belief propagation".
 
-:::{todo}
-Add details about [numerical instability](sec_usage_real_data_stability),
-describing expected errors (e.g. about non-convergence of a hypergeometric series),
-and detailing potential workarounds using the `max_shape` option to constrain the
-gamma variance.
-:::
-
 :::{note}
 As a result of testing, the default priors used for this method are
 identical for all nodes (i.e. a "global" prior is used), based on a composite
@@ -166,6 +159,5 @@ ts = tsdate.date(
     input_ts,
     method="variational_gamma",
     progress=True,
-    population_size=100,
     mutation_rate=1e-8)
 ```

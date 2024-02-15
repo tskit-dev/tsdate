@@ -23,22 +23,31 @@
 """
 Expectation propagation implementation
 """
+import logging
+import time
+
 import numba
 import numpy as np
+import tskit
 from numba.types import void as _void
 from tqdm.auto import tqdm
 
 from . import approx
-from . import mixture
 from .approx import _b
+from .approx import _b1r
 from .approx import _f
 from .approx import _f1r
 from .approx import _f1w
 from .approx import _f2r
 from .approx import _f2w
+from .approx import _f3r
 from .approx import _f3w
 from .approx import _i
 from .approx import _i1r
+from .hypergeo import _gammainc_inv as gammainc_inv
+from .normalisation import edge_sampling_weight
+from .normalisation import mutational_timescale
+from .normalisation import piecewise_scale_posterior
 
 
 # columns for edge_factors
@@ -144,7 +153,7 @@ class ExpectationPropagation:
             )
 
     @staticmethod
-    def _check_valid_inputs(ts, likelihoods, constraints, prior):
+    def _check_valid_inputs(ts, likelihoods, constraints, mutations_edge):
         if likelihoods.shape != (ts.num_edges, 2):
             raise ValueError("Edge likelihoods are the wrong shape")
         if constraints.shape != (ts.num_nodes, 2):
@@ -153,6 +162,8 @@ class ExpectationPropagation:
             raise ValueError("Edge likelihoods contains negative values")
         if np.any(constraints < 0.0):
             raise ValueError("Node age constraints contain negative values")
+        if mutations_edge.size > 0 and mutations_edge.max() >= ts.num_edges:
+            raise ValueError("Mutation edge indices are out-of-bounds")
         ExpectationPropagation._check_valid_constraints(
             constraints, ts.edges_parent, ts.edges_child
         )
@@ -170,7 +181,20 @@ class ExpectationPropagation:
         posterior_check += node_factors[:, CONSTRNT]
         return np.allclose(posterior_check, posterior)
 
-    def __init__(self, ts, likelihoods, constraints, prior):
+    @staticmethod
+    @numba.njit(_f1w(_f2r, _f2r, _b))
+    def _point_estimate(posteriors, constraints, median):
+        assert posteriors.shape == constraints.shape
+        fixed = constraints[:, 0] == constraints[:, 1]
+        point_estimate = np.zeros(posteriors.shape[0])
+        for i in np.flatnonzero(~fixed):
+            alpha, beta = posteriors[i]
+            point_estimate[i] = gammainc_inv(alpha + 1, 0.5) if median else (alpha + 1)
+            point_estimate[i] /= beta
+        point_estimate[fixed] = constraints[fixed, 0]
+        return point_estimate
+
+    def __init__(self, ts, likelihoods, constraints, mutations_edge):
         """
         Initialize an expectation propagation algorithm for dating nodes
         in a tree sequence.
@@ -189,50 +213,50 @@ class ExpectationPropagation:
         :param ~np.ndarray likelihoods: a `ts.num_edges`-by-two array containing
             mutation counts and mutational spans (e.g. edge span multiplied by
             mutation rate) per edge.
-        :param ~np.ndarray prior: a `K`-by-three array containing parameters of
-            an i.i.d. gamma mixture prior with `K` components, used for all
-            nonfixed nodes. Each row contains the weight, shape, and rate
-            for a mixture component.
+        :param ~np.ndarray mutations_edge: an array containing edge indices
+            (one per mutation) for which to compute posteriors.
         """
 
-        self._check_valid_inputs(ts, likelihoods, constraints, prior)
+        # TODO: pass in edge table rather than tree sequence
+        # TODO: check valid mutations_edge
+        self._check_valid_inputs(ts, likelihoods, constraints, mutations_edge)
 
         # const
         self.parents = ts.edges_parent
         self.children = ts.edges_child
         self.likelihoods = likelihoods
         self.constraints = constraints
+        self.mutations_edge = mutations_edge
 
         # mutable
-        self.prior = prior.copy()
         self.node_factors = np.zeros((ts.num_nodes, 2, 2))
         self.edge_factors = np.zeros((ts.num_edges, 2, 2))
-        # self.node_lognorm = np.zeros(ts.num_nodes)
-        # self.edge_lognorm = np.zeros(ts.num_nodes)
         self.posterior = np.zeros((ts.num_nodes, 2))
         self.log_partition = np.zeros(ts.num_edges)
         self.scale = np.ones(ts.num_nodes)
 
-        # get edge traversal order
-        node_is_fixed = constraints[:, LOWER] == constraints[:, UPPER]
-        child_is_contemporary = np.logical_and(
-            constraints[ts.edges_child, LOWER] == 0.0,
-            node_is_fixed[ts.edges_child],
-        )
-        edges = np.arange(ts.num_edges, dtype=np.int32)
-        contemp = edges[child_is_contemporary]
-        noncontemp = edges[~child_is_contemporary]
-        self.edge_order = np.concatenate(  # rootward + leafward
-            (noncontemp[:-1], np.flip(noncontemp))
-        )
+        # terminal nodes
+        has_parent = np.full(ts.num_nodes, False)
+        has_child = np.full(ts.num_nodes, False)
+        has_parent[self.children] = True
+        has_child[self.parents] = True
+        self.roots = np.logical_and(has_child, ~has_parent)
+        self.leaves = np.logical_and(~has_child, has_parent)
+        if np.any(np.logical_and(~has_child, ~has_parent)):
+            raise ValueError("Tree sequence contains disconnected nodes")
 
-        # edges attached to contemporary nodes are visited once
-        for i in contemp:
-            p, c = ts.edges_parent[i], ts.edges_child[i]
-            assert np.all(constraints[c] == 0.0)
-            self.edge_factors[i, ROOTWARD] = self.likelihoods[i]
-            self.posterior[p] += self.likelihoods[i]
-            # self.node_lognorm[i] += ... # TODO
+        # edge traversal order
+        edges = np.arange(ts.num_edges, dtype=np.int32)
+        self.edge_order = np.concatenate((edges[:-1], np.flip(edges)))
+        self.edge_weights = edge_sampling_weight(
+            self.leaves,
+            ts.edges_parent,
+            ts.edges_child,
+            ts.edges_left,
+            ts.edges_right,
+            ts.indexes_edge_insertion_order,
+            ts.indexes_edge_removal_order,
+        )
 
     @staticmethod
     @numba.njit(_f(_i1r, _i1r, _i1r, _f2r, _f2r, _f2w, _f3w, _f1w, _f1w, _f, _f, _b))
@@ -252,8 +276,6 @@ class ExpectationPropagation:
     ):
         """
         Update approximating factors for Poisson mutation likelihoods on edges.
-
-        TODO: return max difference in natural parameters for stopping criterion
 
         :param ndarray edges_parent: integer array of parent ids per edge
         :param ndarray edges_child: integer array of child ids per edge
@@ -368,18 +390,16 @@ class ExpectationPropagation:
         return np.nan
 
     @staticmethod
-    @numba.njit(_f(_f2w, _f2w, _f2w, _f3w, _f1w, _f, _i, _f))
+    @numba.njit(_f(_b1r, _f2w, _f3w, _f1w, _f, _i, _f))
     def propagate_prior(
-        prior, constraints, posterior, factors, scale, max_shape, em_maxitt, em_reltol
+        free, posterior, factors, scale, max_shape, em_maxitt, em_reltol
     ):
         """
-        Update approximating factors for global prior at each node.
+        Update approximating factors for global prior.
 
-        :param ndarray constraints: rows are nodes, columns are upper and
-            lower bounds for node age.
-        :param ndarray prior: rows are mixture components, columns are
-            zeroth, first, and second natural parameters of gamma mixture
-            components. Updated in place.
+        :param ndarray free: boolean array indicating if prior should be
+            applied to node
+        :param ndarray penalty: initial value for regularisation penalty
         :param ndarray posterior: rows are nodes, columns are first and
             second natural parameters of gamma posteriors. Updated in
             place.
@@ -389,47 +409,37 @@ class ExpectationPropagation:
             scaling factor for the posteriors, updated in-place.
         :param float max_shape: the maximum allowed shape for node posteriors.
         :param int em_maxitt: the maximum number of EM iterations to use when
-            fitting the mixture model.
+            fitting the regularisation.
         :param int em_reltol: the termination criterion for relative change in
             log-likelihood.
         """
 
-        assert prior.shape[1] == 3
-        assert constraints.shape == posterior.shape
-        assert factors.shape == (constraints.shape[0], 2, 2)
-        assert scale.size == constraints.shape[0]
+        assert free.size == posterior.shape[0]
+        assert factors.shape == (free.size, 2, 2)
+        assert scale.size == free.size
         assert max_shape >= 1.0
-
-        if prior.shape[0] == 0:
-            return 0.0
 
         def posterior_damping(x):
             return _rescale(x, max_shape)
 
-        lognorm = np.zeros(constraints.shape[0])  # TODO: move to member
-
-        # fit a mixture-of-gamma model to cavity distributions for unconstrained nodes
-        free = np.logical_and(
-            constraints[:, LOWER] == 0.0, constraints[:, UPPER] == np.inf
-        )
+        # fit an exponential to cavity distributions for unconstrained nodes
         cavity = posterior - factors[:, MIXPRIOR] * scale[:, np.newaxis]
-        prior[:], posterior[free], lognorm[free] = mixture.fit_gamma_mixture(
-            prior, cavity[free], em_maxitt, em_reltol, False
-        )
+        shape, rate = cavity[free, 0] + 1, cavity[free, 1]
+        penalty = 1 / np.mean(shape / rate)
+        itt, delta = 0, np.inf
+        while abs(delta) > abs(penalty) * em_reltol:
+            if itt > em_maxitt:
+                break
+            delta = 1 / np.mean(shape / (rate + penalty)) - penalty
+            penalty += delta
+            itt += 1
+        assert penalty > 0
 
-        # reset nodes that were skipped (b/c of improper posteriors)
-        skipped = np.logical_and(free, ~np.isfinite(lognorm))
-        posterior[skipped] = (
-            cavity[skipped] + factors[skipped, MIXPRIOR] * scale[skipped, np.newaxis]
-        )
-
-        # the remaining nodes may be updated
-        updated = np.logical_and(free, np.isfinite(lognorm))
-        factors[updated, MIXPRIOR] = (posterior[updated] - cavity[updated]) / scale[
-            updated, np.newaxis
+        # update posteriors and rescale to keep shape bounded
+        posterior[free, 1] = cavity[free, 1] + penalty
+        factors[free, MIXPRIOR] = (posterior[free] - cavity[free]) / scale[
+            free, np.newaxis
         ]
-
-        # rescale posterior to keep shape bounded
         for i in np.flatnonzero(free):
             eta = posterior_damping(posterior[i])
             posterior[i] *= eta
@@ -438,62 +448,93 @@ class ExpectationPropagation:
         return np.nan
 
     @staticmethod
-    @numba.njit(_f(_f2r, _f2w, _f3w, _f1w, _f, _f, _b))
-    def propagate_constraints(
-        constraints, posterior, factors, scale, max_shape, min_step, min_kl
+    @numba.njit(_f2w(_i1r, _i1r, _i1r, _f2r, _f2r, _f2r, _f3r, _f1r, _b))
+    def propagate_mutations(
+        mutations_edge,
+        edges_parent,
+        edges_child,
+        likelihoods,
+        constraints,
+        posterior,
+        factors,
+        scale,
+        min_kl,
     ):
         """
-        Update approximating factors for node age constraints (indicator
-        functions) at each node.
+        Calculate posteriors for mutations.
 
-        :param ndarray constraints: rows are nodes, columns are lower and
-            upper bounds for age.
-        :param ndarray posterior: rows are nodes, columns are first and
-            second natural parameters of gamma posteriors. Updated in
-            place.
-        :param ndarray factors: rows are edges, columns are different
-            types of updates. Updated in place.
+        :param ndarray mutations_edge: integer array giving edge for each
+            mutation
+        :param ndarray edges_parent: integer array of parent ids per edge
+        :param ndarray edges_child: integer array of child ids per edge
+        :param ndarray likelihoods: array of dimension `[num_edges, 2]`
+            containing mutation count and mutational target size per edge.
+        :param ndarray constraints: array of dimension `[num_nodes, 2]`
+            containing lower and upper bounds for each node.
+        :param ndarray posterior: array of dimension `[num_nodes, 2]`
+            containing natural parameters for each node, updated in-place.
+        :param ndarray factors: array of dimension `[num_edges, 2, 2]`
+            containing parent and child factors (natural parameters) for each
+            edge, updated in-place.
         :param ndarray scale: array of dimension `[num_nodes]` containing a
             scaling factor for the posteriors, updated in-place.
-        :param float max_shape: the maximum allowed shape for node posteriors.
-        :param float min_step: the minimum allowed step size in (0, 1).
         :param bool min_kl: minimize KL divergence or match central moments.
         """
 
+        # TODO: scale should be 1.0, can we delete
+        # TODO: we don't seem to need to damp?
+        # TODO: might as well copy format in other functions and have void return
+
         assert constraints.shape == posterior.shape
-        assert factors.shape == (constraints.shape[0], 2, 2)
-        assert scale.size == constraints.shape[0]
-        assert max_shape >= 1.0
-        assert 0.0 < min_step < 1.0
+        assert edges_child.size == edges_parent.size
+        assert factors.shape == (edges_parent.size, 2, 2)
+        assert likelihoods.shape == (edges_parent.size, 2)
 
-        def cavity_damping(x, y):
-            return _damp(x, y, min_step)
-
-        def posterior_damping(x):
-            return _rescale(x, max_shape)
-
-        lognorm = np.zeros(constraints.shape[0])  # TODO: move to member
-
-        bounded = np.logical_or(
-            constraints[:, LOWER] > 0.0, constraints[:, UPPER] < np.inf
-        )
-
-        for i in np.flatnonzero(bounded):
-            if constraints[i, LOWER] == constraints[i, UPPER]:
+        mutations_posterior = np.zeros((mutations_edge.size, 2))
+        fixed = constraints[:, LOWER] == constraints[:, UPPER]
+        for m, i in enumerate(mutations_edge):
+            if i == tskit.NULL:  # skip mutations above root
+                mutations_posterior[m] = np.nan
                 continue
-            message = factors[i, CONSTRNT] * scale[i]
-            delta = cavity_damping(posterior[i], message)
-            cavity = posterior[i] - delta * message
-            lognorm[i], posterior[i] = approx.truncated_projection(
-                constraints[i], cavity, min_kl
-            )
-            factors[i, CONSTRNT] *= 1.0 - delta
-            factors[i, CONSTRNT] += (posterior[i] - cavity) / scale[i]
-            eta = posterior_damping(posterior[i])
-            posterior[i] *= eta
-            scale[i] *= eta
+            p, c = edges_parent[i], edges_child[i]
+            if fixed[p] and fixed[c]:
+                child_age = constraints[c, 0]
+                parent_age = constraints[p, 0]
+                mean = 1 / 2 * (child_age + parent_age)
+                variance = 1 / 12 * (parent_age - child_age) ** 2
+                mutations_posterior[m] = approx.approximate_gamma_mom(mean, variance)
+            elif fixed[p] and not fixed[c]:
+                child_message = factors[i, LEAFWARD] * scale[c]
+                child_delta = 1.0  # hopefully we don't need to damp
+                child_cavity = posterior[c] - child_delta * child_message
+                edge_likelihood = child_delta * likelihoods[i]
+                parent_age = constraints[p, LOWER]
+                mutations_posterior[m] = approx.mutation_leafward_projection(
+                    parent_age, child_cavity, edge_likelihood, min_kl
+                )
+            elif fixed[c] and not fixed[p]:
+                parent_message = factors[i, ROOTWARD] * scale[p]
+                parent_delta = 1.0  # hopefully we don't need to damp
+                parent_cavity = posterior[p] - parent_delta * parent_message
+                edge_likelihood = parent_delta * likelihoods[i]
+                child_age = constraints[c, LOWER]
+                mutations_posterior[m] = approx.mutation_rootward_projection(
+                    child_age, parent_cavity, edge_likelihood, min_kl
+                )
+            else:
+                parent_message = factors[i, ROOTWARD] * scale[p]
+                child_message = factors[i, LEAFWARD] * scale[c]
+                parent_delta = 1.0  # hopefully we don't need to damp
+                child_delta = 1.0  # hopefully we don't need to damp
+                delta = min(parent_delta, child_delta)
+                parent_cavity = posterior[p] - delta * parent_message
+                child_cavity = posterior[c] - delta * child_message
+                edge_likelihood = delta * likelihoods[i]
+                mutations_posterior[m] = approx.mutation_gamma_projection(
+                    parent_cavity, child_cavity, edge_likelihood, min_kl
+                )
 
-        return np.nan
+        return mutations_posterior
 
     @staticmethod
     @numba.njit(_void(_i1r, _i1r, _f3w, _f3w, _f1w))
@@ -507,26 +548,16 @@ class ExpectationPropagation:
         scale[:] = 1.0
 
     def iterate(
-        self, em_maxitt=10, em_reltol=1e-6, max_shape=1000, min_step=0.1, min_kl=True
+        self,
+        *,
+        max_shape=1000,
+        min_step=0.1,
+        em_maxitt=100,
+        em_reltol=1e-8,
+        min_kl=False,
+        regularise=True,
+        check_valid=False,
     ):
-        """
-        Update approximating factors.
-
-        Returns the approximate log marginal likelihood (TODO)
-        """
-
-        # mixture prior over unconstrained nodes
-        self.propagate_prior(
-            self.prior,
-            self.constraints,
-            self.posterior,
-            self.node_factors,
-            self.scale,
-            max_shape,
-            em_maxitt,
-            em_reltol,
-        )
-
         # rootward + leafward pass through edges
         self.propagate_likelihood(
             self.edge_order,
@@ -543,16 +574,17 @@ class ExpectationPropagation:
             min_kl,
         )
 
-        # upper and lower bounds on node age
-        # self.propagate_constraints(
-        #     self.constraints,
-        #     self.posterior,
-        #     self.node_factors,
-        #     self.scale,
-        #     max_shape,
-        #     min_step,
-        #     min_kl,
-        # )
+        # exponential regularization on roots
+        if regularise:
+            self.propagate_prior(
+                self.roots,
+                self.posterior,
+                self.node_factors,
+                self.scale,
+                max_shape,
+                em_maxitt,
+                em_reltol,
+            )
 
         # absorb the scaling term into the factors
         self.rescale_factors(
@@ -563,32 +595,104 @@ class ExpectationPropagation:
             self.scale,
         )
 
-        # for debugging
-        # assert self._check_valid_state(
-        #    self.parents, self.children, self.posterior,
-        #    self.node_factors, self.edge_factors,
-        # )
+        if check_valid:  # for debugging
+            assert self._check_valid_state(
+                self.parents,
+                self.children,
+                self.posterior,
+                self.node_factors,
+                self.edge_factors,
+            )
 
         return np.nan  # TODO: placeholder for marginal likelihood
+
+    def normalise(
+        self,
+        *,
+        norm_intervals=1000,
+        norm_segsites=False,
+        use_median=False,
+        quantile_width=0.5,
+    ):
+        """Normalise posteriors so that empirical mutation rate is constant"""
+        edge_weights = (
+            np.ones(self.edge_weights.size) if norm_segsites else self.edge_weights
+        )
+        nodes_time = self._point_estimate(self.posterior, self.constraints, use_median)
+        original_breaks, rescaled_breaks = mutational_timescale(
+            nodes_time,
+            self.likelihoods,
+            self.constraints,
+            self.parents,
+            self.children,
+            edge_weights,
+            norm_intervals,
+        )
+        self.posterior[:] = piecewise_scale_posterior(
+            self.posterior,
+            original_breaks,
+            rescaled_breaks,
+            quantile_width,
+            use_median,
+        )
+        self.mutations_posterior[:] = piecewise_scale_posterior(
+            self.mutations_posterior,
+            original_breaks,
+            rescaled_breaks,
+            quantile_width,
+            use_median,
+        )
 
     def run(
         self,
         *,
-        ep_maxitt=20,
-        em_maxitt=10,
+        ep_maxitt=10,
         max_shape=1000,
         min_step=0.1,
-        min_kl=True,
-        progress=None
+        min_kl=False,
+        norm_intervals=1000,
+        norm_segsites=False,
+        regularise=True,
+        progress=None,
     ):
-        for itt in tqdm(
+        nodes_timing = time.time()
+        for _ in tqdm(
             np.arange(ep_maxitt),
             desc="Expectation Propagation",
             disable=not progress,
         ):
             self.iterate(
-                em_maxitt=em_maxitt if itt else 0,
                 max_shape=max_shape,
                 min_step=min_step,
                 min_kl=min_kl,
+                regularise=regularise,
             )
+        nodes_timing -= time.time()
+        skipped_nodes = np.sum(np.isnan(self.log_partition))
+        if skipped_nodes:
+            logging.info(f"Skipped {skipped_nodes} nodes with invalid posteriors")
+        logging.info(f"Calculated node posteriors in {abs(nodes_timing)} seconds")
+
+        muts_timing = time.time()
+        self.mutations_posterior = self.propagate_mutations(
+            self.mutations_edge,
+            self.parents,
+            self.children,
+            self.likelihoods,
+            self.constraints,
+            self.posterior,
+            self.edge_factors,
+            self.scale,
+            min_kl,
+        )
+        muts_timing -= time.time()
+        skipped_muts = np.sum(np.isnan(self.mutations_posterior[:, 0]))
+        if skipped_muts:
+            logging.info(f"Skipped {skipped_muts} mutations with invalid posteriors")
+        logging.info(f"Calculated mutation posteriors in {abs(muts_timing)} seconds")
+
+        if norm_intervals > 0:
+            norm_timing = time.time()
+            self.normalise(norm_intervals=norm_intervals, norm_segsites=norm_segsites)
+            norm_timing -= time.time()
+            logging.info(f"Timescale normalised in {abs(norm_timing)} seconds")

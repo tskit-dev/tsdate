@@ -1,0 +1,5 @@
+1. mutation posteriors
+2. poisson changepoint algorithm
+3. fixed changepoint algorithm
+4. interval/edge intersection algorithm
+5. metadata posteriors match posterior array

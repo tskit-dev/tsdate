@@ -15,5 +15,6 @@ pytest-cov
 mpmath
 numdifftools
 setuptools>=45
+matplotlib
 twine
 build

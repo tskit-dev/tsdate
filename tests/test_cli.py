@@ -248,7 +248,7 @@ class TestOutput(RunCLI):
     )
     def test_no_progress(self, method, tmp_path, capfd):
         input_ts = msprime.simulate(4, random_seed=123)
-        params = f"-m 0.1 --method {method}"
+        params = f"-m 0.1 --method {method} --normalisation-intervals 0"
         self.run_tsdate_cli(tmp_path, input_ts, f"{self.popsize} {params}")
         (out, err) = capfd.readouterr()
         assert out == ""
@@ -257,7 +257,7 @@ class TestOutput(RunCLI):
 
     def test_progress(self, tmp_path, capfd):
         input_ts = msprime.simulate(4, random_seed=123)
-        params = "--method inside_outside --progress"
+        params = "--method inside_outside --progress --normalisation-intervals 0"
         self.run_tsdate_cli(tmp_path, input_ts, f"{self.popsize} {params}")
         (out, err) = capfd.readouterr()
         assert out == ""
@@ -268,7 +268,6 @@ class TestOutput(RunCLI):
             "Find Mixture Priors",
             "Inside",
             "Outside",
-            "Constrain Ages",
         )
         for match in desc:
             assert match in err
@@ -277,7 +276,8 @@ class TestOutput(RunCLI):
 
     def test_iterative_progress(self, tmp_path, capfd):
         input_ts = msprime.simulate(4, random_seed=123)
-        params = "--method variational_gamma --mutation-rate 1e-8 --progress"
+        params = "--method variational_gamma --mutation-rate 1e-8 "
+        params += "--progress --normalisation-intervals 0"
         self.run_tsdate_cli(tmp_path, input_ts, f"{self.popsize} {params}")
         (out, err) = capfd.readouterr()
         assert out == ""
@@ -315,7 +315,7 @@ class TestEndToEnd(RunCLI):
                     col_t2 = getattr(t2.nodes, column_name)
                     assert np.array_equal(col_t1, col_t2)
             for column_name in t1.mutations.column_names:
-                if column_name not in ["time"]:
+                if column_name not in ["time", "metadata", "metadata_offset"]:
                     col_t1 = getattr(t1.mutations, column_name)
                     col_t2 = getattr(t2.mutations, column_name)
                     assert np.array_equal(col_t1, col_t2)
@@ -337,8 +337,12 @@ class TestEndToEnd(RunCLI):
 
     def compare_python_api(self, tmp_path, input_ts, params, Ne, mutation_rate, method):
         output_ts = self.run_tsdate_cli(tmp_path, input_ts, params)
+        popsize = None if method == "variational_gamma" else Ne
         dated_ts = tsdate.date(
-            input_ts, population_size=Ne, mutation_rate=mutation_rate, method=method
+            input_ts,
+            population_size=popsize,
+            mutation_rate=mutation_rate,
+            method=method,
         )
         assert np.array_equal(dated_ts.nodes_time, output_ts.nodes_time)
 

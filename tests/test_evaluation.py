@@ -70,7 +70,7 @@ def naive_shared_node_spans(ts, other):
     assert ts.sequence_length == other.sequence_length
     assert ts.num_samples == other.num_samples
     out = np.zeros((ts.num_nodes, other.num_nodes))
-    for (interval, query_tree, target_tree) in ts.coiterate(other):
+    for interval, query_tree, target_tree in ts.coiterate(other):
         query = _clade_dict(query_tree)
         target = _clade_dict(target_tree)
         span = interval.right - interval.left
