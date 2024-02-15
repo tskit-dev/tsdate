@@ -226,7 +226,7 @@ def moments(a_i, b_i, a_j, b_j, y_ij, mu_ij):
 #        mn_i = shape / rate
 #        va_i = shape / rate**2
 #        ln_i = hypergeo._digamma(shape) - log(rate)
-#        return logl, mn_i, va_i, ln_i
+#        return logl, mn_i, ln_i, va_i
 #
 #    a = y_ij + 1
 #    b = a_i + y_ij + 1
@@ -278,7 +278,7 @@ def rootward_moments(t_j, a_i, b_i, y_ij, mu_ij):
         mn_i = s / r
         va_i = s / r**2
         ln_i = hypergeo._digamma(s) - log(r)
-        return logl, mn_i, va_i, ln_i
+        return logl, mn_i, ln_i, va_i
 
     hyperu = hypergeo._hyperu_laplace
     f0, d0 = hyperu(a + 0, b + 0, z)
@@ -406,8 +406,9 @@ def _hyperu_valid_parameterization(t_j, a_i, b_i, y, mu):
     """Uses shape / rate parameterization"""
     a = y + 1
     b = a_i + y + 1
-    z = t_j * (mu + b_i)
-    if z <= 0.0:
+    if t_j < 0.0:
+        return False
+    if mu + b_i <= 0.0:
         return False
     if not (b > a > 0.0):
         return False

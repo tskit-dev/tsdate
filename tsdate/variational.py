@@ -30,6 +30,7 @@ from tqdm.auto import tqdm
 
 from . import approx
 from . import mixture
+from . import util
 from .approx import _b
 from .approx import _f
 from .approx import _f1r
@@ -39,6 +40,7 @@ from .approx import _f2w
 from .approx import _f3w
 from .approx import _i
 from .approx import _i1r
+from .hypergeo import _gammainc as gammainc
 
 
 # columns for edge_factors
@@ -144,7 +146,7 @@ class ExpectationPropagation:
             )
 
     @staticmethod
-    def _check_valid_inputs(ts, likelihoods, constraints, prior):
+    def _check_valid_inputs(ts, likelihoods, constraints):
         if likelihoods.shape != (ts.num_edges, 2):
             raise ValueError("Edge likelihoods are the wrong shape")
         if constraints.shape != (ts.num_nodes, 2):
@@ -170,7 +172,7 @@ class ExpectationPropagation:
         posterior_check += node_factors[:, CONSTRNT]
         return np.allclose(posterior_check, posterior)
 
-    def __init__(self, ts, likelihoods, constraints, prior):
+    def __init__(self, ts, likelihoods, constraints):
         """
         Initialize an expectation propagation algorithm for dating nodes
         in a tree sequence.
@@ -189,13 +191,9 @@ class ExpectationPropagation:
         :param ~np.ndarray likelihoods: a `ts.num_edges`-by-two array containing
             mutation counts and mutational spans (e.g. edge span multiplied by
             mutation rate) per edge.
-        :param ~np.ndarray prior: a `K`-by-three array containing parameters of
-            an i.i.d. gamma mixture prior with `K` components, used for all
-            nonfixed nodes. Each row contains the weight, shape, and rate
-            for a mixture component.
         """
 
-        self._check_valid_inputs(ts, likelihoods, constraints, prior)
+        self._check_valid_inputs(ts, likelihoods, constraints)
 
         # const
         self.parents = ts.edges_parent
@@ -204,35 +202,34 @@ class ExpectationPropagation:
         self.constraints = constraints
 
         # mutable
-        self.prior = prior.copy()
         self.node_factors = np.zeros((ts.num_nodes, 2, 2))
         self.edge_factors = np.zeros((ts.num_edges, 2, 2))
-        # self.node_lognorm = np.zeros(ts.num_nodes)
-        # self.edge_lognorm = np.zeros(ts.num_nodes)
         self.posterior = np.zeros((ts.num_nodes, 2))
         self.log_partition = np.zeros(ts.num_edges)
         self.scale = np.ones(ts.num_nodes)
 
-        # get edge traversal order
-        node_is_fixed = constraints[:, LOWER] == constraints[:, UPPER]
-        child_is_contemporary = np.logical_and(
-            constraints[ts.edges_child, LOWER] == 0.0,
-            node_is_fixed[ts.edges_child],
-        )
+        # edge traversal order
         edges = np.arange(ts.num_edges, dtype=np.int32)
-        contemp = edges[child_is_contemporary]
-        noncontemp = edges[~child_is_contemporary]
-        self.edge_order = np.concatenate(  # rootward + leafward
-            (noncontemp[:-1], np.flip(noncontemp))
-        )
+        self.edge_order = np.concatenate((edges[:-1], np.flip(edges)))
 
         # edges attached to contemporary nodes are visited once
-        for i in contemp:
-            p, c = ts.edges_parent[i], ts.edges_child[i]
-            assert np.all(constraints[c] == 0.0)
-            self.edge_factors[i, ROOTWARD] = self.likelihoods[i]
-            self.posterior[p] += self.likelihoods[i]
-            # self.node_lognorm[i] += ... # TODO
+        # node_is_fixed = constraints[:, LOWER] == constraints[:, UPPER]
+        # child_is_contemporary = np.logical_and(
+        #     constraints[ts.edges_child, LOWER] == 0.0,
+        #     node_is_fixed[ts.edges_child],
+        # )
+        # edges = np.arange(ts.num_edges, dtype=np.int32)
+        # contemp = edges[child_is_contemporary]
+        # noncontemp = edges[~child_is_contemporary]
+        # self.edge_order = np.concatenate(  # rootward + leafward
+        #     (noncontemp[:-1], np.flip(noncontemp))
+        # )
+        # for i in contemp:
+        #     p, c = ts.edges_parent[i], ts.edges_child[i]
+        #     assert np.all(constraints[c] == 0.0)
+        #     self.edge_factors[i, ROOTWARD] = self.likelihoods[i]
+        #     self.posterior[p] += self.likelihoods[i]
+        #     # self.node_lognorm[i] += ... # TODO
 
     @staticmethod
     @numba.njit(_f(_i1r, _i1r, _i1r, _f2r, _f2r, _f2w, _f3w, _f1w, _f1w, _f, _f, _b))
@@ -438,6 +435,122 @@ class ExpectationPropagation:
         return np.nan
 
     @staticmethod
+    @numba.njit(_f(_f2w, _f2r, _f2r, _i1r, _i1r, _f3w))
+    def mutational_timescale(
+        posteriors, likelihoods, constraints, edges_parent, edges_child, edge_factors
+    ):
+        """
+        Estimate a piecewise-constant time rescaling using the mutational
+        clock, then match moments to update the posteriors given the time
+        rescaling
+        """
+
+        tol = 1e-10
+
+        free = constraints[:, 0] != constraints[:, 1]
+        nodes_time = np.zeros(free.size)
+        nodes_time[free] = (posteriors[free, 0] + 1) / posteriors[free, 1]
+        nodes_time[~free] = constraints[~free, 0]
+        edges_muts = likelihoods[:, 0].copy()
+        edges_span = likelihoods[:, 1].copy()
+        rescaled_time = util.scale_time_by_mutations(
+            nodes_time, edges_parent, edges_child, edges_muts, edges_span
+        )
+
+        # collapse intervals that have zero length
+        nodes_order = np.argsort(nodes_time)
+        nodes_index = np.zeros(nodes_time.size, dtype=np.int32)
+        breaks = [0.0]
+        skaerb = [0.0]
+        scale = []
+        dx, dy = 0.0, 0.0
+        num_breaks = 0
+        for i, j in zip(nodes_order[1:], nodes_order[:-1]):
+            dx += nodes_time[i] - nodes_time[j]
+            dy += rescaled_time[i] - rescaled_time[j]
+            if dx > 0 and dy > 0:
+                breaks.append(dx + breaks[num_breaks])
+                skaerb.append(dy + skaerb[num_breaks])
+                scale.append(dx / dy)
+                dx, dy = 0.0, 0.0
+                num_breaks += 1
+            nodes_index[i] = num_breaks
+        breaks[num_breaks] = np.inf
+        skaerb[num_breaks] = np.inf
+        num_breaks += 1
+
+        # integrate posterior moments over piecewise-constant time-rescaling
+        factor_scale = np.zeros(posteriors.shape)
+        # for i in numba.prange(posteriors.shape[0]):
+        for i in range(posteriors.shape[0]):
+            if not free[i]:
+                continue
+
+            lo = np.zeros(3)
+            up = np.zeros(3)
+            sc = np.zeros(3)
+
+            shape, rate = posteriors[i, 0] + 1, posteriors[i, 1]
+            sc[0] = 1.0
+            sc[1] = shape / rate
+            sc[2] = shape * (shape + 1) / rate**2
+            k = nodes_index[i]
+            mn = 0.0
+            sq = 0.0
+
+            # lo[:] = 0.0
+            # for j in range(num_breaks - 1):
+            #    u = 1.0 / scale[j]
+            #    for s in range(3):
+            #        up[s] = gammainc(shape + s, rate * breaks[j + 1])
+            #    di = sc * (up - lo)
+            #    dt = skaerb[j] - u * breaks[j]
+            #    mn += di[0] * dt + di[1] * u
+            #    sq += di[0] * dt ** 2 + 2 * di[1] * u * dt + di[2] * u ** 2
+            #    lo[:] = up[:]
+
+            for s in range(3):
+                lo[s] = gammainc(shape + s, rate * breaks[k])
+            for j in range(k, num_breaks - 1):
+                u = 1.0 / scale[j]
+                for s in range(3):
+                    up[s] = gammainc(shape + s, rate * breaks[j + 1])
+                di = sc * (up - lo)
+                dt = skaerb[j] - u * breaks[j]
+                mn += di[0] * dt + di[1] * u
+                sq += di[0] * dt**2 + 2 * di[1] * u * dt + di[2] * u**2
+                if 1 - up[0] < tol:  # check upper tail
+                    break
+                lo[:] = up[:]
+
+            for s in range(3):
+                up[s] = gammainc(shape + s, rate * breaks[k])
+            for j in range(k, 0, -1):
+                u = 1.0 / scale[j - 1]
+                for s in range(3):
+                    lo[s] = gammainc(shape + s, rate * breaks[j - 1])
+                di = sc * (up - lo)
+                dt = skaerb[j - 1] - u * breaks[j - 1]
+                mn += di[0] * dt + di[1] * u
+                sq += di[0] * dt**2 + 2 * di[1] * u * dt + di[2] * u**2
+                if lo[0] < tol:  # check lower tail
+                    break
+                up[:] = lo[:]
+
+            va = sq - mn**2
+            posterior = approx.approximate_gamma_mom(mn, va)
+            factor_scale[i] = np.array(posterior) / posteriors[i]
+            # assert np.all(factor_scale[i] >= 0) # comment out if using prange
+            posteriors[i] = posterior
+
+        # rescale factors to sum to posterior
+        for e, (p, c) in enumerate(zip(edges_parent, edges_child)):
+            edge_factors[e, ROOTWARD] *= factor_scale[p]
+            edge_factors[e, LEAFWARD] *= factor_scale[c]
+
+        return 0.0
+
+    @staticmethod
     @numba.njit(_f(_f2r, _f2w, _f3w, _f1w, _f, _f, _b))
     def propagate_constraints(
         constraints, posterior, factors, scale, max_shape, min_step, min_kl
@@ -507,25 +620,18 @@ class ExpectationPropagation:
         scale[:] = 1.0
 
     def iterate(
-        self, em_maxitt=10, em_reltol=1e-6, max_shape=1000, min_step=0.1, min_kl=True
+        self,
+        max_shape=1000,
+        min_step=0.1,
+        normalise=False,
+        min_kl=True,
+        check_valid=False,
     ):
         """
         Update approximating factors.
 
         Returns the approximate log marginal likelihood (TODO)
         """
-
-        # mixture prior over unconstrained nodes
-        self.propagate_prior(
-            self.prior,
-            self.constraints,
-            self.posterior,
-            self.node_factors,
-            self.scale,
-            max_shape,
-            em_maxitt,
-            em_reltol,
-        )
 
         # rootward + leafward pass through edges
         self.propagate_likelihood(
@@ -563,31 +669,38 @@ class ExpectationPropagation:
             self.scale,
         )
 
+        # adjust posteriors to match mutational clock
+        # if normalise:
+        #     self.mutational_timescale(
+        #         self.posterior,
+        #         self.likelihoods,
+        #         self.constraints,
+        #         self.parents,
+        #         self.children,
+        #         self.edge_factors,
+        #     )
+
         # for debugging
-        # assert self._check_valid_state(
-        #    self.parents, self.children, self.posterior,
-        #    self.node_factors, self.edge_factors,
-        # )
+        if check_valid:
+            assert self._check_valid_state(
+                self.parents,
+                self.children,
+                self.posterior,
+                self.node_factors,
+                self.edge_factors,
+            )
 
         return np.nan  # TODO: placeholder for marginal likelihood
 
     def run(
-        self,
-        *,
-        ep_maxitt=20,
-        em_maxitt=10,
-        max_shape=1000,
-        min_step=0.1,
-        min_kl=True,
-        progress=None
+        self, *, ep_maxitt=10, max_shape=1000, min_step=0.1, min_kl=True, progress=None
     ):
-        for itt in tqdm(
+        for _ in tqdm(
             np.arange(ep_maxitt),
             desc="Expectation Propagation",
             disable=not progress,
         ):
             self.iterate(
-                em_maxitt=em_maxitt if itt else 0,
                 max_shape=max_shape,
                 min_step=min_step,
                 min_kl=min_kl,

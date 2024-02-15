@@ -202,7 +202,7 @@ def shared_node_spans(ts, other):
         for clade_map in (query, target):
             if clade_map.interval[1] == right:
                 clade_diff = clade_map.next()
-                for (prev, curr) in clade_diff.values():
+                for prev, curr in clade_diff.values():
                     if prev != nil:
                         modified.add(prev)
                     if curr != nil:
@@ -252,3 +252,42 @@ def match_node_ages(ts, other):
     matched_time[matched_span == 0] = np.nan
 
     return matched_time, matched_span, best_match
+
+
+def node_coverage(ts, inferred_ts, posteriors, alpha):
+    assert np.all(np.logical_and(1 > alpha, alpha > 0))
+    positions = ts.sites_position
+    true_child = np.full(positions.size, tskit.NULL)
+    infr_child = np.full(positions.size, tskit.NULL)
+    for s in ts.sites():
+        if len(s.mutations) == 1:
+            true_child[s.id] = s.mutations[0].node
+    for s in inferred_ts.sites():
+        if len(s.mutations) == 1:
+            infr_child[s.id] = s.mutations[0].node
+    missing = np.logical_or(true_child == tskit.NULL, infr_child == tskit.NULL)
+    infr_child = infr_child[~missing]
+    true_child = true_child[~missing]
+    post = posteriors[infr_child]
+    upper = np.zeros((post.shape[0], alpha.size))
+    lower = np.zeros((post.shape[0], alpha.size))
+    for i in range(post.shape[0]):
+        shape, rate = post[i, 0] + 1, post[i, 1]
+        if shape <= 1:
+            upper[i] = scipy.stats.gamma.ppf(1 - alpha, shape, scale=1 / rate)
+            lower[i] = 0.0
+        else:
+            upper[i] = scipy.stats.gamma.ppf(1 - alpha / 2, shape, scale=1 / rate)
+            lower[i] = scipy.stats.gamma.ppf(alpha / 2, shape, scale=1 / rate)
+    true = ts.nodes_time[true_child]
+    is_covered = np.logical_and(
+        true[:, np.newaxis] < upper, true[:, np.newaxis] > lower
+    )
+    prop_covered = np.sum(is_covered, axis=0) / is_covered.shape[0]
+    # plt.axline((0,0), slope=1, linestyle="--", color="black")
+    # plt.xlim(0, 1)
+    # plt.ylim(0, 1)
+    # plt.scatter(1 - alpha, prop_covered, color="red")
+    # plt.savefig("bar.png")
+    # plt.clf()
+    return prop_covered

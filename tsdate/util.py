@@ -34,8 +34,12 @@ from numba.types import UniTuple as _unituple
 from . import provenance
 from .approx import _b1r
 from .approx import _f1r
+from .approx import _f1w
+from .approx import _f2r
+from .approx import _f2w
 from .approx import _i1r
 from .approx import _i1w
+from .hypergeo import _gammainc as gammainc
 
 
 logger = logging.getLogger(__name__)
@@ -591,3 +595,180 @@ def split_root_nodes(ts):
     tables.sort()
 
     return tables.tree_sequence()
+
+
+@numba.njit(_f1w(_f1r, _i1r, _i1r, _f1r, _f1r))
+def scale_time_by_mutations(
+    nodes_time, edges_parent, edges_child, edges_muts, edges_span
+):
+    """
+    `edges_span` is pre-multiplied by mutation rate
+    """
+
+    # index node by unique time breaks
+    nodes_order = np.argsort(nodes_time)
+    nodes_index = np.zeros(nodes_time.size, dtype=np.int32)
+    time_breaks = [0.0]
+    k = 0
+    for i, j in zip(nodes_order[1:], nodes_order[:-1]):
+        if nodes_time[i] > nodes_time[j]:
+            time_breaks.append(nodes_time[i])
+            k += 1
+        nodes_index[i] = k
+    time_breaks = np.array(time_breaks)
+    time_interval = np.diff(time_breaks)
+
+    # pass over edges, measuring overlap with each time interval
+    area = np.zeros(time_interval.size)
+    muts = np.zeros(time_interval.size)
+    for e in range(edges_parent.size):
+        p, c = edges_parent[e], edges_child[e]
+        length = nodes_time[p] - nodes_time[c]
+        if length > 0:
+            for j in range(nodes_index[c], nodes_index[p]):
+                area[j] += time_interval[j] * edges_span[e]
+                muts[j] += time_interval[j] * edges_muts[e] / length
+
+    # rescale time such that mutation density is constant
+    for i, t in enumerate(time_interval):
+        time_breaks[i + 1] = time_breaks[i] + t * muts[i] / area[i]
+
+    return time_breaks[nodes_index]
+
+
+def mutation_scaling(nodes_time, rescaled_nodes_time):
+    # collapse intervals that have zero length
+    node_order = np.argsort(nodes_time)
+    time_intervals = np.diff(nodes_time[node_order])
+    rescaled_time_intervals = np.diff(rescaled_nodes_time[node_order])
+
+    nodes_index = np.zeros(nodes_time.size, dtype=np.int32)
+    time_breaks = [0.0]
+    rescaled_time_breaks = [0.0]
+    rate = []
+
+    time = 0
+    rescaled_time = 0
+    interval = 0
+    rescaled_interval = 0
+    k = 0
+    for i, (x, y) in enumerate(zip(time_intervals, rescaled_time_intervals)):
+        time += x
+        interval += x
+        rescaled_time += y
+        rescaled_interval += y
+        nodes_index[i + 1] = k
+        if interval > 0 and rescaled_interval > 0:
+            rate.append(interval / rescaled_interval)
+            time_breaks.append(time)
+            rescaled_time_breaks.append(rescaled_time)
+            interval = 0
+            rescaled_interval = 0
+            k += 1
+
+    rate = np.array(rate)
+    time_breaks = np.array(time_breaks)
+    rescaled_time_breaks = np.array(rescaled_time_breaks)
+    assert np.all(rate > 0)
+
+    return time_breaks, rate, rescaled_time_breaks
+
+
+@numba.njit(_f2w(_f2r, _f2r, _f2r, _i1r, _i1r))
+def normalise_posteriors(
+    posteriors, likelihoods, constraints, edges_child, edges_parent
+):
+    """
+    Estimate a piecewise-constant time rescaling using the mutational clock,
+    then match moments to update the posteriors given the time rescaling
+    """
+
+    # tol = 1e-10
+
+    free = constraints[:, 0] != constraints[:, 1]
+    nodes_time = np.zeros(free.size)
+    nodes_time[free] = (posteriors[free, 0] + 1) / posteriors[free, 1]
+    nodes_time[~free] = constraints[~free, 0]
+    edges_muts = likelihoods[:, 0].copy()
+    edges_span = likelihoods[:, 1].copy()
+    rescaled_time = scale_time_by_mutations(
+        nodes_time, edges_parent, edges_child, edges_muts, edges_span
+    )
+
+    # collapse intervals that have zero length
+    nodes_order = np.argsort(nodes_time)
+    nodes_index = np.zeros(nodes_time.size, dtype=np.int32)
+    breaks = [0.0]
+    skaerb = [0.0]
+    scale = []
+    dx, dy = 0.0, 0.0
+    num_breaks = 0
+    for i, j in zip(nodes_order[1:], nodes_order[:-1]):
+        dx += nodes_time[i] - nodes_time[j]
+        dy += rescaled_time[i] - rescaled_time[j]
+        if dx > 0 and dy > 0:
+            breaks.append(dx + breaks[num_breaks])
+            skaerb.append(dy + skaerb[num_breaks])
+            scale.append(dx / dy)
+            dx, dy = 0.0, 0.0
+            num_breaks += 1
+        nodes_index[i] = num_breaks
+    breaks[num_breaks] = np.inf
+    skaerb[num_breaks] = np.inf
+    num_breaks += 1
+
+    # integrate posterior moments over piecewise-constant time-rescaling
+    lo = np.zeros(3)  # move into parallel loop
+    up = np.zeros(3)
+    new_posteriors = np.zeros(posteriors.shape)
+    for i in np.flatnonzero(free):
+        shape, rate = posteriors[i, 0] + 1, posteriors[i, 1]
+        sc = np.array([1.0, shape / rate, shape * (shape + 1) / rate**2])
+
+        mn = 0.0
+        sq = 0.0
+
+        lo[:] = 0.0
+        for j in range(num_breaks - 1):
+            u = 1.0 / scale[j]
+            for s in range(3):
+                up[s] = gammainc(shape + s, rate * breaks[j + 1])
+            di = sc * (up - lo)
+            dt = skaerb[j] - u * breaks[j]
+            mn += di[0] * dt + di[1] * u
+            sq += di[0] * dt**2 + 2 * di[1] * u * dt + di[2] * u**2
+            lo[:] = up[:]
+
+        # k = nodes_index[i]
+        # for s in range(3):
+        #    lo[s] = gammainc(shape + s, rate * breaks[k])
+        # for j in range(k, num_breaks - 1):
+        #    u = 1.0 / scale[j]
+        #    for s in range(3):
+        #        up[s] = gammainc(shape + s, rate * breaks[j + 1])
+        #    di = sc * (up - lo)
+        #    dt = skaerb[j] - u * breaks[j]
+        #    mn += di[0] * dt + di[1] * u
+        #    sq += di[0] * dt ** 2 + 2 * di[1] * u * dt + di[2] * u ** 2
+        #    if 1 - up[0] < tol: # check upper tail
+        #        break
+        #    lo[:] = up[:]
+
+        # for s in range(3):
+        #    up[s] = gammainc(shape + s, rate * breaks[k])
+        # for j in range(k, 0, -1):
+        #    u = 1.0 / scale[j - 1]
+        #    for s in range(3):
+        #        lo[s] = gammainc(shape + s, rate * breaks[j - 1])
+        #    di = sc * (up - lo)
+        #    dt = skaerb[j - 1] - u * breaks[j - 1]
+        #    mn += di[0] * dt + di[1] * u
+        #    sq += di[0] * dt ** 2 + 2 * di[1] * u * dt + di[2] * u ** 2
+        #    if lo[0] < tol: # check lower tail
+        #        break
+        #    up[:] = lo[:]
+
+        va = sq - mn**2
+        new_posteriors[i] = [mn**2 / va, mn / va]
+
+    return new_posteriors
