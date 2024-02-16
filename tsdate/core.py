@@ -1197,6 +1197,7 @@ class VariationalGammaMethod(EstimationMethod):
         max_iterations,
         max_shape,
         match_central_moments,
+        normalise,
     ):
         if self.provenance_params is not None:
             self.provenance_params.update(
@@ -1227,13 +1228,14 @@ class VariationalGammaMethod(EstimationMethod):
             dynamic_prog.posterior, dynamic_prog.constraints
         )
         # TODO: re-estimate gamma parameters using rescaled quantiles
-        posterior_mean = util.scale_time_by_mutations(
-            posterior_mean,
-            dynamic_prog.parents,
-            dynamic_prog.children,
-            dynamic_prog.likelihoods[:, 0].copy(),
-            dynamic_prog.likelihoods[:, 1].copy(),
-        )
+        if normalise:
+            posterior_mean = util.scale_time_by_mutations(
+                posterior_mean,
+                dynamic_prog.parents,
+                dynamic_prog.children,
+                dynamic_prog.likelihoods[:, 0].copy(),
+                dynamic_prog.likelihoods[:, 1].copy(),
+            )
 
         # convert posterior array to NodeGridValues
         free = dynamic_prog.constraints[:, 0] != dynamic_prog.constraints[:, 1]
@@ -1451,6 +1453,7 @@ def variational_gamma(
     max_iterations=None,
     max_shape=None,
     match_central_moments=None,
+    normalise=None,
     **kwargs,
 ):
     """
@@ -1480,6 +1483,8 @@ def variational_gamma(
         update matches mean and variance rather than expected gamma sufficient
         statistics. Faster with a similar accuracy, but does not exactly minimize
         Kullback-Leibler divergence. Default: None, treated as True.
+    :param bool normalise: If `True`, the timescale is corrected so that the empirical
+        mutation rate is uniform.
     :param \\**kwargs: Other keyword arguments as described in the :func:`date` wrapper
         function, notably ``mutation_rate``, and ``population_size`` or ``priors``.
         Further arguments include ``time_units``, ``progress``, and
@@ -1511,6 +1516,8 @@ def variational_gamma(
         max_shape = 1000
     if match_central_moments is None:
         match_central_moments = True
+    if normalise is None:
+        normalise = True
 
     dating_method = VariationalGammaMethod(tree_sequence, **kwargs)
     result = dating_method.run(
@@ -1518,6 +1525,7 @@ def variational_gamma(
         max_iterations=max_iterations,
         max_shape=max_shape,
         match_central_moments=match_central_moments,
+        normalise=normalise,
     )
     return dating_method.parse_result(result, eps, {"parameter": ["shape", "rate"]})
 

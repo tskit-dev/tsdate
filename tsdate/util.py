@@ -745,6 +745,87 @@ def scale_time_by_mutations_2(
     return out_span, out_muts
 
 
+#@numba.njit(_f1w(_f1r, _i1r, _i1r, _f1r, _f1r))
+def scale_time_by_mutations_4(
+    nodes_time, likelihoods, edges_parent, edges_child,
+):
+    """
+    :param np.ndarray nodes_time: array of node ages
+    :param np.ndarray likelihoods: edges are rows; mutation
+        counts and mutational span are columns
+    :param np.ndarray edges_parent: node index for the parent of each edge
+    :param np.ndarray edges_child: node index for the child of each edge
+    """
+
+    # index node by unique time breaks
+    nodes_order = np.argsort(nodes_time)
+    nodes_index = np.zeros(nodes_time.size, dtype=np.int32)
+    time_breaks = [0.0]
+    k = 0
+    for i, j in zip(nodes_order[1:], nodes_order[:-1]):
+        if nodes_time[i] > nodes_time[j]:
+            time_breaks.append(nodes_time[i])
+            k += 1
+        nodes_index[i] = k
+    time_breaks = np.array(time_breaks)
+    time_interval = np.diff(time_breaks)
+
+    # instantaneous mutation rate per edge
+    edges_length = nodes_time[edges_parent] - nodes_time[edges_child]
+    edges_subset = edges_length > 0
+    edges_counts = likelihoods.copy()
+    edges_counts[edges_subset, 0] /= edges_length[edges_subset]
+
+    # pass over edges, measuring overlap with each time interval
+    leafward_pass = np.zeros((time_interval.size, 2))
+    rootward_pass = np.zeros((time_interval.size, 2))
+    for e in np.flatnonzero(edges_subset):
+        p, c = edges_parent[e], edges_child[e]
+        a, b = nodes_index[c], nodes_index[p]
+        if a > 0:
+            leafward_pass[a - 1] += edges_counts[e]
+        if b < time_breaks.size - 1:
+            rootward_pass[b] += edges_counts[e]
+
+    # old
+    total_muts = np.sum(edges_counts[edges_subset, 0])
+    total_span = np.sum(edges_counts[edges_subset, 1])
+
+    breaks_span = np.zeros(time_interval.size)
+    breaks_span[0] = rootward_pass[0, 1]
+    for i in range(1, time_interval.size):
+        breaks_span[i] = breaks_span[i - 1] + rootward_pass[i, 1]
+    breaks_span2 = np.zeros(time_interval.size)
+    breaks_span2[-1] = leafward_pass[-1, 1]
+    for i in range(time_interval.size - 1, 0, -1):
+        breaks_span2[i - 1] = breaks_span2[i] + leafward_pass[i - 1, 1]
+    out_span = (total_span - breaks_span - breaks_span2) * time_interval
+
+    breaks_muts = np.zeros(time_interval.size)
+    breaks_muts[0] = rootward_pass[0, 0]
+    for i in range(1, time_interval.size):
+        breaks_muts[i] = breaks_muts[i - 1] + rootward_pass[i, 0]
+    breaks_muts2 = np.zeros(time_interval.size)
+    breaks_muts2[-1] = leafward_pass[-1, 0]
+    for i in range(time_interval.size - 1, 0, -1):
+        breaks_muts2[i - 1] = breaks_muts2[i] + leafward_pass[i - 1, 0]
+    out_muts = (total_muts - breaks_muts - breaks_muts2) * time_interval
+
+    # new
+    totals = np.sum(edges_counts[edges_subset], axis=0)
+    rootward = np.cumsum(rootward, axis=0)
+    leafward = np.cumsum(leafward[::-1], axis=0)[::-1]
+    output = time_interval[:, np.newaxis] * (totals[np.newaxis, :] - rootward - leafward)
+
+    ## rescale time such that mutation density is constant
+    #for i, t in enumerate(time_interval):
+    #    time_breaks[i + 1] = time_breaks[i] + t * muts[i] / area[i]
+
+    #return time_breaks[nodes_index]
+    #return out_span, out_muts
+    return output[:, 1], output[:, 0]
+
+
 def mutation_scaling(nodes_time, rescaled_nodes_time):
     # collapse intervals that have zero length
     node_order = np.argsort(nodes_time)
