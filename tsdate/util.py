@@ -635,6 +635,115 @@ def scale_time_by_mutations(
 
     return time_breaks[nodes_index]
 
+#@numba.njit(_f1w(_f1r, _i1r, _i1r, _f1r, _f1r))
+def scale_time_by_mutations_3(
+    nodes_time, edges_parent, edges_child, edges_muts, edges_span
+):
+    """
+    `edges_span` is pre-multiplied by mutation rate
+    """
+
+    # index node by unique time breaks
+    nodes_order = np.argsort(nodes_time)
+    nodes_index = np.zeros(nodes_time.size, dtype=np.int32)
+    time_breaks = [0.0]
+    k = 0
+    for i, j in zip(nodes_order[1:], nodes_order[:-1]):
+        if nodes_time[i] > nodes_time[j]:
+            time_breaks.append(nodes_time[i])
+            k += 1
+        nodes_index[i] = k
+    time_breaks = np.array(time_breaks)
+    time_interval = np.diff(time_breaks)
+
+    # pass over edges, measuring overlap with each time interval
+    area = np.zeros(time_interval.size)
+    muts = np.zeros(time_interval.size)
+    for e in range(edges_parent.size):
+        p, c = edges_parent[e], edges_child[e]
+        length = nodes_time[p] - nodes_time[c]
+        if length > 0:
+            for j in range(nodes_index[c], nodes_index[p]):
+                area[j] += time_interval[j] * edges_span[e]
+                muts[j] += time_interval[j] * edges_muts[e] / length
+
+    # rescale time such that mutation density is constant
+    for i, t in enumerate(time_interval):
+        time_breaks[i + 1] = time_breaks[i] + t * muts[i] / area[i]
+
+    return area, muts
+
+
+#@numba.njit(_f1w(_f1r, _i1r, _i1r, _f1r, _f1r))
+def scale_time_by_mutations_2(
+    nodes_time, edges_parent, edges_child, edges_muts, edges_span
+):
+    """
+    `edges_span` is pre-multiplied by mutation rate
+    """
+
+    # index node by unique time breaks
+    nodes_order = np.argsort(nodes_time)
+    nodes_index = np.zeros(nodes_time.size, dtype=np.int32)
+    time_breaks = [0.0]
+    k = 0
+    for i, j in zip(nodes_order[1:], nodes_order[:-1]):
+        if nodes_time[i] > nodes_time[j]:
+            time_breaks.append(nodes_time[i])
+            k += 1
+        nodes_index[i] = k
+    time_breaks = np.array(time_breaks)
+    time_interval = np.diff(time_breaks)
+
+    # pass over edges, measuring overlap with each time interval
+    area = np.zeros(time_interval.size)
+    muts = np.zeros(time_interval.size)
+    total_span = 0
+    total_muts = 0
+    leafward_muts = np.zeros(time_interval.size)
+    rootward_muts = np.zeros(time_interval.size)
+    leafward_span = np.zeros(time_interval.size)
+    rootward_span = np.zeros(time_interval.size)
+    for e in range(edges_parent.size):
+        p, c = edges_parent[e], edges_child[e]
+        length = nodes_time[p] - nodes_time[c]
+        if length > 0:
+            total_span += edges_span[e]
+            total_muts += edges_muts[e] / length
+            if nodes_index[c] > 0:
+                leafward_muts[nodes_index[c]-1] += edges_muts[e] / length
+                leafward_span[nodes_index[c]-1] += edges_span[e]
+            if nodes_index[p] < time_breaks.size - 1:
+                rootward_muts[nodes_index[p]] += edges_muts[e] / length
+                rootward_span[nodes_index[p]] += edges_span[e]
+
+    breaks_span = np.zeros(time_interval.size)
+    breaks_span[0] = rootward_span[0]
+    for i in range(1, time_interval.size):
+        breaks_span[i] = breaks_span[i - 1] + rootward_span[i]
+    breaks_span2 = np.zeros(time_interval.size)
+    breaks_span2[-1] = leafward_span[-1]
+    for i in range(time_interval.size - 1, 0, -1):
+        breaks_span2[i - 1] = breaks_span2[i] + leafward_span[i - 1]
+    out_span = (total_span - breaks_span - breaks_span2) * time_interval
+
+    breaks_muts = np.zeros(time_interval.size)
+    breaks_muts[0] = rootward_muts[0]
+    for i in range(1, time_interval.size):
+        breaks_muts[i] = breaks_muts[i - 1] + rootward_muts[i]
+    breaks_muts2 = np.zeros(time_interval.size)
+    breaks_muts2[-1] = leafward_muts[-1]
+    for i in range(time_interval.size - 1, 0, -1):
+        breaks_muts2[i - 1] = breaks_muts2[i] + leafward_muts[i - 1]
+    out_muts = (total_muts - breaks_muts - breaks_muts2) * time_interval
+
+    ## rescale time such that mutation density is constant
+    #for i, t in enumerate(time_interval):
+    #    time_breaks[i + 1] = time_breaks[i] + t * muts[i] / area[i]
+
+    #return time_breaks[nodes_index]
+    return out_span, out_muts
+
 
 def mutation_scaling(nodes_time, rescaled_nodes_time):
     # collapse intervals that have zero length
