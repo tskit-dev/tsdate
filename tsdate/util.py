@@ -32,6 +32,7 @@ import tskit
 from numba.types import UniTuple as _unituple
 
 from . import provenance
+from .approx import _f
 from .approx import _b1r
 from .approx import _f1r
 from .approx import _f1w
@@ -637,7 +638,7 @@ def scale_time_by_mutations(
 
 #@numba.njit(_f1w(_f1r, _i1r, _i1r, _f1r, _f1r))
 def scale_time_by_mutations_3(
-    nodes_time, edges_parent, edges_child, edges_muts, edges_span
+    nodes_time, edges_parent, edges_child, edges_muts, edges_span, eps=0.0
 ):
     """
     `edges_span` is pre-multiplied by mutation rate
@@ -662,7 +663,7 @@ def scale_time_by_mutations_3(
     for e in range(edges_parent.size):
         p, c = edges_parent[e], edges_child[e]
         length = nodes_time[p] - nodes_time[c]
-        if length > 0:
+        if length > eps:
             for j in range(nodes_index[c], nodes_index[p]):
                 area[j] += time_interval[j] * edges_span[e]
                 muts[j] += time_interval[j] * edges_muts[e] / length
@@ -671,7 +672,7 @@ def scale_time_by_mutations_3(
     for i, t in enumerate(time_interval):
         time_breaks[i + 1] = time_breaks[i] + t * muts[i] / area[i]
 
-    return area, muts
+    return time_breaks[nodes_index]
 
 
 #@numba.njit(_f1w(_f1r, _i1r, _i1r, _f1r, _f1r))
@@ -737,9 +738,9 @@ def scale_time_by_mutations_2(
         breaks_muts2[i - 1] = breaks_muts2[i] + leafward_muts[i - 1]
     out_muts = (total_muts - breaks_muts - breaks_muts2) * time_interval
 
-    ## rescale time such that mutation density is constant
-    #for i, t in enumerate(time_interval):
-    #    time_breaks[i + 1] = time_breaks[i] + t * muts[i] / area[i]
+    # rescale time such that mutation density is constant
+    for i, t in enumerate(time_interval):
+        time_breaks[i + 1] = time_breaks[i] + t * out_muts[i] / out_span[i]
 
     #return time_breaks[nodes_index]
     return out_span, out_muts
@@ -747,9 +748,14 @@ def scale_time_by_mutations_2(
 
 #@numba.njit(_f1w(_f1r, _i1r, _i1r, _f1r, _f1r))
 def scale_time_by_mutations_4(
-    nodes_time, likelihoods, edges_parent, edges_child,
+    nodes_time, likelihoods, edges_parent, edges_child
 ):
     """
+    Rescale node ages so that the instantaneous mutation rate is constant.
+
+    Edges that are very short or negative-length (less than `eps` time units)
+    are ignored when calculating the total rate.
+
     :param np.ndarray nodes_time: array of node ages
     :param np.ndarray likelihoods: edges are rows; mutation
         counts and mutational span are columns
@@ -760,15 +766,16 @@ def scale_time_by_mutations_4(
     # index node by unique time breaks
     nodes_order = np.argsort(nodes_time)
     nodes_index = np.zeros(nodes_time.size, dtype=np.int32)
-    time_breaks = [0.0]
+    epoch_breaks = [0.0]
     k = 0
     for i, j in zip(nodes_order[1:], nodes_order[:-1]):
         if nodes_time[i] > nodes_time[j]:
-            time_breaks.append(nodes_time[i])
+            epoch_breaks.append(nodes_time[i])
             k += 1
         nodes_index[i] = k
-    time_breaks = np.array(time_breaks)
-    time_interval = np.diff(time_breaks)
+    epoch_breaks = np.array(epoch_breaks)
+    epoch_length = np.diff(epoch_breaks)
+    num_epochs = epoch_length.size
 
     # instantaneous mutation rate per edge
     edges_length = nodes_time[edges_parent] - nodes_time[edges_child]
@@ -777,53 +784,26 @@ def scale_time_by_mutations_4(
     edges_counts[edges_subset, 0] /= edges_length[edges_subset]
 
     # pass over edges, measuring overlap with each time interval
-    leafward_pass = np.zeros((time_interval.size, 2))
-    rootward_pass = np.zeros((time_interval.size, 2))
+    leafw_counts = np.zeros((num_epochs, 2))
+    rootw_counts = np.zeros((num_epochs, 2))
     for e in np.flatnonzero(edges_subset):
         p, c = edges_parent[e], edges_child[e]
-        a, b = nodes_index[c], nodes_index[p]
-        if a > 0:
-            leafward_pass[a - 1] += edges_counts[e]
-        if b < time_breaks.size - 1:
-            rootward_pass[b] += edges_counts[e]
+        a, b = nodes_index[c] - 1, nodes_index[p]
+        if a >= 0: 
+            leafw_counts[a] += edges_counts[e]
+        if b < num_epochs: 
+            rootw_counts[b] += edges_counts[e]
+    total_counts = np.sum(edges_counts[edges_subset], axis=0)
+    rootw_counts = np.cumsum(rootw_counts, axis=0)
+    leafw_counts = np.cumsum(leafw_counts[::-1], axis=0)[::-1]
+    epoch_counts = total_counts[np.newaxis, :] - rootw_counts - leafw_counts
+    assert np.all(epoch_counts[:, 1] > 0)
 
-    # old
-    total_muts = np.sum(edges_counts[edges_subset, 0])
-    total_span = np.sum(edges_counts[edges_subset, 1])
+    # rescale time such that mutation density is constant
+    epoch_scales = epoch_counts[:, 0] / epoch_counts[:, 1]
+    epoch_adjust = np.append(0, np.cumsum(epoch_length * epoch_scales))
 
-    breaks_span = np.zeros(time_interval.size)
-    breaks_span[0] = rootward_pass[0, 1]
-    for i in range(1, time_interval.size):
-        breaks_span[i] = breaks_span[i - 1] + rootward_pass[i, 1]
-    breaks_span2 = np.zeros(time_interval.size)
-    breaks_span2[-1] = leafward_pass[-1, 1]
-    for i in range(time_interval.size - 1, 0, -1):
-        breaks_span2[i - 1] = breaks_span2[i] + leafward_pass[i - 1, 1]
-    out_span = (total_span - breaks_span - breaks_span2) * time_interval
-
-    breaks_muts = np.zeros(time_interval.size)
-    breaks_muts[0] = rootward_pass[0, 0]
-    for i in range(1, time_interval.size):
-        breaks_muts[i] = breaks_muts[i - 1] + rootward_pass[i, 0]
-    breaks_muts2 = np.zeros(time_interval.size)
-    breaks_muts2[-1] = leafward_pass[-1, 0]
-    for i in range(time_interval.size - 1, 0, -1):
-        breaks_muts2[i - 1] = breaks_muts2[i] + leafward_pass[i - 1, 0]
-    out_muts = (total_muts - breaks_muts - breaks_muts2) * time_interval
-
-    # new
-    totals = np.sum(edges_counts[edges_subset], axis=0)
-    rootward = np.cumsum(rootward, axis=0)
-    leafward = np.cumsum(leafward[::-1], axis=0)[::-1]
-    output = time_interval[:, np.newaxis] * (totals[np.newaxis, :] - rootward - leafward)
-
-    ## rescale time such that mutation density is constant
-    #for i, t in enumerate(time_interval):
-    #    time_breaks[i + 1] = time_breaks[i] + t * muts[i] / area[i]
-
-    #return time_breaks[nodes_index]
-    #return out_span, out_muts
-    return output[:, 1], output[:, 0]
+    return epoch_adjust[nodes_index]
 
 
 def mutation_scaling(nodes_time, rescaled_nodes_time):
