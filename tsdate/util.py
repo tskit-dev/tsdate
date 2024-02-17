@@ -498,11 +498,11 @@ def _constrain_ages(
     return nodes_time
 
 
-def constrain_ages(ts, nodes_time, epsilon=1e-6, max_iterations=10):
+def constrain_ages(ts, nodes_time, epsilon=1e-6, max_iterations=0):
     """
-    Use a hybrid approach to adjust node times to satisfy positive branch
-    length constraints. The first pass iteratively solves a constrained least
-    squares problem that seeks to find constrained ages as close as possible to
+    Use a hybrid approach to adjust node times such that branch lengths are
+    positive. The first pass iteratively solves a constrained least squares
+    problem that seeks to find constrained ages as close as possible to
     unconstrained ages. Progress is initially fast but typically becomes quite
     slow, so after a fixed number of iterations the iterative algorithm
     terminates and the constraint is forced.
