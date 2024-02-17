@@ -868,33 +868,6 @@ class InOutAlgorithms:
         return self.lik.timepoints[np.array(maximized_node_times).astype("int")]
 
 
-def constrain_ages_topo(ts, node_times, epsilon, progress=False):
-    # If node_times violate the topology in ts, return increased node_times so that each
-    # node is guaranteed to be older than any of its children.
-    edges_parent = ts.edges_parent
-    edges_child = ts.edges_child
-
-    new_node_times = np.copy(node_times)
-    # Traverse through the ARG, ensuring children come before parents.
-    # This can be done by iterating over groups of edges with the same parent
-    new_parent_edge_idx = np.where(np.diff(edges_parent) != 0)[0] + 1
-    for edges_start, edges_end in tqdm(
-        zip(
-            itertools.chain([0], new_parent_edge_idx),
-            itertools.chain(new_parent_edge_idx, [len(edges_parent)]),
-        ),
-        desc="Constrain Ages",
-        total=len(new_parent_edge_idx) + 1,
-        disable=not progress,
-    ):
-        parent = edges_parent[edges_start]
-        child_ids = edges_child[edges_start:edges_end]  # May contain dups
-        oldest_child_time = np.max(new_node_times[child_ids])
-        if oldest_child_time >= new_node_times[parent]:
-            new_node_times[parent] = oldest_child_time + epsilon
-    return new_node_times
-
-
 # Classes for each method
 Results = namedtuple(
     "Results",
@@ -928,6 +901,7 @@ class EstimationMethod:
         return_posteriors=None,
         return_likelihood=None,
         record_provenance=None,
+        constr_iterations=None,
         progress=None,
     ):
         # Set up all the generic params describe in the tsdate.date function, and define
@@ -955,6 +929,16 @@ class EstimationMethod:
                 # demography.PopulationSizeHistory provides as_dict() for saving
                 population_size=Ne.as_dict() if hasattr(Ne, "as_dict") else Ne,
             )
+
+        if constr_iterations is None:
+            self.constr_iterations = 0
+        else:
+            if not (isinstance(constr_iterations, int) and constr_iterations >= 0):
+                raise ValueError(
+                    "Number of constrained least squares iterations must be a "
+                    "non-negative integer"
+                )
+            self.constr_iterations = constr_iterations
 
         if self.prior_grid_func_name is None:
             if priors is not None:
@@ -993,7 +977,9 @@ class EstimationMethod:
         nodes = tables.nodes
         if self.provenance_params is not None:
             provenance.record_provenance(tables, self.name, **self.provenance_params)
-        nodes.time = constrain_ages_topo(self.ts, result.posterior_mean, eps, self.pbar)
+        nodes.time = util.constrain_ages(
+            self.ts, result.posterior_mean, eps, self.constr_iterations
+        )
         tables.time_units = self.time_units
         tables.mutations.time = np.full(self.ts.num_mutations, tskit.UNKNOWN_TIME)
         # Add posterior mean and variance to node metadata
@@ -1555,6 +1541,7 @@ def date(
     priors=None,
     method=None,
     *,
+    constr_iterations=None,
     return_posteriors=None,
     return_likelihood=None,
     progress=None,
@@ -1623,6 +1610,9 @@ def date(
     :param bool return_posteriors: If ``True``, instead of returning just a dated tree
         sequence, return a tuple of ``(dated_ts, posteriors)``.
         Default: None, treated as False.
+    :param int constr_iterations: The maximum number of constrained least
+        squares iterations to use prior to forcing positive branch lengths.
+        Default: None, treated as 0.
     :param bool return_likelihood: If ``True``, return the log marginal likelihood
         from the inside algorithm in addition to the dated tree sequence. If
         ``return_posteriors`` is also ``True``, then the marginal likelihood
@@ -1662,6 +1652,7 @@ def date(
         time_units=time_units,
         priors=priors,
         progress=progress,
+        constr_iterations=constr_iterations,
         return_posteriors=return_posteriors,
         return_likelihood=return_likelihood,
         record_provenance=record_provenance,

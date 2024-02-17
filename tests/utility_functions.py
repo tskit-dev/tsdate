@@ -23,11 +23,13 @@
 A collection of utilities to edit and construct tree sequences for testing purposes
 """
 import io
+import itertools
 
 import msprime
 import numpy as np
 import tskit
 from scipy.special import comb
+from tqdm import tqdm
 
 
 def add_grand_mrca(ts):
@@ -1115,3 +1117,34 @@ def tau_var(i, n):
 def conditional_coalescent_variance(n_tips):
     """Variance calculation for prior, slow but clear version"""
     return np.array([tau_var(i, n_tips) for i in range(n_tips + 1)])
+
+
+def constrain_ages_topo(ts, node_times, epsilon, progress=False):
+    """
+    If node_times violate the topology in ts, return increased node_times so that each
+    node is guaranteed to be older than any of its children.
+
+    Used to check back-compatibility.
+    """
+    edges_parent = ts.edges_parent
+    edges_child = ts.edges_child
+
+    new_node_times = np.copy(node_times)
+    # Traverse through the ARG, ensuring children come before parents.
+    # This can be done by iterating over groups of edges with the same parent
+    new_parent_edge_idx = np.where(np.diff(edges_parent) != 0)[0] + 1
+    for edges_start, edges_end in tqdm(
+        zip(
+            itertools.chain([0], new_parent_edge_idx),
+            itertools.chain(new_parent_edge_idx, [len(edges_parent)]),
+        ),
+        desc="Constrain Ages",
+        total=len(new_parent_edge_idx) + 1,
+        disable=not progress,
+    ):
+        parent = edges_parent[edges_start]
+        child_ids = edges_child[edges_start:edges_end]  # May contain dups
+        oldest_child_time = np.max(new_node_times[child_ids])
+        if oldest_child_time >= new_node_times[parent]:
+            new_node_times[parent] = oldest_child_time + epsilon
+    return new_node_times

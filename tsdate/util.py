@@ -33,10 +33,12 @@ from numba.types import UniTuple as _unituple
 
 from . import provenance
 from .approx import _b1r
+from .approx import _f
 from .approx import _f1r
 from .approx import _f1w
 from .approx import _f2r
 from .approx import _f2w
+from .approx import _i
 from .approx import _i1r
 from .approx import _i1w
 from .hypergeo import _gammainc as gammainc
@@ -453,149 +455,85 @@ def split_disjoint_nodes(ts):
     return tables.tree_sequence()
 
 
-# TODO: numba.njit
-def _split_root_nodes(ts):
+@numba.njit(_f1w(_f1r, _b1r, _i1r, _i1r, _f, _i))
+def _constrain_ages(
+    nodes_time, nodes_fixed, edges_parent, edges_child, epsilon, max_iterations
+):
     """
-    Split roots whenever the set of children changes. Nodes will only be split
-    on the interior of the intervals where they are roots.
+    Approximate least squares solution to the positive branch length
+    constraint, using the method of alternating projections. Loosely based on
+    Dykstra's algorithm, see:
 
-    Returns new edges (parent, child, left, right) and the original ids for
-    each node.
+    Dykstra RL, "An algorithm for restricted least squares regression", JASA
+    1983
     """
+    assert nodes_time.size == nodes_fixed.size
+    assert edges_parent.size == edges_child.size
 
-    num_nodes = ts.num_nodes
-    num_edges = ts.num_edges
+    num_edges = edges_parent.size
+    nodes_time = nodes_time.copy()
+    edges_cavity = np.zeros((num_edges, 2))
+    for _ in range(max_iterations):  # method of alternating projections
+        if np.all(nodes_time[edges_parent] - nodes_time[edges_child] > 0):
+            return nodes_time
+        for e in range(num_edges):
+            p, c = edges_parent[e], edges_child[e]
+            nodes_time[c] -= edges_cavity[e, 0]
+            nodes_time[p] -= edges_cavity[e, 1]
+            adjustment = nodes_time[c] - nodes_time[p]  # + epsilon
+            edges_cavity[e, :] = 0.0
+            if adjustment > 0:
+                edges_cavity[e, 0] = 0 if nodes_fixed[c] else -adjustment / 2
+                edges_cavity[e, 1] = adjustment if nodes_fixed[c] else adjustment / 2
+            nodes_time[c] += edges_cavity[e, 0]
+            nodes_time[p] += edges_cavity[e, 1]
+    # print(
+    #   'min length:', np.min(nodes_time[edges_parent] - nodes_time[edges_child])
+    # )
+    for e in range(num_edges):  # force constraint
+        p, c = edges_parent[e], edges_child[e]
+        if nodes_time[c] >= nodes_time[p]:
+            nodes_time[p] = nodes_time[c] + epsilon
 
-    # Find locations where root node changes
-    roots_node = []
-    roots_breaks = []
-    last_root = None
-    for t in ts.trees():
-        root = tskit.NULL if t.num_edges == 0 else t.root
-        if root != last_root:
-            roots_node.append(root)
-            roots_breaks.append(t.interval.left)
-        last_root = root
-    roots_breaks.append(ts.sequence_length)
-    roots_node = np.array(roots_node, dtype=np.int32)
-    roots_breaks = np.array(roots_breaks, dtype=np.float64)
-
-    # Segment roots at edge additions/removals
-    add_breaks = {n: list() for n in roots_node if n != tskit.NULL}
-    for e in range(num_edges):
-        p = ts.edges_parent[e]
-        if p in add_breaks:
-            for x in (ts.edges_left[e], ts.edges_right[e]):
-                i = np.searchsorted(roots_breaks, x, side="right") - 1
-                if x == ts.sequence_length:
-                    continue
-                if (
-                    p == roots_node[i] and x > roots_breaks[i]
-                ):  # store *internal* breaks for root segments
-                    add_breaks[p].append(x)
-
-    # Create a new node for each segment except the leftmost
-    add_nodes = {}
-    add_split = {}
-    nodes_order = [i for i in range(num_nodes)]
-    for p in add_breaks:
-        breaks = np.unique(np.asarray(add_breaks[p]))
-        if breaks.size > 0:
-            add_split[p] = breaks
-            add_nodes[p] = [p]  # segment left of first break retains original node ID
-            for _ in range(breaks.size):
-                add_nodes[p].append(num_nodes)
-                nodes_order.append(p)
-                num_nodes += 1
-
-    # Split each edge along the union of parent/child segments
-    new_parent = list(ts.edges_parent)
-    new_child = list(ts.edges_child)
-    new_left = list(ts.edges_left)
-    new_right = list(ts.edges_right)
-    for e in range(num_edges):
-        p, c = ts.edges_parent[e], ts.edges_child[e]
-
-        if not (p in add_nodes or c in add_nodes):  # no breaks in parent/child
-            continue
-
-        # find parent/child breaks on edge
-        left, right = ts.edges_left[e], ts.edges_right[e]
-        p_nodes = add_nodes.get(p, [p])
-        c_nodes = add_nodes.get(c, [c])
-        p_split = add_split.get(p, np.empty(0))
-        c_split = add_split.get(c, np.empty(0))
-        e_split = np.unique(np.append(p_split, c_split))
-        e_split = e_split[np.logical_and(e_split > left, e_split < right)]
-
-        e_split = np.append(e_split, right)
-        p_index = np.searchsorted(p_split, e_split, side="left")
-        c_index = np.searchsorted(c_split, e_split, side="left")
-        for x, i, j in zip(e_split, p_index, c_index):
-            new_p, new_c = p_nodes[i], c_nodes[j]
-            if (
-                left == new_left[e]
-            ):  # segment left of first break retains original edge ID
-                new_parent[e] = new_p
-                new_child[e] = new_c
-                new_left[e] = left
-                new_right[e] = x
-            else:
-                new_parent.append(new_p)
-                new_child.append(new_c)
-                new_left.append(left)
-                new_right.append(x)
-            left = x
-        assert left == right
-
-    nodes_order = np.array(nodes_order, dtype=np.int32)
-    new_parent = np.array(new_parent, dtype=np.int32)
-    new_child = np.array(new_child, dtype=np.int32)
-    new_left = np.array(new_left, dtype=np.float64)
-    new_right = np.array(new_right, dtype=np.float64)
-
-    return new_parent, new_child, new_left, new_right, nodes_order
+    return nodes_time
 
 
-def split_root_nodes(ts):
+def constrain_ages(ts, nodes_time, epsilon=1e-6, max_iterations=10):
     """
-    Split roots whenever the set of children changes. Nodes are only split in the
-    interior of intervals where they are roots.
+    Use a hybrid approach to adjust node times to satisfy positive branch
+    length constraints. The first pass iteratively solves a constrained least
+    squares problem that seeks to find constrained ages as close as possible to
+    unconstrained ages. Progress is initially fast but typically becomes quite
+    slow, so after a fixed number of iterations the iterative algorithm
+    terminates and the constraint is forced.
+
+    :param tskit.TreeSequence ts: The input tree sequence, with arbitrary node
+        times.
+    :param np.ndarray nodes_times: Unconstrained node ages to inject into the
+        tree sequence.
+    :param float epsilon: The minimum allowed branch length when forcing
+        positive branch lengths.
+    :param int max_iterations: The number of iterations of alternating
+        projections before forcing positive branch lengths.
+
+    :return np.ndarray: Constrained node ages
     """
 
-    edges_parent, edges_child, edges_left, edges_right, nodes_order = _split_root_nodes(
-        ts
+    assert nodes_time.size == ts.num_nodes
+    assert epsilon >= 0
+    assert max_iterations >= 0
+
+    node_is_sample = np.bitwise_and(ts.nodes_flags, tskit.NODE_IS_SAMPLE).astype(bool)
+    constrained_nodes_time = _constrain_ages(
+        nodes_time,
+        node_is_sample,
+        ts.edges_parent,
+        ts.edges_child,
+        epsilon,
+        max_iterations,
     )
 
-    # TODO: correctly handle mutations above root (m.edge == tskit.NULL)
-    mutations_node = ts.mutations_node.copy()
-    for m in ts.mutations():
-        if m.edge != tskit.NULL:
-            mutations_node[m.id] = edges_child[m.edge]
-
-    tables = ts.dump_tables()
-    tables.nodes.set_columns(
-        flags=tables.nodes.flags[nodes_order],
-        time=tables.nodes.time[nodes_order],
-        individual=tables.nodes.individual[nodes_order],
-        population=tables.nodes.population[nodes_order],
-    )
-    # TODO: copy existing metadata for original nodes
-    # TODO: add new metadata indicating origin for split nodes
-    # TODO: add flag for split nodes
-    tables.edges.set_columns(
-        parent=edges_parent,
-        child=edges_child,
-        left=edges_left,
-        right=edges_right,
-    )
-    tables.mutations.node = mutations_node
-
-    tables.sort()
-    tables.edges.squash()
-    tables.sort()
-
-    return tables.tree_sequence()
+    return constrained_nodes_time
 
 
 # @numba.njit(_f1w(_f1r, _i1r, _i1r, _f1r, _f1r))
