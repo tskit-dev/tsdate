@@ -1231,10 +1231,9 @@ class VariationalGammaMethod(EstimationMethod):
         if normalise:
             posterior_mean = util.scale_time_by_mutations(
                 posterior_mean,
+                dynamic_prog.likelihoods,
                 dynamic_prog.parents,
                 dynamic_prog.children,
-                dynamic_prog.likelihoods[:, 0].copy(),
-                dynamic_prog.likelihoods[:, 1].copy(),
             )
 
         # convert posterior array to NodeGridValues

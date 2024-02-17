@@ -451,10 +451,8 @@ class ExpectationPropagation:
         nodes_time = np.zeros(free.size)
         nodes_time[free] = (posteriors[free, 0] + 1) / posteriors[free, 1]
         nodes_time[~free] = constraints[~free, 0]
-        edges_muts = likelihoods[:, 0].copy()
-        edges_span = likelihoods[:, 1].copy()
         rescaled_time = util.scale_time_by_mutations(
-            nodes_time, edges_parent, edges_child, edges_muts, edges_span
+            nodes_time, likelihoods, edges_parent, edges_child
         )
 
         # collapse intervals that have zero length
