@@ -483,14 +483,14 @@ def _constrain_ages(
             adjustment = nodes_time[c] - nodes_time[p]  # + epsilon
             edges_cavity[e, :] = 0.0
             if adjustment > 0:
-                assert not nodes_fixed[p] # TODO: no reason not to support this
+                assert not nodes_fixed[p]  # TODO: no reason not to support this
                 edges_cavity[e, 0] = 0 if nodes_fixed[c] else -adjustment / 2
                 edges_cavity[e, 1] = adjustment if nodes_fixed[c] else adjustment / 2
             nodes_time[c] += edges_cavity[e, 0]
             nodes_time[p] += edges_cavity[e, 1]
-    # print(
-    #   'min length:', np.min(nodes_time[edges_parent] - nodes_time[edges_child])
-    # )
+        print(  # DEBUG
+            "min length:", np.min(nodes_time[edges_parent] - nodes_time[edges_child])
+        )
     for e in range(num_edges):  # force constraint
         p, c = edges_parent[e], edges_child[e]
         if nodes_time[c] >= nodes_time[p]:
@@ -544,10 +544,10 @@ def constrain_ages(ts, nodes_time, epsilon=1e-6, max_iterations=0):
 #     """
 #     `edges_span` is pre-multiplied by mutation rate
 #     """
-# 
+#
 #     edges_muts = likelihoods[:, 0].copy()
 #     edges_span = likelihoods[:, 1].copy()
-# 
+#
 #     # index node by unique time breaks
 #     nodes_order = np.argsort(nodes_time)
 #     nodes_index = np.zeros(nodes_time.size, dtype=np.int32)
@@ -560,7 +560,7 @@ def constrain_ages(ts, nodes_time, epsilon=1e-6, max_iterations=0):
 #         nodes_index[i] = k
 #     time_breaks = np.array(time_breaks)
 #     time_interval = np.diff(time_breaks)
-# 
+#
 #     # pass over edges, measuring overlap with each time interval
 #     area = np.zeros(time_interval.size)
 #     muts = np.zeros(time_interval.size)
@@ -571,11 +571,11 @@ def constrain_ages(ts, nodes_time, epsilon=1e-6, max_iterations=0):
 #             for j in range(nodes_index[c], nodes_index[p]):
 #                 area[j] += time_interval[j] * edges_span[e]
 #                 muts[j] += time_interval[j] * edges_muts[e] / length
-# 
+#
 #     # rescale time such that mutation density is constant
 #     for i, t in enumerate(time_interval):
 #         time_breaks[i + 1] = time_breaks[i] + t * muts[i] / area[i]
-# 
+#
 #     return time_breaks[nodes_index]
 
 
@@ -637,14 +637,14 @@ def scale_time_by_mutations(nodes_time, likelihoods, edges_parent, edges_child):
     return epoch_adjust[nodes_index]
 
 
-#@numba.njit(_f1w(_f1r, _f2r, _i1r, _i1r))
-#def scale_time_by_mutations_2(nodes_time, likelihoods, constraints, edges_parent, edges_child):
+# @numba.njit(_f1w(_f1r, _f2r, _i1r, _i1r))
+# def scale_time_by_mutations_2(nodes_time, likelihoods, constraints, edges_parent, edges_child):
 #    """
 #    Rescale node ages so that the instantaneous mutation rate is constant.
 #    Edges with a negative duration are ignored when calculating the total
-#    rate. 
+#    rate.
 #
-#    ..note:: 
+#    ..note::
 #        A node is considered fixed if its lower and upper bounds (in
 #        `constraints`) are equal.  The ages of fixed nodes are conditioned
 #        upon; other finite bounds are currently ignored.
