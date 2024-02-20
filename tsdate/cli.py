@@ -91,6 +91,7 @@ def tsdate_cli_parser():
     parser.add_argument(
         "population_size",
         type=float,
+        nargs="?",
         help="Estimated effective (diploid) population size.",
     )
     parser.add_argument(
@@ -278,6 +279,7 @@ def run_date(args):
         )
     else:
         params = dict(
+            population_size=args.population_size, 
             recombination_rate=args.recombination_rate,
             method=args.method,
             eps=args.epsilon,
@@ -290,7 +292,7 @@ def run_date(args):
             params["ignore_oldest_root"] = args.ignore_oldest  # For backwards compat
         # TODO: remove and error out if ignore_oldest_root is set,
         # see https://github.com/tskit-dev/tsdate/issues/262
-    dated_ts = tsdate.date(ts, args.mutation_rate, args.population_size, **params)
+    dated_ts = tsdate.date(ts, args.mutation_rate, **params)
     dated_ts.dump(args.output)
 
 
