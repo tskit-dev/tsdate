@@ -1216,7 +1216,8 @@ class VariationalGammaMethod(EstimationMethod):
         # TODO: re-estimate gamma parameters using rescaled quantiles
         if normalise:
             posterior_mean = util.scale_time_by_mutations(
-                posterior_mean,
+                util.constrain_ages(self.ts, posterior_mean, epsilon=eps, max_iterations=self.constr_iterations), #DEBUG
+                #posterior_mean,
                 dynamic_prog.likelihoods,
                 dynamic_prog.parents,
                 dynamic_prog.children,

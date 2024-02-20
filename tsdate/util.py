@@ -483,6 +483,7 @@ def _constrain_ages(
             adjustment = nodes_time[c] - nodes_time[p]  # + epsilon
             edges_cavity[e, :] = 0.0
             if adjustment > 0:
+                assert not nodes_fixed[p] # TODO: no reason not to support this
                 edges_cavity[e, 0] = 0 if nodes_fixed[c] else -adjustment / 2
                 edges_cavity[e, 1] = adjustment if nodes_fixed[c] else adjustment / 2
             nodes_time[c] += edges_cavity[e, 0]
@@ -536,14 +537,17 @@ def constrain_ages(ts, nodes_time, epsilon=1e-6, max_iterations=0):
     return constrained_nodes_time
 
 
-# @numba.njit(_f1w(_f1r, _i1r, _i1r, _f1r, _f1r))
+# @numba.njit(_f1w(_f1r, _f2r, _i1r, _i1r))
 # def scale_time_by_mutations(
-#     nodes_time, edges_parent, edges_child, edges_muts, edges_span
+#     nodes_time, likelihoods, edges_parent, edges_child,
 # ):
 #     """
 #     `edges_span` is pre-multiplied by mutation rate
 #     """
-#
+# 
+#     edges_muts = likelihoods[:, 0].copy()
+#     edges_span = likelihoods[:, 1].copy()
+# 
 #     # index node by unique time breaks
 #     nodes_order = np.argsort(nodes_time)
 #     nodes_index = np.zeros(nodes_time.size, dtype=np.int32)
@@ -556,7 +560,7 @@ def constrain_ages(ts, nodes_time, epsilon=1e-6, max_iterations=0):
 #         nodes_index[i] = k
 #     time_breaks = np.array(time_breaks)
 #     time_interval = np.diff(time_breaks)
-#
+# 
 #     # pass over edges, measuring overlap with each time interval
 #     area = np.zeros(time_interval.size)
 #     muts = np.zeros(time_interval.size)
@@ -567,11 +571,11 @@ def constrain_ages(ts, nodes_time, epsilon=1e-6, max_iterations=0):
 #             for j in range(nodes_index[c], nodes_index[p]):
 #                 area[j] += time_interval[j] * edges_span[e]
 #                 muts[j] += time_interval[j] * edges_muts[e] / length
-#
+# 
 #     # rescale time such that mutation density is constant
 #     for i, t in enumerate(time_interval):
 #         time_breaks[i + 1] = time_breaks[i] + t * muts[i] / area[i]
-#
+# 
 #     return time_breaks[nodes_index]
 
 
@@ -632,6 +636,100 @@ def scale_time_by_mutations(nodes_time, likelihoods, edges_parent, edges_child):
 
     return epoch_adjust[nodes_index]
 
+
+#@numba.njit(_f1w(_f1r, _f2r, _i1r, _i1r))
+#def scale_time_by_mutations_2(nodes_time, likelihoods, constraints, edges_parent, edges_child):
+#    """
+#    Rescale node ages so that the instantaneous mutation rate is constant.
+#    Edges with a negative duration are ignored when calculating the total
+#    rate. 
+#
+#    ..note:: 
+#        A node is considered fixed if its lower and upper bounds (in
+#        `constraints`) are equal.  The ages of fixed nodes are conditioned
+#        upon; other finite bounds are currently ignored.
+#
+#    :param np.ndarray nodes_time: array of node ages
+#    :param np.ndarray likelihoods: edges are rows; mutation counts and
+#        mutational span are columns
+#    :param np.ndarray constraints: nodes are rows; lower and upper bounds
+#        on age are columns. If bounds are equal, a node is considered
+#        fixed.
+#    :param np.ndarray edges_parent: node index for the parent of each edge
+#    :param np.ndarray edges_child: node index for the child of each edge
+#    """
+#
+#    assert edges_parent.size == edges_child.size == likelihoods.shape[0]
+#    assert nodes_time.size == constraints.shape[0]
+#    assert likelihoods.shape[1] == constraints.shape[1] == 2
+#
+#    nodes_time = nodes_time.copy()
+#    nodes_fixed = constraints[:, 0] == constraints[:, 1]
+#    nodes_time[nodes_fixed] = constraints[nodes_fixed, 0]
+#    nodes_order = np.argsort(nodes_time)
+#    assert nodes_fixed[nodes_order[0]], "Youngest node must be fixed"
+#
+#    # index node by unique time breaks
+#    nodes_index = np.zeros(nodes_time.size, dtype=np.int32)
+#    epoch_breaks = [0.0]
+#    epoch_clamps = [0]
+#    k = 0
+#    for i, j in zip(nodes_order[1:], nodes_order[:-1]):
+#        if nodes_time[i] > nodes_time[j]:
+#            epoch_breaks.append(nodes_time[i])
+#            k += 1
+#        nodes_index[i] = k
+#        if nodes_fixed[i]:
+#            epoch_clamps.append(k)
+#    epoch_breaks = np.array(epoch_breaks)
+#    epoch_length = np.diff(epoch_breaks)
+#    num_epochs = epoch_length.size
+#    epoch_clamps = np.append(epoch_clamps, num_epochs)
+#
+#    # instantaneous mutation rate per edge
+#    edges_length = nodes_time[edges_parent] - nodes_time[edges_child]
+#    edges_subset = edges_length > 0
+#    edges_counts = likelihoods.copy()
+#    edges_counts[edges_subset, 0] /= edges_length[edges_subset]
+#
+#    # accumulate edge overlap with each time interval
+#    leafw_counts = np.zeros((num_epochs, 2))
+#    rootw_counts = np.zeros((num_epochs, 2))
+#    for e in np.flatnonzero(edges_subset):
+#        p, c = edges_parent[e], edges_child[e]
+#        a, b = nodes_index[c] - 1, nodes_index[p]
+#        if a >= 0:
+#            leafw_counts[a] += edges_counts[e]
+#        if b < num_epochs:
+#            rootw_counts[b] += edges_counts[e]
+#    total_counts = np.sum(edges_counts[edges_subset], axis=0)
+#    rootw_counts[:, 0] = rootw_counts[:, 0].cumsum()
+#    rootw_counts[:, 1] = rootw_counts[:, 1].cumsum()
+#    leafw_counts[::-1, 0] = leafw_counts[::-1, 0].cumsum()
+#    leafw_counts[::-1, 1] = leafw_counts[::-1, 1].cumsum()
+#    epoch_counts = total_counts[np.newaxis, :] - rootw_counts - leafw_counts
+#    assert np.all(epoch_counts[:, 1] > 0), "No overlap between epoch and any edge"
+#
+#    # rescale time such that mutation density is constant
+#    epoch_adjust = np.full(num_epochs + 1, np.nan)
+#    for i, j in zip(epoch_clamps[:-1], epoch_clamps[1:]):
+#        # I think the indexing may be off by 1 here
+#        if j == num_epochs: # poisson rescaling
+#            epoch_length[i:] = np.cumsum(
+#                epoch_length[i:] * epoch_counts[i:, 0] / epoch_counts[i:, 1]
+#            )
+#        else: # multinomial rescaling
+#            # not sure if this is right, think it through
+#            epoch_length[i:j] = epoch_counts[i:j, 0] / epoch_counts[i:j, 1]
+#            epoch_length[i:j] /= np.sum(epoch_length[i:j])
+#        # ??? = epoch_breaks[i] probably? the lhs indexing is wrong for the last clamp?
+#        epoch_adjust[i:j] = np.append(???, ??? + epoch_length[i:j])
+#
+#    return epoch_adjust[nodes_index]
+
+
+# TODO: test rescaling with fixed nodes
+# TODO: test constrained least squares with fixed nodes
 
 # ---- delete
 
