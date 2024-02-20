@@ -488,9 +488,9 @@ def _constrain_ages(
                 edges_cavity[e, 1] = adjustment if nodes_fixed[c] else adjustment / 2
             nodes_time[c] += edges_cavity[e, 0]
             nodes_time[p] += edges_cavity[e, 1]
-        print(  # DEBUG
-            "min length:", np.min(nodes_time[edges_parent] - nodes_time[edges_child])
-        )
+    print(  # DEBUG
+        "min length:", np.min(nodes_time[edges_parent] - nodes_time[edges_child])
+    )
     for e in range(num_edges):  # force constraint
         p, c = edges_parent[e], edges_child[e]
         if nodes_time[c] >= nodes_time[p]:
