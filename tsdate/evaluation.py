@@ -274,16 +274,28 @@ def node_spans(ts):
     return child_spans
 
 
+def total_span(ts):
+    """
+    Returns the total length of all "node spans", computed from
+    `node_spans(ts)`.
+    """
+    ts_node_spans = node_spans(ts)
+    ts_total_span = np.sum(ts_node_spans)
+    return ts_total_span
+
+
 def tree_discrepancy(ts, other):
     """
     For two tree sequences `ts` and `other`,
-    this method returns two values, as a tuple:
-    1. the fraction of the total span of `ts` over which each nodes' descendant
+    this method returns three values, as a tuple:
+    1. The fraction of the total span of `ts` over which each nodes' descendant
     sample set does not match its' best match's descendant sample set.
     2. The root mean squared difference
     between the times of the nodes in `ts`
     and times of their best matching nodes in `other`,
     with the average weighted by the nodes' spans in `ts`.
+    3. The proportion of the span in `ts` that is correctly
+    represented in `other`.
 
     This is done as follows:
 
@@ -302,9 +314,10 @@ def tree_discrepancy(ts, other):
 
     where :math: `T` is the sum of spans of all nodes in `ts`.
 
-    Returns two values:
-    `discrepancy` (float) the value computed above.
+    Returns three values:
+    `discrepancy` (float) the value computed above
     `root-mean-squared discrepancy` (float)
+    `proportion of correct span in `ts` matching in `other` (float)
     """
 
     shared_spans = shared_node_spans(ts, other)
@@ -341,8 +354,10 @@ def tree_discrepancy(ts, other):
     best_match_spans = shared_spans[np.arange(len(best_match)), best_match].reshape(-1)
     # Return the discrepancy between ts and other
     ts_node_spans = node_spans(ts)
-    total_node_spans = np.sum(ts_node_spans)
-    discrepancy = 1 - np.sum(best_match_spans) / total_node_spans
+    total_node_spans_ts = total_span(ts)
+    total_node_spans_other = total_span(other)
+    discrepancy = 1 - np.sum(best_match_spans) / total_node_spans_ts
+    true_proportion = (1 - discrepancy) * total_node_spans_ts / total_node_spans_other
     # Compute the root-mean-square discrepancy in time
     # with averaged weighted by span in ts
     time_matrix = scipy.sparse.csr_matrix(
@@ -353,5 +368,5 @@ def tree_discrepancy(ts, other):
         time_matrix[np.arange(len(best_match)), best_match].reshape(-1)
     )
     product = np.multiply((time_discrepancies**2), ts_node_spans)
-    rmse = np.sqrt(np.sum(product) / total_node_spans)
-    return discrepancy, rmse
+    rmse = np.sqrt(np.sum(product) / total_node_spans_ts)
+    return discrepancy, rmse, true_proportion
