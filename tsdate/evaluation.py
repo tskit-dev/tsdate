@@ -318,7 +318,8 @@ def tree_discrepancy(ts, other):
     Returns three values:
     `discrepancy` (float) the value computed above
     `root-mean-squared discrepancy` (float)
-    `proportion of correct span in `ts` matching in `other` (float)
+    `proportion of span of `other` correctly matching in `ts` (float)
+
     """
 
     shared_spans = shared_node_spans(ts, other)
