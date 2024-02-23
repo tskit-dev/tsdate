@@ -294,8 +294,9 @@ def tree_discrepancy(ts, other):
     between the times of the nodes in `ts`
     and times of their best matching nodes in `other`,
     with the average weighted by the nodes' spans in `ts`.
-    3. The proportion of the span in `ts` that is correctly
-    represented in `other`.
+    3. The proportion of the span in `other` that is correctly
+    represented in `ts` (i.e., the total matching span divided
+    by the total span of `other`).
 
     This is done as follows:
 
