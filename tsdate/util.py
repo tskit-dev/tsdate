@@ -488,9 +488,9 @@ def _constrain_ages(
                 edges_cavity[e, 1] = adjustment if nodes_fixed[c] else adjustment / 2
             nodes_time[c] += edges_cavity[e, 0]
             nodes_time[p] += edges_cavity[e, 1]
-    print(  # DEBUG
-        "min length:", np.min(nodes_time[edges_parent] - nodes_time[edges_child])
-    )
+    # print(
+    #   "min length:", np.min(nodes_time[edges_parent] - nodes_time[edges_child])
+    # )
     for e in range(num_edges):  # force constraint
         p, c = edges_parent[e], edges_child[e]
         if nodes_time[c] >= nodes_time[p]:
@@ -614,20 +614,16 @@ def scale_time_by_mutations(nodes_time, likelihoods, edges_parent, edges_child):
     edges_counts[edges_subset, 0] /= edges_length[edges_subset]
 
     # pass over edges, measuring overlap with each time interval
-    leafw_counts = np.zeros((num_epochs, 2))
-    rootw_counts = np.zeros((num_epochs, 2))
+    epoch_counts = np.zeros((num_epochs, 2))
     for e in np.flatnonzero(edges_subset):
         p, c = edges_parent[e], edges_child[e]
-        a, b = nodes_index[c] - 1, nodes_index[p]
-        if a >= 0:
-            leafw_counts[a] += edges_counts[e]
+        a, b = nodes_index[c], nodes_index[p]
+        if a < num_epochs:
+            epoch_counts[a] += edges_counts[e]
         if b < num_epochs:
-            rootw_counts[b] += edges_counts[e]
-    total_counts = np.sum(edges_counts[edges_subset], axis=0)
-    for i in range(2):
-        rootw_counts[:, i] = rootw_counts[:, i].cumsum()
-        leafw_counts[::-1, i] = leafw_counts[::-1, i].cumsum()
-    epoch_counts = total_counts[np.newaxis, :] - rootw_counts - leafw_counts
+            epoch_counts[b] -= edges_counts[e]
+    epoch_counts[:, 0] = np.cumsum(epoch_counts[:, 0])
+    epoch_counts[:, 1] = np.cumsum(epoch_counts[:, 1])
     assert np.all(epoch_counts[:, 1] > 0)
 
     # rescale time such that mutation density is constant
@@ -638,7 +634,9 @@ def scale_time_by_mutations(nodes_time, likelihoods, edges_parent, edges_child):
 
 
 # @numba.njit(_f1w(_f1r, _f2r, _i1r, _i1r))
-# def scale_time_by_mutations_2(nodes_time, likelihoods, constraints, edges_parent, edges_child):
+# def scale_time_by_mutations_constr(
+#   nodes_time, likelihoods, constraints, edges_parent, edges_child
+# ):
 #    """
 #    Rescale node ages so that the instantaneous mutation rate is constant.
 #    Edges with a negative duration are ignored when calculating the total
