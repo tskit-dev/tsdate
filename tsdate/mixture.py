@@ -98,8 +98,8 @@ def _conditional_posterior(prior_logweight, prior_alpha, prior_beta, alpha, beta
     return E, E_t, E_logt, E_tlogt
 
 
-@numba.njit(_f(_f1w, _f1w, _f1w, _f1r, _f1r))
-def _em_update(prior_weight, prior_alpha, prior_beta, alpha, beta):
+@numba.njit(_f(_f1w, _f1w, _f1w, _f1r, _f1r, _f1r))
+def _em_update(prior_weight, prior_alpha, prior_beta, weights, alpha, beta):
     """
     Perform an expectation maximization step for parameters of mixture components,
     given variational parameters `alpha`, `beta` for each node.
@@ -109,7 +109,7 @@ def _em_update(prior_weight, prior_alpha, prior_beta, alpha, beta):
 
     ``prior_weight``, ``prior_alpha``, ``prior_beta`` are updated in place.
     """
-    assert alpha.size == beta.size
+    assert alpha.size == beta.size == weights.size
 
     dim = prior_weight.size
     n = np.zeros(dim)
@@ -126,7 +126,7 @@ def _em_update(prior_weight, prior_alpha, prior_beta, alpha, beta):
 
     # expectation step:
     loglik = 0.0
-    for a, b in zip(alpha, beta):
+    for a, b, w in zip(alpha, beta, weights):
         E, E_t, E_logt, E_tlogt = _conditional_posterior(
             prior_logweight, prior_alpha, prior_beta, a, b
         )
@@ -137,10 +137,10 @@ def _em_update(prior_weight, prior_alpha, prior_beta, alpha, beta):
 
         # convert evidence to posterior weights
         norm_const = np.log(np.sum(np.exp(E - np.max(E)))) + np.max(E)
-        weight = np.exp(E - norm_const)
+        weight = np.exp(E - norm_const) * w
 
         # weighted contributions to sufficient statistics
-        loglik += norm_const
+        loglik += norm_const * w
         n += weight
         t += E_t * weight
         logt += E_logt * weight
@@ -198,8 +198,8 @@ def _gamma_projection(prior_weight, prior_alpha, prior_beta, alpha, beta):
     return log_const
 
 
-@numba.njit(_tuple((_f2w, _f2w, _f1w))(_f2r, _f2r, _i, _f, _b))
-def fit_gamma_mixture(mixture, observations, max_iterations, tolerance, verbose):
+@numba.njit(_tuple((_f2w, _f2w, _f1w))(_f2r, _f2r, _f1r, _i, _f, _b))
+def fit_gamma_mixture(mixture, observations, weights, max_iterations, tolerance, verbose):
     """
     Run EM until relative tolerance or maximum number of iterations is
     reached.  Then, perform expectation-propagation update and return new
@@ -219,7 +219,7 @@ def fit_gamma_mixture(mixture, observations, max_iterations, tolerance, verbose)
 
     last = np.inf
     for itt in range(max_iterations):
-        loglik = _em_update(mix_weight, mix_alpha, mix_beta, alpha, beta)
+        loglik = _em_update(mix_weight, mix_alpha, mix_beta, weights, alpha, beta)
         loglik /= float(alpha.size)
         update = np.abs(loglik - last)
         last = loglik

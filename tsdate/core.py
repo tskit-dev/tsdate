@@ -44,6 +44,9 @@ from . import prior
 from . import provenance
 from . import util
 from . import variational
+from . import normalisation
+
+import time # DEBUG
 
 FORMAT_NAME = "tsdate"
 
@@ -1184,6 +1187,8 @@ class VariationalGammaMethod(EstimationMethod):
         max_shape,
         match_central_moments,
         normalise,
+        min_mutations,
+        min_span,
     ):
         if self.provenance_params is not None:
             self.provenance_params.update(
@@ -1202,6 +1207,7 @@ class VariationalGammaMethod(EstimationMethod):
             max_shape=max_shape,
             min_kl=min_kl,
             progress=self.pbar,
+            ts=self.ts,
         )
 
         num_skipped = np.sum(np.isnan(dynamic_prog.log_partition))
@@ -1215,12 +1221,17 @@ class VariationalGammaMethod(EstimationMethod):
         )
         # TODO: re-estimate gamma parameters using rescaled quantiles
         if normalise:
-            posterior_mean = util.scale_time_by_mutations(
+            st = time.time() #DEBUG
+            posterior_mean = normalisation.scale_time_by_mutations(
                 posterior_mean,
                 dynamic_prog.likelihoods,
                 dynamic_prog.parents,
                 dynamic_prog.children,
+                min_mutations,
+                min_span * self.mutation_rate,
             )
+            en = time.time() #DEBUG
+            print("norm time:", en - st) #DEBUG
 
         # convert posterior array to NodeGridValues
         free = dynamic_prog.constraints[:, 0] != dynamic_prog.constraints[:, 1]
@@ -1439,6 +1450,8 @@ def variational_gamma(
     max_shape=None,
     match_central_moments=None,
     normalise=None,
+    min_mutations=None,
+    min_span=None,
     **kwargs,
 ):
     """
@@ -1470,6 +1483,10 @@ def variational_gamma(
         Kullback-Leibler divergence. Default: None, treated as True.
     :param bool normalise: If `True`, the timescale is corrected so that the empirical
         mutation rate is uniform.
+    :param float min_mutations: For normalisation, the minimum number of mutations used
+        to estimate a time rescaling. Default None, treated as 0.
+    :param float min_span: For normalisation, the minimum sequence length used
+        to estimate a time rescaling. Default None, treated as 1.
     :param \\**kwargs: Other keyword arguments as described in the :func:`date` wrapper
         function, notably ``mutation_rate``, and ``population_size`` or ``priors``.
         Further arguments include ``time_units``, ``progress``, and
@@ -1503,6 +1520,10 @@ def variational_gamma(
         match_central_moments = True
     if normalise is None:
         normalise = True
+    if min_mutations is None:
+        min_mutations = 1000
+    if min_span is None:
+        min_span = 1000
 
     dating_method = VariationalGammaMethod(tree_sequence, **kwargs)
     result = dating_method.run(
@@ -1511,6 +1532,8 @@ def variational_gamma(
         max_shape=max_shape,
         match_central_moments=match_central_moments,
         normalise=normalise,
+        min_mutations=min_mutations,
+        min_span=min_span,
     )
     return dating_method.parse_result(result, eps, {"parameter": ["shape", "rate"]})
 
