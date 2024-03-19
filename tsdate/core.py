@@ -1207,7 +1207,6 @@ class VariationalGammaMethod(EstimationMethod):
             max_shape=max_shape,
             min_kl=min_kl,
             progress=self.pbar,
-            ts=self.ts,
         )
 
         num_skipped = np.sum(np.isnan(dynamic_prog.log_partition))

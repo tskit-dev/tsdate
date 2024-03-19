@@ -42,6 +42,7 @@ from .approx import _i
 from .approx import _i1r
 from .approx import _b1r
 from .hypergeo import _gammainc as gammainc
+from .hypergeo import _digamma as digamma
 
 
 # columns for edge_factors
@@ -209,6 +210,10 @@ class ExpectationPropagation:
         self.log_partition = np.zeros(ts.num_edges)
         self.scale = np.ones(ts.num_nodes)
 
+        # prior on tmrca
+        self.roots = np.full(self.posterior.shape[0], True) # nodes with no parents
+        self.roots[self.children] = False
+
         # edge traversal order
         edges = np.arange(ts.num_edges, dtype=np.int32)
         self.edge_order = np.concatenate((edges[:-1], np.flip(edges)))
@@ -366,16 +371,15 @@ class ExpectationPropagation:
         return np.nan
 
     @staticmethod
-    @numba.njit(_f(_f2w, _f1r, _f2w, _f3w, _f1w, _f, _i, _f))
+    @numba.njit(_f(_b1r, _f2w, _f2w, _f3w, _f1w, _f, _i, _f))
     def propagate_prior(
-        prior, weights, posterior, factors, scale, max_shape, em_maxitt, em_reltol
+        free, prior, posterior, factors, scale, max_shape, em_maxitt, em_reltol
     ):
         """
         Update approximating factors for global prior at each node.
 
-        :param ndarray weights: weights for each node (e.g. relative span),
-            if zero the node does not contribute to the mixture and is not
-            updated
+        :param ndarray free: boolean array indicating if prior should be
+            applied to node
         :param ndarray prior: rows are mixture components, columns are
             zeroth, first, and second natural parameters of gamma mixture
             components. Updated in place.
@@ -394,9 +398,9 @@ class ExpectationPropagation:
         """
 
         assert prior.shape[1] == 3
-        assert weights.size == posterior.shape[0]
-        assert factors.shape == (weights.size, 2, 2)
-        assert scale.size == weights.size
+        assert free.size == posterior.shape[0]
+        assert factors.shape == (free.size, 2, 2)
+        assert scale.size == free.size
         assert max_shape >= 1.0
 
         if prior.shape[0] == 0:
@@ -405,13 +409,13 @@ class ExpectationPropagation:
         def posterior_damping(x):
             return _rescale(x, max_shape)
 
-        lognorm = np.zeros(weights.size)  # TODO: move to member
+        lognorm = np.zeros(free.size)  # TODO: move to member
 
         # fit a mixture-of-gamma model to cavity distributions for unconstrained nodes
         #free = np.logical_and(
         #    constraints[:, LOWER] == 0.0, constraints[:, UPPER] == np.inf
         #)
-        free = weights > 0.0
+        weights = np.ones(free.size)
         cavity = posterior - factors[:, MIXPRIOR] * scale[:, np.newaxis]
         prior[:], posterior[free], lognorm[free] = mixture.fit_gamma_mixture(
             prior, cavity[free], weights[free], em_maxitt, em_reltol, True #False
@@ -437,49 +441,49 @@ class ExpectationPropagation:
 
         return np.nan
 
-    #@staticmethod
-    #@numba.njit(_f(_f1r, _f2w, _f2w, _f3w, _f1w, _f, _i, _f))
-    #def propagate_prior_2(
-    #    free, prior, posterior, factors, scale, max_shape, min_step
-    #):
-    #    """
-    #    Update approximating factors for global prior at each node.
-    #    """
+    @staticmethod
+    @numba.njit(_f(_f1r, _f2w, _f3w, _f1w, _f, _f))
+    def propagate_prior_2(
+        free, posterior, factors, scale, max_shape, min_step
+    ):
+        """
+        Update approximating factors for global prior at each node.
+        """
 
-    #    assert prior.shape[1] == 3
-    #    assert free.size == posterior.shape[0]
-    #    assert factors.shape == (free.size, 2, 2)
-    #    assert scale.size == free.size
-    #    assert max_shape >= 1.0
-    #    assert 0.0 < min_step < 1.0
+        assert free.size == posterior.shape[0]
+        assert factors.shape == (free.size, 2, 2)
+        assert scale.size == free.size
+        assert max_shape >= 1.0
+        assert 0.0 < min_step < 1.0
 
-    #    def cavity_damping(x, y):
-    #        return _damp(x, y, min_step)
+        def cavity_damping(x, y):
+            return _damp(x, y, min_step)
 
-    #    def posterior_damping(x):
-    #        return _rescale(x, max_shape)
+        def posterior_damping(x):
+            return _rescale(x, max_shape)
 
-    #    delta = np.zeros(free.size):
-    #    cavity = posterior - factors[:, MIXPRIOR] * scale[:, np.newaxis]
-    #    mn = 0
-    #    ln = 0
-    #    for i in range(free.size):
-    #        if free[i] > 0:
-    #            message = factors[i, MIXPRIOR] * scale[i]
-    #            delta[i] = cavity_damping(posterior[i], message)
-    #            cavity[i] = posterior[i] - message * delta[i]
-    #            mn += free[i] * (cavity[i, 0] + 1) / cavity[i, 1]
-    #            ln += free[i] * (hypergeo._digamma(cavity[i, 0] + 1) - np.log(cavity[i, 1]))
-    #    prior = np.array(approx.approximate_gamma_kl(mn, ln))
-    #    for i in np.flatnonzero(free):
-    #        posterior[i] = cavity[i] + delta[i] * prior
-    #        factors[i, MIXPRIOR] *= 1.0 - delta[i]
-    #        factors[i, MIXPRIOR] += (posterior[i] - cavity[i]) / scale[i]
-    #        eta = posterior_damping(posterior[i])
-    #        posterior[i] *= eta
-    #        scale[i] *= eta
+        delta = np.zeros(free.size)
+        cavity = posterior - factors[:, MIXPRIOR] * scale[:, np.newaxis]
+        mn = 0
+        ln = 0
+        for i in np.flatnonzero(free):
+            message = factors[i, MIXPRIOR] * scale[i]
+            delta[i] = cavity_damping(posterior[i], message)
+            cavity[i] = posterior[i] - message * delta[i]
+            mn += free[i] * (cavity[i, 0] + 1) / cavity[i, 1]
+            ln += free[i] * (digamma(cavity[i, 0] + 1) - np.log(cavity[i, 1]))
+        mn /= np.sum(free)
+        ln /= np.sum(free)
+        prior = np.array(approx.approximate_gamma_kl(mn, ln))
+        for i in np.flatnonzero(free):
+            posterior[i] = cavity[i] + delta[i] * prior
+            factors[i, MIXPRIOR] *= 1.0 - delta[i]
+            factors[i, MIXPRIOR] += (posterior[i] - cavity[i]) / scale[i]
+            eta = posterior_damping(posterior[i])
+            posterior[i] *= eta
+            scale[i] *= eta
 
-    #    return np.nan
+        return np.nan
 
     # @staticmethod
     # @numba.njit(_f(_f2w, _f2r, _f2r, _i1r, _i1r, _f3w))
@@ -671,7 +675,8 @@ class ExpectationPropagation:
         normalise=False,
         min_kl=True,
         check_valid=False,
-        ts=None,
+        em_maxitt=100,
+        em_reltol=1e-8,
     ):
         """
         Update approximating factors.
@@ -696,53 +701,20 @@ class ExpectationPropagation:
         )
 
         # global prior on roots
-        prior = np.array([[1.0, 0.0, 1.0 / 1.0e4]]) # DEBUG
-        root_span = np.full(self.posterior.shape[0], 0.0)
-        for t in ts.trees():
-            if t.num_edges > 0:
-                root_span[t.roots] += t.span
-        root_span /= ts.sequence_length
-        root_span[root_span > 0] = 1
+        if not hasattr(self, "prior"):
+            rate = np.median((self.posterior[self.roots, 0] + 1) / self.posterior[self.roots, 1])
+            self.prior = np.array([[1.0, 0.0, rate]])
+
         self.propagate_prior(
-            prior,
-            root_span,
+            self.roots,
+            self.prior,
             self.posterior,
             self.node_factors,
             self.scale,
             max_shape,
-            100, 
-            1e-4,
+            em_maxitt,
+            em_reltol,
         )
-
-        # --- aborted attempts at something simpler
-        #is_root = np.full(self.posterior.shape[0], False)
-        #for t in ts.trees():
-        #    if t.num_edges > 0:
-        #        is_root[t.roots] = True
-        #self.propagate_prior_2(
-        #    is_root,
-        #    prior,
-        #    self.posterior,
-        #    self.node_factors,
-        #    self.scale,
-        #    max_shape,
-        #    100, 
-        #    1e-4,
-        #)
-
-        # global prior on node ages
-        #prior = np.array([[1.0, 0.0, 1.0 / 1.0e4]]) # DEBUG
-        #self.propagate_prior(
-        #    prior,
-        #    self.constraints,
-        #    self.posterior,
-        #    self.node_factors,
-        #    self.scale,
-        #    max_shape,
-        #    100, 
-        #    1e-4,
-        #)
-        # --- DEBUG
 
         # upper and lower bounds on node age
         # self.propagate_constraints(
@@ -788,7 +760,7 @@ class ExpectationPropagation:
         return np.nan  # TODO: placeholder for marginal likelihood
 
     def run(
-        self, *, ep_maxitt=10, max_shape=1000, min_step=0.1, min_kl=True, progress=None, ts=None #DEBUG
+        self, *, ep_maxitt=10, max_shape=1000, min_step=0.1, min_kl=True, progress=None,
     ):
         for _ in tqdm(
             np.arange(ep_maxitt),
@@ -799,5 +771,4 @@ class ExpectationPropagation:
                 max_shape=max_shape,
                 min_step=min_step,
                 min_kl=min_kl,
-                ts=ts, #DEBUG
             )
