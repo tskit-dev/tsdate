@@ -98,8 +98,8 @@ def _conditional_posterior(prior_logweight, prior_alpha, prior_beta, alpha, beta
     return E, E_t, E_logt, E_tlogt
 
 
-@numba.njit(_f(_f1w, _f1w, _f1w, _f1r, _f1r, _f1r))
-def _em_update(prior_weight, prior_alpha, prior_beta, weights, alpha, beta):
+@numba.njit(_f(_f1w, _f1w, _f1w, _f1r, _f1r))
+def _em_update(prior_weight, prior_alpha, prior_beta, alpha, beta):
     """
     Perform an expectation maximization step for parameters of mixture components,
     given variational parameters `alpha`, `beta` for each node.
@@ -109,7 +109,7 @@ def _em_update(prior_weight, prior_alpha, prior_beta, weights, alpha, beta):
 
     ``prior_weight``, ``prior_alpha``, ``prior_beta`` are updated in place.
     """
-    assert alpha.size == beta.size == weights.size
+    assert alpha.size == beta.size
 
     dim = prior_weight.size
     n = np.zeros(dim)
@@ -126,7 +126,7 @@ def _em_update(prior_weight, prior_alpha, prior_beta, weights, alpha, beta):
 
     # expectation step:
     loglik = 0.0
-    for a, b, w in zip(alpha, beta, weights):
+    for a, b in zip(alpha, beta):
         E, E_t, E_logt, E_tlogt = _conditional_posterior(
             prior_logweight, prior_alpha, prior_beta, a, b
         )
@@ -137,10 +137,10 @@ def _em_update(prior_weight, prior_alpha, prior_beta, weights, alpha, beta):
 
         # convert evidence to posterior weights
         norm_const = np.log(np.sum(np.exp(E - np.max(E)))) + np.max(E)
-        weight = np.exp(E - norm_const) * w
+        weight = np.exp(E - norm_const)
 
         # weighted contributions to sufficient statistics
-        loglik += norm_const * w
+        loglik += norm_const
         n += weight
         t += E_t * weight
         logt += E_logt * weight
@@ -148,9 +148,10 @@ def _em_update(prior_weight, prior_alpha, prior_beta, weights, alpha, beta):
 
     # maximization step: update parameters in place
     prior_weight[:] = n / np.sum(n)
-    #prior_beta[:] = n**2 / (n * tlogt - t * logt)
-    #prior_alpha[:] = n * t / (n * tlogt - t * logt) - 1.0
-    prior_beta[:] = n / t # force exponential
+    prior_beta[:] = n / t
+    # for gamma updates (doesn't work well)
+    # prior_beta[:] = n**2 / (n * tlogt - t * logt)
+    # prior_alpha[:] = n * t / (n * tlogt - t * logt) - 1.0
 
     return loglik
 
@@ -199,8 +200,8 @@ def _gamma_projection(prior_weight, prior_alpha, prior_beta, alpha, beta):
     return log_const
 
 
-@numba.njit(_tuple((_f2w, _f2w, _f1w))(_f2r, _f2r, _f1r, _i, _f, _b))
-def fit_gamma_mixture(mixture, observations, weights, max_iterations, tolerance, verbose):
+@numba.njit(_tuple((_f2w, _f2w, _f1w))(_f2r, _f2r, _i, _f, _b))
+def fit_gamma_mixture(mixture, observations, max_iterations, tolerance, verbose):
     """
     Run EM until relative tolerance or maximum number of iterations is
     reached.  Then, perform expectation-propagation update and return new
@@ -220,7 +221,7 @@ def fit_gamma_mixture(mixture, observations, weights, max_iterations, tolerance,
 
     last = np.inf
     for itt in range(max_iterations):
-        loglik = _em_update(mix_weight, mix_alpha, mix_beta, weights, alpha, beta)
+        loglik = _em_update(mix_weight, mix_alpha, mix_beta, alpha, beta)
         loglik /= float(alpha.size)
         update = np.abs(loglik - last)
         last = loglik
@@ -244,25 +245,3 @@ def fit_gamma_mixture(mixture, observations, weights, max_iterations, tolerance,
     new_mixture[:, 2] = mix_beta
 
     return new_mixture, new_observations, log_const
-
-
-def initialize_mixture(parameters, num_components):
-    """
-    Initialize clusters by dividing nodes into equal groups.
-    "parameters" are in natural parameterization (not shape/rate)
-    """
-    global_prior = np.empty((num_components, 3))
-    if num_components == 0:
-        return global_prior
-    num_nodes = parameters.shape[0]
-    age_classes = np.tile(
-        np.arange(num_components),
-        num_nodes // num_components + 1,
-    )[:num_nodes]
-    for k in range(num_components):
-        indices = np.equal(age_classes, k)
-        alpha, beta = approx.average_gammas(
-            parameters[indices, 0], parameters[indices, 1]
-        )
-        global_prior[k] = [1.0 / num_components, alpha, beta]
-    return global_prior

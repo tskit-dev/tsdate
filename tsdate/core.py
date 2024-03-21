@@ -29,6 +29,7 @@ import json
 import logging
 import multiprocessing
 import operator
+import time  # DEBUG
 from collections import defaultdict
 from collections import namedtuple
 
@@ -40,13 +41,11 @@ from tqdm.auto import tqdm
 
 from . import base
 from . import demography
+from . import normalisation
 from . import prior
 from . import provenance
 from . import util
 from . import variational
-from . import normalisation
-
-import time # DEBUG
 
 FORMAT_NAME = "tsdate"
 
@@ -1206,6 +1205,7 @@ class VariationalGammaMethod(EstimationMethod):
             ep_maxitt=max_iterations,
             max_shape=max_shape,
             min_kl=min_kl,
+            normalise=normalise,
             progress=self.pbar,
         )
 
@@ -1218,19 +1218,6 @@ class VariationalGammaMethod(EstimationMethod):
         posterior_mean, posterior_var = self.mean_var(
             dynamic_prog.posterior, dynamic_prog.constraints
         )
-        # TODO: re-estimate gamma parameters using rescaled quantiles
-        if normalise:
-            st = time.time() #DEBUG
-            posterior_mean = normalisation.scale_time_by_mutations(
-                posterior_mean,
-                dynamic_prog.likelihoods,
-                dynamic_prog.parents,
-                dynamic_prog.children,
-                min_mutations,
-                min_span * self.mutation_rate,
-            )
-            en = time.time() #DEBUG
-            print("norm time:", en - st) #DEBUG
 
         # convert posterior array to NodeGridValues
         free = dynamic_prog.constraints[:, 0] != dynamic_prog.constraints[:, 1]
@@ -1244,6 +1231,7 @@ class VariationalGammaMethod(EstimationMethod):
             posteriors[i][0] += 1  # natural to shape
 
         # TODO: return marginal likelihood
+        # TODO: return mutation posteriors
         return Results(posterior_mean, posterior_var, posteriors, None)
 
 

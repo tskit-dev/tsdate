@@ -24,7 +24,10 @@
 Tools for approximating combinations of Gamma variates with Gamma distributions
 """
 from math import exp
+from math import inf
+from math import lgamma
 from math import log
+from math import sqrt
 
 import numba
 import numpy as np
@@ -35,8 +38,8 @@ from . import hypergeo
 
 # TODO: these are reasonable defaults but could
 # be set via a control dict
-_KLMIN_MAXITER = 100
-_KLMIN_TOL = np.sqrt(np.finfo(np.float64).eps)
+_KLMIN_MAXITT = 100
+_KLMIN_RELTOL = np.sqrt(np.finfo(np.float64).eps)
 
 
 # shorthand for numba readonly array types, [type][dimension][constness]
@@ -101,8 +104,8 @@ def approximate_gamma_kl(x, logx):
     delta = np.inf
     # determine convergence when the change in alpha falls below
     # some small value (e.g. square root of machine precision)
-    while np.abs(delta) > alpha * _KLMIN_TOL:
-        if itt > _KLMIN_MAXITER:
+    while np.abs(delta) > np.abs(alpha) * _KLMIN_RELTOL:
+        if itt > _KLMIN_MAXITT:
             raise KLMinimizationFailed("Maximum iterations reached in KL minimization")
         delta = hypergeo._digamma(alpha) - np.log(alpha) + np.log(x) - logx
         delta /= hypergeo._trigamma(alpha) - 1 / alpha
@@ -124,6 +127,44 @@ def approximate_gamma_mom(mean, variance):
     shape = mean**2 / variance
     rate = mean / variance
     return shape - 1.0, rate
+
+
+@numba.njit(_unituple(_f, 2)(_f, _f, _f, _f))
+def approximate_gamma_iqr(q1, q2, x1, x2):
+    """Find gamma natural parameters that match empirical quantiles"""
+    if not (q2 > q1 and x2 > x1):
+        raise KLMinimizationFailed("Quantiles must be sorted")
+    # find starting value from asymptotic solutions
+    # if x2 / x1 < log(1 - q2) / log(1 - q1):
+    #    y1 = hypergeo._erf_inv(2 * q1 - 1) * sqrt(2)
+    #    y2 = hypergeo._erf_inv(2 * q2 - 1) * sqrt(2)
+    #    alpha = (y1 * x2 - y2 * x1) ** 2 / (x1 - x2) ** 2
+    # else:
+    alpha = log(q2 / q1) / log(x2 / x1)
+    # refine with newton iteration
+    delta = inf
+    itt = 0
+    while abs(delta) > abs(alpha) * _KLMIN_RELTOL:
+        if itt > _KLMIN_MAXITT:
+            raise KLMinimizationFailed(
+                "Maximum iterations reached in quantile matching"
+            )
+        y1 = hypergeo._gammainc_inv(alpha, q1)
+        y2 = hypergeo._gammainc_inv(alpha, q2)
+        obj = y2 / y1 - x2 / x1
+        inv_1 = -exp(y1 + log(y1) * (1 - alpha) + lgamma(alpha))
+        inv_2 = -exp(y2 + log(y2) * (1 - alpha) + lgamma(alpha))
+        # print(itt, alpha, y1, y2) #DEBUG
+        gra_1 = hypergeo._gammainc_der(alpha, y1) * inv_1
+        gra_2 = hypergeo._gammainc_der(alpha, y2) * inv_2
+        gra = (gra_2 * y1 - gra_1 * y2) / y1**2
+        delta = -obj / gra
+        alpha += delta
+        itt += 1
+    if not alpha > 0:
+        raise KLMinimizationFailed("Negative shape parameter")
+    beta = hypergeo._gammainc_inv(alpha, q1) / x1
+    return alpha - 1, beta
 
 
 @numba.njit(_unituple(_f, 2)(_f1r, _f1r))
