@@ -23,6 +23,8 @@
 """
 Expectation propagation implementation
 """
+import time
+
 import numba
 import numpy as np
 from numba.types import void as _void
@@ -30,6 +32,7 @@ from tqdm.auto import tqdm
 
 from . import approx
 from . import mixture
+from . import normalisation
 from . import util
 from .approx import _b
 from .approx import _b1r
@@ -38,6 +41,7 @@ from .approx import _f1r
 from .approx import _f1w
 from .approx import _f2r
 from .approx import _f2w
+from .approx import _f3r
 from .approx import _f3w
 from .approx import _i
 from .approx import _i1r
@@ -440,6 +444,93 @@ class ExpectationPropagation:
         return np.nan
 
     @staticmethod
+    @numba.njit(_f2w(_i1r, _i1r, _i1r, _f2r, _f2r, _f2r, _f3r, _f1r, _b))
+    def propagate_mutations(
+        mutations_edge,
+        edges_parent,
+        edges_child,
+        likelihoods,
+        constraints,
+        posterior,
+        factors,
+        scale,
+        min_kl,
+    ):
+        """
+        Calculate posteriors for mutations.
+
+        :param ndarray mutations_edge: integer array giving edge for each
+            mutation
+        :param ndarray edges_parent: integer array of parent ids per edge
+        :param ndarray edges_child: integer array of child ids per edge
+        :param ndarray likelihoods: array of dimension `[num_edges, 2]`
+            containing mutation count and mutational target size per edge.
+        :param ndarray constraints: array of dimension `[num_nodes, 2]`
+            containing lower and upper bounds for each node.
+        :param ndarray posterior: array of dimension `[num_nodes, 2]`
+            containing natural parameters for each node, updated in-place.
+        :param ndarray factors: array of dimension `[num_edges, 2, 2]`
+            containing parent and child factors (natural parameters) for each
+            edge, updated in-place.
+        :param ndarray scale: array of dimension `[num_nodes]` containing a
+            scaling factor for the posteriors, updated in-place.
+        :param bool min_kl: minimize KL divergence or match central moments.
+        """
+
+        # scale should be 1.0, can we delete
+
+        assert constraints.shape == posterior.shape
+        assert edges_child.size == edges_parent.size
+        assert factors.shape == (edges_parent.size, 2, 2)
+        assert likelihoods.shape == (edges_parent.size, 2)
+        assert mutations_edge.max() < factors.shape[0]
+
+        mutations_posterior = np.zeros((mutations_edge.size, 2))
+
+        fixed = constraints[:, LOWER] == constraints[:, UPPER]
+
+        for m, i in enumerate(mutations_edge):
+            p, c = edges_parent[i], edges_child[i]
+            if fixed[p] and fixed[c]:
+                child_age = constraints[c, 0]
+                parent_age = constraints[p, 0]
+                mean = 1 / 2 * (child_age + parent_age)
+                variance = 1 / 12 * (parent_age - child_age) ** 2
+                mutations_posterior[m] = approx.approximate_gamma_mom(mean, variance)
+            elif fixed[p] and not fixed[c]:
+                child_message = factors[i, LEAFWARD] * scale[c]
+                child_delta = 1.0  # hopefully we don't need to damp
+                child_cavity = posterior[c] - child_delta * child_message
+                edge_likelihood = child_delta * likelihoods[i]
+                parent_age = constraints[p, LOWER]
+                mutations_posterior[m] = approx.mutation_leafward_projection(
+                    parent_age, child_cavity, edge_likelihood, min_kl
+                )
+            elif fixed[c] and not fixed[p]:
+                parent_message = factors[i, ROOTWARD] * scale[p]
+                parent_delta = 1.0  # hopefully we don't need to damp
+                parent_cavity = posterior[p] - parent_delta * parent_message
+                edge_likelihood = parent_delta * likelihoods[i]
+                child_age = constraints[c, LOWER]
+                mutations_posterior[m] = approx.mutation_rootward_projection(
+                    child_age, parent_cavity, edge_likelihood, min_kl
+                )
+            else:
+                parent_message = factors[i, ROOTWARD] * scale[p]
+                child_message = factors[i, LEAFWARD] * scale[c]
+                parent_delta = 1.0  # hopefully we don't need to damp
+                child_delta = 1.0  # hopefully we don't need to damp
+                delta = min(parent_delta, child_delta)
+                parent_cavity = posterior[p] - delta * parent_message
+                child_cavity = posterior[c] - delta * child_message
+                edge_likelihood = delta * likelihoods[i]
+                mutations_posterior[m] = approx.mutation_gamma_projection(
+                    parent_cavity, child_cavity, edge_likelihood, min_kl
+                )
+
+        return mutations_posterior
+
+    @staticmethod
     @numba.njit(_void(_i1r, _i1r, _f3w, _f3w, _f1w))
     def rescale_factors(edges_parent, edges_child, node_factors, edge_factors, scale):
         """Incorporate scaling term into factors and reset"""
@@ -512,6 +603,52 @@ class ExpectationPropagation:
 
         return np.nan  # TODO: placeholder for marginal likelihood
 
+    def normalise(self, *, max_intervals=1000, use_median=False, quantile_width=0.5):
+        """Normalise posteriors so that empirical mutation rate is constant"""
+
+        point_estimate = np.zeros(self.posterior.shape[0])
+        fixed = self.constraints[:, 0] == self.constraints[:, 1]
+        point_estimate[fixed] = self.constraints[fixed, 0]
+        # TODO: option to use median instead (use scipy)
+        point_estimate[~fixed] = (self.posterior[~fixed, 0] + 1) / self.posterior[
+            ~fixed, 1
+        ]
+        original_breaks, rescaled_breaks = normalisation.mutational_timescale(
+            point_estimate,
+            self.likelihoods,
+            self.constraints,
+            self.parents,
+            self.children,
+            max_intervals,
+        )
+
+        self.posterior[:] = normalisation.piecewise_rescale_posterior(
+            self.posterior,
+            self.constraints,
+            original_breaks,
+            rescaled_breaks,
+            quantile_width,
+            use_median,
+        )
+
+        ##old
+        # self.posterior[:], timescale = normalisation.scale_time_by_mutations(
+        #    self.posterior,
+        #    self.likelihoods,
+        #    self.constraints,
+        #    self.parents,
+        #    self.children,
+        #    quantile_width,
+        #    max_intervals,
+        #    use_median,
+        # )
+        # print(np.allclose(timescale[0], original_breaks))
+        # print(np.allclose(timescale[2], rescaled_breaks))
+        # print(np.allclose(self.posterior, posterior2))
+
+        # if self.mutations_edge is not None:
+        #    # rescale mutations
+
     def run(
         self,
         *,
@@ -519,9 +656,10 @@ class ExpectationPropagation:
         max_shape=1000,
         min_step=0.1,
         min_kl=False,
-        normalise=True,
+        max_intervals=1000,
         progress=None,
     ):
+        st = time.time()  # DEBUG
         for _ in tqdm(
             np.arange(ep_maxitt),
             desc="Expectation Propagation",
@@ -532,23 +670,29 @@ class ExpectationPropagation:
                 min_step=min_step,
                 min_kl=min_kl,
             )
-        # estimate mutation posteriors here
-        if normalise:
-            self.normalise()
+        en = time.time()  # DEBUG
+        print("node posteriors:", en - st)  # DEBUG
+        print("skipped", np.sum(np.isnan(self.log_partition)), "nodes")  # DEBUG
 
-    def normalise(self, *, max_intervals=1000, use_median=False, quantile_width=0.5):
-        """Normalise posteriors so that empirical mutation rate is constant"""
+        if self.mutations_edge is not None:
+            st = time.time()  # DEBUG
+            self.mutations_posterior = self.propagate_mutations(
+                self.mutations_edge,
+                self.parents,
+                self.children,
+                self.likelihoods,
+                self.constraints,
+                self.posterior,
+                self.edge_factors,
+                self.scale,
+                min_kl,
+            )
+            en = time.time()  # DEBUG
+            print("mutation posteriors:", en - st)  # DEBUG
+            print("skipped", np.sum(np.isnan(self.mutations_posterior[:, 0])), "muts")
 
-        self.posterior[:], timescale = scale_time_by_mutations(
-            self.posterior,
-            self.likelihoods,
-            self.constraints,
-            self.parents,
-            self.children,
-            quantile_width,
-            max_intervals,
-            use_median,
-        )
-
-    # def date_mutations(posterior, likelihoods, constraints, parents, children, min_kl):
-    #     # ...
+        if max_intervals > 0:
+            st = time.time()  # DEBUG
+            self.normalise(max_intervals=max_intervals)
+            en = time.time()  # DEBUG
+            print("time normalisation:", en - st)  # DEBUG

@@ -337,12 +337,14 @@ def add_sampledata_times(samples, sites_time):
 def mutation_span_array(tree_sequence):
     """Extract mutation counts and spans per edge into a two-column array"""
     mutation_spans = np.zeros((tree_sequence.num_edges, 2))
+    mutation_edges = np.zeros(tree_sequence.num_mutations, dtype=np.int32)
     for mut in tree_sequence.mutations():
+        mutation_edges[mut.id] = mut.edge
         if mut.edge != tskit.NULL:
             mutation_spans[mut.edge, 0] += 1
     for edge in tree_sequence.edges():
         mutation_spans[edge.id, 1] = edge.span
-    return mutation_spans
+    return mutation_spans, mutation_edges
 
 
 @numba.njit(_unituple(_i1w, 4)(_i1r, _i1r, _f1r, _f1r, _i1r, _b1r))
