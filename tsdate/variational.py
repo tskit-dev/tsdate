@@ -47,7 +47,8 @@ from .approx import _i
 from .approx import _i1r
 from .hypergeo import _digamma as digamma
 from .hypergeo import _gammainc as gammainc
-from .normalisation import scale_time_by_mutations
+from .hypergeo import _gammainc_inv as gammainc_inv
+from .normalisation import mutational_timescale, piecewise_scale_posterior
 
 
 # columns for edge_factors
@@ -179,6 +180,19 @@ class ExpectationPropagation:
         posterior_check += node_factors[:, CONSTRNT]
         return np.allclose(posterior_check, posterior)
 
+    @staticmethod
+    @numba.njit(_f1w(_f2r, _f2r, _b))
+    def _point_estimate(posteriors, constraints, median):
+        assert posteriors.shape == constraints.shape
+        fixed = constraints[:, 0] == constraints[:, 1]
+        point_estimate = np.zeros(posteriors.shape[0])
+        for i in np.flatnonzero(~fixed):
+            alpha, beta = posteriors[i]
+            point_estimate[i] = gammainc_inv(alpha + 1, 0.5) if median else (alpha + 1) 
+            point_estimate[i] /= beta
+        point_estimate[fixed] = constraints[fixed, 0]
+        return point_estimate
+
     def __init__(self, ts, likelihoods, constraints, *, mutations_edge=None):
         """
         Initialize an expectation propagation algorithm for dating nodes
@@ -198,8 +212,12 @@ class ExpectationPropagation:
         :param ~np.ndarray likelihoods: a `ts.num_edges`-by-two array containing
             mutation counts and mutational spans (e.g. edge span multiplied by
             mutation rate) per edge.
+        :param ~np.ndarray mutations_edge: an array containing edge indices
+            (one per mutation) for which to compute posteriors.
         """
 
+        # TODO: pass in edge table rather than tree sequence
+        # TODO: check valid mutations_edge
         self._check_valid_inputs(ts, likelihoods, constraints)
 
         # const
@@ -605,49 +623,30 @@ class ExpectationPropagation:
 
     def normalise(self, *, max_intervals=1000, use_median=False, quantile_width=0.5):
         """Normalise posteriors so that empirical mutation rate is constant"""
-
-        point_estimate = np.zeros(self.posterior.shape[0])
-        fixed = self.constraints[:, 0] == self.constraints[:, 1]
-        point_estimate[fixed] = self.constraints[fixed, 0]
-        # TODO: option to use median instead (use scipy)
-        point_estimate[~fixed] = (self.posterior[~fixed, 0] + 1) / self.posterior[
-            ~fixed, 1
-        ]
-        original_breaks, rescaled_breaks = normalisation.mutational_timescale(
-            point_estimate,
+        nodes_time = self._point_estimate(self.posterior, self.constraints, use_median)
+        original_breaks, rescaled_breaks = mutational_timescale(
+            nodes_time,
             self.likelihoods,
             self.constraints,
             self.parents,
             self.children,
             max_intervals,
         )
-
-        self.posterior[:] = normalisation.piecewise_rescale_posterior(
+        self.posterior[:] = piecewise_scale_posterior(
             self.posterior,
-            self.constraints,
             original_breaks,
             rescaled_breaks,
             quantile_width,
             use_median,
         )
-
-        ##old
-        # self.posterior[:], timescale = normalisation.scale_time_by_mutations(
-        #    self.posterior,
-        #    self.likelihoods,
-        #    self.constraints,
-        #    self.parents,
-        #    self.children,
-        #    quantile_width,
-        #    max_intervals,
-        #    use_median,
-        # )
-        # print(np.allclose(timescale[0], original_breaks))
-        # print(np.allclose(timescale[2], rescaled_breaks))
-        # print(np.allclose(self.posterior, posterior2))
-
-        # if self.mutations_edge is not None:
-        #    # rescale mutations
+        if self.mutations_posterior is not None:
+            self.mutations_posterior[:] = piecewise_scale_posterior(
+                self.mutations_posterior,
+                original_breaks,
+                rescaled_breaks,
+                quantile_width,
+                use_median,
+            )
 
     def run(
         self,
@@ -659,7 +658,7 @@ class ExpectationPropagation:
         max_intervals=1000,
         progress=None,
     ):
-        st = time.time()  # DEBUG
+        nodes_timing = time.time() 
         for _ in tqdm(
             np.arange(ep_maxitt),
             desc="Expectation Propagation",
@@ -670,12 +669,13 @@ class ExpectationPropagation:
                 min_step=min_step,
                 min_kl=min_kl,
             )
-        en = time.time()  # DEBUG
-        print("node posteriors:", en - st)  # DEBUG
-        print("skipped", np.sum(np.isnan(self.log_partition)), "nodes")  # DEBUG
+        nodes_timing -= time.time() 
+        skipped_nodes = np.sum(np.isnan(self.log_partition))
+        print("node posteriors:", abs(nodes_timing))  # DEBUG
+        print("skipped", skipped_nodes, "nodes")  # DEBUG
 
         if self.mutations_edge is not None:
-            st = time.time()  # DEBUG
+            mutations_timing = time.time()
             self.mutations_posterior = self.propagate_mutations(
                 self.mutations_edge,
                 self.parents,
@@ -687,12 +687,13 @@ class ExpectationPropagation:
                 self.scale,
                 min_kl,
             )
-            en = time.time()  # DEBUG
-            print("mutation posteriors:", en - st)  # DEBUG
-            print("skipped", np.sum(np.isnan(self.mutations_posterior[:, 0])), "muts")
+            mutations_timing -= time.time()
+            skipped_mutations = np.sum(np.isnan(self.mutations_posterior[:, 0]))
+            print("mutation posteriors:", abs(mutations_timing))  # DEBUG
+            print("skipped", skipped_mutations, "muts")  # DEBUG
 
         if max_intervals > 0:
-            st = time.time()  # DEBUG
+            normalise_timing = time.time()
             self.normalise(max_intervals=max_intervals)
-            en = time.time()  # DEBUG
-            print("time normalisation:", en - st)  # DEBUG
+            normalise_timing -= time.time()
+            print("time normalisation:", abs(normalise_timing))  # DEBUG

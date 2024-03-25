@@ -437,10 +437,9 @@ def mutational_timescale(
     return origin, adjust
 
 
-@numba.njit(_f2w(_f2r, _f2r, _f1r, _f1r, _f, _b))
-def piecewise_rescale_posterior(
+@numba.njit(_f2w(_f2r, _f1r, _f1r, _f, _b))
+def piecewise_scale_posterior(
     posteriors,
-    constraints,
     original_breaks,
     rescaled_breaks,
     quantile_width,
@@ -451,49 +450,45 @@ def piecewise_rescale_posterior(
         rescaled shape parameter, e.g. 0.5 uses interquartile range
     """
 
-    assert posteriors.shape == constraints.shape
     assert original_breaks.size == rescaled_breaks.size
     assert 1 > quantile_width > 0
 
-    num_nodes = posteriors.shape[0]
+    dim = posteriors.shape[0]
     quant_lower = quantile_width / 2
     quant_upper = 1 - quantile_width / 2
 
     # use posterior mean or median as a point estimate
-    nodes_fixed = constraints[:, 0] == constraints[:, 1]
-    nodes_lower = np.zeros(num_nodes)
-    nodes_upper = np.zeros(num_nodes)
-    nodes_midpt = np.zeros(num_nodes)
-    for i in np.flatnonzero(~nodes_fixed):
+    freed = np.logical_and(posteriors[:, 0] > -1, posteriors[:, 1] > 0)
+    lower = np.zeros(dim)
+    upper = np.zeros(dim)
+    midpt = np.zeros(dim)
+    for i in np.flatnonzero(freed):
         alpha, beta = posteriors[i]
-        nodes_lower[i] = gammainc_inv(alpha + 1, quant_lower) / beta
-        nodes_upper[i] = gammainc_inv(alpha + 1, quant_upper) / beta
-        nodes_midpt[i] = gammainc_inv(alpha + 1, 0.5) if use_median else (alpha + 1)
-        nodes_midpt[i] /= beta
-    nodes_lower[nodes_fixed] = constraints[nodes_fixed, 0]
-    nodes_upper[nodes_fixed] = constraints[nodes_fixed, 0]
-    nodes_midpt[nodes_fixed] = constraints[nodes_fixed, 0]
+        lower[i] = gammainc_inv(alpha + 1, quant_lower) / beta
+        upper[i] = gammainc_inv(alpha + 1, quant_upper) / beta
+        midpt[i] = gammainc_inv(alpha + 1, 0.5) if use_median else (alpha + 1)
+        midpt[i] /= beta
 
     # rescale quantiles
     scalings = np.append(np.diff(rescaled_breaks) / np.diff(original_breaks), 0)
 
     def rescale(x):
         i = np.searchsorted(original_breaks, x, "right") - 1
-        assert i[0] == 0 and i[-1] < scalings.size
+        assert i.min() >= 0 and i.max() < scalings.size # DEBUG
         return rescaled_breaks[i] + scalings[i] * (x - original_breaks[i])
 
-    nodes_midpt = rescale(nodes_midpt)
-    nodes_lower = rescale(nodes_lower)
-    nodes_upper = rescale(nodes_upper)
+    midpt = rescale(midpt)
+    lower = rescale(lower)
+    upper = rescale(upper)
 
     # reproject posteriors using inter-quantile range
     new_posteriors = np.zeros(posteriors.shape)
-    for i in np.flatnonzero(~nodes_fixed):
+    for i in np.flatnonzero(freed):
         alpha, beta = approximate_gamma_iqr(
-            quant_lower, quant_upper, nodes_lower[i], nodes_upper[i]
+            quant_lower, quant_upper, lower[i], upper[i]
         )
         beta = gammainc_inv(alpha + 1, 0.5) if use_median else (alpha + 1)
-        beta /= nodes_midpt[i]  # choose rate so as to keep mean or median
+        beta /= midpt[i]  # choose rate so as to keep mean or median
         new_posteriors[i] = alpha, beta
 
     return new_posteriors
