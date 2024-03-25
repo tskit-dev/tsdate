@@ -29,6 +29,7 @@ from itertools import product
 import numpy as np
 import scipy.sparse
 import tskit
+import json
 
 
 class CladeMap:
@@ -254,17 +255,26 @@ def match_node_ages(ts, other):
     return matched_time, matched_span, best_match
 
 
-def node_coverage(ts, inferred_ts, posteriors, alpha):
+def node_coverage(ts, inferred_ts, alpha):
     assert np.all(np.logical_and(1 > alpha, alpha > 0))
-    positions = ts.sites_position
-    true_child = np.full(positions.size, tskit.NULL)
-    infr_child = np.full(positions.size, tskit.NULL)
+    posteriors = np.zeros((inferred_ts.num_nodes, 2))
+    for n in inferred_ts.nodes():
+        mn = json.loads(n.metadata or '{"mn":0}')['mn']
+        vr = json.loads(n.metadata or '{"vr":0}')['vr']
+        posteriors[n.id] = [mn ** 2 / vr, mn / vr] if vr > 0 else np.nan
+    positions = {p:i for i,p in enumerate(ts.sites_position)}
+    true_child = np.full(ts.sites_position.size, tskit.NULL)
+    infr_child = np.full(ts.sites_position.size, tskit.NULL)
     for s in ts.sites():
         if len(s.mutations) == 1:
-            true_child[s.id] = s.mutations[0].node
+            sid = positions[s.position]
+            true_child[sid] = s.mutations[0].node
     for s in inferred_ts.sites():
         if len(s.mutations) == 1:
-            infr_child[s.id] = s.mutations[0].node
+            sid = positions[s.position]
+            nid = s.mutations[0].node
+            if not np.isnan(posteriors[nid, 0]):
+                infr_child[s.id] = s.mutations[0].node
     missing = np.logical_or(true_child == tskit.NULL, infr_child == tskit.NULL)
     infr_child = infr_child[~missing]
     true_child = true_child[~missing]
@@ -272,13 +282,15 @@ def node_coverage(ts, inferred_ts, posteriors, alpha):
     upper = np.zeros((post.shape[0], alpha.size))
     lower = np.zeros((post.shape[0], alpha.size))
     for i in range(post.shape[0]):
-        shape, rate = post[i, 0] + 1, post[i, 1]
-        if shape <= 1:
-            upper[i] = scipy.stats.gamma.ppf(1 - alpha, shape, scale=1 / rate)
-            lower[i] = 0.0
-        else:
-            upper[i] = scipy.stats.gamma.ppf(1 - alpha / 2, shape, scale=1 / rate)
-            lower[i] = scipy.stats.gamma.ppf(alpha / 2, shape, scale=1 / rate)
+        shape, rate = post[i, 0], post[i, 1]
+        upper[i] = scipy.stats.gamma.ppf(1 - alpha / 2, shape, scale=1 / rate)
+        lower[i] = scipy.stats.gamma.ppf(alpha / 2, shape, scale=1 / rate)
+        #if shape <= 1:
+        #    upper[i] = scipy.stats.gamma.ppf(1 - alpha, shape, scale=1 / rate)
+        #    lower[i] = 0.0
+        #else:
+        #    upper[i] = scipy.stats.gamma.ppf(1 - alpha / 2, shape, scale=1 / rate)
+        #    lower[i] = scipy.stats.gamma.ppf(alpha / 2, shape, scale=1 / rate)
     true = ts.nodes_time[true_child]
     is_covered = np.logical_and(
         true[:, np.newaxis] < upper, true[:, np.newaxis] > lower
@@ -287,7 +299,56 @@ def node_coverage(ts, inferred_ts, posteriors, alpha):
     # plt.axline((0,0), slope=1, linestyle="--", color="black")
     # plt.xlim(0, 1)
     # plt.ylim(0, 1)
+    # plt.xlabel("Expected coverage")
+    # plt.xlabel("Observed coverage")
     # plt.scatter(1 - alpha, prop_covered, color="red")
-    # plt.savefig("bar.png")
+    # plt.savefig(plot)
     # plt.clf()
+    return prop_covered
+
+
+def mutation_coverage(ts, inferred_ts, alpha):
+    assert np.all(np.logical_and(1 > alpha, alpha > 0))
+    # extract mutation posteriors from metadata
+    posteriors = np.zeros((inferred_ts.num_mutations, 2))
+    for m in inferred_ts.mutations():
+        mn = json.loads(m.metadata or '{"mn":0}')['mn']
+        vr = json.loads(m.metadata or '{"vr":0}')['vr']
+        posteriors[m.id] = [mn ** 2 / vr, mn / vr] if vr > 0 else np.nan
+    # find shared biallelic sites
+    positions = {p:i for i,p in enumerate(ts.sites_position)}
+    true_mut = np.full(ts.sites_position.size, tskit.NULL)
+    infr_mut = np.full(ts.sites_position.size, tskit.NULL)
+    for s in ts.sites():
+        if len(s.mutations) == 1:
+            sid = positions[s.position]
+            true_mut[sid] = s.mutations[0].id
+    for s in inferred_ts.sites():
+        if len(s.mutations) == 1:
+            mid = s.mutations[0].id
+            if not np.isnan(posteriors[m.id, 0]):
+                sid = positions[s.position]
+                infr_mut[sid] = s.mutations[0].id
+    missing = np.logical_or(true_mut == tskit.NULL, infr_mut == tskit.NULL)
+    infr_mut = infr_mut[~missing]
+    true_mut = true_mut[~missing]
+    # calculate coverage
+    post = posteriors[infr_mut]
+    upper = np.zeros((post.shape[0], alpha.size))
+    lower = np.zeros((post.shape[0], alpha.size))
+    for i in range(post.shape[0]):
+        shape, rate = post[i, 0], post[i, 1]
+        upper[i] = scipy.stats.gamma.ppf(1 - alpha / 2, shape, scale=1 / rate)
+        lower[i] = scipy.stats.gamma.ppf(alpha / 2, shape, scale=1 / rate)
+        #if shape <= 1:
+        #    upper[i] = scipy.stats.gamma.ppf(1 - alpha, shape, scale=1 / rate)
+        #    lower[i] = 0.0
+        #else:
+        #    upper[i] = scipy.stats.gamma.ppf(1 - alpha / 2, shape, scale=1 / rate)
+        #    lower[i] = scipy.stats.gamma.ppf(alpha / 2, shape, scale=1 / rate)
+    true = ts.mutations_time[true_mut]
+    is_covered = np.logical_and(
+        true[:, np.newaxis] < upper, true[:, np.newaxis] > lower
+    )
+    prop_covered = np.sum(is_covered, axis=0) / is_covered.shape[0]
     return prop_covered

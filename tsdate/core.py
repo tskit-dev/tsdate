@@ -873,7 +873,7 @@ class InOutAlgorithms:
 # Classes for each method
 Results = namedtuple(
     "Results",
-    ["posterior_mean", "posterior_var", "posterior_obj", "mutation_likelihood"],
+    ["posterior_mean", "posterior_var", "posterior_obj", "mutation_mean", "mutation_var", "mutation_likelihood"],
 )
 
 
@@ -977,24 +977,31 @@ class EstimationMethod:
         # time-related information correctly set.
         tables = self.ts.dump_tables()
         nodes = tables.nodes
+        mutations = tables.mutations
         if self.provenance_params is not None:
             provenance.record_provenance(tables, self.name, **self.provenance_params)
+        constr_timing = time.time()
         nodes.time = util.constrain_ages(
             self.ts, result.posterior_mean, eps, self.constr_iterations
         )
+        mutations.time = np.full(self.ts.num_mutations, tskit.UNKNOWN_TIME) # TODO: use branch midpoint
         tables.time_units = self.time_units
-        tables.mutations.time = np.full(self.ts.num_mutations, tskit.UNKNOWN_TIME)
-        # Add posterior mean and variance to node metadata
-        if result.posterior_obj is not None:
+        constr_timing -= time.time()
+        logging.info(f"Constrain node ages: {abs(constr_timing)} seconds.")
+        # Add posterior mean and variance to node/mutation metadata
+        meta_timing = time.time()
+        if result.posterior_var is not None:
             metadata_array = tskit.unpack_bytes(nodes.metadata, nodes.metadata_offset)
-            for u in result.posterior_obj.nonfixed_nodes:
-                metadata_array[u] = json.dumps(
-                    {
-                        "mn": result.posterior_mean[u],
-                        "vr": result.posterior_var[u],
-                    }
-                ).encode()
+            for u, (mn, vr) in enumerate(zip(result.posterior_mean, result.posterior_var)):
+                metadata_array[u] = json.dumps({"mn": mn, "vr": vr,}).encode()
             nodes.packset_metadata(metadata_array)
+        if result.mutation_var is not None:
+            metadata_array = tskit.unpack_bytes(mutations.metadata, mutations.metadata_offset)
+            for u, (mn, vr) in enumerate(zip(result.mutation_mean, result.mutation_var)):
+                metadata_array[u] = json.dumps({"mn": mn, "vr": vr,}).encode()
+            mutations.packset_metadata(metadata_array)
+        meta_timing -= time.time()
+        logging.info(f"Insert node and mutation metadata: {abs(meta_timing)} seconds.")
         tables.sort()
         return tables.tree_sequence()
 
@@ -1102,7 +1109,7 @@ class InsideOutsideMethod(DiscreteTimeMethod):
         posterior_obj.to_probabilities()
 
         posterior_mean, posterior_var = self.mean_var(self.ts, posterior_obj)
-        return Results(posterior_mean, posterior_var, posterior_obj, marginal_likl)
+        return Results(posterior_mean, posterior_var, posterior_obj, None, None, marginal_likl)
 
 
 class MaximizationMethod(DiscreteTimeMethod):
@@ -1129,7 +1136,7 @@ class MaximizationMethod(DiscreteTimeMethod):
         dynamic_prog = self.main_algorithm(probability_space, eps, num_threads)
         marginal_likl = dynamic_prog.inside_pass(cache_inside=cache_inside)
         posterior_mean = dynamic_prog.outside_maximization(eps=eps)
-        return Results(posterior_mean, None, None, marginal_likl)
+        return Results(posterior_mean, None, None, None, None, marginal_likl)
 
 
 class VariationalGammaMethod(EstimationMethod):
@@ -1148,9 +1155,7 @@ class VariationalGammaMethod(EstimationMethod):
         fixed_node_set). This is a static method for ease of testing.
         """
 
-        mn_post = np.full(
-            posteriors.shape[0], np.nan
-        )  # Fill with NaNs so we detect when
+        mn_post = np.full(posteriors.shape[0], np.nan)  # Fill with NaNs so we detect when
         va_post = np.full(posteriors.shape[0], np.nan)  # there's been an error
 
         fixed = constraints[:, 0] == constraints[:, 1]
@@ -1209,30 +1214,18 @@ class VariationalGammaMethod(EstimationMethod):
             progress=self.pbar,
         )
 
-        num_skipped = np.sum(np.isnan(dynamic_prog.log_partition))
-        if num_skipped > 0:
-            logging.info(
-                f"Skipped {num_skipped} messages with invalid posterior updates."
-            )
-
-        posterior_mean, posterior_var = self.mean_var(
+        # TODO: use dynamic_prog.point_estimate
+        posterior_mean, posterior_vari = self.mean_var(
             dynamic_prog.posterior, dynamic_prog.constraints
         )
 
-        # convert posterior array to NodeGridValues
-        free = dynamic_prog.constraints[:, 0] != dynamic_prog.constraints[:, 1]
-        posteriors = base.NodeGridValues(
-            self.ts.num_nodes,
-            np.flatnonzero(free),
-            np.array([0, np.inf]),
-        )
-        for i in posteriors.nonfixed_nodes:
-            posteriors[i] = dynamic_prog.posterior[i]
-            posteriors[i][0] += 1  # natural to shape
+        # TODO: will print warning when mutations above root (e.g. no posterior)
+        mutation_post = dynamic_prog.mutations_posterior
+        mutation_mean = (mutation_post[:, 0] + 1) / mutation_post[:, 1]
+        mutation_vari = (mutation_post[:, 0] + 1) / mutation_post[:, 1] ** 2
 
         # TODO: return marginal likelihood
-        # TODO: return mutation posteriors
-        return Results(posterior_mean, posterior_var, posteriors, None)
+        return Results(posterior_mean, posterior_vari, None, mutation_mean, mutation_vari, None)
 
 
 def maximization(
@@ -1466,9 +1459,7 @@ def variational_gamma(
         update matches mean and variance rather than expected gamma sufficient
         statistics. Faster with a similar accuracy, but does not exactly minimize
         Kullback-Leibler divergence. Default: None, treated as True.
-    :param bool normalise: If `True`, the timescale is corrected so that the empirical
-        mutation rate is uniform.
-    :param float normalise_intervals: For normalisation, the number of time intervals within
+    :param float normalisation_intervals: For normalisation, the number of time intervals within
         which to estimate a rescaling parameter. Default None, treated as 1000.
     :param \\**kwargs: Other keyword arguments as described in the :func:`date` wrapper
         function, notably ``mutation_rate``, and ``population_size`` or ``priors``.

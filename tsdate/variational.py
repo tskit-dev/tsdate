@@ -25,10 +25,12 @@ Expectation propagation implementation
 """
 import time
 
+import tskit
 import numba
 import numpy as np
 from numba.types import void as _void
 from tqdm.auto import tqdm
+import logging
 
 from . import approx
 from . import mixture
@@ -154,7 +156,7 @@ class ExpectationPropagation:
             )
 
     @staticmethod
-    def _check_valid_inputs(ts, likelihoods, constraints):
+    def _check_valid_inputs(ts, likelihoods, constraints, mutations_edge):
         if likelihoods.shape != (ts.num_edges, 2):
             raise ValueError("Edge likelihoods are the wrong shape")
         if constraints.shape != (ts.num_nodes, 2):
@@ -163,6 +165,8 @@ class ExpectationPropagation:
             raise ValueError("Edge likelihoods contains negative values")
         if np.any(constraints < 0.0):
             raise ValueError("Node age constraints contain negative values")
+        if mutations_edge.max() >= ts.num_edges:
+            raise ValueError("Mutation edge indices are out-of-bounds")
         ExpectationPropagation._check_valid_constraints(
             constraints, ts.edges_parent, ts.edges_child
         )
@@ -193,7 +197,7 @@ class ExpectationPropagation:
         point_estimate[fixed] = constraints[fixed, 0]
         return point_estimate
 
-    def __init__(self, ts, likelihoods, constraints, *, mutations_edge=None):
+    def __init__(self, ts, likelihoods, constraints, mutations_edge):
         """
         Initialize an expectation propagation algorithm for dating nodes
         in a tree sequence.
@@ -218,7 +222,7 @@ class ExpectationPropagation:
 
         # TODO: pass in edge table rather than tree sequence
         # TODO: check valid mutations_edge
-        self._check_valid_inputs(ts, likelihoods, constraints)
+        self._check_valid_inputs(ts, likelihoods, constraints, mutations_edge)
 
         # const
         self.parents = ts.edges_parent
@@ -495,19 +499,21 @@ class ExpectationPropagation:
         :param bool min_kl: minimize KL divergence or match central moments.
         """
 
-        # scale should be 1.0, can we delete
+        # TODO: scale should be 1.0, can we delete
+        # TODO: we don't seem to need to damp?
+        # TODO: might as well copy format in other functions and have void return
 
         assert constraints.shape == posterior.shape
         assert edges_child.size == edges_parent.size
         assert factors.shape == (edges_parent.size, 2, 2)
         assert likelihoods.shape == (edges_parent.size, 2)
-        assert mutations_edge.max() < factors.shape[0]
 
         mutations_posterior = np.zeros((mutations_edge.size, 2))
-
         fixed = constraints[:, LOWER] == constraints[:, UPPER]
-
         for m, i in enumerate(mutations_edge):
+            if i == tskit.NULL: # skip mutations above root
+                mutations_posterior[m] = np.nan
+                continue
             p, c = edges_parent[i], edges_child[i]
             if fixed[p] and fixed[c]:
                 child_age = constraints[c, 0]
@@ -639,14 +645,13 @@ class ExpectationPropagation:
             quantile_width,
             use_median,
         )
-        if self.mutations_posterior is not None:
-            self.mutations_posterior[:] = piecewise_scale_posterior(
-                self.mutations_posterior,
-                original_breaks,
-                rescaled_breaks,
-                quantile_width,
-                use_median,
-            )
+        self.mutations_posterior[:] = piecewise_scale_posterior(
+            self.mutations_posterior,
+            original_breaks,
+            rescaled_breaks,
+            quantile_width,
+            use_median,
+        )
 
     def run(
         self,
@@ -671,29 +676,30 @@ class ExpectationPropagation:
             )
         nodes_timing -= time.time() 
         skipped_nodes = np.sum(np.isnan(self.log_partition))
-        print("node posteriors:", abs(nodes_timing))  # DEBUG
-        print("skipped", skipped_nodes, "nodes")  # DEBUG
+        logging.info(f"Calculate node posteriors: {abs(nodes_timing)} seconds.")
+        if skipped_nodes:
+            logging.info(f"Skipped {skipped_nodes} nodes with invalid posteriors.")
 
-        if self.mutations_edge is not None:
-            mutations_timing = time.time()
-            self.mutations_posterior = self.propagate_mutations(
-                self.mutations_edge,
-                self.parents,
-                self.children,
-                self.likelihoods,
-                self.constraints,
-                self.posterior,
-                self.edge_factors,
-                self.scale,
-                min_kl,
-            )
-            mutations_timing -= time.time()
-            skipped_mutations = np.sum(np.isnan(self.mutations_posterior[:, 0]))
-            print("mutation posteriors:", abs(mutations_timing))  # DEBUG
-            print("skipped", skipped_mutations, "muts")  # DEBUG
+        muts_timing = time.time()
+        self.mutations_posterior = self.propagate_mutations(
+            self.mutations_edge,
+            self.parents,
+            self.children,
+            self.likelihoods,
+            self.constraints,
+            self.posterior,
+            self.edge_factors,
+            self.scale,
+            min_kl,
+        )
+        muts_timing -= time.time()
+        skipped_muts = np.sum(np.isnan(self.mutations_posterior[:, 0]))
+        logging.info(f"Calculate mutation posteriors: {abs(muts_timing)} seconds.")
+        if skipped_muts:
+            logging.info(f"Skipped {skipped_muts} mutations with invalid posteriors.")
 
         if max_intervals > 0:
-            normalise_timing = time.time()
+            norm_timing = time.time()
             self.normalise(max_intervals=max_intervals)
-            normalise_timing -= time.time()
-            print("time normalisation:", abs(normalise_timing))  # DEBUG
+            norm_timing -= time.time()
+            logging.info(f"Timescale normalisation: {abs(norm_timing)} seconds.")
