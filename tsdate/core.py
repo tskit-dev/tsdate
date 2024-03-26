@@ -1221,8 +1221,11 @@ class VariationalGammaMethod(EstimationMethod):
 
         # TODO: will print warning when mutations above root (e.g. no posterior)
         mutation_post = dynamic_prog.mutations_posterior
-        mutation_mean = (mutation_post[:, 0] + 1) / mutation_post[:, 1]
-        mutation_vari = (mutation_post[:, 0] + 1) / mutation_post[:, 1] ** 2
+        mutation_mean = np.zeros(mutation_post.shape[0])
+        mutation_vari = np.zeros(mutation_post.shape[0])
+        idx = mutation_post[:, 1] > 0 # TODO: this should be nan?
+        mutation_mean[idx] = (mutation_post[idx, 0] + 1) / mutation_post[idx, 1]
+        mutation_vari[idx] = (mutation_post[idx, 0] + 1) / mutation_post[idx, 1] ** 2
 
         # TODO: return marginal likelihood
         return Results(posterior_mean, posterior_vari, None, mutation_mean, mutation_vari, None)

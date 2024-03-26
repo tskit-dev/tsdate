@@ -148,10 +148,11 @@ def _em_update(prior_weight, prior_alpha, prior_beta, alpha, beta):
 
     # maximization step: update parameters in place
     prior_weight[:] = n / np.sum(n)
-    prior_beta[:] = n / t
+    # for exponential updates
+    prior_beta[:] = n / t  # exponential
     # for gamma updates (doesn't work well)
-    # prior_beta[:] = n**2 / (n * tlogt - t * logt)
-    # prior_alpha[:] = n * t / (n * tlogt - t * logt) - 1.0
+    # prior_beta[:] = n**2 / (n * tlogt - t * logt) #gamma
+    # prior_alpha[:] = n * t / (n * tlogt - t * logt) - 1.0 #gamma
 
     return loglik
 
