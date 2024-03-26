@@ -30,8 +30,9 @@ from itertools import product
 import numpy as np
 import scipy.sparse
 import tskit
+from math import isqrt
 
-# import matplotlib.pyplot as plt
+import matplotlib.pyplot as plt
 
 
 class CladeMap:
@@ -395,3 +396,65 @@ def mutation_coverage(ts, inferred_ts, alpha):
     # plt.savefig("foo.png")
     # plt.clf()
     return prop_covered
+
+
+def compare_segregating_sites(ts, mutation_rate, plotpath=None, num_windows=50):
+    ts_trim = ts.trim()
+    windows = np.linspace(0, ts_trim.sequence_length, num_windows + 1)
+    site_segsites = ts_trim.segregating_sites(mode='site', windows=windows)
+    branch_segsites = ts_trim.segregating_sites(mode='branch', windows=windows) * mutation_rate
+    if plotpath is not None:
+        plt.clf()
+        plt.scatter(site_segsites, branch_segsites, color="firebrick", s=4)
+        plt.axline((np.mean(site_segsites), np.mean(site_segsites)), slope=1, linestyle="--", color="black")
+        plt.xlabel("Segregating sites (observed)")
+        plt.ylabel("Segregating sites (expected)")
+        plt.tight_layout()
+        plt.savefig(plotpath)
+        plt.clf()
+    return np.column_stack([site_segsites, branch_segsites])
+
+
+def allele_frequency_spectra(ts, mutation_rate, plotpath=None, num_bins=9, num_windows=50, polarised=True):
+    """
+    Calculate site and branch allele frequency spectra across windows, where
+    adjacent AFS bins are pooled. Optionally produce a scatterplot for each
+    pooled bin.
+    """
+
+    ts_trim = ts.trim()
+    windows = np.linspace(0, ts_trim.sequence_length, num_windows + 1)
+    site_afs = ts_trim.allele_frequency_spectrum(
+        mode='site', windows=windows, span_normalise=False, polarised=polarised
+    )
+    branch_afs = mutation_rate * ts_trim.allele_frequency_spectrum(
+        mode='branch', windows=windows, span_normalise=False, polarised=polarised
+    )
+    # bin by calculating cumulative segsites
+    dim = isqrt(num_bins)
+    num_bins = dim * dim
+    cumulative = np.arange(0, branch_afs.shape[1], dtype=np.float64)
+    cumulative /= cumulative[-1]
+    bins = np.linspace(0, 1, num_bins + 1)
+    bins = np.searchsorted(cumulative, bins, side='right') - 1
+    if plotpath is not None:
+        fig, axs = plt.subplots(dim, dim, squeeze=0)
+        fudge = 98 / 100
+        for i, j, ax in zip(bins[:-1], bins[1:], axs.reshape(-1)):
+            title = f"{i}:{j}"
+            obs = site_afs[:, i:j].sum(axis=1)
+            exp = branch_afs[:, i:j].sum(axis=1)
+            ax.text(1 - fudge, fudge, title, ha='left', va='top', transform=ax.transAxes, size=8)
+            ax.set_xticks(np.linspace(exp.min(), exp.max(), 3))
+            ax.set_yticks(np.linspace(obs.min(), obs.max(), 3))
+            ax.set_xlim(exp.min() * fudge, exp.max() / fudge)
+            ax.set_ylim(obs.min() * fudge, obs.max() / fudge)
+            ax.tick_params(labelsize=8)
+            ax.scatter(exp, obs, color="firebrick", s=4)
+            ax.axline((np.mean(obs), np.mean(obs)), slope=1, linestyle="--", color="black")
+        fig.supylabel("Observed # sites in window")
+        fig.supxlabel("Expected # sites in window")
+        plt.tight_layout()
+        plt.savefig(plotpath)
+        plt.clf()
+    return site_afs, branch_afs

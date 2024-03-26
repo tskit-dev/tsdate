@@ -571,7 +571,9 @@ def constrain_mutations(ts, nodes_time, mutations_time, mutations_edge):
         mutations_time = (child_time + parent_time) / 2
     assert mutations_time.size == mutations_edge.size == ts.num_mutations
 
-    epsilon = 1e-12 # fudge factor
+    epsilon = 2e-12 # fudge factor 
+    # TODO: check eps against TSKIT_ERR_MUTATION_TIME_OLDER_THAN_PARENT_NODE
+    # do we need to control relative error?
     internal = mutations_edge != tskit.NULL
     constrained_time = np.full(mutations_time.size, tskit.UNKNOWN_TIME)
     constrained_time[internal] = np.clip(
