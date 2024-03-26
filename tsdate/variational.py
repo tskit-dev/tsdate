@@ -676,9 +676,9 @@ class ExpectationPropagation:
             )
         nodes_timing -= time.time() 
         skipped_nodes = np.sum(np.isnan(self.log_partition))
-        logging.info(f"Calculate node posteriors: {abs(nodes_timing)} seconds.")
         if skipped_nodes:
-            logging.info(f"Skipped {skipped_nodes} nodes with invalid posteriors.")
+            logging.info(f"Skipped {skipped_nodes} nodes with invalid posteriors")
+        logging.info(f"Calculated node posteriors in {abs(nodes_timing)} seconds")
 
         muts_timing = time.time()
         self.mutations_posterior = self.propagate_mutations(
@@ -694,12 +694,12 @@ class ExpectationPropagation:
         )
         muts_timing -= time.time()
         skipped_muts = np.sum(np.isnan(self.mutations_posterior[:, 0]))
-        logging.info(f"Calculate mutation posteriors: {abs(muts_timing)} seconds.")
         if skipped_muts:
-            logging.info(f"Skipped {skipped_muts} mutations with invalid posteriors.")
+            logging.info(f"Skipped {skipped_muts} mutations with invalid posteriors")
+        logging.info(f"Calculated mutation posteriors in {abs(muts_timing)} seconds")
 
         if max_intervals > 0:
             norm_timing = time.time()
             self.normalise(max_intervals=max_intervals)
             norm_timing -= time.time()
-            logging.info(f"Timescale normalisation: {abs(norm_timing)} seconds.")
+            logging.info(f"Timescale normalised in {abs(norm_timing)} seconds")

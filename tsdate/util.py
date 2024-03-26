@@ -512,7 +512,7 @@ def constrain_ages(ts, nodes_time, epsilon=1e-6, max_iterations=0):
 
     :param tskit.TreeSequence ts: The input tree sequence, with arbitrary node
         times.
-    :param np.ndarray nodes_times: Unconstrained node ages to inject into the
+    :param np.ndarray nodes_time: Unconstrained node ages to inject into the
         tree sequence.
     :param float epsilon: The minimum allowed branch length when forcing
         positive branch lengths.
@@ -535,5 +535,55 @@ def constrain_ages(ts, nodes_time, epsilon=1e-6, max_iterations=0):
         epsilon,
         max_iterations,
     )
+    modified = np.sum(~np.isclose(nodes_time, constrained_nodes_time))
+    if modified:
+        logging.info(f"Modified ages of {modified} nodes to satisfy constraints")
 
     return constrained_nodes_time
+
+
+def constrain_mutations(ts, nodes_time, mutations_time, mutations_edge):
+    """
+    Adjusts `mutations_time` to be valid given topology and constrained
+    `nodes_time`. Specifically, the mutation age is unmodified if it falls
+    between parent and child ages. If the mutation age is above (below) parent
+    (child) age, then the closest bound is used. If the mutation is above a
+    root, its age set to the age of the root. If `mutations_time` is None, then
+    the edge midpoint is used.
+
+    :param tskit.TreeSequence ts: The input tree sequence, with arbitrary node
+        times.
+    :param np.ndarray nodes_time: Constrained node ages.
+    :param np.ndarray mutations_time: Mutation ages to constrain. If `None`, use
+        the midpoint of the edge that the mutation falls on.
+    :param np.ndarray mutations_edge: The edge that each mutation falls on.
+
+    :return np.ndarray: Constrained mutation ages
+    """
+
+    parent = ts.edges_parent[mutations_edge]
+    child = ts.edges_child[mutations_edge]
+    parent_time = nodes_time[parent]
+    child_time = nodes_time[child]
+    assert np.all(parent_time > child_time), "Negative branch lengths"
+
+    if mutations_time is None:
+        mutations_time = (child_time + parent_time) / 2
+    assert mutations_time.size == mutations_edge.size == ts.num_mutations
+
+    epsilon = 1e-12 # fudge factor
+    internal = mutations_edge != tskit.NULL
+    constrained_time = np.full(mutations_time.size, tskit.UNKNOWN_TIME)
+    constrained_time[internal] = np.clip(
+        mutations_time[internal], 
+        child_time[internal],
+        parent_time[internal] - epsilon,
+    )
+    # TODO: is there a better option than age of subtended root?
+    constrained_time[~internal] = nodes_time[ts.mutations_node[~internal]]
+
+    modified = np.sum(~np.isclose(mutations_time[internal], constrained_time[internal]))
+    if modified:
+        logging.info(f"Modified ages of {modified} mutations to satisfy constraints")
+
+    return constrained_time

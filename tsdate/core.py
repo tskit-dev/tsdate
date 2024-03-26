@@ -917,6 +917,7 @@ class EstimationMethod:
         self.time_units = "generations" if time_units is None else time_units
         if record_provenance is None:
             record_provenance = True
+
         Ne = population_size  # shorthand
         if isinstance(Ne, dict):
             Ne = demography.PopulationSizeHistory(**Ne)
@@ -972,6 +973,12 @@ class EstimationMethod:
                     )
                 self.priors = priors
 
+        # mutation to edge mapping
+        mutspan_timing = time.time()
+        self.edges_mutations, self.mutations_edge = util.mutation_span_array(ts)
+        mutspan_timing -= time.time()
+        logging.info(f"Extracted mutations in {abs(mutspan_timing)} seconds")
+
     def get_modified_ts(self, result, eps):
         # Return a new ts based on the existing one, but with the various
         # time-related information correctly set.
@@ -980,15 +987,19 @@ class EstimationMethod:
         mutations = tables.mutations
         if self.provenance_params is not None:
             provenance.record_provenance(tables, self.name, **self.provenance_params)
+        # Constrain node ages for positive branch lengths
         constr_timing = time.time()
         nodes.time = util.constrain_ages(
             self.ts, result.posterior_mean, eps, self.constr_iterations
         )
-        mutations.time = np.full(self.ts.num_mutations, tskit.UNKNOWN_TIME) # TODO: use branch midpoint
+        mutations.time = util.constrain_mutations(
+            self.ts, nodes.time, result.mutation_mean, self.mutations_edge
+        )
         tables.time_units = self.time_units
         constr_timing -= time.time()
-        logging.info(f"Constrain node ages: {abs(constr_timing)} seconds.")
+        logging.info(f"Constrained node ages in {abs(constr_timing)} seconds")
         # Add posterior mean and variance to node/mutation metadata
+        # TODO: retain original metadata?
         meta_timing = time.time()
         if result.posterior_var is not None:
             metadata_array = tskit.unpack_bytes(nodes.metadata, nodes.metadata_offset)
@@ -1001,7 +1012,7 @@ class EstimationMethod:
                 metadata_array[u] = json.dumps({"mn": mn, "vr": vr,}).encode()
             mutations.packset_metadata(metadata_array)
         meta_timing -= time.time()
-        logging.info(f"Insert node and mutation metadata: {abs(meta_timing)} seconds.")
+        logging.info(f"Inserted node and mutation metadata in {abs(meta_timing)} seconds")
         tables.sort()
         return tables.tree_sequence()
 
@@ -1173,7 +1184,7 @@ class VariationalGammaMethod(EstimationMethod):
         # edge likelihoods
         # TODO: variable mutation rates across genome
         # TODO: truncate edge spans with accessiblity mask
-        likelihoods, mutations_edge = util.mutation_span_array(self.ts)
+        likelihoods = self.edges_mutations.copy()
         likelihoods[:, 1] *= self.mutation_rate
 
         # lower and upper bounds on node ages
@@ -1183,7 +1194,7 @@ class VariationalGammaMethod(EstimationMethod):
         constraints[sample_idx, :] = self.ts.nodes_time[sample_idx, np.newaxis]
 
         return variational.ExpectationPropagation(
-            self.ts, likelihoods, constraints, mutations_edge=mutations_edge
+            self.ts, likelihoods, constraints, self.mutations_edge
         )
 
     def run(
@@ -1219,11 +1230,11 @@ class VariationalGammaMethod(EstimationMethod):
             dynamic_prog.posterior, dynamic_prog.constraints
         )
 
-        # TODO: will print warning when mutations above root (e.g. no posterior)
+        # TODO: clean up
         mutation_post = dynamic_prog.mutations_posterior
-        mutation_mean = np.zeros(mutation_post.shape[0])
-        mutation_vari = np.zeros(mutation_post.shape[0])
-        idx = mutation_post[:, 1] > 0 # TODO: this should be nan?
+        mutation_mean = np.full(mutation_post.shape[0], np.nan)
+        mutation_vari = np.full(mutation_post.shape[0], np.nan)
+        idx = mutation_post[:, 1] > 0
         mutation_mean[idx] = (mutation_post[idx, 0] + 1) / mutation_post[idx, 1]
         mutation_vari[idx] = (mutation_post[idx, 0] + 1) / mutation_post[idx, 1] ** 2
 
