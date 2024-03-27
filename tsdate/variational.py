@@ -570,10 +570,11 @@ class ExpectationPropagation:
         *,
         max_shape=1000,
         min_step=0.1,
-        min_kl=False,
-        check_valid=False,
         em_maxitt=100,
         em_reltol=1e-8,
+        min_kl=False,
+        check_valid=False,
+        regularise=True,
     ):
         # rootward + leafward pass through edges
         self.propagate_likelihood(
@@ -591,21 +592,22 @@ class ExpectationPropagation:
             min_kl,
         )
 
-        if not hasattr(self, "prior"):
-            alpha, beta = self.posterior[self.roots].T
-            self.regularization = np.array([[1.0, 0.0, np.mean((alpha + 1) / beta)]])
-
         # exponential regularization on roots
-        self.propagate_prior(
-            self.roots,
-            self.regularization,
-            self.posterior,
-            self.node_factors,
-            self.scale,
-            max_shape,
-            em_maxitt,
-            em_reltol,
-        )
+        if regularise:
+            if not hasattr(self, "regularisation"):
+                alpha, beta = self.posterior[self.roots].T
+                rate = 1.0 / np.mean((alpha + 1) / beta)
+                self.regularisation = np.array([[1.0, 0.0, rate]])
+            self.propagate_prior(
+                self.roots,
+                self.regularisation,
+                self.posterior,
+                self.node_factors,
+                self.scale,
+                max_shape,
+                em_maxitt,
+                em_reltol,
+            )
 
         # absorb the scaling term into the factors
         self.rescale_factors(

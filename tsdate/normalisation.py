@@ -418,7 +418,8 @@ def mutational_timescale(
     offset = np.cumsum(epoch_counts[:, 1])
 
     # rescale time such that mutation density is constant between changepoints
-    changepoints = _fixed_changepoints(counts * epoch_length, max_intervals)
+    #changepoints = _fixed_changepoints(counts * epoch_length, max_intervals)
+    changepoints = _fixed_changepoints(offset * epoch_length, max_intervals)
     changepoints = np.union1d(changepoints, nodes_index[nodes_fixed])
     adjust = np.zeros(changepoints.size)
     k = 0
@@ -470,6 +471,7 @@ def piecewise_scale_posterior(
         midpt[i] /= beta
 
     # rescale quantiles
+    # TODO: ensure denominator is >0
     scalings = np.append(np.diff(rescaled_breaks) / np.diff(original_breaks), 0)
 
     def rescale(x):
