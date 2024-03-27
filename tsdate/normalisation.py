@@ -30,6 +30,7 @@ import numpy as np
 import tskit
 from numba.types import Tuple as _tuple
 from numba.types import UniTuple as _unituple
+import scipy.sparse
 
 from .approx import _b
 from .approx import _b1r
@@ -494,3 +495,40 @@ def piecewise_scale_posterior(
         new_posteriors[i] = alpha, beta
 
     return new_posteriors
+
+
+def edge_frequency_array(ts):
+    """
+    Return sparse matrix where edges are rows, sample frequencies are columns,
+    and entries are the total span where an edge subtends a node of a given
+    frequency.
+    """
+    freqs = []
+    edges = []
+    spans = []
+    for tree in ts.trees():
+        if tree.num_edges == 0:
+            continue
+        for node in tree.nodes():
+            if node != tree.root:
+                freqs.append(tree.num_samples(node))
+                edges.append(tree.edge(node))
+                spans.append(tree.span)
+    output = scipy.sparse.coo_matrix(
+        (spans, (edges, freqs)), 
+        shape=(ts.num_edges, ts.num_samples),
+    )
+    unitary = output.copy()
+    unitary.data[:] = 1.0
+    # test:
+    # edge_length = ts.nodes_time[ts.edges_parent] - ts.nodes_time[ts.edges_child]
+    # exp = ts.allele_frequency_spectrum(mode='branch', polarised=True)[:-1]
+    # obs = ts.allele_frequency_spectrum(mode='site', polarised=True)[:-1] #use mutation_span_array
+    # np.allclose(output @ (edge_length / sequence_length), ts.allele_frequency_spectrum(mode='branch', polarised=True)[:-1])
+    # edge_span = ts.edges_right - ts.edges_left
+    # output_norm = output @ scipy.sparse.diags(1.0 / edge_span)
+    # rescale = output_norm.T @ (obs / exp)
+    # output @ (rescale * edge_length) == obs <<check
+    # ... this is a little crazy. the idea is to adjust edge mutation rate based on frequency
+    # ... so as to get the correct expected SFS. why would this work?
+    return output.tocsr()

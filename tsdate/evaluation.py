@@ -398,21 +398,23 @@ def mutation_coverage(ts, inferred_ts, alpha):
     return prop_covered
 
 
-def allele_frequency_spectra(ts, mutation_rate, plotpath=None, num_bins=9, num_windows=500, polarised=True):
+def allele_frequency_spectra(ts, mutation_rate, plotpath=None, title=None, max_freq=None, num_bins=9, num_windows=500, polarised=True):
     """
     Calculate site and branch allele frequency spectra across windows, where
     adjacent AFS bins are pooled. Optionally produce a scatterplot for each
-    pooled bin.
+    pooled bin. Optionally truncate the AFS at a given `max_freq`.
     """
 
+    if max_freq is None:
+        max_freq = -1
     ts_trim = ts.trim()
     windows = np.linspace(0, ts_trim.sequence_length, num_windows + 1)
     site_afs = ts_trim.allele_frequency_spectrum(
         mode='site', windows=windows, span_normalise=False, polarised=polarised
-    )
+    )[:, 1:max_freq]
     branch_afs = mutation_rate * ts_trim.allele_frequency_spectrum(
         mode='branch', windows=windows, span_normalise=False, polarised=polarised
-    )
+    )[:, 1:max_freq]
     dim = isqrt(num_bins)
     num_bins = dim * dim
     cumulative = np.arange(0, branch_afs.shape[1], dtype=np.float64)
@@ -423,10 +425,9 @@ def allele_frequency_spectra(ts, mutation_rate, plotpath=None, num_bins=9, num_w
         fig, axs = plt.subplots(dim, dim, squeeze=0)
         fudge = 90 / 100
         for i, j, ax in zip(bins[:-1], bins[1:], axs.reshape(-1)):
-            title = f"{i}:{j}"
             obs = site_afs[:, i:j].sum(axis=1)
             exp = branch_afs[:, i:j].sum(axis=1)
-            ax.text(0.02, 0.98, title, ha='left', va='top', transform=ax.transAxes, size=8)
+            ax.text(0.02, 0.98, f"{i+1}:{j+1}", ha='left', va='top', transform=ax.transAxes, size=8)
             ax.set_xticks(np.linspace(exp.min(), exp.max(), 3))
             ax.set_yticks(np.linspace(obs.min(), obs.max(), 3))
             ax.set_xlim(exp.min() * fudge, exp.max() / fudge)
@@ -436,6 +437,8 @@ def allele_frequency_spectra(ts, mutation_rate, plotpath=None, num_bins=9, num_w
             ax.axline((np.mean(obs), np.mean(obs)), slope=1, linestyle="--", color="black")
         fig.supylabel("Observed # sites in window")
         fig.supxlabel("Expected # sites in window")
+        if title is not None:
+            fig.suptitle(title)
         plt.tight_layout()
         plt.savefig(plotpath)
         plt.clf()
