@@ -148,8 +148,11 @@ def _em_update(prior_weight, prior_alpha, prior_beta, alpha, beta):
 
     # maximization step: update parameters in place
     prior_weight[:] = n / np.sum(n)
-    prior_beta[:] = n**2 / (n * tlogt - t * logt)
-    prior_alpha[:] = n * t / (n * tlogt - t * logt) - 1.0
+    # for exponential updates
+    prior_beta[:] = n / t  # exponential
+    # for gamma updates (doesn't work well)
+    # prior_beta[:] = n**2 / (n * tlogt - t * logt) #gamma
+    # prior_alpha[:] = n * t / (n * tlogt - t * logt) - 1.0 #gamma
 
     return loglik
 
@@ -243,25 +246,3 @@ def fit_gamma_mixture(mixture, observations, max_iterations, tolerance, verbose)
     new_mixture[:, 2] = mix_beta
 
     return new_mixture, new_observations, log_const
-
-
-def initialize_mixture(parameters, num_components):
-    """
-    Initialize clusters by dividing nodes into equal groups.
-    "parameters" are in natural parameterization (not shape/rate)
-    """
-    global_prior = np.empty((num_components, 3))
-    if num_components == 0:
-        return global_prior
-    num_nodes = parameters.shape[0]
-    age_classes = np.tile(
-        np.arange(num_components),
-        num_nodes // num_components + 1,
-    )[:num_nodes]
-    for k in range(num_components):
-        indices = np.equal(age_classes, k)
-        alpha, beta = approx.average_gammas(
-            parameters[indices, 0], parameters[indices, 1]
-        )
-        global_prior[k] = [1.0 / num_components, alpha, beta]
-    return global_prior
