@@ -192,7 +192,7 @@ def tsdate_cli_parser():
         default=1000,
     )
     parser.add_argument(
-        "--normalisation-intervals",
+        "--rescaling-intervals",
         type=float,
         help=(
             "The number of time intervals within which to estimate a time "
@@ -265,7 +265,7 @@ def run_date(args):
             progress=args.progress,
             max_iterations=args.max_iterations,
             max_shape=args.max_shape,
-            normalisation_intervals=args.normalisation_intervals,
+            rescaling_intervals=args.rescaling_intervals,
         )
     else:
         params = dict(

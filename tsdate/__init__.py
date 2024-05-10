@@ -24,7 +24,6 @@ from .core import date  # NOQA: F401
 from .core import inside_outside  # NOQA: F401
 from .core import maximization  # NOQA: F401
 from .core import variational_gamma  # NOQA: F401
-from .normalisation import normalise_tree_sequence as normalise  # NOQA: F401
 from .prior import parameter_grid as build_parameter_grid  # NOQA: F401
 from .prior import prior_grid as build_prior_grid  # NOQA: F401
 from .provenance import __version__  # NOQA: F401

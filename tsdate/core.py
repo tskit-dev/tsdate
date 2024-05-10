@@ -1231,7 +1231,7 @@ class VariationalGammaMethod(EstimationMethod):
         max_iterations,
         max_shape,
         match_central_moments,
-        normalisation_intervals,
+        rescaling_intervals,
         match_segregating_sites,
         regularise_roots,
     ):
@@ -1251,9 +1251,9 @@ class VariationalGammaMethod(EstimationMethod):
             ep_maxitt=max_iterations,
             max_shape=max_shape,
             min_kl=min_kl,
-            norm_intervals=normalisation_intervals,
+            rescale_intervals=rescaling_intervals,
             regularise=regularise_roots,
-            norm_segsites=match_segregating_sites,
+            rescale_segsites=match_segregating_sites,
             progress=self.pbar,
         )
 
@@ -1476,7 +1476,7 @@ def variational_gamma(
     eps=None,
     max_iterations=None,
     max_shape=None,
-    normalisation_intervals=None,
+    rescaling_intervals=None,
     match_central_moments=None,  # undocumented
     match_segregating_sites=None,  # undocumented
     regularise_roots=None,  # undocumented
@@ -1505,7 +1505,7 @@ def variational_gamma(
     :param float max_shape: The maximum value for the shape parameter in the variational
         posteriors. This is equivalent to the maximum precision (inverse variance) on a
         logarithmic scale. Default: None, treated as 1000.
-    :param float normalisation_intervals: For normalisation, the number of time
+    :param float rescaling_intervals: For time rescaling, the number of time
         intervals within which to estimate a rescaling parameter. Default None,
         treated as 1000.
     :param \\**kwargs: Other keyword arguments as described in the :func:`date` wrapper
@@ -1537,8 +1537,8 @@ def variational_gamma(
         max_iterations = 10
     if max_shape is None:
         max_shape = 1000
-    if normalisation_intervals is None:
-        normalisation_intervals = 1000
+    if rescaling_intervals is None:
+        rescaling_intervals = 1000
     if match_central_moments is None:
         match_central_moments = True
     if match_segregating_sites is None:
@@ -1552,7 +1552,7 @@ def variational_gamma(
         max_iterations=max_iterations,
         max_shape=max_shape,
         match_central_moments=match_central_moments,
-        normalisation_intervals=normalisation_intervals,
+        rescaling_intervals=rescaling_intervals,
         match_segregating_sites=match_segregating_sites,
         regularise_roots=regularise_roots,
     )

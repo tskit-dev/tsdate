@@ -45,9 +45,9 @@ from .approx import _f3w
 from .approx import _i
 from .approx import _i1r
 from .hypergeo import _gammainc_inv as gammainc_inv
-from .normalisation import edge_sampling_weight
-from .normalisation import mutational_timescale
-from .normalisation import piecewise_scale_posterior
+from .rescaling import edge_sampling_weight
+from .rescaling import mutational_timescale
+from .rescaling import piecewise_scale_posterior
 
 
 # columns for edge_factors
@@ -606,17 +606,17 @@ class ExpectationPropagation:
 
         return np.nan  # TODO: placeholder for marginal likelihood
 
-    def normalise(
+    def rescale(
         self,
         *,
-        norm_intervals=1000,
-        norm_segsites=False,
+        rescale_intervals=1000,
+        rescale_segsites=False,
         use_median=False,
         quantile_width=0.5,
     ):
         """Normalise posteriors so that empirical mutation rate is constant"""
         edge_weights = (
-            np.ones(self.edge_weights.size) if norm_segsites else self.edge_weights
+            np.ones(self.edge_weights.size) if rescale_segsites else self.edge_weights
         )
         nodes_time = self._point_estimate(self.posterior, self.constraints, use_median)
         original_breaks, rescaled_breaks = mutational_timescale(
@@ -626,7 +626,7 @@ class ExpectationPropagation:
             self.parents,
             self.children,
             edge_weights,
-            norm_intervals,
+            rescale_intervals,
         )
         self.posterior[:] = piecewise_scale_posterior(
             self.posterior,
@@ -650,8 +650,8 @@ class ExpectationPropagation:
         max_shape=1000,
         min_step=0.1,
         min_kl=False,
-        norm_intervals=1000,
-        norm_segsites=False,
+        rescale_intervals=1000,
+        rescale_segsites=False,
         regularise=True,
         progress=None,
     ):
@@ -691,8 +691,10 @@ class ExpectationPropagation:
             logging.info(f"Skipped {skipped_muts} mutations with invalid posteriors")
         logging.info(f"Calculated mutation posteriors in {abs(muts_timing)} seconds")
 
-        if norm_intervals > 0:
-            norm_timing = time.time()
-            self.normalise(norm_intervals=norm_intervals, norm_segsites=norm_segsites)
-            norm_timing -= time.time()
-            logging.info(f"Timescale normalised in {abs(norm_timing)} seconds")
+        if rescale_intervals > 0:
+            rescale_timing = time.time()
+            self.rescale(
+                rescale_intervals=rescale_intervals, rescale_segsites=rescale_segsites
+            )
+            rescale_timing -= time.time()
+            logging.info(f"Timescale rescaled in {abs(rescale_timing)} seconds")
