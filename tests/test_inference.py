@@ -408,17 +408,20 @@ class TestVariational:
     Tests for tsdate with variational algorithm
     """
 
-    ts = msprime.sim_ancestry(
-        samples=10,
-        recombination_rate=1e-8,
-        sequence_length=1e5,
-        population_size=1e4,
-        random_seed=2,
-    )
-    ts = msprime.sim_mutations(
-        ts,
-        rate=1e-8,
-    )
+    @pytest.fixture(autouse=True)
+    def ts(self):
+        ts = msprime.sim_ancestry(
+            samples=10,
+            recombination_rate=1e-8,
+            sequence_length=1e5,
+            population_size=1e4,
+            random_seed=2,
+        )
+        ts = msprime.sim_mutations(
+            ts,
+            rate=1e-8,
+        )
+        self.ts = ts
 
     def test_binary(self):
         tsdate.date(self.ts, mutation_rate=1e-8, method="variational_gamma")
@@ -430,3 +433,12 @@ class TestVariational:
     def test_inferred(self):
         its = tsinfer.infer(tsinfer.SampleData.from_tree_sequence(self.ts)).simplify()
         tsdate.date(its, mutation_rate=1e-8, method="variational_gamma")
+
+    def test_bad_arguments(self):
+        with pytest.raises(ValueError, match="Maximum number of EP iterations"):
+            tsdate.date(
+                self.ts,
+                mutation_rate=5,
+                method="variational_gamma",
+                max_iterations=-1,
+            )

@@ -2322,21 +2322,3 @@ class TestNodeSplitting:
         assert not self.has_disjoint_nodes(split_ts)
         assert split_ts.num_edges == inferred_ts.num_edges
         assert split_ts.num_nodes > inferred_ts.num_nodes
-
-    # def test_split_root_nodes(self):
-    #     ts = msprime.sim_ancestry(
-    #         10,
-    #         population_size=1e4,
-    #         recombination_rate=1e-8,
-    #         sequence_length=1e6,
-    #         random_seed=1,
-    #     )
-    #     ts = msprime.sim_mutations(ts, rate=1e-8, random_seed=1)
-    #     sample_data = tsinfer.SampleData.from_tree_sequence(ts)
-    #     inferred_ts = tsinfer.infer(sample_data).simplify()
-    #     split_ts = split_root_nodes(inferred_ts)
-    #     split_root_nodes(ts)
-    #     assert not self.childset_changes_with_root(inferred_ts)
-    #     assert self.childset_changes_with_root(split_ts)
-    #     assert split_ts.num_edges > inferred_ts.num_edges
-    #     assert split_ts.num_nodes > inferred_ts.num_nodes

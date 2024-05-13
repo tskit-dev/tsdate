@@ -1239,7 +1239,7 @@ class VariationalGammaMethod(EstimationMethod):
             self.provenance_params.update(
                 {k: v for k, v in locals().items() if k != "self"}
             )
-        if not max_iterations >= 1:
+        if not max_iterations > 0:
             raise ValueError("Maximum number of EP iterations must be greater than 0")
         if self.mutation_rate is None:
             raise ValueError("Variational gamma method requires mutation rate")
