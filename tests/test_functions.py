@@ -36,10 +36,10 @@ import scipy.integrate
 import tsinfer
 import tskit
 import utility_functions
+from utility_functions import constrain_ages_topo
 
 import tsdate
 from tsdate import base
-from tsdate.core import constrain_ages_topo
 from tsdate.core import date
 from tsdate.core import DiscreteTimeMethod
 from tsdate.core import InOutAlgorithms
@@ -53,9 +53,9 @@ from tsdate.prior import gamma_approx
 from tsdate.prior import MixturePrior
 from tsdate.prior import PriorParams
 from tsdate.prior import SpansBySamples
+from tsdate.util import constrain_ages
 from tsdate.util import nodes_time_unconstrained
 from tsdate.util import split_disjoint_nodes
-from tsdate.util import split_root_nodes
 
 
 class TestBasicFunctions:
@@ -785,23 +785,6 @@ class TestLikelihoodClass:
                         loglik.rowsum_upper_tri(upper_tri_log)[::-1],
                         np.log(cumul_pois),
                     )
-
-
-class TestVariational:
-    # TODO - needs a few more tests in here
-    def test_variational_nosize(self):
-        ts = utility_functions.two_tree_mutation_ts()
-        with pytest.raises(ValueError, match="Must specify population size"):
-            tsdate.variational_gamma(ts, mutation_rate=1)
-
-    def test_variational_toomanysizes(self):
-        ts = utility_functions.two_tree_mutation_ts()
-        Ne = 1
-        priors = tsdate.build_prior_grid(ts, Ne, np.array([0, 1.2, 2]))
-        with pytest.raises(ValueError, match="Cannot specify"):
-            tsdate.variational_gamma(
-                ts, mutation_rate=1, population_size=Ne, priors=priors
-            )
 
 
 class TestNodeGridValuesClass:
@@ -1639,11 +1622,8 @@ class TestDiscretisedMeanVar:
             for met in tskit.unpack_bytes(metadata, metadata_offset)
             if len(met.decode()) > 0
         ]
-        assert np.allclose(unconstrained_mn, mn_post[larger_ts.num_samples :])
-        assert np.all(
-            dated_ts.tables.nodes.time[larger_ts.num_samples :]
-            >= mn_post[larger_ts.num_samples :]
-        )
+        assert np.allclose(unconstrained_mn, mn_post)
+        assert np.all(dated_ts.tables.nodes.time >= mn_post)
 
 
 class TestConstrainAgesTopo:
@@ -1658,7 +1638,7 @@ class TestConstrainAgesTopo:
         ts = utility_functions.two_tree_ts()
         post_mn = np.array([0.0, 0.0, 0.0, 2.0, 1.0, 3.0])
         eps = 1e-6
-        constrained_ages = constrain_ages_topo(ts, post_mn, eps)
+        constrained_ages = constrain_ages(ts, post_mn, eps, 0)
         assert np.array_equal(
             np.array([0.0, 0.0, 0.0, 2.0, 2.000001, 3.0]), constrained_ages
         )
@@ -1673,7 +1653,7 @@ class TestConstrainAgesTopo:
         ts = ts.subset([0, 1, 5, 3, 4, 2])  # alter the node order
         post_mn = np.array([3.0, 0.0, 0.0, 0.0, 0.0, 0.0])
         eps = 1e-6
-        constrained_ages = constrain_ages_topo(ts, post_mn, eps)
+        constrained_ages = constrain_ages(ts, post_mn, eps, 0)
         tables = ts.dump_tables()
         tables.nodes.time = constrained_ages
         tables.sort()
@@ -1682,7 +1662,7 @@ class TestConstrainAgesTopo:
         ts = utility_functions.single_tree_ts_with_unary()
         post_mn = np.array([0.0, 0.0, 0.0, 2.0, 1.0, 0.5, 5.0, 1.0])
         eps = 1e-6
-        constrained_ages = constrain_ages_topo(ts, post_mn, eps)
+        constrained_ages = constrain_ages(ts, post_mn, eps, 0)
         assert np.allclose(
             np.array([0.0, 0.0, 0.0, 2.0, 2.000001, 2.000002, 5.0, 5.000001]),
             constrained_ages,
@@ -1692,7 +1672,7 @@ class TestConstrainAgesTopo:
         ts = utility_functions.two_tree_ts_n2_part_dangling()
         post_mn = np.array([1.0, 0.0, 0.0, 0.1, 0.05])
         eps = 1e-6
-        constrained_ages = constrain_ages_topo(ts, post_mn, eps)
+        constrained_ages = constrain_ages(ts, post_mn, eps, 0)
         assert np.allclose(
             np.array([1.0, 0.0, 0.0, 1.000001, 1.000002]), constrained_ages
         )
@@ -1701,17 +1681,72 @@ class TestConstrainAgesTopo:
         ts = utility_functions.single_tree_ts_n3_sample_as_parent()
         post_mn = np.array([0.0, 0.0, 0.0, 3.0, 1.0])
         eps = 1e-6
-        constrained_ages = constrain_ages_topo(ts, post_mn, eps)
+        constrained_ages = constrain_ages(ts, post_mn, eps, 0)
         assert np.allclose(np.array([0.0, 0.0, 0.0, 3.0, 3.000001]), constrained_ages)
 
     def test_two_tree_ts_n3_non_contemporaneous(self):
         ts = utility_functions.two_tree_ts_n3_non_contemporaneous()
         post_mn = np.array([0.0, 0.0, 3.0, 4.0, 0.1, 4.1])
         eps = 1e-6
-        constrained_ages = constrain_ages_topo(ts, post_mn, eps)
+        constrained_ages = constrain_ages(ts, post_mn, eps, 0)
         assert np.allclose(
             np.array([0.0, 0.0, 3.0, 4.0, 4.000001, 4.1]), constrained_ages
         )
+
+    def test_constrain_ages_backcompat(self):
+        """
+        Test constrain ages (without least squares correction) against
+        the original implementation
+        """
+        ts = msprime.sim_ancestry(
+            10,
+            population_size=1e4,
+            recombination_rate=1e-8,
+            sequence_length=1e6,
+            random_seed=1,
+        )
+        ts = msprime.sim_mutations(ts, rate=1e-8, random_seed=1)
+        sample_data = tsinfer.SampleData.from_tree_sequence(ts)
+        inf_ts = tsinfer.infer(sample_data).simplify()
+        noise = np.random.uniform(0, 0.1, size=inf_ts.num_nodes)
+        nodes_time = inf_ts.nodes_time + noise
+        eps = 1e-6
+        blen = nodes_time[inf_ts.edges_parent] - nodes_time[inf_ts.edges_child]
+        assert np.any(blen < 0)
+        constr_1 = constrain_ages_topo(inf_ts, nodes_time, eps)
+        constr_2 = constrain_ages(inf_ts, nodes_time, eps, 0)
+        assert np.allclose(constr_1, constr_2, rtol=eps)
+
+    def test_constrain_ages_leastsquare(self):
+        """
+        Test that constrain ages with least squares correction has positive
+        branch lengths
+        """
+        ts = msprime.sim_ancestry(
+            10,
+            population_size=1e4,
+            recombination_rate=1e-8,
+            sequence_length=1e6,
+            random_seed=1,
+        )
+        ts = msprime.sim_mutations(ts, rate=1e-8, random_seed=1)
+        sample_data = tsinfer.SampleData.from_tree_sequence(ts)
+        inf_ts = tsinfer.infer(sample_data).simplify()
+        noise = np.random.uniform(0, 0.5, size=inf_ts.num_nodes)
+        nodes_time = inf_ts.nodes_time + noise
+        eps = 1e-6
+        blen = nodes_time[inf_ts.edges_parent] - nodes_time[inf_ts.edges_child]
+        assert np.any(blen < 0)  # ensure negative branches
+        constr_1 = constrain_ages(inf_ts, nodes_time, eps, 0)  # no least squares
+        blen_1 = constr_1[inf_ts.edges_parent] - constr_1[inf_ts.edges_child]
+        assert np.all(blen_1 > 0)
+        constr_2 = constrain_ages(inf_ts, nodes_time, eps, 100)
+        blen_2 = constr_2[inf_ts.edges_parent] - constr_2[inf_ts.edges_child]
+        assert np.all(blen_2 > 0)
+        # check that r2 is improved by the least squares step
+        r2_1 = np.corrcoef(constr_1, nodes_time).flatten()[1] ** 2
+        r2_2 = np.corrcoef(constr_2, nodes_time).flatten()[1] ** 2
+        assert r2_2 > r2_1
 
 
 class TestPreprocessTs(unittest.TestCase):
@@ -2286,22 +2321,4 @@ class TestNodeSplitting:
         assert self.has_disjoint_nodes(inferred_ts)
         assert not self.has_disjoint_nodes(split_ts)
         assert split_ts.num_edges == inferred_ts.num_edges
-        assert split_ts.num_nodes > inferred_ts.num_nodes
-
-    def test_split_root_nodes(self):
-        ts = msprime.sim_ancestry(
-            10,
-            population_size=1e4,
-            recombination_rate=1e-8,
-            sequence_length=1e6,
-            random_seed=1,
-        )
-        ts = msprime.sim_mutations(ts, rate=1e-8, random_seed=1)
-        sample_data = tsinfer.SampleData.from_tree_sequence(ts)
-        inferred_ts = tsinfer.infer(sample_data).simplify()
-        split_ts = split_root_nodes(inferred_ts)
-        split_root_nodes(ts)
-        assert not self.childset_changes_with_root(inferred_ts)
-        assert self.childset_changes_with_root(split_ts)
-        assert split_ts.num_edges > inferred_ts.num_edges
         assert split_ts.num_nodes > inferred_ts.num_nodes

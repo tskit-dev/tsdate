@@ -121,9 +121,14 @@ class TestProvenance:
 
     @pytest.mark.parametrize("method", tsdate.core.estimation_methods.keys())
     def test_named_methods(self, method):
-        ts = utility_functions.single_tree_ts_n2()
-        dated_ts = tsdate.date(ts, method=method, mutation_rate=0.1, population_size=10)
-        dated_ts2 = getattr(tsdate, method)(ts, mutation_rate=0.1, population_size=10)
+        ts = utility_functions.single_tree_ts_mutation_n3()
+        popsize = None if method == "variational_gamma" else 10
+        dated_ts = tsdate.date(
+            ts, method=method, mutation_rate=0.1, population_size=popsize
+        )
+        dated_ts2 = getattr(tsdate, method)(
+            ts, mutation_rate=0.1, population_size=popsize
+        )
         rec = json.loads(dated_ts.provenance(-1).record)
         assert rec["parameters"]["command"] == method
         rec = json.loads(dated_ts2.provenance(-1).record)
@@ -131,16 +136,17 @@ class TestProvenance:
 
     @pytest.mark.parametrize("method", tsdate.core.estimation_methods.keys())
     def test_identical_methods(self, method):
-        ts = utility_functions.single_tree_ts_n2()
+        ts = utility_functions.single_tree_ts_mutation_n3()
+        popsize = None if method == "variational_gamma" else 10
         dated_ts = tsdate.date(
             ts,
             method=method,
             mutation_rate=0.1,
-            population_size=10,
+            population_size=popsize,
             record_provenance=False,
         )
         dated_ts2 = getattr(tsdate, method)(
-            ts, mutation_rate=0.1, population_size=10, record_provenance=False
+            ts, mutation_rate=0.1, population_size=popsize, record_provenance=False
         )
         assert dated_ts.num_provenances == ts.num_provenances
         assert dated_ts == dated_ts2

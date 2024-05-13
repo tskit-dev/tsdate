@@ -29,6 +29,7 @@ import json
 import logging
 import multiprocessing
 import operator
+import time  # DEBUG
 from collections import defaultdict
 from collections import namedtuple
 
@@ -40,7 +41,6 @@ from tqdm.auto import tqdm
 
 from . import base
 from . import demography
-from . import mixture
 from . import prior
 from . import provenance
 from . import util
@@ -101,9 +101,9 @@ class Likelihoods:
         # The mut_ll contains unpacked (1D) lower triangular matrices. We need to
         # index this by row and by column index.
         self.row_indices = []
-        for time in range(self.grid_size):
+        for t in range(self.grid_size):
             n = np.arange(self.grid_size)
-            self.row_indices.append((((n * (n + 1)) // 2) + time)[time:])
+            self.row_indices.append((((n * (n + 1)) // 2) + t)[t:])
         self.col_indices = []
         running_sum = 0  # use this to find the index of the last element of
         # each column in order to appropriately sum the vv by columns.
@@ -869,37 +869,17 @@ class InOutAlgorithms:
         return self.lik.timepoints[np.array(maximized_node_times).astype("int")]
 
 
-def constrain_ages_topo(ts, node_times, epsilon, progress=False):
-    # If node_times violate the topology in ts, return increased node_times so that each
-    # node is guaranteed to be older than any of its children.
-    edges_parent = ts.edges_parent
-    edges_child = ts.edges_child
-
-    new_node_times = np.copy(node_times)
-    # Traverse through the ARG, ensuring children come before parents.
-    # This can be done by iterating over groups of edges with the same parent
-    new_parent_edge_idx = np.where(np.diff(edges_parent) != 0)[0] + 1
-    for edges_start, edges_end in tqdm(
-        zip(
-            itertools.chain([0], new_parent_edge_idx),
-            itertools.chain(new_parent_edge_idx, [len(edges_parent)]),
-        ),
-        desc="Constrain Ages",
-        total=len(new_parent_edge_idx) + 1,
-        disable=not progress,
-    ):
-        parent = edges_parent[edges_start]
-        child_ids = edges_child[edges_start:edges_end]  # May contain dups
-        oldest_child_time = np.max(new_node_times[child_ids])
-        if oldest_child_time >= new_node_times[parent]:
-            new_node_times[parent] = oldest_child_time + epsilon
-    return new_node_times
-
-
 # Classes for each method
 Results = namedtuple(
     "Results",
-    ["posterior_mean", "posterior_var", "posterior_obj", "mutation_likelihood"],
+    [
+        "posterior_mean",
+        "posterior_var",
+        "posterior_obj",
+        "mutation_mean",
+        "mutation_var",
+        "mutation_likelihood",
+    ],
 )
 
 
@@ -929,6 +909,7 @@ class EstimationMethod:
         return_posteriors=None,
         return_likelihood=None,
         record_provenance=None,
+        constr_iterations=None,
         progress=None,
     ):
         # Set up all the generic params describe in the tsdate.date function, and define
@@ -942,6 +923,7 @@ class EstimationMethod:
         self.time_units = "generations" if time_units is None else time_units
         if record_provenance is None:
             record_provenance = True
+
         Ne = population_size  # shorthand
         if isinstance(Ne, dict):
             Ne = demography.PopulationSizeHistory(**Ne)
@@ -957,47 +939,104 @@ class EstimationMethod:
                 population_size=Ne.as_dict() if hasattr(Ne, "as_dict") else Ne,
             )
 
-        if priors is None:
-            if Ne is None:
-                raise ValueError(
-                    "Must specify population size if priors are not already built using"
-                    f"tsdate.build_{self.prior_grid_func_name}()"
-                )
-            mk_prior = getattr(prior, self.prior_grid_func_name)
-            # Default to not creating approximate priors unless ts has
-            # greater than DEFAULT_APPROX_PRIOR_SIZE samples
-            approx = True if ts.num_samples > base.DEFAULT_APPROX_PRIOR_SIZE else False
-            self.priors = mk_prior(ts, Ne, approximate_priors=approx, progress=progress)
+        if constr_iterations is None:
+            self.constr_iterations = 0
         else:
-            logging.info("Using user-specified priors")
-            if Ne is not None:
+            if not (isinstance(constr_iterations, int) and constr_iterations >= 0):
                 raise ValueError(
-                    "Cannot specify population size if specifying priors "
-                    f"from tsdate.build_{self.prior_grid_func_name}()"
+                    "Number of constrained least squares iterations must be a "
+                    "non-negative integer"
                 )
-            self.priors = priors
+            self.constr_iterations = constr_iterations
+
+        if self.prior_grid_func_name is None:
+            if priors is not None:
+                raise ValueError(f"Priors are not used for method {self.name}")
+            if Ne is not None:
+                raise ValueError(f"Population size is not used for method {self.name}")
+        else:
+            if priors is None:
+                if Ne is None:
+                    raise ValueError(
+                        "Must specify population size if priors are not already "
+                        f"built using tsdate.build_{self.prior_grid_func_name}()"
+                    )
+                mk_prior = getattr(prior, self.prior_grid_func_name)
+                # Default to not creating approximate priors unless ts has
+                # greater than DEFAULT_APPROX_PRIOR_SIZE samples
+                approx = (
+                    True if ts.num_samples > base.DEFAULT_APPROX_PRIOR_SIZE else False
+                )
+                self.priors = mk_prior(
+                    ts, Ne, approximate_priors=approx, progress=progress
+                )
+            else:
+                logging.info("Using user-specified priors")
+                if Ne is not None:
+                    raise ValueError(
+                        "Cannot specify population size if specifying priors "
+                        f"from tsdate.build_{self.prior_grid_func_name}()"
+                    )
+                self.priors = priors
+
+        # mutation to edge mapping
+        mutspan_timing = time.time()
+        self.edges_mutations, self.mutations_edge = util.mutation_span_array(ts)
+        mutspan_timing -= time.time()
+        logging.info(f"Extracted mutations in {abs(mutspan_timing)} seconds")
 
     def get_modified_ts(self, result, eps):
         # Return a new ts based on the existing one, but with the various
         # time-related information correctly set.
         tables = self.ts.dump_tables()
         nodes = tables.nodes
+        mutations = tables.mutations
         if self.provenance_params is not None:
             provenance.record_provenance(tables, self.name, **self.provenance_params)
-        nodes.time = constrain_ages_topo(self.ts, result.posterior_mean, eps, self.pbar)
+        # Constrain node ages for positive branch lengths
+        constr_timing = time.time()
+        nodes.time = util.constrain_ages(
+            self.ts, result.posterior_mean, eps, self.constr_iterations
+        )
+        mutations.time = util.constrain_mutations(
+            self.ts, nodes.time, self.mutations_edge
+        )
         tables.time_units = self.time_units
-        tables.mutations.time = np.full(self.ts.num_mutations, tskit.UNKNOWN_TIME)
-        # Add posterior mean and variance to node metadata
-        if result.posterior_obj is not None:
+        constr_timing -= time.time()
+        logging.info(f"Constrained node ages in {abs(constr_timing)} seconds")
+        # Add posterior mean and variance to node/mutation metadata
+        # TODO: retain original metadata?
+        meta_timing = time.time()
+        if result.posterior_var is not None:
             metadata_array = tskit.unpack_bytes(nodes.metadata, nodes.metadata_offset)
-            for u in result.posterior_obj.nonfixed_nodes:
+            for u, (mn, vr) in enumerate(
+                zip(result.posterior_mean, result.posterior_var)
+            ):
                 metadata_array[u] = json.dumps(
                     {
-                        "mn": result.posterior_mean[u],
-                        "vr": result.posterior_var[u],
+                        "mn": mn,
+                        "vr": vr,
                     }
                 ).encode()
             nodes.packset_metadata(metadata_array)
+        if result.mutation_var is not None:
+            metadata_array = tskit.unpack_bytes(
+                mutations.metadata, mutations.metadata_offset
+            )
+            for u, (mn, vr) in enumerate(
+                zip(result.mutation_mean, result.mutation_var)
+            ):
+                metadata_array[u] = json.dumps(
+                    {
+                        "mn": mn,
+                        "vr": vr,
+                    }
+                ).encode()
+            mutations.packset_metadata(metadata_array)
+        meta_timing -= time.time()
+        logging.info(
+            f"Inserted node and mutation metadata in {abs(meta_timing)} seconds"
+        )
         tables.sort()
         return tables.tree_sequence()
 
@@ -1105,7 +1144,9 @@ class InsideOutsideMethod(DiscreteTimeMethod):
         posterior_obj.to_probabilities()
 
         posterior_mean, posterior_var = self.mean_var(self.ts, posterior_obj)
-        return Results(posterior_mean, posterior_var, posterior_obj, marginal_likl)
+        return Results(
+            posterior_mean, posterior_var, posterior_obj, None, None, marginal_likl
+        )
 
 
 class MaximizationMethod(DiscreteTimeMethod):
@@ -1132,26 +1173,18 @@ class MaximizationMethod(DiscreteTimeMethod):
         dynamic_prog = self.main_algorithm(probability_space, eps, num_threads)
         marginal_likl = dynamic_prog.inside_pass(cache_inside=cache_inside)
         posterior_mean = dynamic_prog.outside_maximization(eps=eps)
-        return Results(posterior_mean, None, None, marginal_likl)
+        return Results(posterior_mean, None, None, None, None, marginal_likl)
 
 
 class VariationalGammaMethod(EstimationMethod):
-    prior_grid_func_name = "parameter_grid"
+    prior_grid_func_name = None
     name = "variational_gamma"
 
     def __init__(self, ts, **kwargs):
         super().__init__(ts, **kwargs)
-        # convert priors to natural parameterization
-        for n in self.priors.nonfixed_nodes:
-            if not np.all(self.priors[n] > 0.0):
-                raise ValueError(
-                    f"Non-positive shape/rate parameters for node {n}: "
-                    f"{self.priors[n]}"
-                )
-            self.priors[n][0] -= 1.0
 
     @staticmethod
-    def mean_var(ts, posterior):
+    def mean_var(posteriors, constraints):
         """
         Mean and variance of node age from variational posterior (e.g. gamma
         distributions).  Fixed nodes will be given a mean of their exact time in
@@ -1159,28 +1192,27 @@ class VariationalGammaMethod(EstimationMethod):
         fixed_node_set). This is a static method for ease of testing.
         """
 
-        assert posterior.grid_data.shape[1] == 2
-        assert np.all(posterior.grid_data > 0)
+        mn_post = np.full(
+            posteriors.shape[0], np.nan
+        )  # Fill with NaNs so we detect when
+        va_post = np.full(posteriors.shape[0], np.nan)  # there's been an error
 
-        mn_post = np.full(ts.num_nodes, np.nan)  # Fill with NaNs so we detect when
-        va_post = np.full(ts.num_nodes, np.nan)  # there's been an error
+        fixed = constraints[:, 0] == constraints[:, 1]
+        mn_post[fixed] = constraints[fixed, 0]
+        va_post[fixed] = 0
 
-        is_fixed = np.ones(posterior.num_nodes, dtype=bool)
-        is_fixed[posterior.nonfixed_nodes] = False
-        mn_post[is_fixed] = ts.nodes_time[is_fixed]
-        va_post[is_fixed] = 0
+        for i in np.flatnonzero(~fixed):
+            pars = posteriors[i]
+            mn_post[i] = (pars[0] + 1) / pars[1]
+            va_post[i] = (pars[0] + 1) / pars[1] ** 2
 
-        for node in posterior.nonfixed_nodes:
-            pars = posterior[node]
-            mn_post[node] = pars[0] / pars[1]
-            va_post[node] = pars[0] / pars[1] ** 2
         return mn_post, va_post
 
     def main_algorithm(self):
         # edge likelihoods
         # TODO: variable mutation rates across genome
         # TODO: truncate edge spans with accessiblity mask
-        likelihoods = util.mutation_span_array(self.ts)
+        likelihoods = self.edges_mutations.copy()
         likelihoods[:, 1] *= self.mutation_rate
 
         # lower and upper bounds on node ages
@@ -1190,7 +1222,7 @@ class VariationalGammaMethod(EstimationMethod):
         constraints[sample_idx, :] = self.ts.nodes_time[sample_idx, np.newaxis]
 
         return variational.ExpectationPropagation(
-            self.ts, likelihoods, constraints, self.global_prior
+            self.ts, likelihoods, constraints, self.mutations_edge
         )
 
     def run(
@@ -1199,54 +1231,49 @@ class VariationalGammaMethod(EstimationMethod):
         max_iterations,
         max_shape,
         match_central_moments,
-        prior_mixture_dim,
-        em_iterations,
+        rescaling_intervals,
+        match_segregating_sites,
+        regularise_roots,
     ):
         if self.provenance_params is not None:
             self.provenance_params.update(
                 {k: v for k, v in locals().items() if k != "self"}
             )
-        if not max_iterations >= 1:
+        if not max_iterations > 0:
             raise ValueError("Maximum number of EP iterations must be greater than 0")
-        if not (isinstance(prior_mixture_dim, int) and prior_mixture_dim >= 0):
-            raise ValueError(
-                "Number of mixture components must be a nonnegative integer"
-            )
         if self.mutation_rate is None:
             raise ValueError("Variational gamma method requires mutation rate")
-
-        # initialize weights/shapes/rates for i.i.d mixture prior
-        # note that self.priors (node-specific priors) are not currently
-        # used except for initialization of the mixture
-        self.global_prior = mixture.initialize_mixture(
-            self.priors.grid_data, prior_mixture_dim
-        )
-        self.priors.grid_data[:] = [0.0, 0.0]  # TODO: support node-specific priors
 
         # match sufficient statistics or match central moments
         min_kl = not match_central_moments
         dynamic_prog = self.main_algorithm()
         dynamic_prog.run(
             ep_maxitt=max_iterations,
-            em_maxitt=em_iterations,
             max_shape=max_shape,
             min_kl=min_kl,
+            rescale_intervals=rescaling_intervals,
+            regularise=regularise_roots,
+            rescale_segsites=match_segregating_sites,
             progress=self.pbar,
         )
 
-        num_skipped = np.sum(np.isnan(dynamic_prog.log_partition))
-        if num_skipped > 0:
-            logging.info(
-                f"Skipped {num_skipped} messages with invalid posterior updates."
-            )
-
-        posterior_obj = self.priors.clone_with_new_data(
-            grid_data=dynamic_prog.posterior[self.priors.nonfixed_nodes, :]
+        # TODO: use dynamic_prog.point_estimate
+        posterior_mean, posterior_vari = self.mean_var(
+            dynamic_prog.posterior, dynamic_prog.constraints
         )
-        posterior_obj.grid_data[:, 0] += 1  # to shape/rate parameterization
-        posterior_mean, posterior_var = self.mean_var(self.ts, posterior_obj)
+
+        # TODO: clean up
+        mutation_post = dynamic_prog.mutations_posterior
+        mutation_mean = np.full(mutation_post.shape[0], np.nan)
+        mutation_vari = np.full(mutation_post.shape[0], np.nan)
+        idx = mutation_post[:, 1] > 0
+        mutation_mean[idx] = (mutation_post[idx, 0] + 1) / mutation_post[idx, 1]
+        mutation_vari[idx] = (mutation_post[idx, 0] + 1) / mutation_post[idx, 1] ** 2
+
         # TODO: return marginal likelihood
-        return Results(posterior_mean, posterior_var, posterior_obj, None)
+        return Results(
+            posterior_mean, posterior_vari, None, mutation_mean, mutation_vari, None
+        )
 
 
 def maximization(
@@ -1449,9 +1476,10 @@ def variational_gamma(
     eps=None,
     max_iterations=None,
     max_shape=None,
-    match_central_moments=None,
-    prior_mixture_dim=None,
-    em_iterations=None,
+    rescaling_intervals=None,
+    match_central_moments=None,  # undocumented
+    match_segregating_sites=None,  # undocumented
+    regularise_roots=None,  # undocumented
     **kwargs,
 ):
     """
@@ -1463,41 +1491,23 @@ def variational_gamma(
 
     .. code-block:: python
 
-      new_ts = tsdate.variational_gamma(
-          ts, mutation_rate=1e-8, population_size=1e4, max_iterations=10)
+      new_ts = tsdate.variational_gamma(ts, mutation_rate=1e-8, max_iterations=10)
 
-    An i.i.d. gamma mixture is used as a prior for each node, that is
-    initialized from the conditional coalescent and updated via expectation
-    maximization in each iteration. If node-specific priors are supplied
-    (via a grid of shape/rate parameters) then these are used for
-    initialization.
-
-    .. note::
-        The prior parameters for each node-to-be-dated take the form of a
-        gamma-distributed prior on node age, parameterised by shape and rate.
-        If the ``priors`` parameter is used, it must specify an object constructed
-        using :func:`build_parameter_grid`. If not used, ``population_size`` must be
-        provided, which is used to create an iid prior derived from the conditional
-        coalescent prior (tilted according to population size), assuming the nodes
-        to be dated are all the non-sample nodes in the input tree sequence.
+    An piecewise-constant uniform distribution is used as a prior for each
+    node, that is updated via expectation maximization in each iteration.
+    Node-specific priors are not currently supported.
 
     :param ~tskit.TreeSequence tree_sequence: The input tree sequence to be dated.
     :param float eps: The minimum distance separating parent and child ages in
         the returned tree sequence. Default: None, treated as 1e-6
     :param int max_iterations: The number of iterations used in the expectation
-        propagation algorithm. Default: None, treated as 20.
+        propagation algorithm. Default: None, treated as 10.
     :param float max_shape: The maximum value for the shape parameter in the variational
         posteriors. This is equivalent to the maximum precision (inverse variance) on a
         logarithmic scale. Default: None, treated as 1000.
-    :param bool match_central_moments: If `True`, each expectation propgation
-        update matches mean and variance rather than expected gamma sufficient
-        statistics. Faster with a similar accuracy, but does not exactly minimize
-        Kullback-Leibler divergence. Default: None, treated as False.
-    :param int prior_mixture_dim: The number of components in the i.i.d. mixture prior
-        for node ages. Default: None, treated as 1.
-    :param int em_iterations: The number of expectation maximization iterations used
-        to optimize the i.i.d. mixture prior. Setting to zero disables optimization.
-        Default: None, treated as 10.
+    :param float rescaling_intervals: For time rescaling, the number of time
+        intervals within which to estimate a rescaling parameter. Default None,
+        treated as 1000.
     :param \\**kwargs: Other keyword arguments as described in the :func:`date` wrapper
         function, notably ``mutation_rate``, and ``population_size`` or ``priors``.
         Further arguments include ``time_units``, ``progress``, and
@@ -1524,15 +1534,17 @@ def variational_gamma(
     if eps is None:
         eps = 1e-6
     if max_iterations is None:
-        max_iterations = 20
+        max_iterations = 10
     if max_shape is None:
         max_shape = 1000
+    if rescaling_intervals is None:
+        rescaling_intervals = 1000
     if match_central_moments is None:
-        match_central_moments = False
-    if prior_mixture_dim is None:
-        prior_mixture_dim = 1
-    if em_iterations is None:
-        em_iterations = 10
+        match_central_moments = True
+    if match_segregating_sites is None:
+        match_segregating_sites = False
+    if regularise_roots is None:
+        regularise_roots = True
 
     dating_method = VariationalGammaMethod(tree_sequence, **kwargs)
     result = dating_method.run(
@@ -1540,8 +1552,9 @@ def variational_gamma(
         max_iterations=max_iterations,
         max_shape=max_shape,
         match_central_moments=match_central_moments,
-        prior_mixture_dim=prior_mixture_dim,
-        em_iterations=em_iterations,
+        rescaling_intervals=rescaling_intervals,
+        match_segregating_sites=match_segregating_sites,
+        regularise_roots=regularise_roots,
     )
     return dating_method.parse_result(result, eps, {"parameter": ["shape", "rate"]})
 
@@ -1572,6 +1585,7 @@ def date(
     priors=None,
     method=None,
     *,
+    constr_iterations=None,
     return_posteriors=None,
     return_likelihood=None,
     progress=None,
@@ -1640,6 +1654,9 @@ def date(
     :param bool return_posteriors: If ``True``, instead of returning just a dated tree
         sequence, return a tuple of ``(dated_ts, posteriors)``.
         Default: None, treated as False.
+    :param int constr_iterations: The maximum number of constrained least
+        squares iterations to use prior to forcing positive branch lengths.
+        Default: None, treated as 0.
     :param bool return_likelihood: If ``True``, return the log marginal likelihood
         from the inside algorithm in addition to the dated tree sequence. If
         ``return_posteriors`` is also ``True``, then the marginal likelihood
@@ -1679,6 +1696,7 @@ def date(
         time_units=time_units,
         priors=priors,
         progress=progress,
+        constr_iterations=constr_iterations,
         return_posteriors=return_posteriors,
         return_likelihood=return_likelihood,
         record_provenance=record_provenance,

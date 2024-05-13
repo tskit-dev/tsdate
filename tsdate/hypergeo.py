@@ -24,7 +24,12 @@
 Numerically stable implementations of the Gauss hypergeometric function with numba.
 """
 import ctypes
+from math import erf
+from math import exp
+from math import lgamma
 from math import log
+from math import pi
+from math import pow
 from math import sqrt
 
 import numba
@@ -53,6 +58,20 @@ _gammainc_addr = get_cython_function_address("scipy.special.cython_special", "ga
 _gammainc_functype = ctypes.CFUNCTYPE(_dbl, _dbl, _dbl)
 _gammainc_f8 = _gammainc_functype(_gammainc_addr)
 
+# gammaincinv
+_gammaincinv_addr = get_cython_function_address(
+    "scipy.special.cython_special", "gammaincinv"
+)
+_gammaincinv_functype = ctypes.CFUNCTYPE(_dbl, _dbl, _dbl)
+_gammaincinv_f8 = _gammaincinv_functype(_gammaincinv_addr)
+
+# erfinv
+_erfinv_addr = get_cython_function_address(
+    "scipy.special.cython_special", "__pyx_fuse_0erfinv"
+)
+_erfinv_functype = ctypes.CFUNCTYPE(_dbl, _dbl)
+_erfinv_f8 = _erfinv_functype(_erfinv_addr)
+
 
 @numba.cfunc("f8(f8)")
 def _gammaln(x):
@@ -64,6 +83,18 @@ def _gammaln(x):
 def _gammainc(a, x):
     """scipy.special.cython_special.gammainc"""
     return _gammainc_f8(a, x)
+
+
+@numba.cfunc("f8(f8, f8)")
+def _gammainc_inv(a, x):
+    """scipy.special.cython_special.gammaincinv"""
+    return _gammaincinv_f8(a, x)
+
+
+@numba.cfunc("f8(f8)")
+def _erf_inv(x):
+    """scipy.special.cython_special.erfinv"""
+    return _erfinv_f8(x)
 
 
 @numba.njit("f8(f8)")
@@ -249,3 +280,105 @@ def _hyp2f1_laplace(a, b, c, x):
     )
 
     return f - log(r) / 2 + s
+
+
+@numba.njit("f8(f8, f8)")
+def _gammainc_der(p, x):
+    """
+    Derivative of lower incomplete gamma function with regards to `p`.
+
+    Based on Shea B (1988) "Algorithm AS 239" Applied Statistics 37: 466-473
+
+    Adapted from https://people.math.sc.edu/Burkardt/cpp_src/asa239/asa239.cpp
+    """
+
+    elimit = -88.0
+    oflo = 1.0e37
+    plimit = 1.0e3
+    tol = 1.0e-14
+    xbig = 1.0e8
+
+    assert x >= 0.0
+    assert p > 0.0
+
+    if x == 0:
+        value, grad = 0.0, 0.0
+        return grad
+
+    if x > xbig:
+        value, grad = 1.0, 0.0
+        return grad
+
+    if p > plimit:  # gaussian approximation
+        pn1 = 3 * sqrt(p) * (pow(x / p, 1 / 3) + 1 / (9 * p) - 1)
+        grad = pn1 / (2 * p) - 1 / sqrt(p) * (pow(x / p, 1 / 3) + 1 / (3 * p))
+        grad *= 1 / sqrt(2 * pi) * exp(-(pn1**2) / 2)
+        value = (1 + erf(pn1 / sqrt(2))) / 2
+        return grad
+
+    if x <= 1 or x < p:  # series expansion
+        arg = p * log(x) - x - lgamma(p + 1)
+        value, grad = 1.0, 0.0
+        c, dc = 1.0, 0.0
+        a = p
+        while True:
+            a += 1.0
+            dc = -c * x / a**2 + dc * x / a
+            c *= x / a
+            value += c
+            grad += dc
+            if c <= tol:
+                break
+        darg = exp(arg) * (log(x) - _digamma(p + 1))
+        grad = grad * exp(arg) + value * darg
+        arg += log(value)
+        if arg >= elimit:
+            value = exp(arg)
+        else:
+            grad = 0.0
+            value = 0.0
+        return grad
+    else:  # continued fraction
+        arg = p * log(x) - x - lgamma(p)
+        a = 1.0 - p
+        b = a + x + 1.0
+        c = 0.0
+        pn1, pn2, pn3, pn4 = 1.0, x, x + 1.0, x * b
+        dpn1, dpn2, dpn3, dpn4 = 0.0, 0.0, 0.0, -x
+        value, grad = pn3 / pn4, 0.0
+        while True:
+            a += 1.0
+            b += 2.0
+            c += 1.0
+            an = a * c
+            pn5 = b * pn3 - an * pn1
+            pn6 = b * pn4 - an * pn2
+            dpn5 = b * dpn3 - pn3 - an * dpn1 + c * pn1
+            dpn6 = b * dpn4 - pn4 - an * dpn2 + c * pn2
+            if pn6 != 0.0:
+                rn = pn5 / pn6
+                grad = (dpn5 * pn6 - pn5 * dpn6) / pn6**2
+                if abs(value - rn) <= min(tol, tol * rn):
+                    break
+                value = rn
+            pn1, pn2, pn3, pn4 = pn3, pn4, pn5, pn6
+            dpn1, dpn2, dpn3, dpn4 = dpn3, dpn4, dpn5, dpn6
+            if oflo <= abs(pn5):
+                pn1 /= oflo
+                pn2 /= oflo
+                pn3 /= oflo
+                pn4 /= oflo
+                dpn1 /= oflo
+                dpn2 /= oflo
+                dpn3 /= oflo
+                dpn4 /= oflo
+        darg = exp(arg) * (log(x) - _digamma(p))
+        grad = grad * exp(arg) + value * darg
+        arg += log(value)
+        if arg >= elimit:
+            grad *= -1.0
+            value = 1.0 - exp(arg)
+        else:
+            grad = 0.0
+            value = 1.0
+        return grad

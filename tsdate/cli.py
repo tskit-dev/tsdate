@@ -91,6 +91,7 @@ def tsdate_cli_parser():
     parser.add_argument(
         "population_size",
         type=float,
+        nargs="?",
         help="Estimated effective (diploid) population size.",
     )
     parser.add_argument(
@@ -191,41 +192,22 @@ def tsdate_cli_parser():
         default=1000,
     )
     parser.add_argument(
-        "--match-central-moments",
-        action="store_true",
+        "--rescaling-intervals",
+        type=float,
         help=(
-            "Match mean and variance rather than gamma sufficient statistics in "
-            'the "variational_gamma" algorithm. Faster with similar accuracy, '
-            "but does not exactly minimize KL divergence in each EP update."
+            "The number of time intervals within which to estimate a time "
+            "scaling parameter. Default: 1000"
         ),
+        default=1000,
     )
     parser.add_argument(
         "--max-iterations",
         type=int,
         help=(
             "The number of iterations used in the expectation propagation "
-            "algorithm. Default: 20"
-        ),
-        default=20,
-    )
-    parser.add_argument(
-        "--em-iterations",
-        type=int,
-        help=(
-            "The number of expectation-maximization iterations used to optimize the "
-            "i.i.d. mixture prior at the end of each expectation propagation step. "
-            "Setting to zero disables optimization. Default: 10"
+            "algorithm. Default: 10"
         ),
         default=10,
-    )
-    parser.add_argument(
-        "--prior-mixture-dim",
-        type=int,
-        help=(
-            "The number of components in the i.i.d. mixture prior for node "
-            "ages. Default: 1"
-        ),
-        default=1,
     )
     parser.set_defaults(runner=run_date)
 
@@ -283,12 +265,11 @@ def run_date(args):
             progress=args.progress,
             max_iterations=args.max_iterations,
             max_shape=args.max_shape,
-            match_central_moments=args.match_central_moments,
-            em_iterations=args.em_iterations,
-            prior_mixture_dim=args.prior_mixture_dim,
+            rescaling_intervals=args.rescaling_intervals,
         )
     else:
         params = dict(
+            population_size=args.population_size,
             recombination_rate=args.recombination_rate,
             method=args.method,
             eps=args.epsilon,
@@ -300,7 +281,7 @@ def run_date(args):
             params["ignore_oldest_root"] = args.ignore_oldest  # For backwards compat
         # TODO: remove and error out if ignore_oldest_root is set,
         # see https://github.com/tskit-dev/tsdate/issues/262
-    dated_ts = tsdate.date(ts, args.mutation_rate, args.population_size, **params)
+    dated_ts = tsdate.date(ts, args.mutation_rate, **params)
     dated_ts.dump(args.output)
 
 
