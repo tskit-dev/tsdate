@@ -533,7 +533,7 @@ def mutation_coverage(ts, inferred_ts, alpha):
     return prop_covered
 
 
-def mutations_time(ts, inferred_ts, min_freq=None, max_freq=None, plotpath=None):
+def mutations_time(ts, inferred_ts, min_freq=None, max_freq=None, plotpath=None, title=None, subtending_node=False):
     """
     Return true and inferred mutation ages, optionally creating a scatterplot and
     filtering by minimum or maximum frequency.
@@ -555,8 +555,6 @@ def mutations_time(ts, inferred_ts, min_freq=None, max_freq=None, plotpath=None)
     missing = np.logical_or(true_mut == tskit.NULL, infr_mut == tskit.NULL)
     infr_mut = infr_mut[~missing]
     true_mut = true_mut[~missing]
-    mean = inferred_ts.mutations_time[infr_mut]
-    truth = ts.mutations_time[true_mut]
     # filter by frequency
     if min_freq is not None or max_freq is not None:
         freq = np.zeros(inferred_ts.num_mutations)
@@ -569,9 +567,26 @@ def mutations_time(ts, inferred_ts, min_freq=None, max_freq=None, plotpath=None)
             max_freq = np.max(freq)
         freq = freq[infr_mut]
         is_freq = np.logical_and(freq >= min_freq, freq <= max_freq)
-        mean = mean[is_freq]
-        truth = truth[is_freq]
-    # plot
+        infr_mut = infr_mut[is_freq]
+        true_mut = true_mut[is_freq]
+    # get age of mutation or subtended node
+    if subtending_node:
+        infr_node = inferred_ts.mutations_node[infr_mut]
+        true_node = ts.mutations_node[true_mut]
+        _, uniq_idx = np.unique(infr_node, return_index=True)
+        infr_node = infr_node[uniq_idx]
+        true_node = true_node[uniq_idx]
+        _, uniq_idx = np.unique(true_node, return_index=True)
+        infr_node = infr_node[uniq_idx]
+        true_node = true_node[uniq_idx]
+        mean = inferred_ts.nodes_time[infr_node]
+        truth = ts.nodes_time[true_node]
+        nonzero = np.logical_and(mean > 0, truth > 0)
+        mean = mean[nonzero]
+        truth = truth[nonzero]
+    else:
+        mean = inferred_ts.mutations_time[infr_mut]
+        truth = ts.mutations_time[true_mut]
     if plotpath is not None:
         rsq = np.corrcoef(np.log10(mean), np.log10(truth))[0, 1] ** 2
         bias = np.mean(np.log10(mean) - np.log10(truth))
@@ -581,8 +596,14 @@ def mutations_time(ts, inferred_ts, min_freq=None, max_freq=None, plotpath=None)
         plt.hexbin(truth, mean, xscale="log", yscale="log", mincnt=1)
         plt.text(0.01, 0.99, info, ha="left", va="top", transform=plt.gca().transAxes)
         plt.axline(pt1, pt2, linestyle="--", color="firebrick")
-        plt.xlabel("True mutation age")
-        plt.ylabel("Estimated mutation age")
+        if subtending_node:
+            plt.xlabel("True node age")
+            plt.ylabel("Estimated node age")
+        else:
+            plt.xlabel("True mutation age")
+            plt.ylabel("Estimated mutation age")
+        if title is not None:
+            plt.title(title)
         plt.tight_layout()
         plt.savefig(plotpath)
         plt.clf()

@@ -55,6 +55,10 @@ from .util import contains_unary_nodes
 ROOTWARD = 0  # edge likelihood to parent
 LEAFWARD = 1  # edge likelihood to child
 
+# columns for unphased_factors
+FIRSTPAR = 0  # edge likelihood to first parent
+SECNDPAR = 1  # edge likelihood to second parent
+
 # columns for node_factors
 MIXPRIOR = 0  # mixture prior to node
 CONSTRNT = 1  # bounds on node ages
@@ -182,6 +186,7 @@ class ExpectationPropagation:
         for i, (p, c) in enumerate(zip(edges_parent, edges_child)):
             posterior_check[p] += edge_factors[i, ROOTWARD]
             posterior_check[c] += edge_factors[i, LEAFWARD]
+        # TODO: unphased factors
         posterior_check += node_factors[:, MIXPRIOR]
         posterior_check += node_factors[:, CONSTRNT]
         return np.allclose(posterior_check, posterior)
@@ -233,9 +238,12 @@ class ExpectationPropagation:
         self.constraints = constraints
         self.mutations_edge = mutations_edge
 
+        # TODO: get likelihoods + unphaseed
+
         # mutable
         self.node_factors = np.zeros((ts.num_nodes, 2, 2))
         self.edge_factors = np.zeros((ts.num_edges, 2, 2))
+        #self.unph_factors = np.zeros((..., 2, 2)) #TODO
         self.posterior = np.zeros((ts.num_nodes, 2))
         self.log_partition = np.zeros(ts.num_edges)
         self.scale = np.ones(ts.num_nodes)
@@ -452,6 +460,46 @@ class ExpectationPropagation:
 
         return np.nan
 
+    # @staticmethod
+    # @numba.njit(_f(_i2r, _i1r, _f2r, _f2w, _f3w, _f1w, _f))
+    # def propagate_unphased(
+    #     parents, individual, likelihoods, posterior, factors, scale, max_shape
+    # ):
+    #     """
+    #     Update approximating factors for unphased singletons.
+
+    #     :param ndarray parents: rows are unphased intervals, columns are first
+    #         and second parents of an individual over that interval.
+    #     :param ndarray individual: the individual associated with each
+    #         unphased interval.
+    #     :param ndarray likelihoods: rows are unphased intervals, columns are 
+    #         number of singleton mutations and interval span.
+    #     :param ndarray posterior: rows are nodes, columns are first and
+    #         second natural parameters of gamma posteriors. Updated in
+    #         place.
+    #     :param ndarray factors: rows are unphased intervals, columns index
+    #         different types of updates. Updated in place.
+    #     :param ndarray scale: array of dimension `[num_nodes]` containing a
+    #         scaling factor for the posteriors, updated in-place.
+    #     :param float max_shape: the maximum allowed shape for node posteriors.
+    #     """
+
+    #     # TODO assert ???
+    #     assert max_shape >= 1.0
+    #     assert 0.0 < min_step < 1.0
+
+    #     def cavity_damping(x, y):
+    #         return _damp(x, y, min_step)
+
+    #     def posterior_damping(x):
+    #         return _rescale(x, max_shape)
+
+    #     # TODO copy from propagate_likelihood...
+
+    #     # TODO copy from propagate_likelihood...
+
+    #     return np.nan
+
     @staticmethod
     @numba.njit(_f2w(_i1r, _i1r, _i1r, _f2r, _f2r, _f2r, _f3r, _f1r, _b))
     def propagate_mutations(
@@ -501,6 +549,7 @@ class ExpectationPropagation:
             if i == tskit.NULL:  # skip mutations above root
                 mutations_posterior[m] = np.nan
                 continue
+            # TODO: if unphased skip, set to nan
             p, c = edges_parent[i], edges_child[i]
             if fixed[p] and fixed[c]:
                 child_age = constraints[c, 0]
@@ -550,6 +599,9 @@ class ExpectationPropagation:
         edge_factors[:, LEAFWARD] *= scale[c, np.newaxis]
         node_factors[:, MIXPRIOR] *= scale[:, np.newaxis]
         node_factors[:, CONSTRNT] *= scale[:, np.newaxis]
+        # TODO: unphased factors
+        #unph_factors[:, FIRSTPAR] *= scale[:, np.newaxis]
+        #unph_factors[:, SECNDPAR] *= scale[:, np.newaxis]
         scale[:] = 1.0
 
     def iterate(
@@ -563,6 +615,11 @@ class ExpectationPropagation:
         regularise=True,
         check_valid=False,
     ):
+        # TODO: pass through unphased intervals
+        #self.propagate_unphased(
+        #    ...
+        #)
+
         # rootward + leafward pass through edges
         self.propagate_likelihood(
             self.edge_order,
