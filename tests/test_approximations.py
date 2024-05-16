@@ -39,10 +39,10 @@ from tsdate import prior
 # TODO: better test set?
 # TODO: test special case where child is fixed to age 0
 _gamma_trio_test_cases = [  # [shape1, rate1, shape2, rate2, muts, rate]
-    [2.0, 0.0005, 2.0, 0.005, 0.0, 0.001],
-    [2.0, 0.0005, 2.0, 0.005, 1.0, 0.001],
-    [2.0, 0.0005, 2.0, 0.005, 2.0, 0.001],
-    [2.0, 0.0005, 2.0, 0.005, 3.0, 0.001],
+    [2.0, 0.0005, 1.5, 0.005, 0.0, 0.001],
+    [2.0, 0.0005, 1.5, 0.005, 1.0, 0.001],
+    [2.0, 0.0005, 1.5, 0.005, 2.0, 0.001],
+    [2.0, 0.0005, 1.5, 0.005, 3.0, 0.001],
 ]
 
 
@@ -59,17 +59,15 @@ class TestPosteriorMomentMatching:
         Target joint (pair) distribution, proportional to the parent/child
         marginals (gamma) and a Poisson mutation likelihood
         """
-        if t_i < t_j:
-            return 0.0
-        else:
-            return (
-                t_i ** (a_i - 1)
-                * np.exp(-t_i * b_i)
-                * t_j ** (a_j - 1)
-                * np.exp(-t_j * b_j)
-                * (t_i - t_j) ** y
-                * np.exp(-(t_i - t_j) * mu)
-            )
+        assert 0 < t_j < t_i
+        return (
+            t_i ** (a_i - 1)
+            * np.exp(-t_i * b_i)
+            * t_j ** (a_j - 1)
+            * np.exp(-t_j * b_j)
+            * (t_i - t_j) ** y
+            * np.exp(-(t_i - t_j) * mu)
+        )
 
     @staticmethod
     def pdf_rootward(t_i, t_j, a_i, b_i, y, mu):
@@ -78,15 +76,13 @@ class TestPosteriorMomentMatching:
         marginals (gamma) and a Poisson mutation likelihood at a
         fixed child age
         """
-        if t_i < t_j:
-            return 0.0
-        else:
-            return (
-                t_i ** (a_i - 1)
-                * np.exp(-t_i * b_i)
-                * (t_i - t_j) ** y
-                * np.exp(-(t_i - t_j) * mu)
-            )
+        assert 0 <= t_j < t_i
+        return (
+            t_i ** (a_i - 1)
+            * np.exp(-t_i * b_i)
+            * (t_i - t_j) ** y
+            * np.exp(-(t_i - t_j) * mu)
+        )
 
     @staticmethod
     def pdf_leafward(t_i, t_j, a_j, b_j, y, mu):
@@ -95,31 +91,46 @@ class TestPosteriorMomentMatching:
         marginals (gamma) and a Poisson mutation likelihood at a
         fixed parent age
         """
-        if t_i < t_j:
-            return 0.0
-        else:
-            return (
-                t_j ** (a_j - 1)
-                * np.exp(-t_j * b_j)
-                * (t_i - t_j) ** y
-                * np.exp(-(t_i - t_j) * mu)
-            )
+        assert 0 < t_j < t_i
+        return (
+            t_j ** (a_j - 1)
+            * np.exp(-t_j * b_j)
+            * (t_i - t_j) ** y
+            * np.exp(-(t_i - t_j) * mu)
+        )
 
     @staticmethod
-    def pdf_truncated(t_i, low, upp, a_i, b_i):
+    def pdf_unphased(t_i, t_j, a_i, b_i, a_j, b_j, y, mu):
         """
-        Target proportional to the node marginals (gamma) and an indicator
-        function
+        Target joint (pair) distribution, proportional to the parent
+        marginals (gamma) and a Poisson mutation likelihood over the
+        two branches leading from (present-day) individual to parents
         """
-        if low < t_i < upp:
-            return np.exp(
-                np.log(t_i) * (a_i - 1)
-                - t_i * b_i
-                - scipy.special.gammaln(a_i)
-                + np.log(b_i) * a_i
-            )
-        else:
-            return 0.0
+        assert t_i > 0 and t_j > 0
+        return (
+            t_i ** (a_i - 1)
+            * np.exp(-t_i * b_i)
+            * t_j ** (a_j - 1)
+            * np.exp(-t_j * b_j)
+            * (t_i + t_j) ** y
+            * np.exp(-(t_i + t_j) * mu)
+        )
+
+    @staticmethod
+    def pdf_unphased_rightward(t_i, t_j, a_j, b_j, y, mu):
+        """
+        Target joint (pair) distribution, proportional to the parent
+        marginals (gamma) and a Poisson mutation likelihood over the
+        two branches leading from (present-day) individual to parents,
+        with left parent fixed to t_i
+        """
+        assert t_i > 0 and t_j > 0
+        return (
+            t_j ** (a_j - 1)
+            * np.exp(-t_j * b_j)
+            * (t_i + t_j) ** y
+            * np.exp(-(t_i + t_j) * mu)
+        )
 
     def test_moments(self, pars):
         """
@@ -183,35 +194,36 @@ class TestPosteriorMomentMatching:
         Test mean and variance of parent age when child age is fixed to a nonzero value
         """
         a_i, b_i, a_j, b_j, y, mu = pars
-        t_j = a_j / b_j  # point "estimate" for child
         pars_redux = (a_i, b_i, y, mu)
-        logconst, t_i, _, var_t_i = approx.rootward_moments(t_j, *pars_redux)
-        ck_normconst = scipy.integrate.quad(
-            lambda t_i: self.pdf_rootward(t_i, t_j, *pars_redux),
-            t_j,
-            np.inf,
-            epsabs=0,
-        )[0]
-        assert np.isclose(logconst, np.log(ck_normconst), rtol=2e-2)
-        ck_t_i = scipy.integrate.quad(
-            lambda t_i: t_i * self.pdf_rootward(t_i, t_j, *pars_redux) / ck_normconst,
-            t_j,
-            np.inf,
-            epsabs=0,
-        )[0]
-        assert np.isclose(t_i, ck_t_i, rtol=2e-2)
-        ck_var_t_i = (
-            scipy.integrate.quad(
-                lambda t_i: t_i**2
-                * self.pdf_rootward(t_i, t_j, *pars_redux)
-                / ck_normconst,
+        mn_j = a_j / b_j  # point "estimate" for child
+        for t_j in [0.0, mn_j]:
+            logconst, t_i, _, var_t_i = approx.rootward_moments(t_j, *pars_redux)
+            ck_normconst = scipy.integrate.quad(
+                lambda t_i: self.pdf_rootward(t_i, t_j, *pars_redux),
                 t_j,
                 np.inf,
                 epsabs=0,
             )[0]
-            - ck_t_i**2
-        )
-        assert np.isclose(var_t_i, ck_var_t_i, rtol=2e-2)
+            assert np.isclose(logconst, np.log(ck_normconst), rtol=2e-2)
+            ck_t_i = scipy.integrate.quad(
+                lambda t_i: t_i * self.pdf_rootward(t_i, t_j, *pars_redux) / ck_normconst,
+                t_j,
+                np.inf,
+                epsabs=0,
+            )[0]
+            assert np.isclose(t_i, ck_t_i, rtol=2e-2)
+            ck_var_t_i = (
+                scipy.integrate.quad(
+                    lambda t_i: t_i**2
+                    * self.pdf_rootward(t_i, t_j, *pars_redux)
+                    / ck_normconst,
+                    t_j,
+                    np.inf,
+                    epsabs=0,
+                )[0]
+                - ck_t_i**2
+            )
+            assert np.isclose(var_t_i, ck_var_t_i, rtol=2e-2)
 
     def test_leafward_moments(self, pars):
         """
@@ -248,41 +260,274 @@ class TestPosteriorMomentMatching:
         )
         assert np.isclose(var_t_j, ck_var_t_j, rtol=2e-2)
 
-    def test_truncated_moments(self, pars):
+    def test_unphased_moments(self, pars):
         """
-        Test mean and variance of child age when parent age is fixed to a nonzero value
+        Parent ages for an singleton nodes above an unphased individual
         """
-        a_i, b_i, *_ = pars
-        upp = a_i / b_i * 2
-        low = a_i / b_i / 2
-        pars_redux = (low, upp, a_i, b_i)
-        logconst, t_i, _, var_t_i = approx.truncated_moments(*pars_redux)
-        ck_normconst = scipy.integrate.quad(
-            lambda t_i: self.pdf_truncated(t_i, *pars_redux),
-            low,
-            upp,
+        logconst, t_i, _, var_t_i, t_j, _, var_t_j = approx.unphased_moments(*pars)
+        ck_normconst = scipy.integrate.dblquad(
+            lambda t_i, t_j: self.pdf_unphased(t_i, t_j, *pars),
+            0,
+            np.inf,
+            0,
+            np.inf,
             epsabs=0,
         )[0]
-        assert np.isclose(logconst, np.log(ck_normconst), rtol=1e-4)
-        ck_t_i = scipy.integrate.quad(
-            lambda t_i: t_i * self.pdf_truncated(t_i, *pars_redux) / ck_normconst,
-            low,
-            upp,
+        assert np.isclose(logconst, np.log(ck_normconst), rtol=2e-2)
+        ck_t_i = scipy.integrate.dblquad(
+            lambda t_i, t_j: t_i * self.pdf_unphased(t_i, t_j, *pars) / ck_normconst,
+            0,
+            np.inf,
+            0,
+            np.inf,
             epsabs=0,
         )[0]
-        assert np.isclose(t_i, ck_t_i, rtol=1e-4)
+        assert np.isclose(t_i, ck_t_i, rtol=2e-2)
+        ck_t_j = scipy.integrate.dblquad(
+            lambda t_i, t_j: t_j * self.pdf_unphased(t_i, t_j, *pars) / ck_normconst,
+            0,
+            np.inf,
+            0,
+            np.inf,
+            epsabs=0,
+        )[0]
+        assert np.isclose(t_j, ck_t_j, rtol=2e-2)
         ck_var_t_i = (
-            scipy.integrate.quad(
-                lambda t_i: t_i**2
-                * self.pdf_truncated(t_i, *pars_redux)
-                / ck_normconst,
-                low,
-                upp,
+            scipy.integrate.dblquad(
+                lambda t_i, t_j: t_i**2 * self.pdf_unphased(t_i, t_j, *pars) / ck_normconst,
+                0,
+                np.inf,
+                0,
+                np.inf,
                 epsabs=0,
             )[0]
             - ck_t_i**2
         )
-        assert np.isclose(var_t_i, ck_var_t_i, rtol=1e-4)
+        assert np.isclose(var_t_i, ck_var_t_i, rtol=2e-2)
+        ck_var_t_j = (
+            scipy.integrate.dblquad(
+                lambda t_i, t_j: t_j**2 * self.pdf_unphased(t_i, t_j, *pars) / ck_normconst,
+                0,
+                np.inf,
+                0,
+                np.inf,
+                epsabs=0,
+            )[0]
+            - ck_t_j**2
+        )
+        assert np.isclose(var_t_j, ck_var_t_j, rtol=2e-2)
+
+    def test_unphased_rightward_moments(self, pars):
+        """
+        Parent ages for an singleton nodes above an unphased individual, where
+        second parent is fixed to a particular time
+        """
+        a_i, b_i, a_j, b_j, y, mu = pars
+        pars_redux = (a_j, b_j, y, mu)
+        t_i = a_i / b_i  # point "estimate" for left parent
+        nc, mn, _, va = approx.unphased_rightward_moments(t_i, *pars_redux)
+        ck_nc = scipy.integrate.quad(
+            lambda t_j: self.pdf_unphased_rightward(t_i, t_j, *pars_redux),
+            0,
+            np.inf,
+        )[0]
+        assert np.isclose(np.exp(nc), ck_nc, rtol=2e-2)
+        ck_mn = scipy.integrate.quad(
+            lambda t_j: t_j * self.pdf_unphased_rightward(t_i, t_j, *pars_redux),
+            0,
+            np.inf,
+        )[0] / ck_nc
+        assert np.isclose(mn, ck_mn, rtol=2e-2)
+        ck_va = scipy.integrate.quad(
+            lambda t_j: t_j**2 * self.pdf_unphased_rightward(t_i, t_j, *pars_redux),
+            0,
+            np.inf,
+        )[0] / ck_nc - ck_mn**2
+        assert np.isclose(va, ck_va, rtol=2e-2)
+
+    def test_mutation_moments(self, pars):
+        """
+        Mutation mapped to a single branch with both nodes free
+        """
+        def f(t_i, t_j):
+            assert t_j < t_i
+            mn = t_i / 2 + t_j / 2
+            sq = (t_i**2 + t_i*t_j + t_j**2) / 3
+            return mn, sq
+        mn, _, va = approx.mutation_moments(*pars)
+        nc = scipy.integrate.dblquad(
+            lambda t_i, t_j: self.pdf(t_i, t_j, *pars),
+            0,
+            np.inf,
+            lambda t_j: t_j,
+            np.inf,
+            epsabs=0,
+        )[0]
+        ck_mn = scipy.integrate.dblquad(
+            lambda t_i, t_j: f(t_i, t_j)[0] * self.pdf(t_i, t_j, *pars),
+            0,
+            np.inf,
+            lambda t_j: t_j,
+            np.inf,
+            epsabs=0,
+        )[0] / nc
+        assert np.isclose(mn, ck_mn, rtol=2e-2)
+        ck_va = scipy.integrate.dblquad(
+            lambda t_i, t_j: f(t_i, t_j)[1] * self.pdf(t_i, t_j, *pars),
+            0,
+            np.inf,
+            lambda t_j: t_j,
+            np.inf,
+            epsabs=0,
+        )[0] / nc - ck_mn**2
+        assert np.isclose(va, ck_va, rtol=5e-2)
+
+    def test_mutation_rootward_moments(self, pars):
+        """
+        Mutation mapped to a single branch with child node fixed
+        """
+        def f(t_i, t_j): # conditional moments
+            assert t_j < t_i
+            mn = t_i / 2 + t_j / 2
+            sq = (t_i**2 + t_i*t_j + t_j**2) / 3
+            return mn, sq
+        a_i, b_i, a_j, b_j, y, mu = pars
+        pars_redux = (a_i, b_i, y, mu)
+        mn_j = a_j / b_j  # point "estimate" for child
+        for t_j in [0.0, mn_j]:
+            mn, _, va = approx.mutation_rootward_moments(t_j, *pars_redux)
+            nc = scipy.integrate.quad(
+                lambda t_i: self.pdf_rootward(t_i, t_j, *pars_redux),
+                t_j,
+                np.inf,
+            )[0]
+            ck_mn = scipy.integrate.quad(
+                lambda t_i: f(t_i, t_j)[0] * self.pdf_rootward(t_i, t_j, *pars_redux),
+                t_j,
+                np.inf,
+            )[0] / nc
+            assert np.isclose(mn, ck_mn, rtol=2e-2)
+            ck_va = scipy.integrate.quad(
+                lambda t_i: f(t_i, t_j)[1] * self.pdf_rootward(t_i, t_j, *pars_redux),
+                t_j,
+                np.inf,
+            )[0] / nc - ck_mn**2
+            assert np.isclose(va, ck_va, rtol=2e-2)
+
+    def test_mutation_leafward_moments(self, pars):
+        """
+        Mutation mapped to a single branch with parent node fixed
+        """
+        def f(t_i, t_j):
+            assert t_j < t_i
+            mn = t_i / 2 + t_j / 2
+            sq = (t_i**2 + t_i*t_j + t_j**2) / 3
+            return mn, sq
+        a_i, b_i, a_j, b_j, y, mu = pars
+        t_i = a_i / b_i  # point "estimate" for parent
+        pars_redux = (a_j, b_j, y, mu)
+        mn, _, va = approx.mutation_leafward_moments(t_i, *pars_redux)
+        nc = scipy.integrate.quad(
+            lambda t_j: self.pdf_leafward(t_i, t_j, *pars_redux),
+            0,
+            t_i,
+        )[0]
+        ck_mn = scipy.integrate.quad(
+            lambda t_j: f(t_i, t_j)[0] * self.pdf_leafward(t_i, t_j, *pars_redux),
+            0,
+            t_i,
+        )[0] / nc
+        assert np.isclose(mn, ck_mn, rtol=2e-2)
+        ck_va = scipy.integrate.quad(
+            lambda t_j: f(t_i, t_j)[1] * self.pdf_leafward(t_i, t_j, *pars_redux),
+            0,
+            t_i,
+        )[0] / nc - ck_mn**2
+        assert np.isclose(va, ck_va, rtol=2e-2)
+
+    def test_unphased_mutation_moments(self, pars):
+        """
+        Mutation mapped to two singleton branches with children fixed to time zero
+        """
+        def f(t_i, t_j): # conditional moments
+            pr = t_i / (t_i + t_j)
+            mn = pr * t_i / 2 + (1 - pr) * t_j / 2
+            sq = pr * t_i**2 / 3 + (1 - pr) * t_j**2 / 3
+            return pr, mn, sq
+        pr, mn, _, va = approx.unphased_mutation_moments(*pars)
+        nc = scipy.integrate.dblquad(
+            lambda t_i, t_j: self.pdf_unphased(t_i, t_j, *pars),
+            0,
+            np.inf,
+            0,
+            np.inf,
+            epsabs=0,
+        )[0]
+        ck_pr = scipy.integrate.dblquad(
+            lambda t_i, t_j: f(t_i, t_j)[0] * self.pdf_unphased(t_i, t_j, *pars),
+            0,
+            np.inf,
+            0,
+            np.inf,
+            epsabs=0,
+        )[0] / nc
+        assert np.isclose(pr, ck_pr, rtol=2e-2)
+        ck_mn = scipy.integrate.dblquad(
+            lambda t_i, t_j: f(t_i, t_j)[1] * self.pdf_unphased(t_i, t_j, *pars),
+            0,
+            np.inf,
+            0,
+            np.inf,
+            epsabs=0,
+        )[0] / nc
+        assert np.isclose(mn, ck_mn, rtol=2e-2)
+        ck_va = scipy.integrate.dblquad(
+            lambda t_i, t_j: f(t_i, t_j)[2] * self.pdf_unphased(t_i, t_j, *pars),
+            0,
+            np.inf,
+            0,
+            np.inf,
+            epsabs=0,
+        )[0] / nc - ck_mn**2
+        assert np.isclose(va, ck_va, rtol=2e-2)
+
+    def test_unphased_mutation_rightward_moments(self, pars):
+        """
+        Mutation mapped to two branches with children fixed to time zero, and
+        left parent (i) fixed
+        """
+        def f(t_i, t_j):  # conditional moments
+            pr = t_i / (t_i + t_j)
+            mn = pr * t_i / 2 + (1 - pr) * t_j / 2
+            sq = pr * t_i**2 / 3 + (1 - pr) * t_j**2 / 3
+            return pr, mn, sq
+        a_i, b_i, a_j, b_j, y, mu = pars
+        t_i = a_i / b_i  # point "estimate" for left parent
+        pars_redux = (a_j, b_j, y, mu)
+        pr, mn, _, va = approx.unphased_mutation_rightward_moments(t_i, *pars_redux)
+        nc = scipy.integrate.quad(
+            lambda t_j: self.pdf_unphased_rightward(t_i, t_j, *pars_redux),
+            0,
+            np.inf,
+        )[0]
+        ck_pr = scipy.integrate.quad(
+            lambda t_j: f(t_i, t_j)[0] * self.pdf_unphased_rightward(t_i, t_j, *pars_redux),
+            0,
+            np.inf,
+        )[0] / nc
+        assert np.isclose(pr, ck_pr, rtol=2e-2)
+        ck_mn = scipy.integrate.quad(
+            lambda t_j: f(t_i, t_j)[1] * self.pdf_unphased_rightward(t_i, t_j, *pars_redux),
+            0,
+            np.inf,
+        )[0] / nc
+        assert np.isclose(mn, ck_mn, rtol=2e-2)
+        ck_va = scipy.integrate.quad(
+            lambda t_j: f(t_i, t_j)[2] * self.pdf_unphased_rightward(t_i, t_j, *pars_redux),
+            0,
+            np.inf,
+        )[0] / nc - ck_mn**2
+        assert np.isclose(va, ck_va, rtol=2e-2)
 
     def test_approximate_gamma_kl(self, pars):
         _, t_i, ln_t_i, _, t_j, ln_t_j, _ = approx.moments(*pars)
@@ -309,6 +554,8 @@ class TestPosteriorMomentMatching:
         assert np.isclose(va_t_i, ck_va_t_i)
         ck_va_t_j = (alpha_j + 1) / beta_j**2
         assert np.isclose(va_t_j, ck_va_t_j)
+
+
 
 
 class TestPriorMomentMatching:
