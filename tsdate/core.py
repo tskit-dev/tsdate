@@ -1255,7 +1255,6 @@ class VariationalGammaMethod(EstimationMethod):
         eps,
         max_iterations,
         max_shape,
-        match_central_moments,
         rescaling_intervals,
         match_segregating_sites,
         regularise_roots,
@@ -1270,12 +1269,10 @@ class VariationalGammaMethod(EstimationMethod):
             raise ValueError("Variational gamma method requires mutation rate")
 
         # match sufficient statistics or match central moments
-        min_kl = not match_central_moments
         dynamic_prog = self.main_algorithm()
         dynamic_prog.run(
             ep_maxitt=max_iterations,
             max_shape=max_shape,
-            min_kl=min_kl,
             rescale_intervals=rescaling_intervals,
             regularise=regularise_roots,
             rescale_segsites=match_segregating_sites,
@@ -1578,9 +1575,9 @@ def variational_gamma(
     rescaling_intervals=None,
     # deliberately undocumented parameters below. We may eventually document these
     max_shape=None,
-    match_central_moments=None,
     match_segregating_sites=None,
     regularise_roots=None,
+    rescaling_intervals=None,
     **kwargs,
 ):
     """
@@ -1643,8 +1640,6 @@ def variational_gamma(
         max_shape = 1000
     if rescaling_intervals is None:
         rescaling_intervals = DEFAULT_RESCALING_INTERVALS
-    if match_central_moments is None:
-        match_central_moments = True
     if match_segregating_sites is None:
         match_segregating_sites = False
     if regularise_roots is None:
@@ -1660,7 +1655,6 @@ def variational_gamma(
         eps=eps,
         max_iterations=max_iterations,
         max_shape=max_shape,
-        match_central_moments=match_central_moments,
         rescaling_intervals=rescaling_intervals,
         match_segregating_sites=match_segregating_sites,
         regularise_roots=regularise_roots,

@@ -272,7 +272,7 @@ class ExpectationPropagation:
         )
 
     @staticmethod
-    @numba.njit(_f(_i1r, _i1r, _i1r, _f2r, _f2r, _f2w, _f3w, _f1w, _f1w, _f, _f, _b))
+    @numba.njit(_f(_i1r, _i1r, _i1r, _f2r, _f2r, _f2w, _f3w, _f1w, _f1w, _f, _f))
     def propagate_likelihood(
         edge_order,
         edges_parent,
@@ -285,7 +285,6 @@ class ExpectationPropagation:
         scale,
         max_shape,
         min_step,
-        min_kl,
     ):
         """
         Update approximating factors for Poisson mutation likelihoods on edges.
@@ -308,7 +307,6 @@ class ExpectationPropagation:
             scaling factor for the posteriors, updated in-place.
         :param float max_shape: the maximum allowed shape for node posteriors.
         :param float min_step: the minimum allowed step size in (0, 1).
-        :param bool min_kl: minimize KL divergence or match central moments.
         """
 
         assert constraints.shape == posterior.shape
@@ -341,7 +339,7 @@ class ExpectationPropagation:
                 # match moments and update factor
                 parent_age = constraints[p, LOWER]
                 lognorm[i], posterior[c] = approx.leafward_projection(
-                    parent_age, child_cavity, edge_likelihood, min_kl
+                    parent_age, child_cavity, edge_likelihood, 
                 )
                 factors[i, LEAFWARD] *= 1.0 - child_delta
                 factors[i, LEAFWARD] += (posterior[c] - child_cavity) / scale[c]
@@ -361,7 +359,7 @@ class ExpectationPropagation:
                 # match moments and update factor
                 child_age = constraints[c, LOWER]
                 lognorm[i], posterior[p] = approx.rootward_projection(
-                    child_age, parent_cavity, edge_likelihood, min_kl
+                    child_age, parent_cavity, edge_likelihood, 
                 )
 
                 factors[i, ROOTWARD] *= 1.0 - parent_delta
@@ -385,7 +383,7 @@ class ExpectationPropagation:
 
                 # match moments and update factors
                 lognorm[i], posterior[p], posterior[c] = approx.gamma_projection(
-                    parent_cavity, child_cavity, edge_likelihood, min_kl
+                    parent_cavity, child_cavity, edge_likelihood, 
                 )
                 factors[i, ROOTWARD] *= 1.0 - delta
                 factors[i, ROOTWARD] += (posterior[p] - parent_cavity) / scale[p]
@@ -501,7 +499,7 @@ class ExpectationPropagation:
     #     return np.nan
 
     @staticmethod
-    @numba.njit(_f2w(_i1r, _i1r, _i1r, _f2r, _f2r, _f2r, _f3r, _f1r, _b))
+    @numba.njit(_f2w(_i1r, _i1r, _i1r, _f2r, _f2r, _f2r, _f3r, _f1r))
     def propagate_mutations(
         mutations_edge,
         edges_parent,
@@ -511,7 +509,6 @@ class ExpectationPropagation:
         posterior,
         factors,
         scale,
-        min_kl,
     ):
         """
         Calculate posteriors for mutations.
@@ -531,7 +528,6 @@ class ExpectationPropagation:
             edge, updated in-place.
         :param ndarray scale: array of dimension `[num_nodes]` containing a
             scaling factor for the posteriors, updated in-place.
-        :param bool min_kl: minimize KL divergence or match central moments.
         """
 
         # TODO: scale should be 1.0, can we delete
@@ -564,7 +560,7 @@ class ExpectationPropagation:
                 edge_likelihood = child_delta * likelihoods[i]
                 parent_age = constraints[p, LOWER]
                 mutations_posterior[m] = approx.mutation_leafward_projection(
-                    parent_age, child_cavity, edge_likelihood, min_kl
+                    parent_age, child_cavity, edge_likelihood, 
                 )
             elif fixed[c] and not fixed[p]:
                 parent_message = factors[i, ROOTWARD] * scale[p]
@@ -573,7 +569,7 @@ class ExpectationPropagation:
                 edge_likelihood = parent_delta * likelihoods[i]
                 child_age = constraints[c, LOWER]
                 mutations_posterior[m] = approx.mutation_rootward_projection(
-                    child_age, parent_cavity, edge_likelihood, min_kl
+                    child_age, parent_cavity, edge_likelihood, 
                 )
             else:
                 parent_message = factors[i, ROOTWARD] * scale[p]
@@ -585,7 +581,7 @@ class ExpectationPropagation:
                 child_cavity = posterior[c] - delta * child_message
                 edge_likelihood = delta * likelihoods[i]
                 mutations_posterior[m] = approx.mutation_gamma_projection(
-                    parent_cavity, child_cavity, edge_likelihood, min_kl
+                    parent_cavity, child_cavity, edge_likelihood, 
                 )
 
         return mutations_posterior
@@ -611,7 +607,6 @@ class ExpectationPropagation:
         min_step=0.1,
         em_maxitt=100,
         em_reltol=1e-8,
-        min_kl=False,
         regularise=True,
         check_valid=False,
     ):
@@ -633,7 +628,6 @@ class ExpectationPropagation:
             self.scale,
             max_shape,
             min_step,
-            min_kl,
         )
 
         # exponential regularization on roots
@@ -711,7 +705,6 @@ class ExpectationPropagation:
         ep_maxitt=10,
         max_shape=1000,
         min_step=0.1,
-        min_kl=False,
         rescale_intervals=1000,
         rescale_segsites=False,
         regularise=True,
@@ -726,7 +719,6 @@ class ExpectationPropagation:
             self.iterate(
                 max_shape=max_shape,
                 min_step=min_step,
-                min_kl=min_kl,
                 regularise=regularise,
             )
         nodes_timing -= time.time()
@@ -745,7 +737,6 @@ class ExpectationPropagation:
             self.posterior,
             self.edge_factors,
             self.scale,
-            min_kl,
         )
         muts_timing -= time.time()
         skipped_muts = np.sum(np.isnan(self.mutations_posterior[:, 0]))

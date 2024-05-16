@@ -136,7 +136,7 @@ class TestPosteriorMomentMatching:
         """
         Test mean and variance when ages of both nodes are free
         """
-        logconst, t_i, _, var_t_i, t_j, _, var_t_j = approx.moments(*pars)
+        logconst, t_i, var_t_i, t_j, var_t_j = approx.moments(*pars)
         ck_normconst = scipy.integrate.dblquad(
             lambda t_i, t_j: self.pdf(t_i, t_j, *pars),
             0,
@@ -197,7 +197,7 @@ class TestPosteriorMomentMatching:
         pars_redux = (a_i, b_i, y, mu)
         mn_j = a_j / b_j  # point "estimate" for child
         for t_j in [0.0, mn_j]:
-            logconst, t_i, _, var_t_i = approx.rootward_moments(t_j, *pars_redux)
+            logconst, t_i, var_t_i = approx.rootward_moments(t_j, *pars_redux)
             ck_normconst = scipy.integrate.quad(
                 lambda t_i: self.pdf_rootward(t_i, t_j, *pars_redux),
                 t_j,
@@ -232,7 +232,7 @@ class TestPosteriorMomentMatching:
         a_i, b_i, a_j, b_j, y, mu = pars
         t_i = a_i / b_i  # point "estimate" for parent
         pars_redux = (a_j, b_j, y, mu)
-        logconst, t_j, _, var_t_j = approx.leafward_moments(t_i, *pars_redux)
+        logconst, t_j, var_t_j = approx.leafward_moments(t_i, *pars_redux)
         ck_normconst = scipy.integrate.quad(
             lambda t_j: self.pdf_leafward(t_i, t_j, *pars_redux),
             0,
@@ -264,7 +264,7 @@ class TestPosteriorMomentMatching:
         """
         Parent ages for an singleton nodes above an unphased individual
         """
-        logconst, t_i, _, var_t_i, t_j, _, var_t_j = approx.unphased_moments(*pars)
+        logconst, t_i, var_t_i, t_j, var_t_j = approx.unphased_moments(*pars)
         ck_normconst = scipy.integrate.dblquad(
             lambda t_i, t_j: self.pdf_unphased(t_i, t_j, *pars),
             0,
@@ -325,7 +325,7 @@ class TestPosteriorMomentMatching:
         a_i, b_i, a_j, b_j, y, mu = pars
         pars_redux = (a_j, b_j, y, mu)
         t_i = a_i / b_i  # point "estimate" for left parent
-        nc, mn, _, va = approx.unphased_rightward_moments(t_i, *pars_redux)
+        nc, mn, va = approx.unphased_rightward_moments(t_i, *pars_redux)
         ck_nc = scipy.integrate.quad(
             lambda t_j: self.pdf_unphased_rightward(t_i, t_j, *pars_redux),
             0,
@@ -354,7 +354,7 @@ class TestPosteriorMomentMatching:
             mn = t_i / 2 + t_j / 2
             sq = (t_i**2 + t_i*t_j + t_j**2) / 3
             return mn, sq
-        mn, _, va = approx.mutation_moments(*pars)
+        mn, va = approx.mutation_moments(*pars)
         nc = scipy.integrate.dblquad(
             lambda t_i, t_j: self.pdf(t_i, t_j, *pars),
             0,
@@ -395,7 +395,7 @@ class TestPosteriorMomentMatching:
         pars_redux = (a_i, b_i, y, mu)
         mn_j = a_j / b_j  # point "estimate" for child
         for t_j in [0.0, mn_j]:
-            mn, _, va = approx.mutation_rootward_moments(t_j, *pars_redux)
+            mn, va = approx.mutation_rootward_moments(t_j, *pars_redux)
             nc = scipy.integrate.quad(
                 lambda t_i: self.pdf_rootward(t_i, t_j, *pars_redux),
                 t_j,
@@ -426,7 +426,7 @@ class TestPosteriorMomentMatching:
         a_i, b_i, a_j, b_j, y, mu = pars
         t_i = a_i / b_i  # point "estimate" for parent
         pars_redux = (a_j, b_j, y, mu)
-        mn, _, va = approx.mutation_leafward_moments(t_i, *pars_redux)
+        mn, va = approx.mutation_leafward_moments(t_i, *pars_redux)
         nc = scipy.integrate.quad(
             lambda t_j: self.pdf_leafward(t_i, t_j, *pars_redux),
             0,
@@ -454,7 +454,7 @@ class TestPosteriorMomentMatching:
             mn = pr * t_i / 2 + (1 - pr) * t_j / 2
             sq = pr * t_i**2 / 3 + (1 - pr) * t_j**2 / 3
             return pr, mn, sq
-        pr, mn, _, va = approx.unphased_mutation_moments(*pars)
+        pr, mn, va = approx.unphased_mutation_moments(*pars)
         nc = scipy.integrate.dblquad(
             lambda t_i, t_j: self.pdf_unphased(t_i, t_j, *pars),
             0,
@@ -504,7 +504,7 @@ class TestPosteriorMomentMatching:
         a_i, b_i, a_j, b_j, y, mu = pars
         t_i = a_i / b_i  # point "estimate" for left parent
         pars_redux = (a_j, b_j, y, mu)
-        pr, mn, _, va = approx.unphased_mutation_rightward_moments(t_i, *pars_redux)
+        pr, mn, va = approx.unphased_mutation_rightward_moments(t_i, *pars_redux)
         nc = scipy.integrate.quad(
             lambda t_j: self.pdf_unphased_rightward(t_i, t_j, *pars_redux),
             0,
@@ -530,7 +530,11 @@ class TestPosteriorMomentMatching:
         assert np.isclose(va, ck_va, rtol=2e-2)
 
     def test_approximate_gamma_kl(self, pars):
-        _, t_i, ln_t_i, _, t_j, ln_t_j, _ = approx.moments(*pars)
+        a_i, b_i, a_j, b_j, y, mu = pars
+        t_i = a_i / b_i
+        ln_t_i = hypergeo._digamma(a_i) - np.log(b_i)
+        t_j = a_j / b_j
+        ln_t_j = hypergeo._digamma(a_j) - np.log(b_j)
         alpha_i, beta_i = approx.approximate_gamma_kl(t_i, ln_t_i)
         alpha_j, beta_j = approx.approximate_gamma_kl(t_j, ln_t_j)
         ck_t_i = (alpha_i + 1) / beta_i
@@ -543,7 +547,7 @@ class TestPosteriorMomentMatching:
         assert np.isclose(ln_t_j, ck_ln_t_j)
 
     def test_approximate_gamma_mom(self, pars):
-        _, t_i, _, va_t_i, t_j, _, va_t_j = approx.moments(*pars)
+        _, t_i, va_t_i, t_j, va_t_j = approx.moments(*pars)
         alpha_i, beta_i = approx.approximate_gamma_mom(t_i, va_t_i)
         alpha_j, beta_j = approx.approximate_gamma_mom(t_j, va_t_j)
         ck_t_i = (alpha_i + 1) / beta_i
@@ -554,72 +558,6 @@ class TestPosteriorMomentMatching:
         assert np.isclose(va_t_i, ck_va_t_i)
         ck_va_t_j = (alpha_j + 1) / beta_j**2
         assert np.isclose(va_t_j, ck_va_t_j)
-
-
-
-
-class TestPriorMomentMatching:
-    """
-    Test approximation of the conditional coalescent prior via
-    moment matching to a gamma distribution
-    """
-
-    n = 10
-    priors = prior.ConditionalCoalescentTimes(False)
-    priors.add(n)
-
-    @pytest.mark.parametrize("k", np.arange(2, 10))
-    def test_conditional_coalescent_pdf(self, k):
-        """
-        Check that the utility function matches the implementation in
-        `tsdate.prior`
-        """
-        mean, _ = scipy.integrate.quad(
-            lambda x: x * conditional_coalescent_pdf(x, self.n, k), 0, np.inf
-        )
-        var, _ = scipy.integrate.quad(
-            lambda x: x**2 * conditional_coalescent_pdf(x, self.n, k), 0, np.inf
-        )
-        var -= mean**2
-        mean_column = prior.PriorParams.field_index("mean")
-        var_column = prior.PriorParams.field_index("var")
-        assert np.isclose(mean, self.priors[self.n][k][mean_column])
-        assert np.isclose(var, self.priors[self.n][k][var_column])
-
-    @pytest.mark.parametrize("k", np.arange(2, 10))
-    def test_approximate_gamma(self, k):
-        """
-        Test that matching gamma to Taylor-series-approximated sufficient
-        statistics will result in lower KL divergence than matching to
-        mean/variance
-        """
-        mean_column = prior.PriorParams.field_index("mean")
-        var_column = prior.PriorParams.field_index("var")
-        x = self.priors[self.n][k][mean_column]
-        xvar = self.priors[self.n][k][var_column]
-        # match mean/variance
-        alpha_0, beta_0 = approx.approximate_gamma_mom(x, xvar)
-        ck_x = (alpha_0 + 1) / beta_0
-        ck_xvar = (alpha_0 + 1) / beta_0**2
-        assert np.isclose(x, ck_x)
-        assert np.isclose(xvar, ck_xvar)
-        # match approximate sufficient statistics
-        logx, _, _ = approx.approximate_log_moments(x, xvar)
-        alpha_1, beta_1 = approx.approximate_gamma_kl(x, logx)
-        ck_x = (alpha_1 + 1) / beta_1
-        ck_logx = hypergeo._digamma(alpha_1 + 1) - np.log(beta_1)
-        assert np.isclose(x, ck_x)
-        assert np.isclose(logx, ck_logx)
-        # compare KL divergence between strategies
-        kl_0 = kl_divergence(
-            lambda x: conditional_coalescent_pdf(x, self.n, k),
-            lambda x: scipy.stats.gamma.logpdf(x, alpha_0 + 1, scale=1 / beta_0),
-        )
-        kl_1 = kl_divergence(
-            lambda x: conditional_coalescent_pdf(x, self.n, k),
-            lambda x: scipy.stats.gamma.logpdf(x, alpha_1 + 1, scale=1 / beta_1),
-        )
-        assert kl_1 < kl_0
 
 
 class TestGammaFactorization:
