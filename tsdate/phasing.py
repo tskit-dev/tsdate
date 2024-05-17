@@ -154,13 +154,27 @@ def insert_unphased_singletons(ts, position, individual, reference_state, altern
     return tables.tree_sequence()
 
 
-def unphased_to_likelihood(likelihoods, mutations_phase, mutations_block, block_edges):
-    for m, b in enumerate(mutations_block):
+def accumulate_unphased(edges_mutations, mutations_phase, mutations_block, block_edges):
+    """
+    Add a proportion of each unphased singleton mutation to one of the two
+    edges to which it maps. 
+    """
+    unphased = mutations_block != tskit.NULL
+    assert np.all(mutations_phase[~unphased] == 1.0)
+    assert np.all(
+        np.logical_and(
+            mutations_phase[unphased] <= 1.0, 
+            mutations_phase[unphased] >= 0.0,
+        )
+    )
+    for b in mutations_block[unphased]:
         if b == tskit.NULL:
             continue
         i, j = block_edges[b]
-        likelihoods[i] += mutations_phase
-        likelihoods[j] += 1 - mutations_phase
+        edges_mutations[i] += mutations_phase
+        edges_mutations[j] += 1 - mutations_phase
+    assert np.sum(edges_mutations) == mutations_block.size
+    return edges_mutations
         
 
 
