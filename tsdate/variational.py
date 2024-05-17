@@ -460,7 +460,7 @@ class ExpectationPropagation:
 
     # @staticmethod
     # @numba.njit(_f(_i2r, _i1r, _f2r, _f2w, _f3w, _f1w, _f))
-    # def propagate_unphased(
+    # def propagate_unphased_likelihoods(
     #     parents, individual, likelihoods, posterior, factors, scale, max_shape
     # ):
     #     """
@@ -585,6 +585,10 @@ class ExpectationPropagation:
                 )
 
         return mutations_posterior
+
+    # @staticmethod
+    # @numba.njit(_f(_i2r, _i1r, _f2r, _f2w, _f3w, _f1w, _f))
+    # def propagate_unphased_mutations()
 
     @staticmethod
     @numba.njit(_void(_i1r, _i1r, _f3w, _f3w, _f1w))
