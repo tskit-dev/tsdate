@@ -104,3 +104,63 @@ def rephase_singletons(ts, use_node_times=True, random_seed=None):
     tables.mutations.time = mutations_time
     tables.sort()
     return tables.tree_sequence(), singletons
+
+
+def insert_unphased_singletons(ts, position, individual, reference_state, alternate_state, allow_overlapping_sites=False):
+    """
+    Insert unphased singletons into the tree sequence. The phase is arbitrarily chosen 
+    so that the mutation subtends the node with the lowest id, at a given position for a
+    a given individual.
+
+    :param tskit.TreeSequence ts: the tree sequence to add singletons to
+    :param np.ndarray position: the position of the variants
+    :param np.ndarray individual: the individual id in which the variant occurs
+    :param np.ndarray reference_state: the reference state of the variant
+    :param np.ndarray alternate_state: the alternate state of the variant
+    :param bool allow_overlapping_sites: whether to permit insertion of
+        singletons at existing sites (in which case the reference states must be
+        consistent)
+
+    :returns: A copy of the tree sequence with singletons inserted
+    """
+    # TODO: provenance / metdata
+    tables = ts.dump_tables()
+    individuals_node = {i.id: min(i.nodes) for i in ts.individuals()}
+    sites_id = {p: i for i, p in enumerate(ts.sites_position)}
+    overlap = False
+    for pos, ind, ref, alt in zip(position, individual, reference_state, alternate_state):
+        if ind not in individuals_nodes:
+            raise LookupError(f"Individual {ind} is not in the tree sequence")
+        if pos in sites_id:
+            if not allow_overlapping_sites:
+                raise ValueError(f"A site already exists at position {pos}")
+            if ref != ts.site(sites_id[pos]).ancestral_state:
+                raise ValueError(
+                    f"Existing site at position {pos} has a different ancestral state"
+                )
+            overlap = True
+        else:
+            sites_id[pos] = tables.sites.add_row(position=pos, ancestral_state=ref)
+        tables.mutations.add_row(
+            site=sites_id[pos],
+            node=individuals_node[ind],
+            time=tskit.UNKNOWN_TIME,
+            derived_state=alt,
+        )
+    tables.sort()
+    if allow_overlapping_sites and overlap:
+        tables.build_index()
+        tables.compute_mutation_parents()
+    return tables.tree_sequence()
+
+
+def unphased_to_likelihood(likelihoods, mutations_phase, mutations_block, block_edges):
+    for m, b in enumerate(mutations_block):
+        if b == tskit.NULL:
+            continue
+        i, j = block_edges[b]
+        likelihoods[i] += mutations_phase
+        likelihoods[j] += 1 - mutations_phase
+        
+
+

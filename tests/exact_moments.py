@@ -64,7 +64,7 @@ def rootward_moments(t_j, a_i, b_i, y_ij, mu_ij):
 
 def leafward_moments(t_i, a_j, b_j, y_ij, mu_ij):
     r"""
-    log p(t_i, t_j) := \
+    log p(t_j) := \
         log(t_i - t_j) * y_ij - mu_ij * (t_i - t_j) + \
         log(t_j) * (a_j - 1) - mu_ij * t_j
     """
