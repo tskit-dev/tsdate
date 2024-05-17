@@ -29,8 +29,6 @@ import pytest
 import scipy.integrate
 import scipy.special
 import scipy.stats
-from distribution_functions import conditional_coalescent_pdf
-from distribution_functions import kl_divergence
 
 from tsdate import approx
 from tsdate import hypergeo
