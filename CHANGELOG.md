@@ -4,8 +4,22 @@
 
 **Bugfixes**
 
-- In variational gamma, Rescale messages at end of each iteration to avoid numerical
+- Variational gamma uses a rescaling approach which helps considerably if e.g.
+  population sizes vary over time
+
+- Variational gamma does not use mutational area of branches, but average path
+  length, which reduces bias in tree sequences containing polytomies
+
+- In variational gamma, rescale messages at end of each iteration to avoid numerical
   instability.
+
+**Breaking changes**
+
+- Variational gamma uses an improper (flat) prior, and therefore
+  no longer needs `population_size` specifying.
+
+- The standalone `preprocess_ts` function also applies the `split_disjoint_nodes`
+  method, which creates extra nodes but improves dating accuracy.
 
 ## [0.1.6] - 2024-01-07
 
