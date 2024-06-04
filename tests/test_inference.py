@@ -471,8 +471,7 @@ class TestVariational:
             assert m.metadata["mn"] > 0
             assert m.metadata["vr"] > 0
 
-    def test_bad_mutation_metadata(self, caplog):
-        # Will only work if schema allows
+    def test_existing_byte_mutation_metadata(self, caplog):
         tables = self.ts.dump_tables()
         m = self.ts.mutation(-1)
         tables.mutations.truncate(self.ts.num_mutations - 1)
@@ -480,5 +479,58 @@ class TestVariational:
         ts = tables.tree_sequence()
         with caplog.at_level(logging.WARNING):
             dts = tsdate.variational_gamma(ts, mutation_rate=1e-8)
-            assert "Could not set mean time" in caplog.text
+            assert "Could not set" in caplog.text
         assert dts.mutation(-1).metadata == b"x"
+
+    def test_existing_struct_mutation_metadata(self, caplog):
+        tables = self.ts.dump_tables()
+        tables.mutations.metadata_schema = tskit.MetadataSchema(
+            {
+                "codec": "struct",
+                "type": "object",
+                "properties": {
+                    "mn": {
+                        "type": "number",
+                        "binaryFormat": "f",
+                        "description": "Posterior mean mutation time",
+                    },
+                    "vr": {
+                        "type": "number",
+                        "binaryFormat": "f",
+                        "description": "Posterior variance in mutation time",
+                    },
+                },
+                "additionalProperties": False,
+            }
+        )
+        tables.mutations.packset_metadata(
+            [
+                tables.mutations.metadata_schema.validate_and_encode_row(
+                    {"mn": 0, "vr": 0}
+                )
+                for _ in range(tables.mutations.num_rows)
+            ]
+        )
+        ts = tables.tree_sequence()
+        with caplog.at_level(logging.WARNING):
+            dts = tsdate.variational_gamma(ts, mutation_rate=1e-8)
+            assert caplog.text == ""
+        for m in dts.mutations():
+            assert m.metadata["mn"] > 0
+            assert m.metadata["vr"] > 0
+
+    def test_incompatible_schema_mutation_metadata(self, caplog):
+        tables = self.ts.dump_tables()
+        tables.mutations.metadata_schema = tskit.MetadataSchema(
+            {
+                "codec": "struct",
+                "type": "object",
+                "properties": {},
+                "additionalProperties": False,
+            }
+        )
+        ts = tables.tree_sequence()
+        with caplog.at_level(logging.WARNING):
+            dts = tsdate.variational_gamma(ts, mutation_rate=1e-8)
+            assert "Could not set" in caplog.text
+        assert len(dts.tables.mutations.metadata) == 0
