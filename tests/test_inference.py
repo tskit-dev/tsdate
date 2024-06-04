@@ -50,6 +50,11 @@ class TestPrebuilt:
         with pytest.raises(ValueError, match="method must be one of"):
             tsdate.date(ts, population_size=1, mutation_rate=None, method="foo")
 
+    def test_no_mutations_failure(self):
+        ts = utility_functions.single_tree_ts_n2()
+        with pytest.raises(ValueError, match="No mutations present"):
+            tsdate.variational_gamma(ts, mutation_rate=1)
+
     def test_no_population_size(self):
         ts = utility_functions.two_tree_mutation_ts()
         with pytest.raises(ValueError, match="Must specify population size"):

@@ -247,8 +247,8 @@ class TestOutput(RunCLI):
         "method", ["inside_outside", "maximization", "variational_gamma"]
     )
     def test_no_progress(self, method, tmp_path, capfd):
-        input_ts = msprime.simulate(4, random_seed=123)
-        params = f"-m 0.1 --method {method} --rescaling-intervals 0"
+        input_ts = msprime.simulate(4, mutation_rate=10, random_seed=123)
+        params = f"-m 10 --method {method} --rescaling-intervals 0"
         self.run_tsdate_cli(tmp_path, input_ts, f"{self.popsize} {params}")
         (out, err) = capfd.readouterr()
         assert out == ""
@@ -275,8 +275,8 @@ class TestOutput(RunCLI):
         assert err.count("it/s") >= len(desc)
 
     def test_iterative_progress(self, tmp_path, capfd):
-        input_ts = msprime.simulate(4, random_seed=123)
-        params = "--method variational_gamma --mutation-rate 1e-8 "
+        input_ts = msprime.simulate(4, mutation_rate=10, random_seed=123)
+        params = "--method variational_gamma --mutation-rate 10 "
         params += "--progress --rescaling-intervals 0"
         self.run_tsdate_cli(tmp_path, input_ts, f"{self.popsize} {params}")
         (out, err) = capfd.readouterr()
