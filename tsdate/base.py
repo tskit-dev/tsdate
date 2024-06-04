@@ -21,7 +21,7 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 """
-Base classes and constants used by tsdate
+Base classes and internal constants used by tsdate
 """
 import numpy as np
 
@@ -33,10 +33,6 @@ GAMMA_PAR = "gamma_parameter"
 #: The default value for `approx_prior_size` (see :func:`~tsdate.build_prior_grid` and
 #: :func:`~tsdate.build_parameter_grid`)
 DEFAULT_APPROX_PRIOR_SIZE = 10000
-
-# Bit 20 is set in node flags when they are samples not at time zero in the sampledata
-# file
-NODE_IS_HISTORIC_SAMPLE = 1 << 20
 
 
 class NodeGridValues:

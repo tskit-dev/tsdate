@@ -20,7 +20,6 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 from .cache import *  # NOQA: F401,F403
-from .constants import *  # NOQA
 from .core import date  # NOQA: F401
 from .core import inside_outside  # NOQA: F401
 from .core import maximization  # NOQA: F401
@@ -31,3 +30,16 @@ from .provenance import __version__  # NOQA: F401
 from .util import add_sampledata_times  # NOQA: F401
 from .util import preprocess_ts  # NOQA: F401
 from .util import sites_time_from_ts  # NOQA: F401
+
+# Bit 20 is set in node flags when they are samples not at time zero in the sampledata
+# file. This should match the node flag in tsinfer.
+
+#: Node flag value indicating that this is a non-contemporary sample node
+NODE_IS_HISTORICAL_SAMPLE = 1 << 20
+
+
+# Since tsdate is often used together with tsinfer, we try not to use the tsinfer
+# node flag constants here, and start from 1 << 30 rather than 1 << 16
+
+#: Node flag value indicating that this was a disjoint node that was then split
+NODE_SPLIT_BY_PREPROCESS = 1 << 30
