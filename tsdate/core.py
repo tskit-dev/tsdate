@@ -43,6 +43,7 @@ from . import base
 from . import demography
 from . import prior
 from . import provenance
+from . import schemas
 from . import util
 from . import variational
 
@@ -988,7 +989,8 @@ class EstimationMethod:
     def get_modified_ts(self, result, eps):
         # Return a new ts based on the existing one, but with the various
         # time-related information correctly set.
-        tables = self.ts.dump_tables()
+        ts = self.ts
+        tables = ts.dump_tables()
         nodes = tables.nodes
         mutations = tables.mutations
         if self.provenance_params is not None:
@@ -996,19 +998,18 @@ class EstimationMethod:
         # Constrain node ages for positive branch lengths
         constr_timing = time.time()
         nodes.time = util.constrain_ages(
-            self.ts, result.posterior_mean, eps, self.constr_iterations
+            ts, result.posterior_mean, eps, self.constr_iterations
         )
-        mutations.time = util.constrain_mutations(
-            self.ts, nodes.time, self.mutations_edge
-        )
+        mutations.time = util.constrain_mutations(ts, nodes.time, self.mutations_edge)
         tables.time_units = self.time_units
         constr_timing -= time.time()
+        tables.sort()
         logging.info(f"Constrained node ages in {abs(constr_timing)} seconds")
         # Add posterior mean and variance to node/mutation metadata
-        # TODO: retain original metadata?
         meta_timing = time.time()
         if result.posterior_var is not None:
             metadata_array = tskit.unpack_bytes(nodes.metadata, nodes.metadata_offset)
+            # TODO: retain original metadata?
             for u, (mn, vr) in enumerate(
                 zip(result.posterior_mean, result.posterior_var)
             ):
@@ -1020,24 +1021,34 @@ class EstimationMethod:
                 ).encode()
             nodes.packset_metadata(metadata_array)
         if result.mutation_var is not None:
-            metadata_array = tskit.unpack_bytes(
-                mutations.metadata, mutations.metadata_offset
-            )
-            for u, (mn, vr) in enumerate(
-                zip(result.mutation_mean, result.mutation_var)
-            ):
-                metadata_array[u] = json.dumps(
-                    {
-                        "mn": mn,
-                        "vr": vr,
-                    }
-                ).encode()
-            mutations.packset_metadata(metadata_array)
+            if mutations.metadata_schema.schema is None:
+                # Can only set a new schema if no byte data stored
+                if len(mutations.metadata) == 0:
+                    mutations.metadata_schema = schemas.default_mutation_schema
+                    ts = tables.tree_sequence()  # access empty metadata as {} not b''
+                    logging.info("Set metadata schema on mutations table")
+            else:
+                # TODO: could try to add to the existing schema if it's compatible
+                pass
+            metadata_array = []
+            try:
+                for mut, mean, var in zip(
+                    ts.mutations(), result.mutation_mean, result.mutation_var
+                ):
+                    mut.metadata["mn"] = mean
+                    mut.metadata["vr"] = var
+                    metadata_array.append(
+                        mutations.metadata_schema.validate_and_encode_row(mut.metadata)
+                    )
+                mutations.packset_metadata(metadata_array)
+            except (TypeError, tskit.MetadataValidationError) as e:
+                logging.warning(
+                    f"Could not set mean time and variance in mutation metadata: {e}"
+                )
         meta_timing -= time.time()
         logging.info(
             f"Inserted node and mutation metadata in {abs(meta_timing)} seconds"
         )
-        tables.sort()
         return tables.tree_sequence()
 
     def parse_result(self, result, epsilon, extra_posterior_cols=None):

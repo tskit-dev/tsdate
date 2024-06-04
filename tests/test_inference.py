@@ -23,10 +23,13 @@
 """
 Test cases for the python API for tsdate.
 """
+import logging
+
 import msprime
 import numpy as np
 import pytest
 import tsinfer
+import tskit
 import utility_functions
 
 import tsdate
@@ -442,3 +445,40 @@ class TestVariational:
                 method="variational_gamma",
                 max_iterations=-1,
             )
+
+    def test_no_existing_mutation_metadata(self):
+        # Currently only the variational_gamma method embeds mutation metadata
+        ts = tsdate.date(self.ts, mutation_rate=1e-8, method="variational_gamma")
+        for m in ts.mutations():
+            print(m)
+            assert "mn" in m.metadata
+            assert "vr" in m.metadata
+            assert m.metadata["mn"] > 0
+            assert m.metadata["vr"] > 0
+
+    def test_existing_mutation_metadata(self, caplog):
+        tables = self.ts.dump_tables()
+        m = self.ts.mutation(-1)
+        tables.mutations.truncate(self.ts.num_mutations - 1)
+        tables.mutations.metadata_schema = tskit.MetadataSchema.permissive_json()
+        tables.mutations.append(m.replace(metadata={"test": 7}))
+        ts = tables.tree_sequence()
+        with caplog.at_level(logging.WARNING):
+            dts = tsdate.variational_gamma(ts, mutation_rate=1e-8)
+            assert caplog.text == ""
+        assert dts.mutation(-1).metadata["test"] == 7
+        for m in dts.mutations():
+            assert m.metadata["mn"] > 0
+            assert m.metadata["vr"] > 0
+
+    def test_bad_mutation_metadata(self, caplog):
+        # Will only work if schema allows
+        tables = self.ts.dump_tables()
+        m = self.ts.mutation(-1)
+        tables.mutations.truncate(self.ts.num_mutations - 1)
+        tables.mutations.append(m.replace(metadata=b"x"))
+        ts = tables.tree_sequence()
+        with caplog.at_level(logging.WARNING):
+            dts = tsdate.variational_gamma(ts, mutation_rate=1e-8)
+            assert "Could not set mean time" in caplog.text
+        assert dts.mutation(-1).metadata == b"x"
