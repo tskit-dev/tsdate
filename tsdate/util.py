@@ -31,7 +31,7 @@ import numpy as np
 import tskit
 from numba.types import UniTuple as _unituple
 
-from . import constants
+import tsdate
 from . import provenance
 from .approx import _b1r
 from .approx import _f
@@ -561,7 +561,7 @@ def split_disjoint_nodes(ts, *, record_provenance=None):
 
     # Update the nodes table (complex because we have made new nodes)
     flags = tables.nodes.flags
-    flags[split_nodes] |= constants.NODE_SPLIT_BY_PREPROCESS
+    flags[split_nodes] |= tsdate.NODE_SPLIT_BY_PREPROCESS
     tables.nodes.flags = flags
     extra_md = {}
     try:

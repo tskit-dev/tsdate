@@ -40,6 +40,11 @@ from tsdate.evaluation import remove_edges
 from tsdate.evaluation import unsupported_edges
 
 
+class TestConstants:
+    def test_matches_tsinfer_consts(self):
+        assert tsinfer.NODE_IS_HISTORICAL_SAMPLE == tsdate.NODE_IS_HISTORICAL_SAMPLE
+
+
 class TestPrebuilt:
     """
     Tests for tsdate on prebuilt tree sequences
