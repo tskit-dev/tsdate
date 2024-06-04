@@ -1,6 +1,6 @@
 # MIT License
 #
-# Copyright (c) 2021-23 Tskit Developers
+# Copyright (c) 2021-24 Tskit Developers
 # Copyright (c) 2020 University of Oxford
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -78,7 +78,7 @@ class TestPrebuilt:
 
     def test_both_ne_and_population_size_specified(self):
         ts = utility_functions.two_tree_mutation_ts()
-        with pytest.raises(ValueError, match="may be specified"):
+        with pytest.raises(ValueError, match="Only provide one of Ne"):
             tsdate.date(
                 ts, mutation_rate=None, population_size=PopulationSizeHistory(1), Ne=1
             )

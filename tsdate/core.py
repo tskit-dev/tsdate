@@ -1,6 +1,6 @@
 # MIT License
 #
-# Copyright (c) 2021-23 Tskit Developers
+# Copyright (c) 2021-24 Tskit Developers
 # Copyright (c) 2020-21 University of Oxford
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -1295,15 +1295,22 @@ class VariationalGammaMethod(EstimationMethod):
 def maximization(
     tree_sequence,
     *,
+    mutation_rate,
+    population_size=None,
+    priors=None,
     eps=None,
     num_threads=None,
     probability_space=None,
     # below deliberately undocumented
     cache_inside=None,
+    Ne=None,
     # Other params documented in `.date()`
     **kwargs,
 ):
     """
+    maximization(tree_sequence, *, mutation_rate, population_size=None, priors=None,\
+        eps=None, num_threads=None, probability_space=None, **kwargs)
+
     Infer dates for nodes in a genealogical graph using the "outside maximization"
     algorithm. This approximates the marginal posterior distribution of a node's
     age using an atomic discretization of time (e.g. point masses at particular
@@ -1337,6 +1344,24 @@ def maximization(
         tree sequence, and that they are contemporaneous.
 
     :param ~tskit.TreeSequence tree_sequence: The input tree sequence to be dated.
+    :param float mutation_rate: The estimated mutation rate per unit of genome per
+        unit time. If provided, the dating algorithm will use a mutation rate clock to
+        help estimate node dates. Default: ``None``
+    :param float or ~demography.PopulationSizeHistory population_size: The estimated
+        (diploid) effective population size used to construct the (default) conditional
+        coalescent prior. For a population with constant size, this can be given as a
+        single value (for example, as commonly estimated by the observed genetic
+        diversity of the sample divided by four-times the expected mutation rate).
+        Alternatively, for a population with time-varying size, this can be given
+        directly as a :class:`~demography.PopulationSizeHistory` object or a parameter
+        dictionary passed to initialise a :class:`~demography.PopulationSizeHistory`
+        object. The ``population_size`` parameter is only used when ``priors`` is
+        ``None``. Conversely, if ``priors`` is not ``None``, no ``population_size``
+        value should be specified.
+    :param tsdate.base.NodeGridValues priors: NodeGridValues object containing the prior
+        parameters for each node-to-be-dated. Note that different estimation methods may
+        require different types of prior, as described in the documentation for each
+        estimation method.
     :param float eps: The error factor in time difference calculations, and the
         minimum distance separating parent and child ages in the returned tree sequence.
         Default: None, treated as 1e-6.
@@ -1360,12 +1385,23 @@ def maximization(
           ``return_likelihood`` is ``True``) The marginal likelihood of
           the mutation data given the inferred node times.
     """
+    if Ne is not None:
+        if population_size is not None:
+            raise ValueError("Only provide one of Ne (deprecated) or population_size")
+        else:
+            population_size = Ne
     if eps is None:
         eps = 1e-6
     if probability_space is None:
         probability_space = base.LOG
 
-    dating_method = MaximizationMethod(tree_sequence, **kwargs)
+    dating_method = MaximizationMethod(
+        tree_sequence,
+        mutation_rate=mutation_rate,
+        population_size=population_size,
+        priors=priors,
+        **kwargs,
+    )
     result = dating_method.run(
         eps=eps,
         num_threads=num_threads,
@@ -1378,6 +1414,9 @@ def maximization(
 def inside_outside(
     tree_sequence,
     *,
+    mutation_rate,
+    population_size=None,
+    priors=None,
     eps=None,
     num_threads=None,
     outside_standardize=None,
@@ -1385,10 +1424,16 @@ def inside_outside(
     probability_space=None,
     # below deliberately undocumented
     cache_inside=False,
+    # Deprecated params
+    Ne=None,
     # Other params documented in `.date()`
     **kwargs,
 ):
     """
+    inside_outside(tree_sequence, *, mutation_rate, population_size=None, priors=None,\
+        eps=None, num_threads=None, outside_standardize=None, ignore_oldest_root=None,\
+        probability_space=None, **kwargs)
+
     Infer dates for nodes in a genealogical graph using the "inside outside" algorithm.
     This approximates the marginal posterior distribution of a node's age using an
     atomic discretization of time (e.g. point masses at particular timepoints).
@@ -1422,6 +1467,24 @@ def inside_outside(
         tree sequence, and that they are contemporaneous.
 
     :param ~tskit.TreeSequence tree_sequence: The input tree sequence to be dated.
+    :param float mutation_rate: The estimated mutation rate per unit of genome per
+        unit time. If provided, the dating algorithm will use a mutation rate clock to
+        help estimate node dates. Default: ``None``
+    :param float or ~demography.PopulationSizeHistory population_size: The estimated
+        (diploid) effective population size used to construct the (default) conditional
+        coalescent prior. For a population with constant size, this can be given as a
+        single value (for example, as commonly estimated by the observed genetic
+        diversity of the sample divided by four-times the expected mutation rate).
+        Alternatively, for a population with time-varying size, this can be given
+        directly as a :class:`~demography.PopulationSizeHistory` object or a parameter
+        dictionary passed to initialise a :class:`~demography.PopulationSizeHistory`
+        object. The ``population_size`` parameter is only used when ``priors`` is
+        ``None``. Conversely, if ``priors`` is not ``None``, no ``population_size``
+        value should be specified.
+    :param tsdate.base.NodeGridValues priors: NodeGridValues object containing the prior
+        parameters for each node-to-be-dated. Note that different estimation methods may
+        require different types of prior, as described in the documentation for each
+        estimation method.
     :param float eps: The error factor in time difference calculations, and the
         minimum distance separating parent and child ages in the returned tree sequence.
         Default: None, treated as 1e-6.
@@ -1464,6 +1527,11 @@ def inside_outside(
           ``return_likelihood`` is ``True``) The marginal likelihood of
           the mutation data given the inferred node times.
     """
+    if Ne is not None:
+        if population_size is not None:
+            raise ValueError("Only provide one of Ne (deprecated) or population_size")
+        else:
+            population_size = Ne
     if eps is None:
         eps = 1e-6
     if probability_space is None:
@@ -1472,7 +1540,13 @@ def inside_outside(
         outside_standardize = True
     if ignore_oldest_root is None:
         ignore_oldest_root = False
-    dating_method = InsideOutsideMethod(tree_sequence, **kwargs)
+    dating_method = InsideOutsideMethod(
+        tree_sequence,
+        mutation_rate=mutation_rate,
+        population_size=population_size,
+        priors=priors,
+        **kwargs,
+    )
     result = dating_method.run(
         eps=eps,
         num_threads=num_threads,
@@ -1489,16 +1563,21 @@ def inside_outside(
 def variational_gamma(
     tree_sequence,
     *,
+    mutation_rate,
     eps=None,
     max_iterations=None,
-    max_shape=None,
     rescaling_intervals=None,
-    match_central_moments=None,  # undocumented
-    match_segregating_sites=None,  # undocumented
-    regularise_roots=None,  # undocumented
+    # deliberately undocumented parameters below. We may eventually document these
+    max_shape=None,
+    match_central_moments=None,
+    match_segregating_sites=None,
+    regularise_roots=None,
     **kwargs,
 ):
     """
+    variational_gamma(tree_sequence, *, mutation_rate, eps=None, max_iterations=None,\
+            rescaling_intervals=None, **kwargs)
+
     Infer dates for nodes in a tree sequence using expectation propagation,
     which approximates the marginal posterior distribution of a given node's
     age with a gamma distribution. Convergence to the correct posterior moments
@@ -1509,26 +1588,24 @@ def variational_gamma(
 
       new_ts = tsdate.variational_gamma(ts, mutation_rate=1e-8, max_iterations=10)
 
-    An piecewise-constant uniform distribution is used as a prior for each
+    A piecewise-constant uniform distribution is used as a prior for each
     node, that is updated via expectation maximization in each iteration.
     Node-specific priors are not currently supported.
 
     :param ~tskit.TreeSequence tree_sequence: The input tree sequence to be dated.
+    :param float mutation_rate: The estimated mutation rate per unit of genome per
+        unit time.
     :param float eps: The minimum distance separating parent and child ages in
         the returned tree sequence. Default: None, treated as 1e-6
     :param int max_iterations: The number of iterations used in the expectation
         propagation algorithm. Default: None, treated as 10.
-    :param float max_shape: The maximum value for the shape parameter in the variational
-        posteriors. This is equivalent to the maximum precision (inverse variance) on a
-        logarithmic scale. Default: None, treated as 1000.
     :param float rescaling_intervals: For time rescaling, the number of time
         intervals within which to estimate a rescaling parameter. Default None,
         treated as 1000.
     :param \\**kwargs: Other keyword arguments as described in the :func:`date` wrapper
-        function, notably ``mutation_rate``, and ``population_size`` or ``priors``.
-        Further arguments include ``time_units``, ``progress``, and
-        ``record_provenance``. The additional arguments ``return_posteriors`` and
-        ``return_likelihood`` can be used to return additional information (see below).
+        function, including ``time_units``, ``progress``, and ``record_provenance``.
+        The arguments ``return_posteriors`` and ``return_likelihood`` can be
+        used to return additional information (see below).
     :return:
         - **ts** (:class:`~tskit.TreeSequence`) -- a copy of the input tree sequence with
           updated node times based on the posterior mean, corrected where necessary to
@@ -1552,6 +1629,8 @@ def variational_gamma(
     if max_iterations is None:
         max_iterations = 10
     if max_shape is None:
+        # The maximum value for the shape parameter in the variational posteriors.
+        # Equivalent to the maximum precision (inverse variance) on a logarithmic scale.
         max_shape = 1000
     if rescaling_intervals is None:
         rescaling_intervals = 1000
@@ -1562,7 +1641,9 @@ def variational_gamma(
     if regularise_roots is None:
         regularise_roots = True
 
-    dating_method = VariationalGammaMethod(tree_sequence, **kwargs)
+    dating_method = VariationalGammaMethod(
+        tree_sequence, mutation_rate=mutation_rate, **kwargs
+    )
     result = dating_method.run(
         eps=eps,
         max_iterations=max_iterations,
@@ -1576,38 +1657,34 @@ def variational_gamma(
 
 
 estimation_methods = {
+    "variational_gamma": variational_gamma,
     "inside_outside": inside_outside,
     "maximization": maximization,
-    "variational_gamma": variational_gamma,
 }
 """
 The names of available estimation methods, each mapped to a function to carry
 out the appropriate method. Names can be passed as strings to the
 :func:`~tsdate.date` function, or each named function can be called directly:
 
+* :func:`tsdate.variational_gamma`: variational approximation, empirically most accurate.
 * :func:`tsdate.inside_outside`: empirically better, theoretically problematic.
 * :func:`tsdate.maximization`: worse empirically, especially with gamma approximated
   priors, but theoretically robust
-* :func:`tsdate.variational_gamma`: variational approximation, empirically most accurate.
 """
 
 
 def date(
     tree_sequence,
+    *,
     mutation_rate,
-    population_size=None,
     recombination_rate=None,
     time_units=None,
-    priors=None,
     method=None,
-    *,
     constr_iterations=None,
     return_posteriors=None,
     return_likelihood=None,
     progress=None,
     record_provenance=True,
-    # Deprecated params
-    Ne=None,
     # Other kwargs documented in the functions for each specific estimation-method
     **kwargs,
 ):
@@ -1634,20 +1711,8 @@ def date(
 
     :param ~tskit.TreeSequence tree_sequence: The input tree sequence to be dated (for
         example one with :data:`uncalibrated<tskit.TIME_UNITS_UNCALIBRATED>` node times).
-    :param float or ~demography.PopulationSizeHistory population_size: The estimated
-        (diploid) effective population size used to construct the (default) conditional
-        coalescent prior. For a population with constant size, this can be given as a
-        single value (for example, as commonly estimated by the observed genetic
-        diversity of the sample divided by four-times the expected mutation rate).
-        Alternatively, for a population with time-varying size, this can be given
-        directly as a :class:`~demography.PopulationSizeHistory` object or a parameter
-        dictionary passed to initialise a :class:`~demography.PopulationSizeHistory`
-        object. The ``population_size`` parameter is only used when ``priors`` is
-        ``None``. Conversely, if ``priors`` is not ``None``, no ``population_size``
-        value should be specified.
     :param float mutation_rate: The estimated mutation rate per unit of genome per
-        unit time. If provided, the dating algorithm will use a mutation rate clock to
-        help estimate node dates. Default: ``None``
+        unit time (see individual methods)
     :param float recombination_rate: The estimated recombination rate per unit of genome
         per unit time. If provided, the dating algorithm will use a recombination rate
         clock to help estimate node dates. Default: ``None`` (not currently implemented)
@@ -1660,10 +1725,6 @@ def date(
         and are using the conditional coalescent prior, the ``population_size``
         value which you provide must be scaled by multiplying by the number of
         years per generation. If ``None`` (default), assume ``"generations"``.
-    :param tsdate.base.NodeGridValues priors: NodeGridValues object containing the prior
-        parameters for each node-to-be-dated. Note that different estimation methods may
-        require different types of prior, as described in the documentation for each
-        estimation method.
     :param string method: What estimation method to use. See
         :data:`~tsdate.core.estimation_methods` for possible values.
         If ``None`` (default) the "inside_outside" method is currently chosen.
@@ -1692,13 +1753,6 @@ def date(
         marginal likelihood given the mutations on the tree sequence.
     """
     # Only the .date() wrapper needs to consider the deprecated "Ne" param
-    if Ne is not None:
-        if population_size is not None:
-            raise ValueError(
-                "Only one of Ne (deprecated) or population_size may be specified"
-            )
-        else:
-            population_size = Ne
     if method is None:
         method = "inside_outside"  # may change later
     if method not in estimation_methods:
@@ -1706,11 +1760,9 @@ def date(
 
     return estimation_methods[method](
         tree_sequence,
-        population_size=population_size,
         mutation_rate=mutation_rate,
         recombination_rate=recombination_rate,
         time_units=time_units,
-        priors=priors,
         progress=progress,
         constr_iterations=constr_iterations,
         return_posteriors=return_posteriors,

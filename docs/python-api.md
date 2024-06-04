@@ -27,9 +27,9 @@ This page provides formal documentation for the `tsdate` Python API.
 .. autofunction:: tsdate.date
 .. autodata:: tsdate.core.estimation_methods
    :no-value:
+.. autofunction:: tsdate.variational_gamma
 .. autofunction:: tsdate.inside_outside
 .. autofunction:: tsdate.maximization
-.. autofunction:: tsdate.variational_gamma
 ```
 
 ## Prior and Time Discretisation Options

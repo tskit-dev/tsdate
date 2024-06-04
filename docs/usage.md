@@ -215,15 +215,19 @@ per-bp per-year rate, you will also need to modify the effective population size
 ```{code-cell} ipython3
 import numpy as np
 popsize = 100  # Diploid population size
-mutation_rate_per_gen = 1e-8
+mu = 1e-8  # per generation
 # By default, dates are in generations
-ts_generations = tsdate.date(ts, mutation_rate_per_gen, popsize)
+ts_generations = tsdate.date(ts, mutation_rate=mu, population_size=popsize)
 
 # To infer dates in years, adjust both the rates and the population size:
 generation_time = 30  # Years
-mutation_rate_per_year = mutation_rate_per_gen / generation_time
+mutation_rate_per_year = mu / generation_time
 ts_years = tsdate.date(
-    ts, mutation_rate_per_year, popsize * generation_time, time_units="years")
+    ts,
+    mutation_rate=mutation_rate_per_year,
+    population_size=popsize * generation_time,
+    time_units="years"
+)
 
 # Check that the inferred node times are identical, just on different scales
 assert np.allclose(ts_generations.nodes_time, ts_years.nodes_time / generation_time, 5)
