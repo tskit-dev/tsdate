@@ -18,11 +18,11 @@ kernelspec:
 
 # Introduction
 
-`tsdate` {cite}`wohns2022unified` infers dates for nodes in a genetic genealogy,
-sometimes loosely known as an ancestral recombination graph or ARG
-{cite}`wong2023general`. More precisely, it takes a genealogy in 
+The `tsdate` program {cite}`wohns2022unified` infers dates for nodes in a
+genetic genealogy, sometimes loosely known as an ancestral recombination graph
+or ARG {cite}`wong2023general`. More precisely, it takes a genealogy in 
 [tree sequence](https://tskit.dev/tutorials/what_is.html) format as an input
-and returns a copy of that tree sequence with altered node times. These
+and returns a copy of that tree sequence with altered node and mutation times. These
 times have been estimated on the basis of the number of mutations
 along the edges connecting genomes in the genealogy (i.e. using the "molecular clock").
 
@@ -37,20 +37,25 @@ times (which can be {ref}`output separately<sec_usage_posterior>`). This
 The input tree sequence can come from any source: e.g. from simulation or from
 a variety of inference programs, such as [tsinfer](https://tskit.dev/).
 
-As the approach is Bayesian, it requires a
-{ref}`prior distribution<sec_priors>` to be defined
-for each of the nodes to date. By default, `tsdate` calculates priors from the
-[conditional coalescent](http://dx.doi.org/10.1006/tpbi.1998.1411), although
-alternative prior distributions can also be specified.
-
-`tsdate` provides several methods for assigning probabilities to different times,
-and updating information through the genealogy. These include discrete-time and
-continuous-time methods, see {ref}`sec_methods` for more details.
+`Tsdate` provides several methods for assigning probabilities to different times,
+and updating information through the genealogy. These include continuous-time
+(default) and discrete-time methods, see {ref}`sec_methods` for more details.
 
 The output of tsdate is a new tree sequence with altered
-{attr}`node times<tskit:tskit.TreeSequence.nodes_time>`, extra node {ref}`sec_metadata`, and
-(optionally) a posterior distribution of node times
+{attr}`node<tskit:tskit.TreeSequence.nodes_time>`and
+{attr}`mutation<tskit:tskit.TreeSequence.mutations_time>` times,
+as well as extra node and mutation {ref}`sec_metadata`.
+Optionally, a posterior distribution of node times can be generated
 (see {ref}`sec_usage_posterior`).
+
+Since the method is Bayesian, technically it requires each node to have a
+prior distribution of times. The discrete-time methods currently require
+the prior to be explicitly provided either via specifying an estimated
+effective population size (which is then used in the
+[conditional coalescent](http://dx.doi.org/10.1006/tpbi.1998.1411)), or
+{ref}`directly<sec_priors>`. The default `variational_gamma` method currently
+uses an improper (flat) prior and therefore does not need such user-provided
+parameters.
 
 The ultimate source of technical detail for `tsdate` is the source code on our
 [GitHub repository](http://github.com/tskit-dev/tsdate).
@@ -66,20 +71,26 @@ not the tree sequence node times.
 :tags: [remove-input]
 import msprime
 import tsinfer
+import tskit
 import tsdate
+import numpy as np
 
 from IPython.display import HTML
-ts = msprime.sim_ancestry(5, population_size=1000, recombination_rate=1e-7, sequence_length=1000, random_seed=321)
-ts = msprime.sim_mutations(ts, rate=4e-6, random_seed=4321)
+ts = msprime.sim_ancestry(5, population_size=1000, recombination_rate=1e-7, sequence_length=1000, random_seed=2)
+ts = msprime.sim_mutations(ts, rate=2e-6, random_seed=7)
 inferred = tsinfer.infer(tsinfer.SampleData.from_tree_sequence(ts)).simplify()
 svg1 = inferred.draw_svg(
     size=(260, 300), mutation_labels={}, node_labels={}, y_axis=True, y_ticks=[0, 1],
     style=".x-axis .ticks .lab {font-size: 0.7em} .y-axis .ticks .lab {text-anchor: middle; transform: rotate(-90deg) translateY(-10px)}",
     symbol_size=4,
     )
-svg2 = tsdate.date(inferred, population_size=1000, mutation_rate=4e-6).draw_svg(
+tables = tsdate.variational_gamma(inferred, mutation_rate=2e-6).dump_tables()
+# remove the mutation times so they appear nicely spaced out
+tables.mutations.time = np.full_like(tables.mutations.time, tskit.UNKNOWN_TIME)
+dated_ts = tables.tree_sequence()
+svg2 = dated_ts.draw_svg(
     size=(260, 300), mutation_labels={}, node_labels={}, y_axis=True,
-        y_ticks=[0, 1000, 2000, 3000],
+        y_ticks=[0, 2000, 4000, 6000],
     style=".x-axis .ticks .lab {font-size: 0.7em} .y-axis .ticks .lab {text-anchor: middle; transform: rotate(-90deg) translateY(-10px)}",
     symbol_size=4,
 )

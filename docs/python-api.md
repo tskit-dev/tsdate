@@ -51,6 +51,7 @@ This page provides formal documentation for the `tsdate` Python API.
 
 ```{eval-rst}
 .. autofunction:: tsdate.preprocess_ts
+.. autofunction:: tsdate.util.split_disjoint_nodes
 ```
 
 # Functions for Inferring Tree Sequences with Historical Samples
@@ -58,4 +59,11 @@ This page provides formal documentation for the `tsdate` Python API.
 ```{eval-rst}
 .. autofunction:: tsdate.sites_time_from_ts
 .. autofunction:: tsdate.add_sampledata_times
+```
+
+# Constants
+
+```{eval-rst}
+.. automodule:: tsdate
+   :members:
 ```

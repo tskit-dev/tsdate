@@ -30,6 +30,7 @@ import sys
 import tskit
 
 import tsdate
+from . import core
 
 logger = logging.getLogger(__name__)
 log_format = "%(asctime)s %(levelname)s %(message)s"
@@ -88,12 +89,11 @@ def tsdate_cli_parser():
             "sequence will saved."
         ),
     )
-    # TODO array specification from file?
     parser.add_argument(
-        "population_size",
+        "deprecated_population_size",
         type=float,
         nargs="?",
-        help="Estimated effective (diploid) population size.",
+        help="Deprecated positional argument, left for backwards compatibility.",
     )
     parser.add_argument(
         "-m",
@@ -122,45 +122,23 @@ def tsdate_cli_parser():
         "-e",
         "--epsilon",
         type=float,
-        default=1e-6,
+        default=core.DEFAULT_EPSILON,
         help=(
             "Specify minimum distance separating time points. Also "
             "specifies the error factor in time difference calculations. "
-            "Default: 1e-6"
-        ),
-    )
-    parser.add_argument(
-        "-t",
-        "--num-threads",
-        type=int,
-        default=None,
-        help=(
-            "The number of threads to use. A simpler unthreaded algorithm "
-            "is used unless this is >= 1. Not relevant for the 'variational_gamma' "
-            "method. Default: None"
-        ),
-    )
-    parser.add_argument(
-        "--probability-space",
-        type=str,
-        default=None,
-        help=(
-            "Should the internal algorithm save probabilities in "
-            "'logarithmic' (slower, less liable to to overflow) or 'linear' "
-            "space (faster, may overflow). Not relevant for the "
-            "'variational_gamma' method. Default: 'logarithmic'"
+            f"Default: {core.DEFAULT_EPSILON}"
         ),
     )
     parser.add_argument(
         "--method",
         choices=["inside_outside", "maximization", "variational_gamma"],
-        default="inside_outside",
+        default="variational_gamma",
         help=(
             "Specify which estimation method to use: "
-            "'inside_outside' is empirically better, but theoretically problematic; "
+            "'variational_gamma' is a fast continuous-time approximation' "
+            "'inside_outside' is a discrete-time version but theoretically problematic; "
             "'maximization' is worse empirically, especially with a gamma prior, but "
-            "theoretically robust; 'variational_gamma' is a fast experimental "
-            "continuous-time approximation. Current default: 'inside_outside'"
+            "theoretically robust; Current default: 'variational_gamma'"
         ),
     )
     parser.add_argument(
@@ -174,33 +152,55 @@ def tsdate_cli_parser():
         help="How much verbosity to output.",
     )
     parser.add_argument(
-        "--max-shape",
-        type=float,
-        help=(
-            "The maximum value for the shape parameter in the variational "
-            'posteriors for the "variational_gamma" algorithm. This is '
-            "equivalent to the maximum precision (inverse variance) on a "
-            "logarithmic scale. Default: 1000"
-        ),
-        default=1000,
-    )
-    parser.add_argument(
         "--rescaling-intervals",
         type=float,
         help=(
-            "The number of time intervals within which to estimate a time "
-            "scaling parameter. Default: 1000"
+            "The number of time intervals within which to estimate a time scaling"
+            f"parameter. Default: None treated as {core.DEFAULT_RESCALING_INTERVALS}"
         ),
-        default=1000,
+        default=None,
     )
     parser.add_argument(
         "--max-iterations",
         type=int,
         help=(
             "The number of iterations used in the expectation propagation "
-            "algorithm. Default: 10"
+            f"algorithm. Default: None treated as {core.DEFAULT_MAX_ITERATIONS}"
         ),
-        default=10,
+        default=None,
+    )
+    # TODO array specification from file?
+    parser.add_argument(
+        "-n",
+        "--population_size",
+        type=float,
+        default=None,
+        help=(
+            "Estimated effective (diploid) population size. Ignored for the "
+            "'variational_gamma' method, but required otherwise. Default: None"
+        ),
+    )
+    parser.add_argument(
+        "-t",
+        "--num-threads",
+        type=int,
+        default=None,
+        help=(
+            "The number of threads to use. A simpler unthreaded algorithm is used "
+            "unless this is >= 1. Not relevant for the 'variational_gamma' method. "
+            "Default: None"
+        ),
+    )
+    parser.add_argument(
+        "--probability-space",
+        type=str,
+        default=None,
+        help=(
+            "Should the internal algorithm save probabilities in "
+            "'logarithmic' (slower, less liable to to overflow) or 'linear' "
+            "space (faster, may overflow). Not relevant for the "
+            "'variational_gamma' method. Default: None treated as 'logarithmic'"
+        ),
     )
     parser.set_defaults(runner=run_date)
 
@@ -256,21 +256,45 @@ def tsdate_cli_parser():
 
 
 def run_date(args):
+    if args.deprecated_population_size is not None:
+        error_exit(
+            "Specifying the population size without prefixing by `-n` is "
+            f"deprecated. Please use `-n {args.deprecated_population_size}` instead."
+        )
     try:
         ts = tskit.load(args.tree_sequence)
     except tskit.FileFormatError as ffe:
         error_exit(f"FileFormatError loading '{args.tree_sequence}: {ffe}")
     if args.method == "variational_gamma":
+        # TODO - warn about other non-relevant options
+        if args.population_size is not None:
+            error_exit(
+                "The population_size is not currently required for 'variational_gamma'"
+            )
+        if args.num_threads is not None:
+            error_exit(
+                "Multiple threads cannot be used in the 'variational_gamma' method"
+            )
+        if args.probability_space is not None:
+            error_exit(
+                "The probability_spaces parameter is irrelevant for 'variational_gamma'"
+            )
         params = dict(
             recombination_rate=args.recombination_rate,
             method=args.method,
             eps=args.epsilon,
             progress=args.progress,
             max_iterations=args.max_iterations,
-            max_shape=args.max_shape,
             rescaling_intervals=args.rescaling_intervals,
         )
     else:
+        if args.rescaling_intervals is not None:
+            error_exit(
+                "rescaling_intervals is not currently used in discrete-time methods"
+            )
+            print("FOOOO")
+        if args.max_iterations is not None:
+            error_exit("max_iterations is not currently used in discrete-time methods")
         params = dict(
             population_size=args.population_size,
             recombination_rate=args.recombination_rate,

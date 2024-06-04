@@ -15,6 +15,8 @@
 
 **Breaking changes**
 
+- The default method has been changed to `variational_gamma`.
+
 - Variational gamma uses an improper (flat) prior, and therefore
   no longer needs `population_size` specifying.
 
