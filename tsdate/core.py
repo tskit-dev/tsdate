@@ -1600,8 +1600,8 @@ def variational_gamma(
     :param int max_iterations: The number of iterations used in the expectation
         propagation algorithm. Default: None, treated as 10.
     :param float rescaling_intervals: For time rescaling, the number of time
-        intervals within which to estimate a rescaling parameter. Default None,
-        treated as 1000.
+        intervals within which to estimate a rescaling parameter. Setting this to zero
+        means that rescaling is not performed. Default ``None``, treated as 1000.
     :param \\**kwargs: Other keyword arguments as described in the :func:`date` wrapper
         function, including ``time_units``, ``progress``, and ``record_provenance``.
         The arguments ``return_posteriors`` and ``return_likelihood`` can be
@@ -1640,7 +1640,10 @@ def variational_gamma(
         match_segregating_sites = False
     if regularise_roots is None:
         regularise_roots = True
-
+    if tree_sequence.num_mutations == 0:
+        raise ValueError(
+            "No mutations present: these are required for the variational_gamma method"
+        )
     dating_method = VariationalGammaMethod(
         tree_sequence, mutation_rate=mutation_rate, **kwargs
     )
