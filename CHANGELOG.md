@@ -24,6 +24,9 @@
 - Json metadata for mean time and variance in the mutation and node tables is now saved
   with a suitable schema. This means `json.loads()` is no longer needed to read it.
 
+- The `mutation_rate` and `population_size` parameters are now keyword-only, and
+  therefore these parameter names need to be explicitly typed out.
+
 ## [0.1.6] - 2024-01-07
 
 **Breaking changes**

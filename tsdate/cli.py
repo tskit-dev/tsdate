@@ -1,6 +1,7 @@
 # MIT License
 #
-# Copyright (c) 2020 University of Oxford
+# Copyright (c) 2024 Tskit Developers
+# Copyright (c) 2020-2024 University of Oxford
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -281,7 +282,7 @@ def run_date(args):
             params["ignore_oldest_root"] = args.ignore_oldest  # For backwards compat
         # TODO: remove and error out if ignore_oldest_root is set,
         # see https://github.com/tskit-dev/tsdate/issues/262
-    dated_ts = tsdate.date(ts, args.mutation_rate, **params)
+    dated_ts = tsdate.date(ts, mutation_rate=args.mutation_rate, **params)
     dated_ts.dump(args.output)
 
 

@@ -64,7 +64,7 @@ get a poor fit to the true times:
 
 ```{code-cell} ipython3
 import tsdate
-redated_ts = tsdate.date(ts, mutation_rate, population_size=1e4)
+redated_ts = tsdate.date(ts, mutation_rate=mutation_rate, population_size=1e4)
 plot_real_vs_tsdate_times(ts.nodes_time, redated_ts.nodes_time, ts, redated_ts, delta=1000, alpha=0.1)
 ```
 
@@ -88,7 +88,7 @@ gives a much better fit to the true times:
 
 ```{code-cell} ipython3
 prior = tsdate.build_prior_grid(ts, popsize)
-redated_ts = tsdate.date(ts, mutation_rate, priors=prior)
+redated_ts = tsdate.date(ts, mutation_rate=mutation_rate, priors=prior)
 plot_real_vs_tsdate_times(ts.nodes_time, redated_ts.nodes_time, ts, redated_ts, delta=1000, alpha=0.1)
 ```
 

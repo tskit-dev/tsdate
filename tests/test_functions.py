@@ -2040,7 +2040,7 @@ class TestSampleDataTimes:
 
         samples = tsinfer.formats.SampleData.from_tree_sequence(ts)
         inferred = tsinfer.infer(samples).simplify(filter_sites=False)
-        dated = date(inferred, 10000, 1e-8)
+        dated = date(inferred, mutation_rate=1e-8, population_size=10000)
         sites_time = tsdate.sites_time_from_ts(dated)
         # Add in the original individual times
         ind_dated_sd = samples.copy()
@@ -2074,7 +2074,7 @@ class TestSampleDataTimes:
             ts, use_sites_time=False
         )
         inferred = tsinfer.infer(samples).simplify()
-        dated = date(inferred, 10000, 1e-8)
+        dated = date(inferred, population_size=10000, mutation_rate=1e-8)
         sites_time = tsdate.sites_time_from_ts(dated)
         sites_bound = samples.min_site_times(individuals_only=True)
         check_sites_time = np.maximum(sites_time, sites_bound)

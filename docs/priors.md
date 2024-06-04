@@ -41,9 +41,14 @@ prior1 = tsdate.build_prior_grid(ts, population_size=N)
 prior2 = tsdate.build_prior_grid(ts, population_size=N, timepoints=40)
 prior3 = tsdate.build_prior_grid(ts, population_size=N, prior_distribution="gamma")
 
-ts1 = tsdate.date(ts, mu, priors=prior1)  # Identical to tsdate.date(ts, mu, population_size=N)
-ts2 = tsdate.date(ts, mu, priors=prior2)  # Uses a denser timegrid
-ts3 = tsdate.date(ts, mu, priors=prior3)  # Approximates the discrete-time priors with a gamma
+# Equiv to tsdate.date(ts, mutation_rate=mu, population_size=N)
+ts1 = tsdate.date(ts, mutation_rate=mu, priors=prior1)
+
+# Uses a denser timegrid
+ts2 = tsdate.date(ts, mutation_rate=mu, priors=prior2)
+
+# Approximate discrete-time priors with a gamma
+ts3 = tsdate.date(ts, mutation_rate=mu, priors=prior3)
 ```
 
 See below for more explanation of the interpretation of the parameters passed to
@@ -76,7 +81,7 @@ be larger than this number. For instance
 ```{code-cell} ipython3
 timepoints = 10
 prior = tsdate.build_prior_grid(ts, population_size=N, timepoints=timepoints)
-dated_ts = tsdate.date(ts, mu, priors=prior)
+dated_ts = tsdate.date(ts, mutation_rate=mu, priors=prior)
 
 print(
     f"`timepoints`={timepoints}, producing a total of {len(prior.timepoints)}",
