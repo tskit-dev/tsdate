@@ -164,14 +164,6 @@ def tsdate_cli_parser():
         ),
     )
     parser.add_argument(
-        "--ignore-oldest",
-        action="store_true",
-        help=(
-            "Ignore the oldest node in the tree sequence: in older tsinfer versions "
-            "this could be of low quality when using empirical data."
-        ),
-    )
-    parser.add_argument(
         "-p", "--progress", action="store_true", help="Show progress bar."
     )
     parser.add_argument(
@@ -288,10 +280,6 @@ def run_date(args):
             probability_space=args.probability_space,
             num_threads=args.num_threads,
         )
-        if args.method == "inside_outside":
-            params["ignore_oldest_root"] = args.ignore_oldest  # For backwards compat
-        # TODO: remove and error out if ignore_oldest_root is set,
-        # see https://github.com/tskit-dev/tsdate/issues/262
     dated_ts = tsdate.date(ts, mutation_rate=args.mutation_rate, **params)
     dated_ts.dump(args.output)
 
