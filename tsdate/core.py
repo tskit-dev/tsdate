@@ -25,7 +25,6 @@ Infer the age of nodes conditional on a tree sequence topology.
 """
 import functools
 import itertools
-import json
 import logging
 import multiprocessing
 import operator
@@ -43,6 +42,7 @@ from . import base
 from . import demography
 from . import prior
 from . import provenance
+from . import schemas
 from . import util
 from . import variational
 
@@ -988,57 +988,73 @@ class EstimationMethod:
     def get_modified_ts(self, result, eps):
         # Return a new ts based on the existing one, but with the various
         # time-related information correctly set.
-        tables = self.ts.dump_tables()
+        ts = self.ts
+        node_mean_t = result.posterior_mean
+        node_var_t = result.posterior_var
+        mut_mean_t = result.mutation_mean
+        mut_var_t = result.mutation_var
+        tables = ts.dump_tables()
         nodes = tables.nodes
         mutations = tables.mutations
+
         if self.provenance_params is not None:
             provenance.record_provenance(tables, self.name, **self.provenance_params)
         # Constrain node ages for positive branch lengths
         constr_timing = time.time()
-        nodes.time = util.constrain_ages(
-            self.ts, result.posterior_mean, eps, self.constr_iterations
-        )
-        mutations.time = util.constrain_mutations(
-            self.ts, nodes.time, self.mutations_edge
-        )
+        nodes.time = util.constrain_ages(ts, node_mean_t, eps, self.constr_iterations)
+        mutations.time = util.constrain_mutations(ts, nodes.time, self.mutations_edge)
         tables.time_units = self.time_units
         constr_timing -= time.time()
         logging.info(f"Constrained node ages in {abs(constr_timing)} seconds")
         # Add posterior mean and variance to node/mutation metadata
-        # TODO: retain original metadata?
         meta_timing = time.time()
-        if result.posterior_var is not None:
-            metadata_array = tskit.unpack_bytes(nodes.metadata, nodes.metadata_offset)
-            for u, (mn, vr) in enumerate(
-                zip(result.posterior_mean, result.posterior_var)
-            ):
-                metadata_array[u] = json.dumps(
-                    {
-                        "mn": mn,
-                        "vr": vr,
-                    }
-                ).encode()
-            nodes.packset_metadata(metadata_array)
-        if result.mutation_var is not None:
-            metadata_array = tskit.unpack_bytes(
-                mutations.metadata, mutations.metadata_offset
-            )
-            for u, (mn, vr) in enumerate(
-                zip(result.mutation_mean, result.mutation_var)
-            ):
-                metadata_array[u] = json.dumps(
-                    {
-                        "mn": mn,
-                        "vr": vr,
-                    }
-                ).encode()
-            mutations.packset_metadata(metadata_array)
+        self.set_time_metadata(
+            nodes, node_mean_t, node_var_t, schemas.default_node_schema, overwrite=True
+        )
+        self.set_time_metadata(
+            mutations, mut_mean_t, mut_var_t, schemas.default_mutation_schema
+        )
         meta_timing -= time.time()
         logging.info(
             f"Inserted node and mutation metadata in {abs(meta_timing)} seconds"
         )
         tables.sort()
         return tables.tree_sequence()
+
+    def set_time_metadata(self, table, mean, var, default_schema, overwrite=False):
+        if var is not None:
+            table_name = type(table).__name__
+            assert len(mean) == len(var) == table.num_rows
+            if table.metadata_schema.schema is None or overwrite:
+                if len(table.metadata) == 0 or overwrite:
+                    table.metadata_schema = default_schema
+                    md_iter = ({} for _ in range(table.num_rows))
+                    # For speed, assume we don't need to validate
+                    encoder = table.metadata_schema.encode_row
+                    logging.info(f"Set metadata schema on {table_name}")
+                else:
+                    logging.warning(
+                        f"Could not set metadata on {table_name}: "
+                        "data already exists with no schema"
+                    )
+                    return
+            else:
+                md_iter = (
+                    table.metadata_schema.decode_row(md)
+                    for md in tskit.unpack_bytes(table.metadata, table.metadata_offset)
+                )
+                encoder = table.metadata_schema.validate_and_encode_row
+                # TODO: could try to add to the existing schema if it's compatible
+            metadata_array = []
+            try:
+                # wrap entire loop in try/except so metadata is either all set or not
+                for metadata_dict, mn, vr in zip(md_iter, mean, var):
+                    metadata_dict.update((("mn", mn), ("vr", vr)))
+                    # validate and replace
+                    metadata_array.append(encoder(metadata_dict))
+                table.packset_metadata(metadata_array)
+            except tskit.MetadataValidationError as e:
+                logging.warning(f"Could not set time metadata in {table_name}: {e}")
 
     def parse_result(self, result, epsilon, extra_posterior_cols=None):
         # Construct the tree sequence to return and add other stuff we might want to

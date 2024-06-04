@@ -21,6 +21,9 @@
 - The standalone `preprocess_ts` function also applies the `split_disjoint_nodes`
   method, which creates extra nodes but improves dating accuracy.
 
+- Json metadata for mean time and variance in the mutation and node tables is now saved
+  with a suitable schema. This means `json.loads()` is no longer needed to read it.
+
 ## [0.1.6] - 2024-01-07
 
 **Breaking changes**
