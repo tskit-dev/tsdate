@@ -1023,6 +1023,7 @@ class EstimationMethod:
 
     def set_time_metadata(self, table, mean, var, default_schema, overwrite=False):
         if var is not None:
+            table_name = type(table).__name__
             assert len(mean) == len(var) == table.num_rows
             if table.metadata_schema.schema is None or overwrite:
                 if len(table.metadata) == 0 or overwrite:
@@ -1030,10 +1031,11 @@ class EstimationMethod:
                     md_iter = ({} for _ in range(table.num_rows))
                     # For speed, assume we don't need to validate
                     encoder = table.metadata_schema.encode_row
-                    logging.info(f"Set metadata schema on {type(table).__name__}")
+                    logging.info(f"Set metadata schema on {table_name}")
                 else:
                     logging.warning(
-                        "Could not set metadata: existing data with no schema"
+                        f"Could not set metadata on {table_name}: "
+                        "data already exists with no schema"
                     )
                     return
             else:
@@ -1052,9 +1054,7 @@ class EstimationMethod:
                     metadata_array.append(encoder(metadata_dict))
                 table.packset_metadata(metadata_array)
             except tskit.MetadataValidationError as e:
-                logging.warning(
-                    f"Could not set time data in {type(table).__name__} metadata: {e}"
-                )
+                logging.warning(f"Could not set time metadata in {table_name}: {e}")
 
     def parse_result(self, result, epsilon, extra_posterior_cols=None):
         # Construct the tree sequence to return and add other stuff we might want to
