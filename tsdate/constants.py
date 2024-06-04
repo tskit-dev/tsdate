@@ -1,6 +1,6 @@
 # MIT License
 #
-# Copyright (c) 2020 University of Oxford
+# Copyright (c) 2024 Tskit Developers
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -19,15 +19,10 @@
 # LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
-from .cache import *  # NOQA: F401,F403
-from .constants import *  # NOQA
-from .core import date  # NOQA: F401
-from .core import inside_outside  # NOQA: F401
-from .core import maximization  # NOQA: F401
-from .core import variational_gamma  # NOQA: F401
-from .prior import parameter_grid as build_parameter_grid  # NOQA: F401
-from .prior import prior_grid as build_prior_grid  # NOQA: F401
-from .provenance import __version__  # NOQA: F401
-from .util import add_sampledata_times  # NOQA: F401
-from .util import preprocess_ts  # NOQA: F401
-from .util import sites_time_from_ts  # NOQA: F401
+"""
+Collection of constants used in tsdate. We also make use of constants defined in tskit.
+"""
+# Since tsdate is often used together with tsinfer, we try not to use the tsinfer
+# node flag constants here, and start from 1 << 30 rather than 1 << 16
+
+NODE_SPLIT_BY_PREPROCESS = 1 << 30

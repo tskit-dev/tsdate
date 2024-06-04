@@ -31,6 +31,7 @@ import numpy as np
 import tskit
 from numba.types import UniTuple as _unituple
 
+from . import constants
 from . import provenance
 from .approx import _b1r
 from .approx import _f
@@ -66,42 +67,53 @@ def preprocess_ts(
     *,
     minimum_gap=None,
     remove_telomeres=None,
+    delete_intervals=None,
+    split_disjoint=None,
     filter_populations=False,
     filter_individuals=False,
     filter_sites=False,
-    delete_intervals=None,
+    record_provenance=None,
     **kwargs,
 ):
     """
-    Function to prepare tree sequences for dating by removing gaps without sites and
-    simplifying the tree sequence. Large regions without data can cause
-    overflow/underflow errors in the inside-outside algorithm and poor performance more
-    generally. Removed regions are recorded in the provenance of the resulting tree
-    sequence.
+    Function to prepare tree sequences for dating by modifying the tree sequence
+    to increase the accuracy of dating. This can involve removing data-poor regions,
+    removing locally-unary segments of nodes via simplification, and splitting
+    discontinuous nodes.
 
     :param tskit.TreeSequence tree_sequence: The input tree sequence
         to be preprocessed.
     :param float minimum_gap: The minimum gap between sites to remove from the tree
-        sequence. Default: ``None`` treated as ``1000000``
+        sequence. Default: ``None`` treated as ``1000000``. Removed regions are recorded
+        in the provenance of the resulting tree sequence.
     :param bool remove_telomeres: Should all material before the first site and after the
         last site be removed, regardless of the length. Default: ``None`` treated as
         ``True``
-    :param bool filter_populations: parameter passed to the ``tskit.simplify``
-        command. Unlike calling that command directly, this defaults to ``False``, such
-        that all populations in the tree sequence are kept.
-    :param bool filter_individuals: parameter passed to the ``tskit.simplify``
-        command. Unlike calling that command directly, this defaults to ``False``, such
-        that all individuals in the tree sequence are kept
-    :param bool filter_sites: parameter passed to the ``tskit.simplify``
-        command. Unlike calling that command directly, this defaults to ``False``, such
-        that all sites in the tree sequence are kept
     :param array_like delete_intervals: A list (start, end) pairs describing the
         genomic intervals (gaps) to delete. This is usually left as ``None``
         (the default) in which case ``minimum_gap`` and ``remove_telomeres`` are used
         to determine the gaps to remove, and the calculated intervals are recorded in
         the provenance of the resulting tree sequence.
-    :param \\**kwargs: All further keyword arguments are passed to the ``tskit.simplify``
-        command.
+    :param bool split_disjoint: Run the {func}`split_disjoint_nodes` function
+        on the returned tree sequence, breaking any disjoint node into nodes that can
+        be dated separately (Default: ``None`` treated as ``True``).
+    :param bool filter_populations: parameter passed to the
+        {meth}`tskit.TreeSequence.simplify` command. Unlike calling that command
+        directly, this defaults to ``False``, such that all populations in the tree
+        sequence are kept.
+    :param bool filter_individuals: parameter passed to the
+        {meth}`tskit.TreeSequence.simplify` command. Unlike calling that command
+        directly, this defaults to ``False``, such
+        that all individuals in the tree sequence are kept.
+    :param bool filter_sites: parameter passed to the
+        {meth}`tskit.TreeSequence.simplify` command. Unlike calling that command
+        directly, this defaults to ``False``, such
+        that all sites in the tree sequence are kept.
+    :param bool record_provenance: If ``True``, record details of this call to
+        simplify in the returned tree sequence's provenance information
+        (Default: ``None`` treated as ``True``).
+    :param \\**kwargs: All further keyword arguments are passed to the
+        {meth}`tskit.TreeSequence.simplify` command.
 
     :return: A tree sequence with gaps removed.
     :rtype: tskit.TreeSequence
@@ -109,6 +121,10 @@ def preprocess_ts(
 
     logger.info("Beginning preprocessing")
     logger.info(f"Minimum_gap: {minimum_gap} and remove_telomeres: {remove_telomeres}")
+    if split_disjoint is None:
+        split_disjoint = True
+    if record_provenance is None:
+        record_provenance = True
     if delete_intervals is not None and (
         minimum_gap is not None or remove_telomeres is not None
     ):
@@ -177,17 +193,22 @@ def preprocess_ts(
             record_provenance=False,
             **kwargs,
         )
-    provenance.record_provenance(
-        tables,
-        "preprocess_ts",
-        minimum_gap=minimum_gap,
-        remove_telomeres=remove_telomeres,
-        filter_populations=filter_populations,
-        filter_individuals=filter_individuals,
-        filter_sites=filter_sites,
-        delete_intervals=delete_intervals,
-    )
-    return tables.tree_sequence()
+    if record_provenance:
+        provenance.record_provenance(
+            tables,
+            "preprocess_ts",
+            minimum_gap=minimum_gap,
+            remove_telomeres=remove_telomeres,
+            split_disjoint=split_disjoint,
+            filter_populations=filter_populations,
+            filter_individuals=filter_individuals,
+            filter_sites=filter_sites,
+            delete_intervals=delete_intervals,
+        )
+    ts = tables.tree_sequence()
+    if split_disjoint:
+        ts = split_disjoint_nodes(ts, record_provenance=False)
+    return ts
 
 
 def nodes_time_unconstrained(tree_sequence):
@@ -344,9 +365,43 @@ def mutation_span_array(tree_sequence):
     return mutation_spans, mutation_edges
 
 
-@numba.njit(_unituple(_i1w, 3)(_i1r, _i1r, _f1r, _f1r, _b1r))
+# Some functions for changing tskit metadata
+# See https://github.com/tskit-dev/tskit/discussions/2954
+# TODO - potentially possible to speed up using numba?
+def _reorder_nodes(node_table, order, extra_md_dict):
+    # extra_md_dict ({rowid: new_byte_metadata}) can be used to pass metadata to replace
+    # the existing metadata in a row. This works by creating new rows for the metadata,
+    # based on the algorithm in https://github.com/tskit-dev/tskit/discussions/2954
+    data = [node_table.metadata]
+    # add a list of new byte arrays, then concat
+    md_dtype, md_off_dtype = node_table.metadata.dtype, node_table.metadata_offset.dtype
+    data += [np.array(bytearray(v), dtype=md_dtype) for v in extra_md_dict.values()]
+    md = np.concatenate(data)
+    if len(md) == 0:  # Common edge case: no metadata
+        md_off = np.zeros(len(order) + 1, dtype=md_off_dtype)
+    else:
+        extra_offsets = np.cumsum([len(d) for d in data], dtype=md_off_dtype)[1:]
+        md_off = np.concatenate((node_table.metadata_offset, extra_offsets))
+        arr = tskit.unpack_arrays(md, md_off)
+        if len(extra_md_dict) > 0:
+            # map the keys in extra_md_dict to the new row ids
+            d = {k: i + node_table.num_rows for i, k in enumerate(extra_md_dict.keys())}
+            md, md_off = tskit.pack_arrays([arr[d.get(i, i)] for i in order], md_dtype)
+        else:
+            md, md_off = tskit.pack_arrays([arr[i] for i in order], md_dtype)
+    node_table.set_columns(
+        flags=node_table.flags[order],
+        time=node_table.time[order],
+        population=node_table.population[order],
+        individual=node_table.individual[order],
+        metadata=md,
+        metadata_offset=md_off,
+    )
+
+
+@numba.njit(_unituple(_i1w, 4)(_i1r, _i1r, _f1r, _f1r, _b1r))
 def _split_disjoint_nodes(
-    edges_parent, edges_child, edges_left, edges_right, nodes_exclude
+    edges_parent, edges_child, edges_left, edges_right, node_excluded
 ):
     """
     Split disconnected regions of nodes into separate nodes.
@@ -356,7 +411,7 @@ def _split_disjoint_nodes(
     """
     assert edges_parent.size == edges_child.size == edges_left.size == edges_right.size
     num_edges = edges_parent.size
-    num_nodes = nodes_exclude.size
+    num_nodes = node_excluded.size
 
     # For each edge, check whether parent/child is separated by a gap from the
     # previous edge involving either parent/child. Label disconnected segments
@@ -365,11 +420,11 @@ def _split_disjoint_nodes(
     # TODO: is a sort really needed here?
     edges_segments = np.full((2, num_edges), -1, dtype=np.int32)
     nodes_segments = np.full(num_nodes, -1, dtype=np.int32)
-    nodes_right = np.full(nodes_exclude.size, -np.inf, dtype=np.float64)
+    nodes_right = np.full(node_excluded.size, -np.inf, dtype=np.float64)
     for e in edges_order:
         nodes = edges_parent[e], edges_child[e]
         for i, n in enumerate(nodes):
-            if nodes_exclude[n]:
+            if node_excluded[n]:
                 continue
             nodes_segments[n] += edges_left[e] > nodes_right[n]
             edges_segments[i, e] = nodes_segments[n]
@@ -377,15 +432,18 @@ def _split_disjoint_nodes(
 
     # Create "nodes_segments[i]" supplementary nodes by copying node "i".
     # Store the id of the first supplement for each node in "nodes_map".
-    nodes_order = [i for i in range(num_nodes)]
+    split_nodes = []  # the nodes in the original that were split
     nodes_map = np.full(num_nodes, -1, dtype=np.int32)
     for i, s in enumerate(nodes_segments):
         for j in range(s):
             if j == 0:
                 nodes_map[i] = num_nodes
-            nodes_order.append(i)
+            split_nodes.append(i)
             num_nodes += 1
-    nodes_order = np.array(nodes_order, dtype=np.int32)
+    split_nodes = np.array(split_nodes, dtype=np.int32)
+    nodes_order = np.arange(num_nodes, dtype=np.int32)
+    if len(split_nodes) > 0:
+        nodes_order[-len(split_nodes) :] = split_nodes
 
     # Relabel the nodes on each edge given "nodes_map"
     for e in edges_order:
@@ -397,7 +455,7 @@ def _split_disjoint_nodes(
                 edges_segments[i, e] = n
     edges_parent, edges_child = edges_segments[0, ...], edges_segments[1, ...]
 
-    return edges_parent, edges_child, nodes_order
+    return edges_parent, edges_child, nodes_order, split_nodes
 
 
 @numba.njit(_i1w(_i1r, _f1r, _i1r, _i1r, _i1r, _f1r, _f1r, _i1r, _i1r))
@@ -458,30 +516,29 @@ def _relabel_mutations_node(
     return output
 
 
-# def _naive_relabel_mutations_node(ts, nodes_order, mutations_node):
-#     num_nodes = nodes_order.size
-#     new_node_id = np.full(num_nodes, tskit.NULL)
-#     for t in ts.trees():
-#         for n in t.nodes(): # mapping from original to new node ids
-#             new_node_id[nodes_order[n]] = n
-#         for m in t.mutations():
-#             mutations_node[m.id] = new_node_id[mutations_node[m.id]]
-#     return mutations_node
-
-
-def split_disjoint_nodes(ts):
+def split_disjoint_nodes(ts, *, record_provenance=None):
     """
     For each non-sample node, split regions separated by gaps into distinct
-    nodes.
+    nodes, returning a tree sequence with potentially duplicated nodes.
 
     Where there are multiple disconnected regions, the leftmost one is assigned
     the ID of the original node, and the remainder are assigned new node IDs.
     Population, flags, individual, time, and metadata are all copied into the
-    new nodes.
-    """
+    new nodes. Nodes that have been split will be flagged with
+    ``tsdate.NODE_SPLIT_BY_PREPROCESS``. The metadata of these nodes will also be
+    updated with an `unsplit_node_id` field giving the node ID in the input tree
+    sequence to which they correspond. If this metadata cannot be set, a warning
+    is emitted.
 
+    :param bool record_provenance: If ``True``, record details of this call in the
+        returned tree sequence's provenance information (Default: ``None`` treated
+        as ``True``).
+    """
+    metadata_key = "unsplit_node_id"
+    if record_provenance is None:
+        record_provenance = True
     node_is_sample = np.bitwise_and(ts.nodes_flags, tskit.NODE_IS_SAMPLE).astype(bool)
-    edges_parent, edges_child, nodes_order = _split_disjoint_nodes(
+    edges_parent, edges_child, nodes_order, split_nodes = _split_disjoint_nodes(
         ts.edges_parent,
         ts.edges_child,
         ts.edges_left,
@@ -500,19 +557,25 @@ def split_disjoint_nodes(ts):
         ts.indexes_edge_insertion_order,
         ts.indexes_edge_removal_order,
     )
-
     tables = ts.dump_tables()
-    tables.nodes.set_columns(
-        flags=tables.nodes.flags[nodes_order],
-        time=tables.nodes.time[nodes_order],
-        population=tables.nodes.population[nodes_order],
-        individual=tables.nodes.individual[nodes_order],
-    )
-    # TODO: copy existing metadata for original nodes
-    # TODO: add new metadata indicating origin for split nodes
-    # TODO: add flag for split nodes
+
+    # Update the nodes table (complex because we have made new nodes)
+    flags = tables.nodes.flags
+    flags[split_nodes] |= constants.NODE_SPLIT_BY_PREPROCESS
+    tables.nodes.flags = flags
+    extra_md = {}
+    try:
+        for u in split_nodes:
+            md = ts.node(u).metadata
+            md[metadata_key] = int(u)
+            extra_md[u] = tables.nodes.metadata_schema.validate_and_encode_row(md)
+    except (TypeError, tskit.MetadataValidationError):
+        logger.warning(f"Could not set '{metadata_key}' on node metadata")
+    _reorder_nodes(tables.nodes, nodes_order, extra_md)
+    # Update the edges table
     tables.edges.parent = edges_parent
     tables.edges.child = edges_child
+    # Update the mutations table
     tables.mutations.node = mutations_node
     tables.sort()
 
@@ -520,6 +583,11 @@ def split_disjoint_nodes(ts):
         tables.nodes.time[tables.mutations.node], ts.nodes_time[ts.mutations_node]
     )
 
+    if record_provenance:
+        provenance.record_provenance(
+            tables,
+            "split_disjoint_nodes",
+        )
     return tables.tree_sequence()
 
 
