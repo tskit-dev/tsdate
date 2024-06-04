@@ -29,10 +29,27 @@ default_mutation_schema = tskit.MetadataSchema(
         "codec": "json",
         "type": "object",
         "properties": {
-            "mn": {"type": "number", "description": "Posterior mean mutation time"},
+            "mn": {
+                "type": "number",
+                "description": "Tsdate posterior mean mutation time",
+            },
             "vr": {
                 "type": "number",
-                "description": "Posterior variance in mutation time",
+                "description": "Tsdate posterior variance in mutation time",
+            },
+        },
+    }
+)
+
+default_node_schema = tskit.MetadataSchema(
+    {
+        "codec": "json",
+        "type": "object",
+        "properties": {
+            "mn": {"type": "number", "description": "Tsdate posterior mean node time"},
+            "vr": {
+                "type": "number",
+                "description": "Tsdate posterior variance in node time",
             },
         },
     }
