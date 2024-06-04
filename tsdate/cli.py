@@ -243,6 +243,16 @@ def tsdate_cli_parser():
         default=True,
     )
     parser.add_argument(
+        "--split-disjoint",
+        type=bool,
+        help=(
+            "Should disjoint nodes, that disappear from the trees then "
+            "reappear further along the genome, be split into separate nodes. "
+            "Default: True"
+        ),
+        default=True,
+    )
+    parser.add_argument(
         "-v",
         "--verbosity",
         action="count",
