@@ -31,7 +31,7 @@
 
 - The `ignore-oldest` option has been removed from the command-line interface,
   as it is no longer very helpful with new _tsinfer_ output, which has the root
-  node split. The option is stall accessible from the Python API.
+  node split. The option is still accessible from the Python API.
 
 ## [0.1.6] - 2024-01-07
 

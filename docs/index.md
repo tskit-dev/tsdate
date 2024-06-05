@@ -49,13 +49,15 @@ Pull requests are welcome: we largely follow the
 
 ## Citing
 
-The algorithm is described in [our Science paper](https://www.science.org/doi/10.1126/science.abi8264)
-(citation below, preprint [here](https://www.biorxiv.org/content/10.1101/2021.02.16.431497v2)). We also provide
-evaluations of the accuracy and computational requirements of the method using both simulated and real
-data; the code to reproduce these results can be found in
-[another repository](https://github.com/awohns/unified_genealogy_paper).
+The algorithm for the `inside_outside` and `maximization` methods is described 
+in [our Science paper](https://www.science.org/doi/10.1126/science.abi8264) (citation below,
+preprint [here](https://www.biorxiv.org/content/10.1101/2021.02.16.431497v2)).
+[Another repository](https://github.com/awohns/unified_genealogy_paper) provides
+code to reproduce evaluations of the accuracy and computational requirements of these methods.
+The default `variational_gamma` method has not yet been described in print. For the moment,
+please cite this github repository if you need a citable reference.
 
-Please cite the following paper if you use `tsdate` in published work:
+The original `tsdate` algorithm, which you should cite in published work, is published in:
 
 > Anthony Wilder Wohns, Yan Wong, Ben Jeffery, Ali Akbari, Swapan Mallick, Ron Pinhasi, Nick Patterson, David Reich, Jerome Kelleher, and Gil McVean (2022) *A unified genealogy of modern and ancient genomes*. Science **375**: eabi8264; doi: https://doi.org/10.1126/science.abi8264
 
