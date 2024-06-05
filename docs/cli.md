@@ -18,7 +18,7 @@ kernelspec:
 
 # Command line interface
 
-This page provides formal documentation for the command-line interface to `tsdate`.
+This page provides formal documentation for the command-line interface to _tsdate_.
 
 ## Example
 

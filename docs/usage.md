@@ -66,7 +66,7 @@ print(f"* Inferred `inf_ts` using tsinfer ({stdpopsim_ts.num_samples} samples of
 
 ## Quickstart
 
-Given a known genetic genealogy in the form of a tree sequence, `tsdate` simply
+Given a known genetic genealogy in the form of a tree sequence, _tsdate_ simply
 re-estimates the node times based on the mutations on each edge. Usage is as
 simple as calling the {func}`date` function with an estimated per base pair
 mutation rate.
@@ -80,7 +80,7 @@ redated_ts = tsdate.date(sim_ts, mutation_rate=mu_per_bp_per_generation)
 
 This simple example has no recombination, infinite sites mutation,
 a high mutation rate, and a known genealogy, so we would expect that the node times
-as estimated by tsdate from the mutations would be very close to the actual node times,
+as estimated by _tsdate_ from the mutations would be very close to the actual node times,
 as indeed they seem to be:
 
 ```{code-cell} ipython3
@@ -155,7 +155,7 @@ plot_real_vs_tsdate_times(
 
 ## Results and posteriors
 
-The default output of `tsdate` is a new, dated tree sequence,
+The default output of _tsdate_ is a new, dated tree sequence,
 created with node times changed to the posterior mean time for each node,
 and mutation times set halfway between the node above and below.
 
@@ -168,13 +168,13 @@ older than the mean time of all of its parents, a small value, $\epsilon$, is ad
 to the parent time to ensure a valid tree sequence.
 
 For this reason, there are two ways to get additional, unconstrained dates when
-running `tsdate`:
+running _tsdate_:
 
 1. The nodes and mutations in the tree sequence will usually contain
     {ref}`tskit:sec_metadata` specifying true mean time and the variance in mean time.
     The metadata values (currently saved as `mn` and `vr`) need not be constrained by
     the topology of the tree sequence, and should be used in preference
-    e.g. to `nodes_time` and `mutations_time` when evaluating the accuracy of `tsdate`. 
+    e.g. to `nodes_time` and `mutations_time` when evaluating the accuracy of _tsdate_. 
 2. The `return_posteriors` parameter can be used when calling {func}`tsdate.date`, which
     then returns both the dated tree sequence and a dictionary specifying the posterior
     distributions.
@@ -208,8 +208,7 @@ as described by the `parameter` column.
 
 ### Timescale adjustment
 
-The default tsdate timescale is "generations". In normal `tsdate` usage,
-changing this is simple:
+The default _tsdate_ timescale is "generations". Changing this can be as simple as:
 
 ```{code-cell} ipython3
 mu_per_bp_per_gen = 1e-8  # per generation
@@ -256,7 +255,7 @@ below we detail some other solutions to problems common in real datasets.
 
 ### Memory and run time
 
-`tsdate` can be run on most modern computers: large tree sequences of millions or
+_Tsdate_ can be run on most modern computers: large tree sequences of millions or
 tens of millions of edges will take of the order of hours, and use
 tens of GB of RAM (e.g. 24 GB / 1 hour on a 2022-era laptop
 for a tree sequence of 5 million edges covering
@@ -271,13 +270,13 @@ method and ~10 mins (1.5GB max memory) using the `variational_gamma` method.
 :::
 
 Running the dating algorithm is linear in the number of edges in the tree sequence.
-This makes `tsdate` usable even for vary large tree sequences (e.g. millions of samples).
-For large instances, if you are running `tsdate` interactively, it can be useful to
+This makes _tsdate_ usable even for vary large tree sequences (e.g. millions of samples).
+For large instances, if you are running _tsdate_ interactively, it can be useful to
 specify the `progress` option to display a progress bar telling you how long
 different stages of dating will take.
 
-The time taken to date a tree sequence using `tsdate` is only a fraction of that
-required to infer the initial tree sequence, therefore the core `tsdate` algorithm
+The time taken to date a tree sequence using _tsdate_ is only a fraction of that
+required to infer the initial tree sequence, therefore the core _tsdate_ algorithm
 has not been parallelised to allow running on many CPU cores. 
 
 
@@ -286,13 +285,13 @@ has not been parallelised to allow running on many CPU cores.
 TODO: Explain the `max_iterations` parameter
 
 :::{note}
-Rather than using a fixed number of iterations, future updates to `tsdate` may
+Rather than using a fixed number of iterations, future updates to _tsdate_ may
 carry out iterations until some convergence criterion has been reached.
 :::
 
 #### Continuous time optimisations
 
-If the {ref}`method<sec_methods>` used for dating involves discrete time slices, `tsdate` scales
+If the {ref}`method<sec_methods>` used for dating involves discrete time slices, _tsdate_ scales
 quadratically in the number of time slices chosen. For greater temporal resolution,
 you are thus advised to keep with the `variational_gamma` method, which does not discretise time.
 
@@ -308,12 +307,12 @@ To speed up this process an approximation to the conditional coalescent
 is used for nodes which have a large number of descendants
 (the exact number can be modified by {ref}`making a prior<sec_priors_timegrid>`
 using the `approx_prior_size` parameter).
-The results of this approximation are cached, so that `tsdate` will run slightly faster
+The results of this approximation are cached, so that _tsdate_ will run slightly faster
 the second time it is run.
 
 ### CLI use
 
-Computationally-intensive uses of `tsdate` are likely to involve
+Computationally-intensive uses of _tsdate_ are likely to involve
 running the program non-interactively, e.g. as part of an
 automated pipeline. In this case, it may be useful to use the
 command-line interface. See {ref}`sec_cli` for more details.

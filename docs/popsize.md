@@ -24,7 +24,7 @@ classes and methods may not form part of the publicly available API and may not 
 :::
 
 The rate of coalescence events over time is determined by demographics, population structure, and
-selection. The [rescaling](sec_rescaling) step of `tsdate` attempts to distribute coalescences so that
+selection. The [rescaling](sec_rescaling) step of _tsdate_ attempts to distribute coalescences so that
 the mutation rate over time is reasonably constant. Assuming this is a good approximation, the inverse coalescence rate in a dated tree sequence can be used to infer historical processes.
 
 To illustrate this, we will generate data from a population that was large
@@ -145,7 +145,7 @@ plot_real_vs_tsdate_times(ts.nodes_time, redated_ts.nodes_time, ts, redated_ts, 
 
 ## Estimating population size
 
-If you don't know the population size, it is possible to use `tsdate` to
+If you don't know the population size, it is possible to use _tsdate_ to
 *estimate* changes in population size over time, by first estimating the rate
 of coalescence in different time intervals, and then re-estimating the dates.
 However, this approach has not been fully tested or documented.
