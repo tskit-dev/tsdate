@@ -49,20 +49,20 @@ Optionally, a posterior distribution of node times can be generated
 (see {ref}`sec_usage_posterior`).
 
 Since the method is Bayesian, technically it requires each node to have a
-prior distribution of times. The discrete-time methods currently require
-the prior to be explicitly provided either via specifying an estimated
+prior distribution of times. The default `variational_gamma` method currently
+uses an improper (flat) prior which does not need any user input. However,
+the alternative discrete-time methods currently require
+the prior to be explicitly provided, either via providing an estimated
 effective population size (which is then used in the
 [conditional coalescent](http://dx.doi.org/10.1006/tpbi.1998.1411)), or
-{ref}`directly<sec_priors>`. The default `variational_gamma` method currently
-uses an improper (flat) prior and therefore does not need such user-provided
-parameters.
+{ref}`directly<sec_priors>`. 
 
 The ultimate source of technical detail for _tsdate_ is the source code on our
 [GitHub repository](http://github.com/tskit-dev/tsdate).
 
 ## Sources of genealogies
 
-The input genealogies to date can come from any source,
+Input genealogies can come from any source,
 but _tsdate_ is often coupled with [_tsinfer_](https://tskit.dev/software/tsinfer.html)
 {cite}`kelleher2019inferring`, which estimates the tree sequence topology but
 not the tree sequence node times.
@@ -97,10 +97,9 @@ svg2 = dated_ts.draw_svg(
 haps = "<br>".join(ts.haplotypes())
 cen = 'style="text-align: center; padding: 0.5em 0"'
 HTML(f"""<table>
-    <caption style="padding: 0 4em">An example of using `tsinfer` followed by `tsdate` on some DNA sequence data.
-    You can see that <em>tsdate</em> sets a timescale and changes node times so that mutations (red crosses)
-    are more evenly distributed over edges of the genealogy. This results in more realistic local trees
-    (with coalescences clustered, as expected from theory, at recent times)</caption>
+    <caption style="padding: 0 4em">An example of using <em>tsinfer</em> followed by <em>tsdate</em> on some DNA sequence data, illustrating  that <em>tsdate</em> sets a timescale and changes node times so that mutations (red crosses)
+    are more evenly distributed over edges of the genealogy. The modified genealogy also shows
+    an increase in recent coalescences, as expected from theory.</caption>
     <t style=""><td {cen}><div style="font-size: 0.6em">{haps}</div></td><td></td><td {cen} width="300">{svg1}</td><td></td><td {cen} width="300">{svg2}</td></tr>
     <tr style="font-size: 2em"><td {cen}">DNA sequence</td><td {cen}>→</td><td {cen}>tsinfer</td><td {cen}>→</td><td {cen}>tsdate</td></tr>
     </table>"""
