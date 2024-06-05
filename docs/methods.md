@@ -89,14 +89,6 @@ local estimates to each gamma distribution are iteratively refined until
 they converge to a stable solution.  This comes under a class of approaches
 sometimes known as "loopy belief propagation".
 
-:::{note}
-As a result of testing, the default priors used for this method are
-identical for all nodes (i.e. a "global" prior is used), based on a composite
-of all the conditional coalescent priors for all nodes.
-See {ref}`sec_priors_conditional_coalescent` for details.
-:::
-
-
 #### Expectation propagation
 
 We are in the process of writing a formal description of the algorithm, but in
@@ -157,7 +149,7 @@ The `inside_outside` approach has been shown to perform better empirically, but
 in theory the appraoch used does not properly account for cycles in the underlying
 genealogical network when updating posterior probabilities (a potential solution
 would be to implement a "loopy belief propagation" algorithm as in the continuous-time
-[`variational_gamma`](sec_methods_continuous_time_vgamma) method, below).
+[`variational_gamma`](sec_methods_continuous_time_vgamma) method, above).
 Occasionally the `inside_outside` method also
 has issues with numerical stability, although this is commonly indicative
 of pathological combinations of tree sequence topology and mutation patterns.
