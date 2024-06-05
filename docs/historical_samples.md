@@ -30,6 +30,11 @@ is more complicated. This is because the time scale of a tsinferred
 tree sequence is uncalibrated, so it is unclear where in time to
 place any historical samples.
 
+:::{note}
+We are currently working on methods to make dating historical samples
+much more convenient.
+:::
+
 ## The 2 step approach
 
 Currently, the best way to date such tree sequences is 
@@ -52,6 +57,8 @@ work well.
 :::
 
 ```{code-cell} ipython3
+import logging
+
 import msprime
 import tsinfer
 import tsdate
@@ -87,8 +94,13 @@ def make_historical_data(num_modern, num_historical, random_seed, historical_tim
 def infer_and_date_modern_and_ancient(modern_samples, all_samples):
     # Date the moderns
     inferred_ts = tsinfer.infer(modern_samples)
-    inferred_ts = tsdate.preprocess_ts(inferred_ts, filter_sites=False)
-    dated_modern_ts = tsdate.date(inferred_ts, population_size=Ne, mutation_rate=mu)
+
+    tsdate_logger = logging.getLogger('tsdate')  # temporarily disable the warning
+    tsdate_logger.setLevel(logging.CRITICAL)
+    inferred_ts = tsdate.preprocess_ts(inferred_ts)
+    tsdate_logger.setLevel(logging.WARNING)
+
+    dated_modern_ts = tsdate.date(inferred_ts,  mutation_rate=mu)
     
     # Find the dates for each site and use those rather than frequency
     sites_time = tsdate.sites_time_from_ts(dated_modern_ts)  # Get tsdate site age estimates

@@ -1,6 +1,7 @@
 # MIT License
 #
-# Copyright (c) 2020 University of Oxford
+# Copyright (c) 2024 Tskit Developers
+# Copyright (c) 2020-2024 University of Oxford
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -49,84 +50,67 @@ class TestTsdateArgParser:
     def test_default_values(self):
         with mock.patch("tsdate.cli.setup_logging"):
             parser = cli.tsdate_cli_parser()
-            args = parser.parse_args(["date", self.infile, self.output, "1"])
+            args = parser.parse_args(["date", self.infile, self.output])
         assert args.tree_sequence == self.infile
         assert args.output == self.output
-        assert args.population_size == 1
+        assert args.population_size is None
         assert args.mutation_rate is None
         assert args.recombination_rate is None
         assert args.epsilon == 1e-6
         assert args.num_threads is None
         assert args.probability_space is None  # Use the defaults
-        assert args.method == "inside_outside"
+        assert args.method == "variational_gamma"
         assert not args.progress
 
     def test_mutation_rate(self):
         parser = cli.tsdate_cli_parser()
-        args = parser.parse_args(
-            ["date", self.infile, self.output, "10000", "-m", "1e10"]
-        )
+        args = parser.parse_args(["date", self.infile, self.output, "-m", "1e10"])
         assert args.mutation_rate == 1e10
         args = parser.parse_args(
-            ["date", self.infile, self.output, "10000", "--mutation-rate", "1e10"]
+            ["date", self.infile, self.output, "-m", "1e10", "--mutation-rate", "1e10"]
         )
         assert args.mutation_rate == 1e10
 
     def test_recombination_rate(self):
         parser = cli.tsdate_cli_parser()
+        params = ["-m", "1e10"]
         args = parser.parse_args(
-            ["date", self.infile, self.output, "10000", "-r", "1e-100"]
+            ["date", self.infile, self.output] + params + ["-r", "1e-100"]
         )
         assert args.recombination_rate == 1e-100
         args = parser.parse_args(
-            [
-                "date",
-                self.infile,
-                self.output,
-                "10000",
-                "--recombination-rate",
-                "1e-100",
-            ]
+            ["date", self.infile, self.output] + params + ["--recombination-rate", "73"]
         )
-        assert args.recombination_rate == 1e-100
+        assert args.recombination_rate == 73
 
     def test_epsilon(self):
         parser = cli.tsdate_cli_parser()
         args = parser.parse_args(
-            ["date", self.infile, self.output, "10000", "-e", "123"]
+            ["date", self.infile, self.output, "-m", "10", "-e", "123"]
         )
         assert args.epsilon == 123
         args = parser.parse_args(
-            ["date", self.infile, self.output, "10000", "--epsilon", "321"]
+            ["date", self.infile, self.output, "-m", "10", "--epsilon", "321"]
         )
         assert args.epsilon == 321
 
     def test_num_threads(self):
         parser = cli.tsdate_cli_parser()
-        args = parser.parse_args(
-            ["date", self.infile, self.output, "10000", "--num-threads", "1"]
-        )
+        params = ["--method", "maximization", "--num-threads"]
+        args = parser.parse_args(["date", self.infile, self.output] + params + ["1"])
         assert args.num_threads == 1
-        args = parser.parse_args(
-            ["date", self.infile, self.output, "10000", "--num-threads", "2"]
-        )
+        args = parser.parse_args(["date", self.infile, self.output] + params + ["2"])
         assert args.num_threads == 2
 
     def test_probability_space(self):
         parser = cli.tsdate_cli_parser()
+        params = ["--method", "inside_outside", "--probability-space"]
         args = parser.parse_args(
-            ["date", self.infile, self.output, "10000", "--probability-space", "linear"]
+            ["date", self.infile, self.output] + params + ["linear"]
         )
         assert args.probability_space == "linear"
         args = parser.parse_args(
-            [
-                "date",
-                self.infile,
-                self.output,
-                "10000",
-                "--probability-space",
-                "logarithmic",
-            ]
+            ["date", self.infile, self.output] + params + ["logarithmic"]
         )
         assert args.probability_space == "logarithmic"
 
@@ -143,15 +127,16 @@ class TestTsdateArgParser:
     )
     def test_method(self, method):
         parser = cli.tsdate_cli_parser()
-        args = parser.parse_args(
-            ["date", self.infile, self.output, "10000", "--method", method]
-        )
+        params = ["-m", "1e-8", "--method", method]
+        if method != "variational_gamma":
+            params += ["-n", "10"]
+        args = parser.parse_args(["date", self.infile, self.output] + params)
         assert args.method == method
 
     def test_progress(self):
         parser = cli.tsdate_cli_parser()
         args = parser.parse_args(
-            ["date", self.infile, self.output, "10000", "--progress"]
+            ["date", self.infile, self.output, "-m", "1e-8", "--progress"]
         )
         assert args.progress
 
@@ -163,6 +148,7 @@ class TestTsdateArgParser:
         assert args.output == self.output
         assert args.minimum_gap == 1000000
         assert args.trim_telomeres
+        assert args.split_disjoint
 
 
 class TestMain:
@@ -175,6 +161,7 @@ class TestMain:
 
 
 class RunCLI:
+    mutation_rate = 1
     popsize = 1
 
     def run_tsdate_cli(self, tmp_path, input_ts, params=None, cmd="date"):
@@ -198,7 +185,8 @@ class TestCLIErrors(RunCLI):
         output_filename = tmp_path / "output.trees"
         cmds = [cmd, str(input_filename), str(output_filename)]
         if cmd == "date":
-            cmds.append(str(self.popsize))
+            cmds.append("-m")
+            cmds.append(str(self.mutation_rate))
         with pytest.raises(SystemExit, match="FileFormatError"):
             cli.tsdate_main(cmds)
 
@@ -207,9 +195,21 @@ class TestCLIErrors(RunCLI):
         input_ts = msprime.simulate(4, random_seed=123)
         params = f"--method {bad}"
         with pytest.raises(SystemExit):
-            self.run_tsdate_cli(tmp_path, input_ts, f"{self.popsize} {params}")
+            self.run_tsdate_cli(tmp_path, input_ts, params)
         captured = capfd.readouterr()
         assert bad in captured.err
+
+    def test_bad_rescaling_io(self, tmp_path):
+        input_ts = msprime.simulate(4, random_seed=123)
+        params = f"-n {self.popsize} --method inside_outside"
+        with pytest.raises(SystemExit, match="not currently used"):
+            self.run_tsdate_cli(tmp_path, input_ts, params + " --rescaling-intervals 1")
+
+    def test_bad_max_it_io(self, tmp_path):
+        input_ts = msprime.simulate(4, random_seed=123)
+        params = f"-n {self.popsize} --method inside_outside"
+        with pytest.raises(SystemExit, match="not currently used"):
+            self.run_tsdate_cli(tmp_path, input_ts, params + " --max-iterations 5")
 
 
 class TestOutput(RunCLI):
@@ -217,9 +217,16 @@ class TestOutput(RunCLI):
     Tests for the command-line output.
     """
 
-    def test_no_output(self, tmp_path, capfd):
-        input_ts = msprime.simulate(4, random_seed=123)
-        self.run_tsdate_cli(tmp_path, input_ts)
+    def test_no_output_inside_outside(self, tmp_path, capfd):
+        ts = msprime.simulate(4, random_seed=123)
+        self.run_tsdate_cli(tmp_path, ts, f"-n {self.popsize} --method inside_outside")
+        (out, err) = capfd.readouterr()
+        assert out == ""
+        assert err == ""
+
+    def test_no_output_variational_gamma(self, tmp_path, capfd):
+        ts = msprime.simulate(4, mutation_rate=10, random_seed=123)
+        self.run_tsdate_cli(tmp_path, ts, "-m 10")
         (out, err) = capfd.readouterr()
         assert out == ""
         assert err == ""
@@ -227,7 +234,7 @@ class TestOutput(RunCLI):
     @pytest.mark.parametrize("flag, log_status", logging_flags.items())
     def test_verbosity(self, tmp_path, caplog, flag, log_status):
         popsize = 10000
-        input_ts = msprime.simulate(
+        ts = msprime.simulate(
             10,
             Ne=popsize,
             mutation_rate=1e-8,
@@ -238,9 +245,9 @@ class TestOutput(RunCLI):
         # Have to set the log level on the caplog object, because
         # logging.basicConfig() doesn't work within pytest
         caplog.set_level(getattr(logging, log_status))
-        # eihter tsdate date or tsdate preprocees
-        self.run_tsdate_cli(tmp_path, input_ts, f"{self.popsize} {flag}")
-        self.run_tsdate_cli(tmp_path, input_ts, flag, cmd="preprocess")
+        # either tsdate preprocess or tsdate date (in_out method has debug asserts)
+        self.run_tsdate_cli(tmp_path, ts, flag, cmd="preprocess")
+        self.run_tsdate_cli(tmp_path, ts, f"-n 10 --method inside_outside {flag}")
         assert log_status in caplog.text
 
     @pytest.mark.parametrize(
@@ -248,8 +255,10 @@ class TestOutput(RunCLI):
     )
     def test_no_progress(self, method, tmp_path, capfd):
         input_ts = msprime.simulate(4, mutation_rate=10, random_seed=123)
-        params = f"-m 10 --method {method} --rescaling-intervals 0"
-        self.run_tsdate_cli(tmp_path, input_ts, f"{self.popsize} {params}")
+        params = f"-m 10 --method {method}"
+        if method != "variational_gamma":
+            params += f" -n {self.popsize}"
+        self.run_tsdate_cli(tmp_path, input_ts, params)
         (out, err) = capfd.readouterr()
         assert out == ""
         # run_tsdate_cli print logging to stderr
@@ -257,8 +266,8 @@ class TestOutput(RunCLI):
 
     def test_progress(self, tmp_path, capfd):
         input_ts = msprime.simulate(4, random_seed=123)
-        params = "--method inside_outside --progress --rescaling-intervals 0"
-        self.run_tsdate_cli(tmp_path, input_ts, f"{self.popsize} {params}")
+        params = "--method inside_outside -n 10 --progress"
+        self.run_tsdate_cli(tmp_path, input_ts, params)
         (out, err) = capfd.readouterr()
         assert out == ""
         # run_tsdate_cli print logging to stderr
@@ -278,7 +287,7 @@ class TestOutput(RunCLI):
         input_ts = msprime.simulate(4, mutation_rate=10, random_seed=123)
         params = "--method variational_gamma --mutation-rate 10 "
         params += "--progress --rescaling-intervals 0"
-        self.run_tsdate_cli(tmp_path, input_ts, f"{self.popsize} {params}")
+        self.run_tsdate_cli(tmp_path, input_ts, params)
         (out, err) = capfd.readouterr()
         assert out == ""
         # run_tsdate_cli print logging to stderr
@@ -347,42 +356,49 @@ class TestEndToEnd(RunCLI):
         assert np.array_equal(dated_ts.nodes_time, output_ts.nodes_time)
 
     def test_ts(self, tmp_path):
-        input_ts = msprime.simulate(10, random_seed=1)
-        self.verify(tmp_path, input_ts)
+        input_ts = msprime.simulate(10, mutation_rate=4, random_seed=1)
+        params = "--mutation-rate 4"
+        self.verify(tmp_path, input_ts, params)
 
     def test_mutation_rate(self, tmp_path):
-        input_ts = msprime.simulate(10, random_seed=1)
-        params = f"{self.popsize} --mutation-rate 1e-8"
+        input_ts = msprime.simulate(10, mutation_rate=4, random_seed=1)
+        params = "--mutation-rate 4"
         self.verify(tmp_path, input_ts, params)
 
     def test_recombination_rate(self, tmp_path):
-        input_ts = msprime.simulate(10, random_seed=1)
-        params = f"{self.popsize} --recombination-rate 1e-8"
+        input_ts = msprime.simulate(10, mutation_rate=4, random_seed=1)
+        params = "-m 4 --recombination-rate 1e-8"
+        with pytest.raises(NotImplementedError):
+            self.verify(tmp_path, input_ts, params)
+        params = "--method inside_outside -n 1 --recombination-rate 1e-8"
         with pytest.raises(NotImplementedError):
             self.verify(tmp_path, input_ts, params)
 
     def test_epsilon(self, tmp_path):
-        input_ts = msprime.simulate(10, random_seed=1)
-        params = f"{self.popsize} --epsilon 1e-3"
+        input_ts = msprime.simulate(10, mutation_rate=4, random_seed=1)
+        params = "--mutation-rate 4 --epsilon 1e-3"
         self.verify(tmp_path, input_ts, params)
 
     def test_num_threads(self, tmp_path):
         input_ts = msprime.simulate(10, random_seed=1)
-        params = f"{self.popsize} --num-threads 2"
+        params = f"-n {self.popsize} --num-threads 2 --method inside_outside"
         self.verify(tmp_path, input_ts, params)
 
     def test_probability_space(self, tmp_path):
         input_ts = msprime.simulate(10, random_seed=1)
-        params = f"{self.popsize} --probability-space linear"
+        params = f"-n {self.popsize} --probability-space linear --method inside_outside"
         self.verify(tmp_path, input_ts, params)
-        params = f"{self.popsize} --probability-space logarithmic"
+        params = (
+            f"-n {self.popsize} --probability-space logarithmic "
+            "--method inside_outside"
+        )
         self.verify(tmp_path, input_ts, params)
 
     def test_method(self, tmp_path):
         input_ts = msprime.simulate(10, random_seed=1)
-        params = f"{self.popsize} --method inside_outside"
+        params = f"-n {self.popsize} --method inside_outside"
         self.verify(tmp_path, input_ts, params)
-        params = f"{self.popsize} --method maximization"
+        params = f"-n {self.popsize} --method maximization"
         with pytest.raises(ValueError):
             self.verify(tmp_path, input_ts, params)
 
@@ -399,7 +415,9 @@ class TestEndToEnd(RunCLI):
             length=2e4,
             random_seed=10,
         )
-        params = f"{popsize} -m 1e-8 --method {method}"
+        params = f"-m 1e-8 --method {method}"
+        if method != "variational_gamma":
+            params += f" -n {popsize}"
         self.verify(tmp_path, input_ts, params)
         self.compare_python_api(tmp_path, input_ts, params, popsize, 1e-8, method)
 

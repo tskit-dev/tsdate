@@ -21,6 +21,7 @@
 # SOFTWARE.
 from .cache import *  # NOQA: F401,F403
 from .core import date  # NOQA: F401
+from .core import estimation_methods  # NOQA: F401
 from .core import inside_outside  # NOQA: F401
 from .core import maximization  # NOQA: F401
 from .core import variational_gamma  # NOQA: F401

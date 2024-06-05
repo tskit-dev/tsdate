@@ -63,7 +63,7 @@ class TestPrebuilt:
     def test_no_population_size(self):
         ts = utility_functions.two_tree_mutation_ts()
         with pytest.raises(ValueError, match="Must specify population size"):
-            tsdate.date(ts, mutation_rate=None)
+            tsdate.inside_outside(ts, mutation_rate=None)
 
     def test_no_mutation(self):
         ts = utility_functions.two_tree_mutation_ts()
@@ -78,63 +78,69 @@ class TestPrebuilt:
         ts = utility_functions.two_tree_mutation_ts()
         prior = tsdate.build_prior_grid(ts, population_size=1, timepoints=10)
         with pytest.raises(ValueError, match="Cannot specify population size"):
-            tsdate.date(ts, population_size=1, mutation_rate=None, priors=prior)
+            tsdate.inside_outside(
+                ts, population_size=1, mutation_rate=None, priors=prior
+            )
 
     def test_bad_population_size(self):
         ts = utility_functions.two_tree_mutation_ts()
         for Ne in [0, -1]:
             with pytest.raises(ValueError, match="greater than 0"):
-                tsdate.date(ts, mutation_rate=None, population_size=Ne)
+                tsdate.inside_outside(ts, mutation_rate=None, population_size=Ne)
 
     def test_both_ne_and_population_size_specified(self):
         ts = utility_functions.two_tree_mutation_ts()
         with pytest.raises(ValueError, match="Only provide one of Ne"):
-            tsdate.date(
+            tsdate.inside_outside(
                 ts, mutation_rate=None, population_size=PopulationSizeHistory(1), Ne=1
             )
-        tsdate.date(ts, mutation_rate=None, Ne=PopulationSizeHistory(1))
+        tsdate.inside_outside(ts, mutation_rate=None, Ne=PopulationSizeHistory(1))
 
-    def test_dangling_failure(self):
+    def test_inside_outside_dangling_failure(self):
         ts = utility_functions.single_tree_ts_n2_dangling()
         with pytest.raises(ValueError, match="simplified"):
-            tsdate.date(ts, mutation_rate=None, population_size=1)
+            tsdate.inside_outside(ts, mutation_rate=None, population_size=1)
 
-    def test_unary_failure(self):
+    def test_variational_gamma_dangling(self):
+        # Dangling nodes are fine for the variational gamma method
+        ts = utility_functions.single_tree_ts_n2_dangling()
+        ts = msprime.sim_mutations(ts, rate=2, random_seed=1)
+        assert ts.num_mutations > 1
+        tsdate.variational_gamma(ts, mutation_rate=2)
+
+    def test_inside_outside_unary_failure(self):
+        ts = utility_functions.single_tree_ts_with_unary()
         with pytest.raises(ValueError, match="unary"):
-            tsdate.date(
-                utility_functions.single_tree_ts_with_unary(),
-                mutation_rate=None,
-                population_size=1,
-            )
+            tsdate.inside_outside(ts, mutation_rate=None, population_size=1)
 
-    def test_fails_with_recombination(self):
+    @pytest.mark.skip("V_gamma should fail with unary nodes, but doesn't currently")
+    def test_variational_gamma_unary_failure(self):
+        ts = utility_functions.single_tree_ts_with_unary()
+        ts = msprime.sim_mutations(ts, rate=1, random_seed=1)
+        with pytest.raises(ValueError, match="unary"):
+            tsdate.variational_gamma(ts, mutation_rate=1)
+
+    @pytest.mark.parametrize("probability_space", (LOG, LIN))
+    @pytest.mark.parametrize("mu", (None, 1))
+    def test_fails_with_recombination(self, probability_space, mu):
         ts = utility_functions.two_tree_mutation_ts()
-        for probability_space in (LOG, LIN):
-            with pytest.raises(NotImplementedError):
-                tsdate.date(
-                    ts,
-                    mutation_rate=None,
-                    population_size=1,
-                    recombination_rate=1,
-                    probability_space=probability_space,
-                )
-            with pytest.raises(NotImplementedError):
-                tsdate.date(
-                    ts,
-                    population_size=1,
-                    recombination_rate=1,
-                    probability_space=probability_space,
-                    mutation_rate=1,
-                )
+        with pytest.raises(NotImplementedError):
+            tsdate.inside_outside(
+                ts,
+                mutation_rate=mu,
+                population_size=1,
+                recombination_rate=1,
+                probability_space=probability_space,
+            )
 
     def test_default_time_units(self):
         ts = utility_functions.two_tree_mutation_ts()
-        ts = tsdate.date(ts, mutation_rate=None, population_size=1)
+        ts = tsdate.date(ts, mutation_rate=1)
         assert ts.time_units == "generations"
 
     def test_default_alternative_time_units(self):
         ts = utility_functions.two_tree_mutation_ts()
-        ts = tsdate.date(ts, mutation_rate=None, population_size=1, time_units="years")
+        ts = tsdate.date(ts, mutation_rate=1, time_units="years")
         assert ts.time_units == "years"
 
     def test_no_posteriors(self):
@@ -150,7 +156,7 @@ class TestPrebuilt:
 
     def test_discretised_posteriors(self):
         ts = utility_functions.two_tree_mutation_ts()
-        ts, posteriors = tsdate.date(
+        ts, posteriors = tsdate.inside_outside(
             ts, mutation_rate=None, population_size=1, return_posteriors=True
         )
         assert len(posteriors) == ts.num_nodes - ts.num_samples + 1
@@ -164,7 +170,7 @@ class TestPrebuilt:
     def test_variational_posteriors(self):
         """
         There are no time-gridded posteriors returned by variational gamma,
-        so output is None
+        Output is currently None, but see https://github.com/tskit-dev/tsdate/issues/388
         """
         ts = utility_functions.two_tree_mutation_ts()
         ts, posteriors = tsdate.date(
@@ -177,11 +183,15 @@ class TestPrebuilt:
 
     def test_marginal_likelihood(self):
         ts = utility_functions.two_tree_mutation_ts()
-        _, _, marg_lik = tsdate.date(
-            ts, mutation_rate=None, Ne=1, return_posteriors=True, return_likelihood=True
+        _, _, marg_lik = tsdate.inside_outside(
+            ts,
+            mutation_rate=None,
+            population_size=1,
+            return_posteriors=True,
+            return_likelihood=True,
         )
-        _, marg_lik_again = tsdate.date(
-            ts, mutation_rate=None, Ne=1, return_likelihood=True
+        _, marg_lik_again = tsdate.inside_outside(
+            ts, mutation_rate=None, population_size=1, return_likelihood=True
         )
         assert marg_lik == marg_lik_again
 
@@ -190,9 +200,13 @@ class TestPrebuilt:
         long_ts = utility_functions.two_tree_ts_extra_length()
         keep_ts = long_ts.keep_intervals([[0.0, 1.0]])
         delete_ts = long_ts.delete_intervals([[1.0, 1.5]])
-        dated_ts = tsdate.date(ts, mutation_rate=None, population_size=1)
-        dated_keep_ts = tsdate.date(keep_ts, mutation_rate=None, population_size=1)
-        dated_deleted_ts = tsdate.date(delete_ts, mutation_rate=None, population_size=1)
+        dated_ts = tsdate.inside_outside(ts, mutation_rate=None, population_size=1)
+        dated_keep_ts = tsdate.inside_outside(
+            keep_ts, mutation_rate=None, population_size=1
+        )
+        dated_deleted_ts = tsdate.inside_outside(
+            delete_ts, mutation_rate=None, population_size=1
+        )
         assert np.allclose(
             dated_ts.tables.nodes.time[:], dated_keep_ts.tables.nodes.time[:]
         )
@@ -236,24 +250,15 @@ class TestSimulated:
             if index == len(t1.provenances) - 1:
                 break
 
-    def test_simple_sim_1_tree(self):
-        ts = msprime.simulate(8, mutation_rate=5, random_seed=2)
-        max_dated_ts = tsdate.date(
-            ts, population_size=1, mutation_rate=5, method="maximization"
-        )
-        self.ts_equal_except_times(ts, max_dated_ts)
-        io_dated_ts = tsdate.date(ts, population_size=1, mutation_rate=5)
-        self.ts_equal_except_times(ts, io_dated_ts)
-
-    def test_simple_sim_multi_tree(self):
-        ts = msprime.simulate(8, mutation_rate=5, recombination_rate=5, random_seed=2)
-        assert ts.num_trees > 1
-        max_dated_ts = tsdate.date(
-            ts, population_size=1, mutation_rate=5, method="maximization"
-        )
-        self.ts_equal_except_times(ts, max_dated_ts)
-        io_dated_ts = tsdate.date(ts, population_size=1, mutation_rate=5)
-        self.ts_equal_except_times(ts, io_dated_ts)
+    @pytest.mark.parametrize("rho", [0, 5])
+    @pytest.mark.parametrize("method", tsdate.estimation_methods.keys())
+    def test_simple_sim(self, rho, method):
+        ts = msprime.simulate(8, mutation_rate=5, recombination_rate=rho, random_seed=2)
+        if rho != 0:
+            assert ts.num_trees > 1
+        Ne = None if method == "variational_gamma" else 1
+        dated_ts = tsdate.date(ts, population_size=Ne, mutation_rate=5, method=method)
+        self.ts_equal_except_times(ts, dated_ts)
 
     def test_simple_sim_larger_example(self):
         # This makes ~1700 trees, and previously caused a failure
@@ -265,12 +270,10 @@ class TestSimulated:
             recombination_rate=1e-8,
             random_seed=11,
         )
-        io_ts = tsdate.date(ts, population_size=10000, mutation_rate=1e-8)
-        maximized_ts = tsdate.date(
-            ts, population_size=10000, mutation_rate=1e-8, method="maximization"
-        )
+        io_ts = tsdate.inside_outside(ts, population_size=10000, mutation_rate=1e-8)
+        max_ts = tsdate.maximization(ts, population_size=10000, mutation_rate=1e-8)
         self.ts_equal_except_times(ts, io_ts)
-        self.ts_equal_except_times(ts, maximized_ts)
+        self.ts_equal_except_times(ts, max_ts)
 
     def test_linear_space(self):
         # This makes ~1700 trees, and previously caused a failure
@@ -285,14 +288,13 @@ class TestSimulated:
         priors = tsdate.build_prior_grid(
             ts, population_size=10000, timepoints=10, approximate_priors=None
         )
-        dated_ts = tsdate.date(
+        dated_ts = tsdate.inside_outside(
             ts, mutation_rate=1e-8, priors=priors, probability_space=LIN
         )
-        maximized_ts = tsdate.date(
+        maximized_ts = tsdate.maximization(
             ts,
             mutation_rate=1e-8,
             priors=priors,
-            method="maximization",
             probability_space=LIN,
         )
         self.ts_equal_except_times(ts, dated_ts)
@@ -308,9 +310,9 @@ class TestSimulated:
         )
 
         with pytest.raises(ValueError, match="unary"):
-            tsdate.date(ts, population_size=1, mutation_rate=10, method="maximization")
+            tsdate.maximization(ts, population_size=1, mutation_rate=10)
         with pytest.raises(ValueError, match="unary"):
-            tsdate.date(ts, population_size=1, mutation_rate=10)
+            tsdate.inside_outside(ts, population_size=1, mutation_rate=10)
 
     def test_fails_multi_root(self):
         ts = msprime.simulate(8, mutation_rate=2, random_seed=2)
@@ -343,12 +345,12 @@ class TestSimulated:
         ]
         ts = msprime.simulate(samples=samples, Ne=1, mutation_rate=2, random_seed=12)
         with pytest.raises(ValueError, match="noncontemporaneous"):
-            tsdate.date(ts, population_size=1, mutation_rate=2)
+            tsdate.inside_outside(ts, population_size=1, mutation_rate=2)
 
     def test_mutation_times(self):
         ts = msprime.simulate(20, Ne=1, mutation_rate=1, random_seed=12)
         assert np.all(ts.tables.mutations.time > 0)
-        dated = tsdate.date(ts, population_size=1, mutation_rate=1)
+        dated = tsdate.date(ts, mutation_rate=1)
         assert np.all(~np.isnan(dated.tables.mutations.time))
 
     @pytest.mark.skip("YAN to fix")
@@ -378,42 +380,18 @@ class TestInferred:
     Tests for tsdate on simulated then inferred tree sequences.
     """
 
-    def test_simple_sim_1_tree(self):
-        ts = msprime.simulate(8, mutation_rate=5, random_seed=2)
-        for use_times in [True, False]:
-            sample_data = tsinfer.SampleData.from_tree_sequence(
-                ts, use_sites_time=use_times
-            )
-            inferred_ts = tsinfer.infer(sample_data).simplify()
-            max_dated_ts = tsdate.date(
-                inferred_ts, population_size=1, mutation_rate=5, method="maximization"
-            )
-            assert all(
-                [a == b for a, b in zip(ts.haplotypes(), max_dated_ts.haplotypes())]
-            )
-            io_dated_ts = tsdate.date(inferred_ts, population_size=1, mutation_rate=5)
-            assert all(
-                [a == b for a, b in zip(ts.haplotypes(), io_dated_ts.haplotypes())]
-            )
-
-    def test_simple_sim_multi_tree(self):
-        ts = msprime.simulate(8, mutation_rate=5, recombination_rate=5, random_seed=2)
-        assert ts.num_trees > 1
-        for use_times in [True, False]:
-            sample_data = tsinfer.SampleData.from_tree_sequence(
-                ts, use_sites_time=use_times
-            )
-            inferred_ts = tsinfer.infer(sample_data).simplify()
-            max_dated_ts = tsdate.date(
-                inferred_ts, population_size=1, mutation_rate=5, method="maximization"
-            )
-            assert all(
-                [a == b for a, b in zip(ts.haplotypes(), max_dated_ts.haplotypes())]
-            )
-            io_dated_ts = tsdate.date(inferred_ts, population_size=1, mutation_rate=5)
-            assert all(
-                [a == b for a, b in zip(ts.haplotypes(), io_dated_ts.haplotypes())]
-            )
+    @pytest.mark.parametrize("rho", [0, 5])
+    @pytest.mark.parametrize("method", tsdate.estimation_methods.keys())
+    def test_simple_sim(self, rho, method):
+        ts = msprime.simulate(8, mutation_rate=5, recombination_rate=rho, random_seed=2)
+        if rho != 0:
+            assert ts.num_trees > 1
+        for u_tm in [True, False]:
+            sample_data = tsinfer.SampleData.from_tree_sequence(ts, use_sites_time=u_tm)
+            i_ts = tsinfer.infer(sample_data).simplify()
+            Ne = None if method == "variational_gamma" else 1
+            d_ts = tsdate.date(i_ts, population_size=Ne, mutation_rate=5, method=method)
+            assert all([a == b for a, b in zip(ts.haplotypes(), d_ts.haplotypes())])
 
 
 class TestVariational:
@@ -430,37 +408,27 @@ class TestVariational:
             population_size=1e4,
             random_seed=2,
         )
-        ts = msprime.sim_mutations(
-            ts,
-            rate=1e-8,
-        )
-        self.ts = ts
+        self.ts = msprime.sim_mutations(ts, rate=1e-8, random_seed=1)
 
     def test_binary(self):
-        tsdate.date(self.ts, mutation_rate=1e-8, method="variational_gamma")
+        tsdate.variational_gamma(self.ts, mutation_rate=1e-8)
 
     def test_polytomy(self):
         pts = remove_edges(self.ts, unsupported_edges(self.ts)).simplify()
-        tsdate.date(pts, mutation_rate=1e-8, method="variational_gamma")
+        tsdate.variational_gamma(pts, mutation_rate=1e-8)
 
     def test_inferred(self):
         its = tsinfer.infer(tsinfer.SampleData.from_tree_sequence(self.ts)).simplify()
-        tsdate.date(its, mutation_rate=1e-8, method="variational_gamma")
+        tsdate.variational_gamma(its, mutation_rate=1e-8)
 
     def test_bad_arguments(self):
         with pytest.raises(ValueError, match="Maximum number of EP iterations"):
-            tsdate.date(
-                self.ts,
-                mutation_rate=5,
-                method="variational_gamma",
-                max_iterations=-1,
-            )
+            tsdate.variational_gamma(self.ts, mutation_rate=5, max_iterations=-1)
 
     def test_no_existing_mutation_metadata(self):
         # Currently only the variational_gamma method embeds mutation metadata
-        ts = tsdate.date(self.ts, mutation_rate=1e-8, method="variational_gamma")
+        ts = tsdate.variational_gamma(self.ts, mutation_rate=1e-8)
         for m in ts.mutations():
-            print(m)
             assert "mn" in m.metadata
             assert "vr" in m.metadata
             assert m.metadata["mn"] > 0

@@ -31,7 +31,7 @@ input_ts = tskit.load("data/basic_example.trees")
 
 ```{code-cell} ipython3
 import tsdate
-output_ts = tsdate.date(input_ts, population_size=100, mutation_rate=1e-8)
+output_ts = tsdate.date(input_ts, mutation_rate=1e-8)
 ```
 
 The rest of this documentation is organised into the following sections:

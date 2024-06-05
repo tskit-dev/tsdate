@@ -41,7 +41,8 @@ class TestProvenance:
     def test_date_cmd_recorded(self):
         ts = utility_functions.single_tree_ts_n2()
         num_provenances = ts.num_provenances
-        dated_ts = tsdate.date(ts, population_size=1, mutation_rate=None)
+        # Use inside_outside as it can be run on a ts with no mutations
+        dated_ts = tsdate.inside_outside(ts, mutation_rate=None, population_size=1)
         assert dated_ts.num_provenances == num_provenances + 1
         rec = json.loads(dated_ts.provenance(-1).record)
         assert rec["software"]["name"] == "tsdate"
@@ -71,10 +72,10 @@ class TestProvenance:
         mu = 0.123
         for use_class in (False, True):
             if use_class:
-                popsize = tsdate.demography.PopulationSizeHistory(**popdict)
+                Ne = tsdate.demography.PopulationSizeHistory(**popdict)
             else:
-                popsize = popdict
-            dated_ts = tsdate.date(ts, population_size=popsize, mutation_rate=mu)
+                Ne = popdict
+            dated_ts = tsdate.inside_outside(ts, population_size=Ne, mutation_rate=mu)
             rec = json.loads(dated_ts.provenance(-1).record)
             assert np.isclose(rec["parameters"]["mutation_rate"], mu)
             assert "population_size" in rec["parameters"]

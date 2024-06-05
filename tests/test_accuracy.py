@@ -103,7 +103,7 @@ class TestAccuracy:
         assert sim_mutations_parameters["command"] == "sim_mutations"
         mu = sim_mutations_parameters["rate"]
 
-        dts, posteriors = tsdate.date(
+        dts, posteriors = tsdate.inside_outside(
             ts, population_size=Ne, mutation_rate=mu, return_posteriors=True
         )
         # make sure we can read node metadata - old tsdate versions didn't set a schema
@@ -139,7 +139,7 @@ class TestAccuracy:
         Test that we are in the right theoretical ballpark given known Ne
         """
         ts = tskit.Tree.generate_comb(2).tree_sequence
-        dts = tsdate.date(ts, population_size=Ne, mutation_rate=None)
+        dts = tsdate.inside_outside(ts, population_size=Ne, mutation_rate=None)
         # Check the date is within 10% of the expected
         assert 0.9 < dts.node(dts.first().root).time / (2 * Ne) < 1.1
 
@@ -171,6 +171,6 @@ class TestAccuracy:
         ne = 0.5 * np.exp(bkwd_rate * time)
         ts = tskit.Tree.generate_comb(3).tree_sequence
         demo = tsdate.demography.PopulationSizeHistory(ne, time[1:])
-        dts = tsdate.date(ts, population_size=demo, mutation_rate=None)
+        dts = tsdate.inside_outside(ts, population_size=demo, mutation_rate=None)
         # Check the date is within 10% of the expected
         assert 0.9 < dts.node(dts.first().root).time / trio_tmrca < 1.1

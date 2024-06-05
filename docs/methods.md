@@ -18,79 +18,41 @@ kernelspec:
 
 # Methods
 
-The methods available for `tsdate` inference can be divided into _discrete-time_
-and _continuous-time_ approaches. 
+The methods available for `tsdate` inference can be divided into  _continuous-time_
+and _discrete-time_  approaches. 
 Both approaches iteratively propagate information between nodes to
-construct an approximation of the marginal posterior distribution for the age of each node,
-given the mutational information in the tree sequence.
-Discrete-time approaches approximate the posterior across a grid of 
-discrete timepoints (e.g. assign a probability to each node being at
-each timepoint). 
+construct an approximation of the marginal posterior distribution for the
+age of each node, given the mutational information in the tree sequence.
+Discrete-time approaches approximate the posterior across a grid of discrete
+timepoints (e.g. assign a probability to each node being at each timepoint). 
 Continuous-time approaches approximate the posterior by a continuous
 univariate distribution (e.g. a gamma distribution).
 
 In tests, we find that the continuous-time `variational_gamma` approach is the
 most accurate.  The discrete-time `inside_outside` approach is slightly less
-accurate, especially for older times, but is more numerically robust, and the
-discrete-time `maximization` approach is always stable but is the least
+accurate, especially for older times, but is slightly more numerically robust
+and also allows each node to have an arbitrary (discretised) probability distribution.
+The discrete-time `maximization` approach is always stable but is the least
 accurate.
 
 Changing the method is very simple:
-
 
 ```{code-cell} ipython3
 import tskit
 import tsdate
 
 input_ts = tskit.load("data/basic_example.trees")
-ts = tsdate.date(input_ts, method="variational_gamma", mutation_rate=1e-8)
+ts = tsdate.date(input_ts, method="inside_outside", mutation_rate=1e-8, population_size=1000)
 ```
 
 Alternatively each method can be called directly as a separate function:
 
 ```{code-cell} ipython3
-ts = tsdate.variational_gamma(input_ts, mutation_rate=1e-8)
+ts = tsdate.inside_outside(input_ts, mutation_rate=1e-8, population_size=1000)
 ```
 
-Currently the default is `inside_outside`, but this may change in future releases.
-
-
-(sec_methods_discrete_time)=
-
-## Discrete-time
-
-The available discrete-time algorithms are the `inside_outside` and `maximization` methods.
-They have the following advantages and disadvantages:
-
-Pros
-: Methods allow any shape for the distributions of times
-: Currently require just a single upwards and downward pass through the edges
-
-Cons
-: Choice of grid timepoints is somewhat arbitrary (but reasonable defaults are picked
-    based on the conditional coalescent)
-: Inferred times are imprecise due to discretization: a denser timegrid can increase
-    precision, but also increases computational cost (quadratic with number of timepoints)
-: In particular, the oldest/youngest nodes can suffer from poor dating, as time into the past
-    is an unbounded value, but a single oldest/youngest timepoint must be chosen.
-
-### Inside Outside vs Maximization
-
-The `inside_outside` approach has been shown to perform better empirically, but
-in theory the appraoch used does not properly account for cycles in the underlying
-genealogical network when updating posterior probabilities (a potential solution
-would be to implement a "loopy belief propagation" algorithm as in the continuous-time
-[`variational_gamma`](sec_methods_continuous_time_vgamma) method, below).
-Occasionally the `inside_outside` method also
-has issues with numerical stability, although this is commonly indicative
-of pathological combinations of tree sequence topology and mutation patterns.
-Problems like this are often caused by long regions of the genome that
-have no mapped mutations (e.g. in the centromere), which can be removed by
-{ref}`preprocessing<sec_usage_real_data_stability>`.
-
-The `maximization` approach is slightly less accurate empirically,
-and will not return true posteriors, but is theoretically robust and
-additionally is always numerically stable.
+The available method names and functions are also available via the
+{data}`tsdate.core.estimation_methods` variable.
 
 (sec_methods_continuous_time)=
 
@@ -155,9 +117,54 @@ A stopping criterion will be implemented in future releases.
 Progress through iterations can be output using the progress bar:
 
 ```{code-cell} ipython3
-ts = tsdate.date(
-    input_ts,
-    method="variational_gamma",
-    progress=True,
-    mutation_rate=1e-8)
+ts = tsdate.date(input_ts, mutation_rate=1e-8, progress=True)
 ```
+
+(sec_rescaling)=
+#### Rescaling
+
+TODO: briefly describe the rescaling step. Could also link to [the population size docs](sec_popsize)
+
+(sec_methods_discrete_time)=
+
+## Discrete-time
+
+For historical reasons, the discrete time approaches do not use a flat prior,
+but use the [conditional coalescent prior](sec_priors_conditional_coalescent),
+which means that you either need to provide them with an estimated effective
+population size, or a [priors](sec_priors) object. Future improvements may
+allow flat priors to be set in discrete time methods, and coalescent priors
+to be set in continuous time methods.
+
+The available discrete-time algorithms are the `inside_outside` and `maximization` methods.
+They have the following advantages and disadvantages:
+
+Pros
+: Methods allow any shape for the distributions of times
+: Currently require just a single upwards and downward pass through the edges
+
+Cons
+: Choice of grid timepoints is somewhat arbitrary (but reasonable defaults are picked
+    based on the conditional coalescent)
+: Inferred times are imprecise due to discretization: a denser timegrid can increase
+    precision, but also increases computational cost (quadratic with number of timepoints)
+: In particular, the oldest/youngest nodes can suffer from poor dating, as time into the past
+    is an unbounded value, but a single oldest/youngest timepoint must be chosen.
+
+### Inside Outside vs Maximization
+
+The `inside_outside` approach has been shown to perform better empirically, but
+in theory the appraoch used does not properly account for cycles in the underlying
+genealogical network when updating posterior probabilities (a potential solution
+would be to implement a "loopy belief propagation" algorithm as in the continuous-time
+[`variational_gamma`](sec_methods_continuous_time_vgamma) method, below).
+Occasionally the `inside_outside` method also
+has issues with numerical stability, although this is commonly indicative
+of pathological combinations of tree sequence topology and mutation patterns.
+Problems like this are often caused by long regions of the genome that
+have no mapped mutations (e.g. in the centromere), which can be removed by
+{ref}`preprocessing<sec_usage_real_data_stability>`.
+
+The `maximization` approach is slightly less accurate empirically,
+and will not return true posteriors, but is theoretically robust and
+additionally is always numerically stable.

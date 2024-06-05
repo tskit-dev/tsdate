@@ -25,7 +25,6 @@
 Test cases for the python API for tsdate.
 """
 import collections
-import json
 import logging
 import unittest
 
@@ -34,13 +33,11 @@ import numpy as np
 import pytest
 import scipy.integrate
 import tsinfer
-import tskit
 import utility_functions
 from utility_functions import constrain_ages_topo
 
 import tsdate
 from tsdate import base
-from tsdate.core import date
 from tsdate.core import DiscreteTimeMethod
 from tsdate.core import InOutAlgorithms
 from tsdate.core import InsideOutsideMethod
@@ -1524,28 +1521,36 @@ class TestDate:
         with pytest.raises(ValueError):
             tsdate.date(ts, mutation_rate=None, population_size=1, method="foobar")
 
-    def test_sample_as_parent_fails(self):
+    def test_inside_outside_sample_as_parent_fails(self):
         ts = utility_functions.single_tree_ts_n3_sample_as_parent()
         with pytest.raises(NotImplementedError):
-            tsdate.date(ts, mutation_rate=None, population_size=1)
+            tsdate.inside_outside(ts, mutation_rate=None, population_size=1)
+
+    @pytest.mark.skip(reason="TODO: https://github.com/tskit-dev/tsdate/issues/394")
+    def test_variational_gamma_sample_as_parent_fails(self):
+        ts = utility_functions.single_tree_ts_n3_sample_as_parent()
+        with pytest.raises(NotImplementedError):
+            tsdate.variational_gamma(ts, mutation_rate=1)
 
     def test_recombination_not_implemented(self):
-        ts = utility_functions.single_tree_ts_n2()
+        ts = utility_functions.two_tree_mutation_ts()
         with pytest.raises(NotImplementedError):
-            tsdate.date(
-                ts, mutation_rate=None, population_size=1, recombination_rate=1e-8
-            )
+            tsdate.date(ts, mutation_rate=1, recombination_rate=1e-8)
 
     def test_Ne_and_priors(self):
         ts = utility_functions.single_tree_ts_n2()
         with pytest.raises(ValueError):
             priors = tsdate.build_prior_grid(ts, population_size=1)
-            tsdate.date(ts, mutation_rate=None, population_size=1, priors=priors)
+            tsdate.inside_outside(
+                ts, mutation_rate=None, population_size=1, priors=priors
+            )
 
     def test_no_Ne_priors(self):
         ts = utility_functions.single_tree_ts_n2()
         with pytest.raises(ValueError):
-            tsdate.date(ts, mutation_rate=None, population_size=None, priors=None)
+            tsdate.inside_outside(
+                ts, mutation_rate=None, population_size=None, priors=None
+            )
 
 
 class TestBuildPriorGrid:
@@ -1600,29 +1605,31 @@ class TestDiscretisedMeanVar:
                 ],
             )
 
-    def test_node_metadata_simulated_tree(self):
-        larger_ts = msprime.simulate(
+    def test_node_metadata_inside_outside(self):
+        ts = msprime.simulate(
             10, mutation_rate=1, recombination_rate=1, length=20, random_seed=12
         )
-        algorithm = InsideOutsideMethod(
-            larger_ts, mutation_rate=None, population_size=10000
-        )
+        algorithm = InsideOutsideMethod(ts, mutation_rate=None, population_size=10000)
         mn_post, *_ = algorithm.run(
             eps=1e-6,
             outside_standardize=True,
             ignore_oldest_root=False,
             probability_space=tsdate.base.LOG,
         )
-        dated_ts = date(larger_ts, population_size=10000, mutation_rate=None)
-        metadata = dated_ts.tables.nodes.metadata
-        metadata_offset = dated_ts.tables.nodes.metadata_offset
-        unconstrained_mn = [
-            json.loads(met.decode())["mn"]
-            for met in tskit.unpack_bytes(metadata, metadata_offset)
-            if len(met.decode()) > 0
-        ]
-        assert np.allclose(unconstrained_mn, mn_post)
-        assert np.all(dated_ts.tables.nodes.time >= mn_post)
+        dts = tsdate.inside_outside(ts, population_size=10000, mutation_rate=None)
+        unconstr_mn = [nd.metadata["mn"] for nd in dts.nodes() if "mn" in nd.metadata]
+        assert np.allclose(unconstr_mn, mn_post)
+        assert np.all(dts.tables.nodes.time >= mn_post)
+
+    def test_node_metadata_variational_gamma(self):
+        ts = msprime.simulate(
+            10, mutation_rate=1, recombination_rate=1, length=20, random_seed=12
+        )
+        dts, _ = tsdate.variational_gamma(ts, mutation_rate=1, return_posteriors=True)
+        unconstr_mn = [nd.metadata["mn"] for nd in dts.nodes() if "mn" in nd.metadata]
+        # TODO: compare against the returned posterior means too
+        # see
+        assert np.all(dts.tables.nodes.time >= unconstr_mn)
 
 
 class TestConstrainAgesTopo:
@@ -1849,7 +1856,7 @@ class TestNodeTimes:
         larger_ts = msprime.simulate(
             10, mutation_rate=1, recombination_rate=1, length=20, random_seed=12
         )
-        dated = date(larger_ts, mutation_rate=None, population_size=10000)
+        dated = tsdate.date(larger_ts, mutation_rate=1)
         node_ages = nodes_time_unconstrained(dated)
         assert np.all(dated.tables.nodes.time[:] >= node_ages)
 
@@ -1876,7 +1883,7 @@ class TestSiteTimes:
 
     def test_sites_time_insideoutside(self):
         ts = utility_functions.two_tree_mutation_ts()
-        dated = tsdate.date(ts, mutation_rate=None, population_size=1)
+        dated = tsdate.inside_outside(ts, mutation_rate=None, population_size=1)
         algorithm = InsideOutsideMethod(ts, mutation_rate=None, population_size=1)
         mn_post, *_ = algorithm.run(
             eps=1e-6,
@@ -1895,9 +1902,7 @@ class TestSiteTimes:
 
     def test_sites_time_maximization(self):
         ts = utility_functions.two_tree_mutation_ts()
-        dated = tsdate.date(
-            ts, population_size=1, mutation_rate=1, method="maximization"
-        )
+        dated = tsdate.maximization(ts, population_size=1, mutation_rate=1)
         assert np.array_equal(
             dated.tables.nodes.time[ts.tables.mutations.node],
             tsdate.sites_time_from_ts(dated, unconstrained=False, min_time=0),
@@ -1905,7 +1910,7 @@ class TestSiteTimes:
 
     def test_sites_time_node_selection(self):
         ts = utility_functions.two_tree_mutation_ts()
-        dated = tsdate.date(ts, population_size=1, mutation_rate=1)
+        dated = tsdate.date(ts, mutation_rate=1)
         sites_time_child = tsdate.sites_time_from_ts(
             dated, node_selection="child", min_time=0
         )
@@ -1982,27 +1987,40 @@ class TestSiteTimes:
         sites_time = tsdate.sites_time_from_ts(ts, unconstrained=False)
         assert np.allclose(sites_time, [10])
 
-    def test_sites_time_simulated(self):
-        larger_ts = msprime.simulate(
+    def test_sites_time_simulated_inside_outside(self):
+        ts = msprime.simulate(
             10, mutation_rate=1, recombination_rate=1, length=20, random_seed=12
         )
-        algorithm = InsideOutsideMethod(
-            larger_ts, mutation_rate=None, population_size=10000
-        )
+        algorithm = InsideOutsideMethod(ts, mutation_rate=None, population_size=10000)
         mn_post, *_ = algorithm.run(
             eps=1e-6,
             outside_standardize=True,
             ignore_oldest_root=False,
             probability_space=tsdate.base.LOG,
         )
-        dated = date(larger_ts, mutation_rate=None, population_size=10000)
+        dts = tsdate.inside_outside(ts, mutation_rate=None, population_size=10000)
         assert np.allclose(
-            mn_post[larger_ts.tables.mutations.node],
-            tsdate.sites_time_from_ts(dated, unconstrained=True, min_time=0),
+            mn_post[ts.tables.mutations.node],
+            tsdate.sites_time_from_ts(dts, unconstrained=True, min_time=0),
         )
         assert np.allclose(
-            dated.tables.nodes.time[larger_ts.tables.mutations.node],
-            tsdate.sites_time_from_ts(dated, unconstrained=False, min_time=0),
+            dts.tables.nodes.time[ts.tables.mutations.node],
+            tsdate.sites_time_from_ts(dts, unconstrained=False, min_time=0),
+        )
+
+    @pytest.mark.skip(reason="https://github.com/tskit-dev/tsdate/issues/388")
+    def test_sites_time_simulated_variational_gamma(self):
+        ts = msprime.simulate(
+            10, mutation_rate=1, recombination_rate=1, length=20, random_seed=12
+        )
+        dts, pst = tsdate.variational_gamma(ts, mutation_rate=1, return_posteriors=True)
+        assert np.allclose(
+            pst[ts.tables.mutations.node],
+            tsdate.sites_time_from_ts(dts, unconstrained=True, min_time=0),
+        )
+        assert np.allclose(
+            dts.tables.nodes.time[ts.tables.mutations.node],
+            tsdate.sites_time_from_ts(dts, unconstrained=False, min_time=0),
         )
 
 
@@ -2040,7 +2058,7 @@ class TestSampleDataTimes:
 
         samples = tsinfer.formats.SampleData.from_tree_sequence(ts)
         inferred = tsinfer.infer(samples).simplify(filter_sites=False)
-        dated = date(inferred, mutation_rate=1e-8, population_size=10000)
+        dated = tsdate.date(inferred, mutation_rate=1e-8)
         sites_time = tsdate.sites_time_from_ts(dated)
         # Add in the original individual times
         ind_dated_sd = samples.copy()
@@ -2074,7 +2092,7 @@ class TestSampleDataTimes:
             ts, use_sites_time=False
         )
         inferred = tsinfer.infer(samples).simplify()
-        dated = date(inferred, population_size=10000, mutation_rate=1e-8)
+        dated = tsdate.date(inferred, mutation_rate=1e-8)
         sites_time = tsdate.sites_time_from_ts(dated)
         sites_bound = samples.min_site_times(individuals_only=True)
         check_sites_time = np.maximum(sites_time, sites_bound)
@@ -2100,7 +2118,7 @@ class TestHistoricalExample:
             ts.simplify(ts.samples(time=0), filter_sites=False)
         )
         inferred_ts = tsinfer.infer(modern_samples).simplify(filter_sites=False)
-        dated_ts = tsdate.date(inferred_ts, population_size=1, mutation_rate=1)
+        dated_ts = tsdate.date(inferred_ts, mutation_rate=1)
         site_times = tsdate.sites_time_from_ts(dated_ts)
         # make a sd file with historical individual times
         samples = tsinfer.SampleData.from_tree_sequence(

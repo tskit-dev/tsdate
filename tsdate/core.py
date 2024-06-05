@@ -47,6 +47,9 @@ from . import util
 from . import variational
 
 FORMAT_NAME = "tsdate"
+DEFAULT_RESCALING_INTERVALS = 1000
+DEFAULT_MAX_ITERATIONS = 10
+DEFAULT_EPSILON = 1e-6
 
 
 class Likelihoods:
@@ -924,6 +927,12 @@ class EstimationMethod:
         if record_provenance is None:
             record_provenance = True
 
+        if recombination_rate is not None:
+            raise NotImplementedError(
+                "Using the recombination clock is not currently supported"
+                ". See https://github.com/awohns/tsdate/issues/5 for details"
+            )
+
         Ne = population_size  # shorthand
         if isinstance(Ne, dict):
             Ne = demography.PopulationSizeHistory(**Ne)
@@ -1391,7 +1400,7 @@ def maximization(
         else:
             population_size = Ne
     if eps is None:
-        eps = 1e-6
+        eps = DEFAULT_EPSILON
     if probability_space is None:
         probability_space = base.LOG
 
@@ -1533,7 +1542,7 @@ def inside_outside(
         else:
             population_size = Ne
     if eps is None:
-        eps = 1e-6
+        eps = DEFAULT_EPSILON
     if probability_space is None:
         probability_space = base.LOG
     if outside_standardize is None:
@@ -1625,15 +1634,15 @@ def variational_gamma(
           implemented for this method (set to ``None``)
     """
     if eps is None:
-        eps = 1e-6
+        eps = DEFAULT_EPSILON
     if max_iterations is None:
-        max_iterations = 10
+        max_iterations = DEFAULT_MAX_ITERATIONS
     if max_shape is None:
         # The maximum value for the shape parameter in the variational posteriors.
         # Equivalent to the maximum precision (inverse variance) on a logarithmic scale.
         max_shape = 1000
     if rescaling_intervals is None:
-        rescaling_intervals = 1000
+        rescaling_intervals = DEFAULT_RESCALING_INTERVALS
     if match_central_moments is None:
         match_central_moments = True
     if match_segregating_sites is None:
@@ -1730,7 +1739,7 @@ def date(
         years per generation. If ``None`` (default), assume ``"generations"``.
     :param string method: What estimation method to use. See
         :data:`~tsdate.core.estimation_methods` for possible values.
-        If ``None`` (default) the "inside_outside" method is currently chosen.
+        If ``None`` (default) the "variational_gamma" method is currently chosen.
     :param bool return_posteriors: If ``True``, instead of returning just a dated tree
         sequence, return a tuple of ``(dated_ts, posteriors)``.
         Default: None, treated as False.
@@ -1757,7 +1766,7 @@ def date(
     """
     # Only the .date() wrapper needs to consider the deprecated "Ne" param
     if method is None:
-        method = "inside_outside"  # may change later
+        method = "variational_gamma"
     if method not in estimation_methods:
         raise ValueError(f"method must be one of {list(estimation_methods.keys())}")
 
