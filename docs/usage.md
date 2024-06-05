@@ -132,9 +132,8 @@ print(
 )
 ```
 :::{note}
-By default the `variational_gamma` method used here runs a [rescaling](sec_rescaling)
-algorithm to account for variable population sizes over time. See the
-[Population Size section](sec_popsize) for more details.
+In simulated data you may not have missing data regions, and you may be able to
+pass `remove_telomeres=False` to the `preprocess_ts` function.
 :::
 
 The inference in this case is much more noisy (as illustrated using the original

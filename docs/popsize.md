@@ -83,10 +83,12 @@ There's a clear band which is difficult to date at 50,000 generations, correspon
 instantaneous change in population size at that time. Nevertheless, the estimates times are
 pretty much in line with the truth.
 
-## Specifying priors
+## Misspecified priors
 
-Dating methods such as the `inside_outside` method that use a default prior which assumes
-a fixed population size, will perform very poorly on such data:
+The flat prior for the default `variational_gamma` [method](sec_methods) is robust to
+deviations from neutrality and panmixia. However, approaches such as the `inside_outside`
+method by default use a coalescent prior which assumes a fixed population size, and hence
+these perform very poorly on such data:
 
 ```{code-cell} ipython3
 import tsdate
@@ -106,7 +108,8 @@ for its use and interpretation.
 
 ### Estimating Ne from data
 
-If you don't have an established estimate for the effective population size of your data,
+If you are constructing a coalescent prior, but don't have an established estimate
+for the effective population size of your data,
 a rough approximation is to use the (sitewise) genetic diversity divided by
 four-times the mutation rate:
 
