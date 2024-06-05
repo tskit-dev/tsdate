@@ -18,8 +18,8 @@ kernelspec:
 
 # Methods
 
-The methods available for `tsdate` inference can be divided into  _continuous-time_
-and _discrete-time_  approaches. 
+The methods available for _tsdate_ inference can be divided into  *continuous-time*
+and *discrete-time*  approaches. 
 Both approaches iteratively propagate information between nodes to
 construct an approximation of the marginal posterior distribution for the
 age of each node, given the mutational information in the tree sequence.
@@ -101,9 +101,8 @@ very fast.
 The iterative expectation propagation should converge to a fixed
 point that approximately minimizes Kullback-Leibler divergence between the true posterior
 distribution and the approximation {cite}`minka2001expectation`.
-At the moment, when `method="variational_gamma"`,
-a relatively large number of iterations is used (which testing indicates is
-more than enough) but convergence is not formally checked.
+At the moment a relatively large number of iterations are used (which testing indicates is
+more than enough; this can be changed using the ``) but convergence is not formally checked.
 A stopping criterion will be implemented in future releases.
 
 Progress through iterations can be output using the progress bar:
@@ -121,15 +120,15 @@ TODO: briefly describe the rescaling step. Could also link to [the population si
 
 ## Discrete-time
 
-For historical reasons, the discrete time approaches do not use a flat prior,
+The available discrete-time algorithms are the `inside_outside` and `maximization` methods.
+For historical reasons, these approaches do not use a flat prior,
 but use the [conditional coalescent prior](sec_priors_conditional_coalescent),
 which means that you either need to provide them with an estimated effective
 population size, or a [priors](sec_priors) object. Future improvements may
 allow flat priors to be set in discrete time methods, and coalescent priors
 to be set in continuous time methods.
 
-The available discrete-time algorithms are the `inside_outside` and `maximization` methods.
-They have the following advantages and disadvantages:
+The _tsdate_ discrete time methods have the following advantages and disadvantages:
 
 Pros
 : Methods allow any shape for the distributions of times

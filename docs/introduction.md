@@ -18,7 +18,7 @@ kernelspec:
 
 # Introduction
 
-The `tsdate` program {cite}`wohns2022unified` infers dates for nodes in a
+The _tsdate_ program {cite}`wohns2022unified` infers dates for nodes in a
 genetic genealogy, sometimes loosely known as an ancestral recombination graph
 or ARG {cite}`wong2023general`. More precisely, it takes a genealogy in 
 [tree sequence](https://tskit.dev/tutorials/what_is.html) format as an input
@@ -41,7 +41,7 @@ a variety of inference programs, such as [tsinfer](https://tskit.dev/).
 and updating information through the genealogy. These include continuous-time
 (default) and discrete-time methods, see {ref}`sec_methods` for more details.
 
-The output of tsdate is a new tree sequence with altered
+The output of _tsdate_ is a new tree sequence with altered
 {attr}`node<tskit:tskit.TreeSequence.nodes_time>`and
 {attr}`mutation<tskit:tskit.TreeSequence.mutations_time>` times,
 as well as extra node and mutation {ref}`sec_metadata`.
@@ -57,13 +57,13 @@ effective population size (which is then used in the
 uses an improper (flat) prior and therefore does not need such user-provided
 parameters.
 
-The ultimate source of technical detail for `tsdate` is the source code on our
+The ultimate source of technical detail for _tsdate_ is the source code on our
 [GitHub repository](http://github.com/tskit-dev/tsdate).
 
 ## Sources of genealogies
 
 The input genealogies to date can come from any source,
-but `tsdate` is often coupled with [tsinfer](https://tskit.dev/software/tsinfer.html)
+but _tsdate_ is often coupled with [_tsinfer_](https://tskit.dev/software/tsinfer.html)
 {cite}`kelleher2019inferring`, which estimates the tree sequence topology but
 not the tree sequence node times.
 
@@ -98,7 +98,7 @@ haps = "<br>".join(ts.haplotypes())
 cen = 'style="text-align: center; padding: 0.5em 0"'
 HTML(f"""<table>
     <caption style="padding: 0 4em">An example of using `tsinfer` followed by `tsdate` on some DNA sequence data.
-    You can see that tsdate sets a timescale and changes node times so that mutations (red crosses)
+    You can see that <em>tsdate</em> sets a timescale and changes node times so that mutations (red crosses)
     are more evenly distributed over edges of the genealogy. This results in more realistic local trees
     (with coalescences clustered, as expected from theory, at recent times)</caption>
     <t style=""><td {cen}><div style="font-size: 0.6em">{haps}</div></td><td></td><td {cen} width="300">{svg1}</td><td></td><td {cen} width="300">{svg2}</td></tr>
@@ -107,4 +107,4 @@ HTML(f"""<table>
 )
 ```
 
-Together, `tsdate` and  `tsinfer` scale to analyses of millions of genomes, the largest genomic datasets currently available.
+Together, _tsdate_ and  _tsinfer_ scale to analyses of millions of genomes, the largest genomic datasets currently available.

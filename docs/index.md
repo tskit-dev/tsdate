@@ -16,9 +16,9 @@ kernelspec:
 
 (sec_welcome)=
 
-# Welcome to tsdate
+# Welcome to _tsdate_
 
-This is the documentation for `tsdate`, a method for efficiently inferring the
+This is the documentation for _tsdate_, a method for efficiently inferring the
 age of ancestors in a genetic genealogy or "[ARG](https://tskit.dev/tutorials/args.html)".
 
 Basic usage is as simple as running the following python command
@@ -41,7 +41,7 @@ The rest of this documentation is organised into the following sections:
 
 ## Source code
 
-The source code for `tsdate` is freely available on [GitHub](https://github.com/tskit-dev/tsdate).
+The source code for _tsdate_ is freely available on [GitHub](https://github.com/tskit-dev/tsdate).
 Bug reports and suggestions for improvements can be made by opening an issue on that repository:
 we suggest also checking the [discussions list](https://github.com/tskit-dev/tsdate/discussions).
 Pull requests are welcome: we largely follow the
@@ -57,7 +57,7 @@ code to reproduce evaluations of the accuracy and computational requirements of 
 The default `variational_gamma` method has not yet been described in print. For the moment,
 please cite this github repository if you need a citable reference.
 
-The original `tsdate` algorithm, which you should cite in published work, is published in:
+The original _tsdate_ algorithm, which you should cite in published work, is published in:
 
 > Anthony Wilder Wohns, Yan Wong, Ben Jeffery, Ali Akbari, Swapan Mallick, Ron Pinhasi, Nick Patterson, David Reich, Jerome Kelleher, and Gil McVean (2022) *A unified genealogy of modern and ancient genomes*. Science **375**: eabi8264; doi: https://doi.org/10.1126/science.abi8264
 

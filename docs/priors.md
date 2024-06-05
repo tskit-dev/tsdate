@@ -33,7 +33,7 @@ directly to the {func}`date` function.
 
 Along with adjusting the {ref}`method<sec_methods>`,
 this can also be used to carry out more sophisticated
-analyses, tweaking the `tsdate` algorithm to alter its runtime and accuracy.
+analyses, tweaking the _tsdate_ algorithm to alter its runtime and accuracy.
 
 ```{code-cell} ipython3
 import tskit
@@ -126,4 +126,4 @@ correlations between the span of a node and the number of children it has. Testi
 indicates that using a single prior for all nodes may provide better accuracy; this
 may also be a result of too strongly constraining each node prior to a fixed topology
 before dating. The best prior to use for different methods is a current topic of 
-investigation, and may be subject to change in future versions of `tsdate`.
+investigation, and may be subject to change in future versions of _tsdate_.

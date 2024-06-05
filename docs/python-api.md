@@ -18,7 +18,7 @@ kernelspec:
 
 # Python API
 
-This page provides formal documentation for the `tsdate` Python API.
+This page provides formal documentation for the _tsdate_ Python API.
 
 
 ## Running tsdate

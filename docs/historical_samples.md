@@ -49,7 +49,7 @@ modern and historical samples (the latter are specified using the
 
 :::{note}
 While `tsinfer` does not make assumptions about the
-time of sample nodes, `tsdate` requires a [prior](sec_priors)
+time of sample nodes, _tsdate_ requires a [prior](sec_priors)
 which is calculated from the conditional coalescent on the assumption that all
 samples are at time 0. Although this is not the case if there are historical samples,
 testing shows that it is still a close enough approximation for the method to
@@ -118,7 +118,7 @@ In the code above, we simulate a tree sequence with six sample chromosomes, four
 two historical. We then infer and date a tree sequence using only the modern
 samples. Next, we find derived alleles which are carried by the historical samples and
 use the age of the historical samples to constrain the ages of these alleles. Finally,
-we reinfer the tree sequence, using the date estimates from tsdate and the historical 
+we reinfer the tree sequence, using the date estimates from _tsdate_ and the historical 
 constraints rather than the frequency of the alleles to order mutations in `tsinfer`.
 Historical samples are added to the ancestors tree sequence as
 {meth}`proxy nodes, in addition to being used as samples<tsinfer:tsinfer.AncestorData.insert_proxy_samples>`.
