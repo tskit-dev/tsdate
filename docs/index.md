@@ -41,7 +41,8 @@ The rest of this documentation is organised into the following sections:
 
 ## Source code
 
-The source code for _tsdate_ is freely available on [GitHub](https://github.com/tskit-dev/tsdate).
+_Tsdate_ is open source software released under the liberal MIT licence. The code is
+freely available on [GitHub](https://github.com/tskit-dev/tsdate).
 Bug reports and suggestions for improvements can be made by opening an issue on that repository:
 we suggest also checking the [discussions list](https://github.com/tskit-dev/tsdate/discussions).
 Pull requests are welcome: we largely follow the
