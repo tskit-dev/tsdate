@@ -23,6 +23,7 @@
 """
 Test cases for the python API for tsdate.
 """
+
 import logging
 
 import msprime
@@ -33,11 +34,9 @@ import tskit
 import utility_functions
 
 import tsdate
-from tsdate.base import LIN
-from tsdate.base import LOG
+from tsdate.base import LIN, LOG
 from tsdate.demography import PopulationSizeHistory
-from tsdate.evaluation import remove_edges
-from tsdate.evaluation import unsupported_edges
+from tsdate.evaluation import remove_edges, unsupported_edges
 
 
 class TestConstants:
@@ -68,9 +67,7 @@ class TestPrebuilt:
     def test_no_mutation(self):
         ts = utility_functions.two_tree_mutation_ts()
         with pytest.raises(ValueError, match="method requires mutation rate"):
-            tsdate.date(
-                ts, method="maximization", population_size=1, mutation_rate=None
-            )
+            tsdate.date(ts, method="maximization", population_size=1, mutation_rate=None)
         with pytest.raises(ValueError, match="method requires mutation rate"):
             tsdate.date(ts, method="variational_gamma", mutation_rate=None)
 
@@ -78,9 +75,7 @@ class TestPrebuilt:
         ts = utility_functions.two_tree_mutation_ts()
         prior = tsdate.build_prior_grid(ts, population_size=1, timepoints=10)
         with pytest.raises(ValueError, match="Cannot specify population size"):
-            tsdate.inside_outside(
-                ts, population_size=1, mutation_rate=None, priors=prior
-            )
+            tsdate.inside_outside(ts, population_size=1, mutation_rate=None, priors=prior)
 
     def test_bad_population_size(self):
         ts = utility_functions.two_tree_mutation_ts()
@@ -120,8 +115,8 @@ class TestPrebuilt:
         with pytest.raises(ValueError, match="unary"):
             tsdate.variational_gamma(ts, mutation_rate=1)
 
-    @pytest.mark.parametrize("probability_space", (LOG, LIN))
-    @pytest.mark.parametrize("mu", (None, 1))
+    @pytest.mark.parametrize("probability_space", [LOG, LIN])
+    @pytest.mark.parametrize("mu", [None, 1])
     def test_fails_with_recombination(self, probability_space, mu):
         ts = utility_functions.two_tree_mutation_ts()
         with pytest.raises(NotImplementedError):
@@ -400,7 +395,7 @@ class TestVariational:
     """
 
     @pytest.fixture(autouse=True)
-    def ts(self):
+    def ts(self):  # noqa PT004
         ts = msprime.sim_ancestry(
             samples=10,
             recombination_rate=1e-8,

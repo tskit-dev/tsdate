@@ -24,6 +24,7 @@
 """
 Test cases for the python API for tsdate.
 """
+
 import collections
 import logging
 import unittest
@@ -38,20 +39,23 @@ from utility_functions import constrain_ages_topo
 
 import tsdate
 from tsdate import base
-from tsdate.core import DiscreteTimeMethod
-from tsdate.core import InOutAlgorithms
-from tsdate.core import InsideOutsideMethod
-from tsdate.core import Likelihoods
-from tsdate.core import LogLikelihoods
+from tsdate.core import (
+    DiscreteTimeMethod,
+    InOutAlgorithms,
+    InsideOutsideMethod,
+    Likelihoods,
+    LogLikelihoods,
+)
 from tsdate.demography import PopulationSizeHistory
-from tsdate.prior import ConditionalCoalescentTimes
-from tsdate.prior import fill_priors
-from tsdate.prior import gamma_approx
-from tsdate.prior import MixturePrior
-from tsdate.prior import PriorParams
-from tsdate.prior import SpansBySamples
-from tsdate.util import constrain_ages
-from tsdate.util import nodes_time_unconstrained
+from tsdate.prior import (
+    ConditionalCoalescentTimes,
+    MixturePrior,
+    PriorParams,
+    SpansBySamples,
+    fill_priors,
+    gamma_approx,
+)
+from tsdate.util import constrain_ages, nodes_time_unconstrained
 
 
 class TestBasicFunctions:
@@ -183,9 +187,7 @@ class TestNodeTipWeights(unittest.TestCase):
         assert span_data.lookup_span(3, ts.num_samples, 3) == 1.0
 
     def test_larger_find_node_tip_spans(self):
-        ts = msprime.simulate(
-            10, recombination_rate=5, mutation_rate=5, random_seed=123
-        )
+        ts = msprime.simulate(10, recombination_rate=5, mutation_rate=5, random_seed=123)
         assert ts.num_trees > 1
         self.verify_spans(ts)
 
@@ -253,9 +255,7 @@ class TestMakePrior:
     def test_one_tree_n2(self):
         ts = utility_functions.single_tree_ts_n2()
         priors = self.verify_priors(ts, "gamma")
-        assert np.allclose(
-            priors[2], PriorParams(alpha=1.0, beta=1.0, mean=1.0, var=1.0)
-        )
+        assert np.allclose(priors[2], PriorParams(alpha=1.0, beta=1.0, mean=1.0, var=1.0))
         priors = self.verify_priors(ts, "lognorm")
         assert np.allclose(
             priors[2],
@@ -285,26 +285,14 @@ class TestMakePrior:
         prior4mv = {"mean": np.nan, "var": np.nan}
 
         priors = self.verify_priors(ts, "lognorm")
-        assert np.allclose(
-            priors[2], PriorParams(alpha=np.nan, beta=np.nan, **prior2mv)
-        )
-        assert np.allclose(
-            priors[3], PriorParams(alpha=np.nan, beta=np.nan, **prior3mv)
-        )
-        assert np.allclose(
-            priors[4], PriorParams(alpha=np.nan, beta=np.nan, **prior4mv)
-        )
+        assert np.allclose(priors[2], PriorParams(alpha=np.nan, beta=np.nan, **prior2mv))
+        assert np.allclose(priors[3], PriorParams(alpha=np.nan, beta=np.nan, **prior3mv))
+        assert np.allclose(priors[4], PriorParams(alpha=np.nan, beta=np.nan, **prior4mv))
 
         priors = self.verify_priors(ts, "gamma")
-        assert np.allclose(
-            priors[2], PriorParams(alpha=np.nan, beta=np.nan, **prior2mv)
-        )
-        assert np.allclose(
-            priors[3], PriorParams(alpha=np.nan, beta=np.nan, **prior3mv)
-        )
-        assert np.allclose(
-            priors[4], PriorParams(alpha=np.nan, beta=np.nan, **prior4mv)
-        )
+        assert np.allclose(priors[2], PriorParams(alpha=np.nan, beta=np.nan, **prior2mv))
+        assert np.allclose(priors[3], PriorParams(alpha=np.nan, beta=np.nan, **prior3mv))
+        assert np.allclose(priors[4], PriorParams(alpha=np.nan, beta=np.nan, **prior4mv))
 
     @pytest.mark.skip("Fill in values instead of np.nan")
     def test_polytomy_tree(self):
@@ -312,14 +300,10 @@ class TestMakePrior:
         prior3mv = {"mean": np.nan, "var": np.nan}
 
         priors = self.verify_priors(ts, "lognorm")
-        assert np.allclose(
-            priors[3], PriorParams(alpha=np.nan, beta=np.nan, **prior3mv)
-        )
+        assert np.allclose(priors[3], PriorParams(alpha=np.nan, beta=np.nan, **prior3mv))
 
         priors = self.verify_prior(ts, "gamma")
-        assert np.allclose(
-            priors[3], PriorParams(alpha=np.nan, beta=np.nan, **prior3mv)
-        )
+        assert np.allclose(priors[3], PriorParams(alpha=np.nan, beta=np.nan, **prior3mv))
 
     @pytest.mark.skip("Fill in values instead of np.nan")
     def test_two_tree_ts(self):
@@ -328,20 +312,12 @@ class TestMakePrior:
         prior3mv = {"mean": np.nan, "var": np.nan}
 
         priors = self.verify_priors(ts, "lognorm")
-        assert np.allclose(
-            priors[2], PriorParams(alpha=np.nan, beta=np.nan, **prior2mv)
-        )
-        assert np.allclose(
-            priors[3], PriorParams(alpha=np.nan, beta=np.nan, **prior3mv)
-        )
+        assert np.allclose(priors[2], PriorParams(alpha=np.nan, beta=np.nan, **prior2mv))
+        assert np.allclose(priors[3], PriorParams(alpha=np.nan, beta=np.nan, **prior3mv))
 
         priors = self.verify_priors(ts, "gamma")
-        assert np.allclose(
-            priors[2], PriorParams(alpha=np.nan, beta=np.nan, **prior2mv)
-        )
-        assert np.allclose(
-            priors[3], PriorParams(alpha=np.nan, beta=np.nan, **prior3mv)
-        )
+        assert np.allclose(priors[2], PriorParams(alpha=np.nan, beta=np.nan, **prior2mv))
+        assert np.allclose(priors[3], PriorParams(alpha=np.nan, beta=np.nan, **prior3mv))
 
     @pytest.mark.skip("Fill in values instead of np.nan")
     def test_single_tree_ts_with_unary(self):
@@ -350,12 +326,8 @@ class TestMakePrior:
         prior3mv = {"mean": np.nan, "var": np.nan}
 
         priors = self.verify_priors(ts, "lognorm")
-        assert np.allclose(
-            priors[2], PriorParams(alpha=np.nan, beta=np.nan, **prior2mv)
-        )
-        assert np.allclose(
-            priors[3], PriorParams(alpha=np.nan, beta=np.nan, **prior3mv)
-        )
+        assert np.allclose(priors[2], PriorParams(alpha=np.nan, beta=np.nan, **prior2mv))
+        assert np.allclose(priors[3], PriorParams(alpha=np.nan, beta=np.nan, **prior3mv))
 
         priors = self.verify_priors(ts, "gamma")
         assert np.allclose(priors[2], PriorParams(alpha=1.0, beta=3.0, **prior2mv))
@@ -368,12 +340,8 @@ class TestMakePrior:
         prior3mv = {"mean": np.nan, "var": np.nan}
 
         priors = self.verify_priors(ts, "lognorm")
-        assert np.allclose(
-            priors[2], PriorParams(alpha=np.nan, beta=np.nan, **prior2mv)
-        )
-        assert np.allclose(
-            priors[3], PriorParams(alpha=np.nan, beta=np.nan, **prior3mv)
-        )
+        assert np.allclose(priors[2], PriorParams(alpha=np.nan, beta=np.nan, **prior2mv))
+        assert np.allclose(priors[3], PriorParams(alpha=np.nan, beta=np.nan, **prior3mv))
 
         priors = self.verify_priors(ts, "gamma")
         assert np.allclose(priors[2], PriorParams(alpha=1.0, beta=3.0, **prior2mv))
@@ -381,7 +349,7 @@ class TestMakePrior:
 
 
 class TestMixturePrior:
-    alpha_beta = [PriorParams.field_index("alpha"), PriorParams.field_index("beta")]
+    alpha_beta = (PriorParams.field_index("alpha"), PriorParams.field_index("beta"))
 
     def get_mixture_prior_params(self, ts, prior_distr, **kwargs):
         span_data = SpansBySamples(ts, **kwargs)
@@ -395,9 +363,7 @@ class TestMixturePrior:
         mixture_priors = self.get_mixture_prior_params(ts, "gamma")
         assert np.allclose(mixture_priors[2, self.alpha_beta], [1.0, 1.0])
         mixture_priors = self.get_mixture_prior_params(ts, "lognorm")
-        assert np.allclose(
-            mixture_priors[2, self.alpha_beta], [-0.34657359, 0.69314718]
-        )
+        assert np.allclose(mixture_priors[2, self.alpha_beta], [-0.34657359, 0.69314718])
 
     def test_one_tree_n3(self):
         ts = utility_functions.single_tree_ts_n3()
@@ -405,9 +371,7 @@ class TestMixturePrior:
         assert np.allclose(mixture_priors[3, self.alpha_beta], [1.0, 3.0])
         assert np.allclose(mixture_priors[4, self.alpha_beta], [1.6, 1.2])
         mixture_priors = self.get_mixture_prior_params(ts, "lognorm")
-        assert np.allclose(
-            mixture_priors[3, self.alpha_beta], [-1.44518588, 0.69314718]
-        )
+        assert np.allclose(mixture_priors[3, self.alpha_beta], [-1.44518588, 0.69314718])
         assert np.allclose(mixture_priors[4, self.alpha_beta], [0.04492816, 0.48550782])
 
     def test_one_tree_n4(self):
@@ -438,9 +402,7 @@ class TestMixturePrior:
     def test_single_tree_ts_with_unary(self, caplog):
         ts = utility_functions.single_tree_ts_with_unary()
         with caplog.at_level(logging.WARNING):
-            mixture_priors = self.get_mixture_prior_params(
-                ts, "gamma", allow_unary=True
-            )
+            mixture_priors = self.get_mixture_prior_params(ts, "gamma", allow_unary=True)
         assert "tsdate may give poor results" in caplog.text
         # Root is a 3 tip prior
         assert np.allclose(mixture_priors[7, self.alpha_beta], [1.6, 1.2])
@@ -669,9 +631,7 @@ class TestLikelihoodClass:
                     lik.precalculate_mutation_likelihoods(num_threads=num_threads)
                     for edge in ts.edges():
                         if not ts.node(edge.child).is_sample():
-                            n_internal_edges += (
-                                1  # only two internal edges in this tree
-                            )
+                            n_internal_edges += 1  # only two internal edges in this tree
                             assert n_internal_edges <= 2
                             if edge.parent == 4 and edge.child == 3:
                                 num_muts = 2
@@ -738,7 +698,8 @@ class TestLikelihoodClass:
 
     def test_zeros_logsumexp(self):
         with np.errstate(divide="ignore"):
-            lls = np.log(np.concatenate([np.zeros(100), np.random.rand(1000)]))
+            rng = np.random.default_rng()
+            lls = np.log(np.concatenate([np.zeros(100), rng.random(1000)]))
             assert np.allclose(LogLikelihoods.logsumexp(lls), self.naive_logsumexp(lls))
 
     def test_logsumexp_underflow(self):
@@ -804,13 +765,13 @@ class TestNodeGridValuesClass:
         num_nodes = 5
         grid_size = 2
         fill = {}
+        rng = np.random.default_rng(1)
         for ids in ([3, 4], []):
-            np.random.seed(1)
             store = base.NodeGridValues(
                 num_nodes, np.array(ids, dtype=np.int32), np.array(range(grid_size))
             )
             for i in range(num_nodes):
-                fill[i] = np.random.random(grid_size if i in ids else None)
+                fill[i] = rng.random(grid_size if i in ids else None)
                 store[i] = fill[i]
             for i in range(num_nodes):
                 assert np.all(fill[i] == store[i])
@@ -857,9 +818,7 @@ class TestNodeGridValuesClass:
         assert np.all(clone.grid_data == 0)
         assert np.all(clone.fixed_data == scalars)
 
-        clone = base.NodeGridValues.clone_with_new_data(
-            orig, np.array([[1, 2], [4, 3]])
-        )
+        clone = base.NodeGridValues.clone_with_new_data(orig, np.array([[1, 2], [4, 3]]))
         for i in range(num_nodes):
             if i in ids:
                 assert np.all(clone[i] == orig[i])
@@ -1022,14 +981,11 @@ class TestInsideAlgorithm:
 
     def test_two_tree_ts(self):
         ts = utility_functions.two_tree_ts()
-        algo, priors, marg_lik = self.run_inside_algorithm(
-            ts, "gamma", standardize=False
-        )
+        algo, priors, marg_lik = self.run_inside_algorithm(ts, "gamma", standardize=False)
         mut_rate = 0.5
         # priors[3][1] * Ll_(0->3)(1.2 - 0 + eps) ** 2
         node3_t1 = (
-            priors[3][1]
-            * scipy.stats.poisson.pmf(0, (1.2 + 1e-6) * mut_rate * 0.2) ** 2
+            priors[3][1] * scipy.stats.poisson.pmf(0, (1.2 + 1e-6) * mut_rate * 0.2) ** 2
         )
         # priors[3][2] * sum(Ll_(0->3)(2 - t + eps))
         node3_t2 = (
@@ -1054,10 +1010,7 @@ class TestInsideAlgorithm:
             * scipy.stats.poisson.pmf(0, (2 + 1e-6) * mut_rate * 0.8)
             * (
                 (scipy.stats.poisson.pmf(0, (0.8 + 1e-6) * mut_rate * 0.2) * node3_t1)
-                + (
-                    scipy.stats.poisson.pmf(0, (1e-6 + 1e-6) * mut_rate * 0.2)
-                    * node3_t2
-                )
+                + (scipy.stats.poisson.pmf(0, (1e-6 + 1e-6) * mut_rate * 0.2) * node3_t2)
             )
         )
         assert np.allclose(algo.inside[4], np.array([0, node4_t1, node4_t2]))
@@ -1166,9 +1119,7 @@ class TestOutsideAlgorithm:
         lls.precalculate_mutation_likelihoods()
         algo = InOutAlgorithms(prior_vals, lls)
         algo.inside_pass()
-        algo.outside_pass(
-            standardize=standardize, ignore_oldest_root=ignore_oldest_root
-        )
+        algo.outside_pass(standardize=standardize, ignore_oldest_root=ignore_oldest_root)
         return algo
 
     def test_one_tree_n2(self):
@@ -1326,9 +1277,7 @@ class TestGilTree:
             priors.add(ts.num_samples, approximate=False)
             grid = np.array([0, 0.1, 0.2, 0.5, 1, 2, 5])
             mixture_prior = priors.get_mixture_prior_params(span_data)
-            prior_vals = fill_priors(
-                mixture_prior, grid, ts, Ne, prior_distr=prior_distr
-            )
+            prior_vals = fill_priors(mixture_prior, grid, ts, Ne, prior_distr=prior_distr)
             prior_vals.grid_data[0] = [0, 0.5, 0.3, 0.1, 0.05, 0.02, 0.03]
             prior_vals.grid_data[1] = [0, 0.05, 0.1, 0.2, 0.45, 0.1, 0.1]
             mut_rate = 1
@@ -1468,9 +1417,7 @@ class TestMaximization:
             node_4 = lls.timepoints[np.argmax(algo.inside[4])]
             ll_mut = scipy.stats.poisson.pmf(
                 0,
-                (node_4 - lls.timepoints[: np.argmax(algo.inside[4]) + 1] + 1e-6)
-                * 1
-                * 1,
+                (node_4 - lls.timepoints[: np.argmax(algo.inside[4]) + 1] + 1e-6) * 1 * 1,
             )
             result = ll_mut / np.max(ll_mut)
             inside_val = algo.inside[3][: (np.argmax(algo.inside[4]) + 1)]
@@ -1539,8 +1486,8 @@ class TestDate:
 
     def test_Ne_and_priors(self):
         ts = utility_functions.single_tree_ts_n2()
+        priors = tsdate.build_prior_grid(ts, population_size=1)
         with pytest.raises(ValueError):
-            priors = tsdate.build_prior_grid(ts, population_size=1)
             tsdate.inside_outside(
                 ts, mutation_rate=None, population_size=1, priors=priors
             )
@@ -1714,7 +1661,8 @@ class TestConstrainAgesTopo:
         ts = msprime.sim_mutations(ts, rate=1e-8, random_seed=1)
         sample_data = tsinfer.SampleData.from_tree_sequence(ts)
         inf_ts = tsinfer.infer(sample_data).simplify()
-        noise = np.random.uniform(0, 0.1, size=inf_ts.num_nodes)
+        rng = np.random.default_rng()
+        noise = rng.uniform(0, 0.1, size=inf_ts.num_nodes)
         nodes_time = inf_ts.nodes_time + noise
         eps = 1e-6
         blen = nodes_time[inf_ts.edges_parent] - nodes_time[inf_ts.edges_child]
@@ -1738,7 +1686,8 @@ class TestConstrainAgesTopo:
         ts = msprime.sim_mutations(ts, rate=1e-8, random_seed=1)
         sample_data = tsinfer.SampleData.from_tree_sequence(ts)
         inf_ts = tsinfer.infer(sample_data).simplify()
-        noise = np.random.uniform(0, 0.5, size=inf_ts.num_nodes)
+        rng = np.random.default_rng()
+        noise = rng.uniform(0, 0.5, size=inf_ts.num_nodes)
         nodes_time = inf_ts.nodes_time + noise
         eps = 1e-6
         blen = nodes_time[inf_ts.edges_parent] - nodes_time[inf_ts.edges_child]
@@ -1794,12 +1743,10 @@ class TestPreprocessTs(unittest.TestCase):
         assert removed.num_populations == ts.num_populations
         assert tsdate.preprocess_ts(ts, **{"filter_sites": True}).num_sites == 0
         assert (
-            tsdate.preprocess_ts(ts, **{"filter_populations": True}).num_populations
-            == 0
+            tsdate.preprocess_ts(ts, **{"filter_populations": True}).num_populations == 0
         )
         assert (
-            tsdate.preprocess_ts(ts, **{"filter_individuals": True}).num_individuals
-            == 0
+            tsdate.preprocess_ts(ts, **{"filter_individuals": True}).num_individuals == 0
         )
 
     def test_no_intervals(self):
@@ -1926,9 +1873,7 @@ class TestSiteTimes:
         for tree in dated.trees():
             for site in tree.sites():
                 for mut in site.mutations:
-                    parent_sites_check[site.id] = dated_nodes_time[
-                        tree.parent(mut.node)
-                    ]
+                    parent_sites_check[site.id] = dated_nodes_time[tree.parent(mut.node)]
         assert np.array_equal(parent_sites_check, sites_time_parent)
 
         sites_time_arithmetic = tsdate.sites_time_from_ts(
@@ -2033,9 +1978,7 @@ class TestSampleDataTimes:
         ts = utility_functions.single_tree_ts_2mutations_n3()
         sites_time = tsdate.sites_time_from_ts(ts, unconstrained=False)
         sites_time = np.append(sites_time, [10])
-        samples = tsinfer.formats.SampleData.from_tree_sequence(
-            ts, use_sites_time=False
-        )
+        samples = tsinfer.formats.SampleData.from_tree_sequence(ts, use_sites_time=False)
         with pytest.raises(ValueError):
             tsdate.add_sampledata_times(samples, sites_time)
 
@@ -2051,9 +1994,9 @@ class TestSampleDataTimes:
             length=1e4,
             random_seed=12,
         )
-        ancient_samples = np.where(ts.tables.nodes.time[:][ts.samples()] != 0)[
-            0
-        ].astype("int32")
+        ancient_samples = np.where(ts.tables.nodes.time[:][ts.samples()] != 0)[0].astype(
+            "int32"
+        )
         ancient_samples_times = ts.tables.nodes.time[ancient_samples]
 
         samples = tsinfer.formats.SampleData.from_tree_sequence(ts)
@@ -2062,13 +2005,9 @@ class TestSampleDataTimes:
         sites_time = tsdate.sites_time_from_ts(dated)
         # Add in the original individual times
         ind_dated_sd = samples.copy()
-        ind_dated_sd.individuals_time[
-            :
-        ] = tsinfer.formats.SampleData.from_tree_sequence(
+        ind_dated_sd.individuals_time[:] = tsinfer.formats.SampleData.from_tree_sequence(
             ts, use_individuals_time=True, use_sites_time=True
-        ).individuals_time[
-            :
-        ]
+        ).individuals_time[:]
         ind_dated_sd.finalise()
         dated_samples = tsdate.add_sampledata_times(ind_dated_sd, sites_time)
         for variant in ts.variants(samples=ancient_samples):
@@ -2088,9 +2027,7 @@ class TestSampleDataTimes:
             length=1e4,
             random_seed=12,
         )
-        samples = tsinfer.formats.SampleData.from_tree_sequence(
-            ts, use_sites_time=False
-        )
+        samples = tsinfer.formats.SampleData.from_tree_sequence(ts, use_sites_time=False)
         inferred = tsinfer.infer(samples).simplify()
         dated = tsdate.date(inferred, mutation_rate=1e-8)
         sites_time = tsdate.sites_time_from_ts(dated)

@@ -23,6 +23,7 @@
 """
 Test cases for saving provenances in tsdate.
 """
+
 import json
 
 import numpy as np
@@ -106,9 +107,7 @@ class TestProvenance:
     def test_preprocess_interval_recorded(self):
         ts = utility_functions.ts_w_data_desert(40, 60, 100)
         num_provenances = ts.num_provenances
-        preprocessed_ts = tsdate.preprocess_ts(
-            ts, minimum_gap=20, remove_telomeres=False
-        )
+        preprocessed_ts = tsdate.preprocess_ts(ts, minimum_gap=20, remove_telomeres=False)
         assert preprocessed_ts.num_provenances == num_provenances + 1
         rec = json.loads(preprocessed_ts.provenance(-1).record)
         assert rec["parameters"]["minimum_gap"] == 20

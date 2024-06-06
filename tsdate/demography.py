@@ -23,6 +23,7 @@
 """
 Routines and classes for manipulating demographic histories in tsdate
 """
+
 import numpy as np
 import scipy.stats
 

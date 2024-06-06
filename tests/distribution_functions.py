@@ -24,13 +24,13 @@
 Utility functions to construct distributions used in variational inference,
 for testing purposes
 """
+
 import mpmath
 import numpy as np
 import scipy.integrate
 import scipy.special
 
-from tsdate import approx
-from tsdate import hypergeo
+from tsdate import approx, hypergeo
 
 
 def kl_divergence(p, logq):
@@ -81,9 +81,7 @@ def conditional_coalescent_pdf(t, n, k):
     if n == k:
         return pr_t_bar_a(t, 1)
     else:
-        return np.sum(
-            [pr_a(a, n, k) * pr_t_bar_a(t, a, n) for a in range(2, n - k + 2)]
-        )
+        return np.sum([pr_a(a, n, k) * pr_t_bar_a(t, a, n) for a in range(2, n - k + 2)])
 
 
 class TiltedGammaDiff:
@@ -114,8 +112,12 @@ class TiltedGammaDiff:
         return float(val)
 
     def __init__(self, shape1, shape2, shape3, rate1, rate2, rate3, reorder=True):
-        assert shape1 > 0 and shape2 > 0 and shape3 > 0
-        assert rate1 >= 0 and rate2 > 0 and rate3 >= 0
+        assert shape1 > 0
+        assert shape2 > 0
+        assert shape3 > 0
+        assert rate1 >= 0
+        assert rate2 > 0
+        assert rate3 >= 0
         # for convergence of 2F1, we need rate2 > rate3. Invariant
         # transformations of 2F1 allow us to switch arguments, with
         # appropriate rescaling
@@ -369,8 +371,12 @@ class TiltedGammaSum:
         return float(val)
 
     def __init__(self, shape1, shape2, shape3, rate1, rate2, rate3):
-        assert shape1 > 0 and shape2 > 0 and shape3 > 0
-        assert rate1 >= 0 and rate2 > 0 and rate3 >= 0
+        assert shape1 > 0
+        assert shape2 > 0
+        assert shape3 > 0
+        assert rate1 >= 0
+        assert rate2 > 0
+        assert rate3 >= 0
         # for numeric stability of hypergeometric we need rate2 > rate1
         # as this is a convolution, the order of (1) and (2) don't matter
         self.reparametrize = rate1 > rate2
@@ -481,11 +487,7 @@ class TiltedGammaSum:
             + scipy.special.betaln(self.shape1, self.shape2)
         )
         x = dF_dz * T / S**2 + B / S
-        xsq = (
-            d2F_dz2 * T**2 / S**4
-            + B * (B + 1) / S**2
-            + 2 * dF_dz * (1 + B) * T / S**3
-        )
+        xsq = d2F_dz2 * T**2 / S**4 + B * (B + 1) / S**2 + 2 * dF_dz * (1 + B) * T / S**3
         logx = dF_db + scipy.special.digamma(B) - np.log(S)
         return logconst, x, xsq, logx
 

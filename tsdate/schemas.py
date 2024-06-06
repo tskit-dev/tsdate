@@ -22,6 +22,7 @@
 """
 Metadata schemas used in tsdate, if no schema already provided
 """
+
 import tskit
 
 default_mutation_schema = tskit.MetadataSchema(

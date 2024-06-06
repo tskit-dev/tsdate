@@ -22,12 +22,12 @@
 """
 Handle cache for precalculated prior
 """
+
 import logging
 import os
 import pathlib
 
 import appdirs
-
 
 logger = logging.getLogger(__name__)
 

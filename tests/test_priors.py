@@ -22,17 +22,20 @@
 """
 Test cases for prior functionality used in tsdate
 """
+
 import logging
 
 import numpy as np
 import pytest
 import utility_functions
 
-from tsdate.prior import conditional_coalescent_variance
-from tsdate.prior import ConditionalCoalescentTimes
-from tsdate.prior import create_timepoints
-from tsdate.prior import PriorParams
-from tsdate.prior import SpansBySamples
+from tsdate.prior import (
+    ConditionalCoalescentTimes,
+    PriorParams,
+    SpansBySamples,
+    conditional_coalescent_variance,
+    create_timepoints,
+)
 
 
 class TestConditionalCoalescentTimes:

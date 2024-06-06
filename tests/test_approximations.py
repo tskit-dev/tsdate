@@ -24,17 +24,15 @@
 """
 Test cases for the gamma-variational approximations in tsdate
 """
+
 import numpy as np
 import pytest
 import scipy.integrate
 import scipy.special
 import scipy.stats
-from distribution_functions import conditional_coalescent_pdf
-from distribution_functions import kl_divergence
+from distribution_functions import conditional_coalescent_pdf, kl_divergence
 
-from tsdate import approx
-from tsdate import hypergeo
-from tsdate import prior
+from tsdate import approx, hypergeo, prior
 
 # TODO: better test set?
 # TODO: test special case where child is fixed to age 0
@@ -273,9 +271,7 @@ class TestPosteriorMomentMatching:
         assert np.isclose(t_i, ck_t_i, rtol=1e-4)
         ck_var_t_i = (
             scipy.integrate.quad(
-                lambda t_i: t_i**2
-                * self.pdf_truncated(t_i, *pars_redux)
-                / ck_normconst,
+                lambda t_i: t_i**2 * self.pdf_truncated(t_i, *pars_redux) / ck_normconst,
                 low,
                 upp,
                 epsabs=0,
@@ -389,9 +385,7 @@ class TestGammaFactorization:
         E_x = np.mean(shape + 1)
         E_logx = np.mean(scipy.special.digamma(shape + 1))
         assert np.isclose(E_x, (avg_shape + 1) / avg_rate)
-        assert np.isclose(
-            E_logx, scipy.special.digamma(avg_shape + 1) - np.log(avg_rate)
-        )
+        assert np.isclose(E_logx, scipy.special.digamma(avg_shape + 1) - np.log(avg_rate))
 
 
 class TestKLMinimizationFailed:
@@ -409,10 +403,12 @@ class TestKLMinimizationFailed:
         alpha, _ = approx.approximate_gamma_kl(1, logx)
         alpha += 1
         alpha_bound = -0.5 / logx
-        assert alpha == alpha_bound and alpha > 1e4
+        assert alpha == alpha_bound
+        assert alpha > 1e4
         # check that bound matches optimization result just under threshold
         logx = -0.000051
         alpha, _ = approx.approximate_gamma_kl(1, logx)
         alpha += 1
         alpha_bound = -0.5 / logx
-        assert np.abs(alpha - alpha_bound) < 1 and alpha < 1e4
+        assert np.abs(alpha - alpha_bound) < 1
+        assert alpha < 1e4
