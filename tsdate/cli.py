@@ -23,6 +23,7 @@
 """
 Command line interface for tsdate.
 """
+
 import argparse
 import logging
 import sys
@@ -30,6 +31,7 @@ import sys
 import tskit
 
 import tsdate
+
 from . import core
 
 logger = logging.getLogger(__name__)

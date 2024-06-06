@@ -23,6 +23,7 @@
 """
 Test cases for the command line interface for tsdate.
 """
+
 import json
 import logging
 from unittest import mock
@@ -75,11 +76,11 @@ class TestTsdateArgParser:
         parser = cli.tsdate_cli_parser()
         params = ["-m", "1e10"]
         args = parser.parse_args(
-            ["date", self.infile, self.output] + params + ["-r", "1e-100"]
+            ["date", self.infile, self.output, *params, "-r", "1e-100"]
         )
         assert args.recombination_rate == 1e-100
         args = parser.parse_args(
-            ["date", self.infile, self.output] + params + ["--recombination-rate", "73"]
+            ["date", self.infile, self.output, *params, "--recombination-rate", "73"]
         )
         assert args.recombination_rate == 73
 
@@ -97,24 +98,22 @@ class TestTsdateArgParser:
     def test_num_threads(self):
         parser = cli.tsdate_cli_parser()
         params = ["--method", "maximization", "--num-threads"]
-        args = parser.parse_args(["date", self.infile, self.output] + params + ["1"])
+        args = parser.parse_args(["date", self.infile, self.output, *params, "1"])
         assert args.num_threads == 1
-        args = parser.parse_args(["date", self.infile, self.output] + params + ["2"])
+        args = parser.parse_args(["date", self.infile, self.output, *params, "2"])
         assert args.num_threads == 2
 
     def test_probability_space(self):
         parser = cli.tsdate_cli_parser()
         params = ["--method", "inside_outside", "--probability-space"]
-        args = parser.parse_args(
-            ["date", self.infile, self.output] + params + ["linear"]
-        )
+        args = parser.parse_args(["date", self.infile, self.output, *params, "linear"])
         assert args.probability_space == "linear"
         args = parser.parse_args(
-            ["date", self.infile, self.output] + params + ["logarithmic"]
+            ["date", self.infile, self.output, *params, "logarithmic"]
         )
         assert args.probability_space == "logarithmic"
 
-    @pytest.mark.parametrize("flag, log_status", logging_flags.items())
+    @pytest.mark.parametrize(("flag", "log_status"), logging_flags.items())
     def test_verbosity(self, flag, log_status):
         parser = cli.tsdate_cli_parser()
         args = parser.parse_args(["preprocess", self.infile, self.output, flag])
@@ -130,7 +129,7 @@ class TestTsdateArgParser:
         params = ["-m", "1e-8", "--method", method]
         if method != "variational_gamma":
             params += ["-n", "10"]
-        args = parser.parse_args(["date", self.infile, self.output] + params)
+        args = parser.parse_args(["date", self.infile, self.output, *params])
         assert args.method == method
 
     def test_progress(self):
@@ -231,7 +230,7 @@ class TestOutput(RunCLI):
         assert out == ""
         assert err == ""
 
-    @pytest.mark.parametrize("flag, log_status", logging_flags.items())
+    @pytest.mark.parametrize(("flag", "log_status"), logging_flags.items())
     def test_verbosity(self, tmp_path, caplog, flag, log_status):
         popsize = 10000
         ts = msprime.simulate(

@@ -22,6 +22,7 @@
 """
 Test cases for tsdate utility functions
 """
+
 import json
 import logging
 
@@ -151,9 +152,7 @@ class TestSplitDisjointNodes:
         tables.nodes.metadata_schema = tskit.MetadataSchema.permissive_json()
         tables.nodes.packset_metadata(
             [
-                tables.nodes.metadata_schema.validate_and_encode_row(
-                    {"xxx": f"test{x}"}
-                )
+                tables.nodes.metadata_schema.validate_and_encode_row({"xxx": f"test{x}"})
                 for x in range(ts.num_nodes)
             ]
         )

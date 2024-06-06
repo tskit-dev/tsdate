@@ -23,14 +23,14 @@
 """
 Infer the age of nodes conditional on a tree sequence topology.
 """
+
 import functools
 import itertools
 import logging
 import multiprocessing
 import operator
 import time  # DEBUG
-from collections import defaultdict
-from collections import namedtuple
+from collections import defaultdict, namedtuple
 
 import numba
 import numpy as np
@@ -38,13 +38,7 @@ import scipy.stats
 import tskit
 from tqdm.auto import tqdm
 
-from . import base
-from . import demography
-from . import prior
-from . import provenance
-from . import schemas
-from . import util
-from . import variational
+from . import base, demography, prior, provenance, schemas, util, variational
 
 FORMAT_NAME = "tsdate"
 DEFAULT_RESCALING_INTERVALS = 1000
@@ -80,9 +74,7 @@ class Likelihoods:
     ):
         self.ts = ts
         self.timepoints = timepoints
-        self.fixednodes = (
-            set(ts.samples()) if fixed_node_set is None else fixed_node_set
-        )
+        self.fixednodes = set(ts.samples()) if fixed_node_set is None else fixed_node_set
         self.mut_rate = mutation_rate
         self.rec_rate = recombination_rate
         self.standardize = standardize
@@ -409,17 +401,17 @@ class LogLikelihoods(Likelihoods):
     @staticmethod
     @numba.jit(nopython=True)
     def logsumexp(X):
-        alpha = -np.Inf
+        alpha = -np.inf
         r = 0.0
         for x in X:
-            if x != -np.Inf:
+            if x != -np.inf:
                 if x <= alpha:
                     r += np.exp(x - alpha)
                 else:
                     r *= np.exp(alpha - x)
                     r += 1.0
                     alpha = x
-        return -np.Inf if r == 0 else np.log(r) + alpha
+        return -np.inf if r == 0 else np.log(r) + alpha
 
     @staticmethod
     def _lik(muts, span, dt, mutation_rate, standardize=True):
@@ -668,9 +660,7 @@ class InOutAlgorithms:
                 if edge.child in self.fixednodes:
                     # NB: geometric scaling works exactly when all nodes fixed in graph
                     # but is an approximation when times are unknown.
-                    daughter_val = self.lik.scale_geometric(
-                        spanfrac, inside[edge.child]
-                    )
+                    daughter_val = self.lik.scale_geometric(spanfrac, inside[edge.child])
                     edge_lik = self.lik.get_fixed(daughter_val, edge)
                 else:
                     inside_values = inside[edge.child]
@@ -703,9 +693,7 @@ class InOutAlgorithms:
         for root, span_when_root in self.root_spans.items():
             spanfrac = span_when_root / self.spans[root]
             root_val = self.lik.scale_geometric(spanfrac, inside[root])
-            marginal_lik = self.lik.combine(
-                marginal_lik, self.lik.marginalize(root_val)
-            )
+            marginal_lik = self.lik.combine(marginal_lik, self.lik.marginalize(root_val))
         return marginal_lik
 
     def outside_pass(
@@ -734,9 +722,7 @@ class InOutAlgorithms:
         if not hasattr(self, "inside"):
             raise RuntimeError("You have not yet run the inside algorithm")
 
-        outside = self.inside.clone_with_new_data(
-            grid_data=0, probability_space=base.LIN
-        )
+        outside = self.inside.clone_with_new_data(grid_data=0, probability_space=base.LIN)
         for root, span_when_root in self.root_spans.items():
             outside[root] = span_when_root / self.spans[root]
         outside.force_probability_space(self.inside.probability_space)
@@ -1024,9 +1010,7 @@ class EstimationMethod:
             mutations, mut_mean_t, mut_var_t, schemas.default_mutation_schema
         )
         meta_timing -= time.time()
-        logging.info(
-            f"Inserted node and mutation metadata in {abs(meta_timing)} seconds"
-        )
+        logging.info(f"Inserted node and mutation metadata in {abs(meta_timing)} seconds")
         tables.sort()
         return tables.tree_sequence()
 
@@ -1217,9 +1201,7 @@ class VariationalGammaMethod(EstimationMethod):
         fixed_node_set). This is a static method for ease of testing.
         """
 
-        mn_post = np.full(
-            posteriors.shape[0], np.nan
-        )  # Fill with NaNs so we detect when
+        mn_post = np.full(posteriors.shape[0], np.nan)  # Fill with NaNs so we detect when
         va_post = np.full(posteriors.shape[0], np.nan)  # there's been an error
 
         fixed = constraints[:, 0] == constraints[:, 1]

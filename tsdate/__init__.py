@@ -19,18 +19,22 @@
 # LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
-from .cache import *  # NOQA: F401,F403
-from .core import date  # NOQA: F401
-from .core import estimation_methods  # NOQA: F401
-from .core import inside_outside  # NOQA: F401
-from .core import maximization  # NOQA: F401
-from .core import variational_gamma  # NOQA: F401
+from .cache import *  # noqa: F403
+from .core import (
+    date,  # NOQA: F401
+    estimation_methods,  # NOQA: F401
+    inside_outside,  # NOQA: F401
+    maximization,  # NOQA: F401
+    variational_gamma,  # NOQA: F401
+)
 from .prior import parameter_grid as build_parameter_grid  # NOQA: F401
 from .prior import prior_grid as build_prior_grid  # NOQA: F401
 from .provenance import __version__  # NOQA: F401
-from .util import add_sampledata_times  # NOQA: F401
-from .util import preprocess_ts  # NOQA: F401
-from .util import sites_time_from_ts  # NOQA: F401
+from .util import (
+    add_sampledata_times,  # NOQA: F401
+    preprocess_ts,  # NOQA: F401
+    sites_time_from_ts,  # NOQA: F401
+)
 
 # Bit 20 is set in node flags when they are samples not at time zero in the sampledata
 # file. This should match the node flag in tsinfer.

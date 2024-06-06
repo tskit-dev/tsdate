@@ -23,14 +23,9 @@
 """
 Numerically stable implementations of the Gauss hypergeometric function with numba.
 """
+
 import ctypes
-from math import erf
-from math import exp
-from math import lgamma
-from math import log
-from math import pi
-from math import pow
-from math import sqrt
+from math import erf, exp, lgamma, log, pi, pow, sqrt
 
 import numba
 import numpy as np
@@ -40,7 +35,7 @@ _HYP2F1_TOL = 1e-10
 _HYP2F1_MAXTERM = int(1e6)
 
 
-class Invalid2F1(Exception):
+class Invalid2F1(Exception):  # noqa N818
     pass
 
 
@@ -220,7 +215,8 @@ def _hyp2f1_unity(a, b, c, x):
     limits don't converge. A good reference is Buhring 2003 "Partial sums of
     hypergeometric series of unit argument"
     """
-    assert np.isclose(x, 1.0) and x < 1.0
+    assert np.isclose(x, 1.0)
+    assert x < 1.0
 
     g = c - a - b
 

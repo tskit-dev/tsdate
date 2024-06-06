@@ -23,6 +23,7 @@
 """
 Expectation propagation implementation
 """
+
 import logging
 import time
 
@@ -33,22 +34,13 @@ from numba.types import void as _void
 from tqdm.auto import tqdm
 
 from . import approx
-from .approx import _b
-from .approx import _b1r
-from .approx import _f
-from .approx import _f1r
-from .approx import _f1w
-from .approx import _f2r
-from .approx import _f2w
-from .approx import _f3r
-from .approx import _f3w
-from .approx import _i
-from .approx import _i1r
+from .approx import _b, _b1r, _f, _f1r, _f1w, _f2r, _f2w, _f3r, _f3w, _i, _i1r
 from .hypergeo import _gammainc_inv as gammainc_inv
-from .rescaling import edge_sampling_weight
-from .rescaling import mutational_timescale
-from .rescaling import piecewise_scale_posterior
-
+from .rescaling import (
+    edge_sampling_weight,
+    mutational_timescale,
+    piecewise_scale_posterior,
+)
 
 # columns for edge_factors
 ROOTWARD = 0  # edge likelihood to parent
@@ -391,9 +383,7 @@ class ExpectationPropagation:
 
     @staticmethod
     @numba.njit(_f(_b1r, _f2w, _f3w, _f1w, _f, _i, _f))
-    def propagate_prior(
-        free, posterior, factors, scale, max_shape, em_maxitt, em_reltol
-    ):
+    def propagate_prior(free, posterior, factors, scale, max_shape, em_maxitt, em_reltol):
         """
         Update approximating factors for global prior.
 

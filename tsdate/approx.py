@@ -23,15 +23,13 @@
 """
 Tools for approximating combinations of Gamma variates with Gamma distributions
 """
-from math import exp
-from math import inf
-from math import lgamma
-from math import log
+
+from math import exp, inf, lgamma, log
 
 import numba
 import numpy as np
-from numba.types import Tuple as _tuple
-from numba.types import UniTuple as _unituple
+from numba.types import Tuple as _tuple  # noqa N813
+from numba.types import UniTuple as _unituple  # noqa N813
 
 from . import hypergeo
 
@@ -59,7 +57,7 @@ _b1w = numba.types.Array(_b, 1, "C", readonly=False)
 _b1r = numba.types.Array(_b, 1, "C", readonly=True)
 
 
-class KLMinimizationFailed(Exception):
+class KLMinimizationFailed(Exception):  # noqa N818
     pass
 
 
@@ -145,9 +143,7 @@ def approximate_gamma_iqr(q1, q2, x1, x2):
     itt = 0
     while abs(delta) > abs(alpha) * _KLMIN_RELTOL:
         if itt > _KLMIN_MAXITT:
-            raise KLMinimizationFailed(
-                "Maximum iterations reached in quantile matching"
-            )
+            raise KLMinimizationFailed("Maximum iterations reached in quantile matching")
         y1 = hypergeo._gammainc_inv(alpha, q1)
         y2 = hypergeo._gammainc_inv(alpha, q2)
         obj = y2 / y1 - x2 / x1
