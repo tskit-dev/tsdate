@@ -23,11 +23,8 @@
 """
 Tools for approximating combinations of Gamma variates with Gamma distributions
 """
-from math import exp
-from math import inf
-from math import lgamma
-from math import log
-from math import nan
+
+from math import exp, inf, lgamma, log, nan
 
 import numba
 import numpy as np
@@ -69,7 +66,7 @@ _unituple = numba.types.UniTuple
 _void = numba.types.void
 
 
-class KLMinimizationFailed(Exception):
+class KLMinimizationFailedError(Exception):
     pass
 
 
@@ -102,9 +99,11 @@ def approximate_gamma_kl(x, logx):
     Returns the shape and rate of the approximating gamma.
     """
     if x <= 0.0 or np.isinf(logx):
-        raise KLMinimizationFailed("Nonpositive or nonfinite moments")
+        raise KLMinimizationFailedError("Nonpositive or nonfinite moments")
     if not np.log(x) > logx:
-        raise KLMinimizationFailed("log E[t] <= E[log t] violates Jensen's inequality")
+        raise KLMinimizationFailedError(
+            "log E[t] <= E[log t] violates Jensen's inequality"
+        )
     alpha = 0.5 / (np.log(x) - logx)  # lower bound on alpha
     # asymptotically the lower bound becomes sharp
     if 1.0 / alpha < 1e-4:
@@ -115,13 +114,15 @@ def approximate_gamma_kl(x, logx):
     # some small value (e.g. square root of machine precision)
     while np.abs(delta) > np.abs(alpha) * _KLMIN_RELTOL:
         if itt > _KLMIN_MAXITT:
-            raise KLMinimizationFailed("Maximum iterations reached in KL minimization")
+            raise KLMinimizationFailedError(
+                "Maximum iterations reached in KL minimization"
+            )
         delta = hypergeo._digamma(alpha) - np.log(alpha) + np.log(x) - logx
         delta /= hypergeo._trigamma(alpha) - 1 / alpha
         alpha -= delta
         itt += 1
     if not np.isfinite(alpha) or alpha <= 0:
-        raise KLMinimizationFailed("Invalid shape parameter in KL minimization")
+        raise KLMinimizationFailedError("Invalid shape parameter in KL minimization")
     return alpha - 1.0, alpha / x
 
 
@@ -132,7 +133,7 @@ def approximate_gamma_mom(mean, variance):
     same mean and variance, returning natural parameters
     """
     if not (mean > 0.0 and variance > 0.0):
-        raise KLMinimizationFailed("Nonpositive central moments")
+        raise KLMinimizationFailedError("Nonpositive central moments")
     shape = mean**2 / variance
     rate = mean / variance
     return shape - 1.0, rate
@@ -142,7 +143,7 @@ def approximate_gamma_mom(mean, variance):
 def approximate_gamma_iqr(q1, q2, x1, x2):
     """Find gamma natural parameters that match empirical quantiles"""
     if not (q2 > q1 and x2 > x1):
-        raise KLMinimizationFailed("Quantiles must be sorted")
+        raise KLMinimizationFailedError("Quantiles must be sorted")
     # find starting value from asymptotic solutions
     # if x2 / x1 < log(1 - q2) / log(1 - q1):
     #    y1 = hypergeo._erf_inv(2 * q1 - 1) * sqrt(2)
@@ -155,7 +156,7 @@ def approximate_gamma_iqr(q1, q2, x1, x2):
     itt = 0
     while abs(delta) > abs(alpha) * _KLMIN_RELTOL:
         if itt > _KLMIN_MAXITT:
-            raise KLMinimizationFailed(
+            raise KLMinimizationFailedError(
                 "Maximum iterations reached in quantile matching"
             )
         y1 = hypergeo._gammainc_inv(alpha, q1)
@@ -171,7 +172,7 @@ def approximate_gamma_iqr(q1, q2, x1, x2):
         alpha += delta
         itt += 1
     if not alpha > 0:
-        raise KLMinimizationFailed("Negative shape parameter")
+        raise KLMinimizationFailedError("Negative shape parameter")
     beta = hypergeo._gammainc_inv(alpha, q1) / x1
     return alpha - 1, beta
 
@@ -488,9 +489,7 @@ def mutation_moments(a_i, b_i, a_j, b_j, y_ij, mu_ij):
 
     mn_m = s1 * exp(f111 - f000) / t / 2 * (1 + z) + b / t / 2
     sq_m = (
-        d1 * exp(f020 - f000) / 3
-        + d2 * exp(f121 - f000) / 3
-        + d3 * exp(f222 - f000) / 3
+        d1 * exp(f020 - f000) / 3 + d2 * exp(f121 - f000) / 3 + d3 * exp(f222 - f000) / 3
     )
     va_m = sq_m - mn_m**2
 

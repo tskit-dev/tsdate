@@ -23,14 +23,14 @@
 """
 Infer the age of nodes conditional on a tree sequence topology.
 """
+
 import functools
 import itertools
 import logging
 import multiprocessing
 import operator
 import time  # DEBUG
-from collections import defaultdict
-from collections import namedtuple
+from collections import defaultdict, namedtuple
 
 import numba
 import numpy as np
@@ -38,13 +38,7 @@ import scipy.stats
 import tskit
 from tqdm.auto import tqdm
 
-from . import base
-from . import demography
-from . import prior
-from . import provenance
-from . import schemas
-from . import util
-from . import variational
+from . import base, demography, prior, provenance, schemas, util, variational
 
 logger = logging.getLogger(__name__)
 
@@ -83,9 +77,7 @@ class Likelihoods:
     ):
         self.ts = ts
         self.timepoints = timepoints
-        self.fixednodes = (
-            set(ts.samples()) if fixed_node_set is None else fixed_node_set
-        )
+        self.fixednodes = set(ts.samples()) if fixed_node_set is None else fixed_node_set
         self.mut_rate = mutation_rate
         self.rec_rate = recombination_rate
         self.standardize = standardize
@@ -671,9 +663,7 @@ class InOutAlgorithms:
                 if edge.child in self.fixednodes:
                     # NB: geometric scaling works exactly when all nodes fixed in graph
                     # but is an approximation when times are unknown.
-                    daughter_val = self.lik.scale_geometric(
-                        spanfrac, inside[edge.child]
-                    )
+                    daughter_val = self.lik.scale_geometric(spanfrac, inside[edge.child])
                     edge_lik = self.lik.get_fixed(daughter_val, edge)
                 else:
                     inside_values = inside[edge.child]
@@ -706,9 +696,7 @@ class InOutAlgorithms:
         for root, span_when_root in self.root_spans.items():
             spanfrac = span_when_root / self.spans[root]
             root_val = self.lik.scale_geometric(spanfrac, inside[root])
-            marginal_lik = self.lik.combine(
-                marginal_lik, self.lik.marginalize(root_val)
-            )
+            marginal_lik = self.lik.combine(marginal_lik, self.lik.marginalize(root_val))
         return marginal_lik
 
     def outside_pass(
@@ -737,9 +725,7 @@ class InOutAlgorithms:
         if not hasattr(self, "inside"):
             raise RuntimeError("You have not yet run the inside algorithm")
 
-        outside = self.inside.clone_with_new_data(
-            grid_data=0, probability_space=base.LIN
-        )
+        outside = self.inside.clone_with_new_data(grid_data=0, probability_space=base.LIN)
         for root, span_when_root in self.root_spans.items():
             outside[root] = span_when_root / self.spans[root]
         outside.force_probability_space(self.inside.probability_space)
@@ -1031,9 +1017,7 @@ class EstimationMethod:
             mutations, mut_mean_t, mut_var_t, schemas.default_mutation_schema
         )
         meta_timing -= time.time()
-        logger.info(
-            f"Inserted node and mutation metadata in {abs(meta_timing)} seconds"
-        )
+        logger.info(f"Inserted node and mutation metadata in {abs(meta_timing)} seconds")
         sort_timing = time.time()
         tables.sort()
         tables.build_index()

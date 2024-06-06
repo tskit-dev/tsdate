@@ -22,26 +22,28 @@
 """
 Utilities for rescaling time according to a mutational clock
 """
-from math import inf
-from math import log
+
+from math import inf, log
 
 import numba
 import numpy as np
 import tskit
 
-from .approx import _b
-from .approx import _b1r
-from .approx import _f
-from .approx import _f1r
-from .approx import _f1w
-from .approx import _f2r
-from .approx import _f2w
-from .approx import _i
-from .approx import _i1r
-from .approx import _i1w
-from .approx import _tuple
-from .approx import _unituple
-from .approx import approximate_gamma_iqr
+from .approx import (
+    _b,
+    _b1r,
+    _f,
+    _f1r,
+    _f1w,
+    _f2r,
+    _f2w,
+    _i,
+    _i1r,
+    _i1w,
+    _tuple,
+    _unituple,
+    approximate_gamma_iqr,
+)
 from .hypergeo import _gammainc_inv as gammainc_inv
 from .util import mutation_span_array  # NOQA: F401
 
@@ -405,8 +407,10 @@ def mutational_timescale(
     """
 
     assert edges_parent.size == edges_child.size
-    assert likelihoods.shape[0] == edges_parent.size and likelihoods.shape[1] == 2
-    assert constraints.shape[0] == nodes_time.size and constraints.shape[1] == 2
+    assert likelihoods.shape[0] == edges_parent.size
+    assert likelihoods.shape[1] == 2
+    assert constraints.shape[0] == nodes_time.size
+    assert constraints.shape[1] == 2
     assert max_intervals > 0
 
     nodes_fixed = constraints[:, 0] == constraints[:, 1]
@@ -478,7 +482,8 @@ def piecewise_scale_posterior(
 
     def rescale(x):
         i = np.searchsorted(original_breaks, x, "right") - 1
-        assert i.min() >= 0 and i.max() < scalings.size  # DEBUG
+        assert i.min() >= 0  # DEBUG
+        assert i.max() < scalings.size  # DEBUG
         return rescaled_breaks[i] + scalings[i] * (x - original_breaks[i])
 
     midpt = rescale(midpt)
@@ -489,9 +494,7 @@ def piecewise_scale_posterior(
     # TODO: catch rare cases where lower/upper quantiles are nearly identical
     new_posteriors = np.full(posteriors.shape, np.nan)
     for i in np.flatnonzero(freed):
-        alpha, beta = approximate_gamma_iqr(
-            quant_lower, quant_upper, lower[i], upper[i]
-        )
+        alpha, beta = approximate_gamma_iqr(quant_lower, quant_upper, lower[i], upper[i])
         beta = (alpha + 1) / midpt[i]  # choose rate so as to keep mean
         new_posteriors[i] = alpha, beta
 

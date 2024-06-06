@@ -22,29 +22,18 @@
 """
 Tools for phasing singleton mutations
 """
+
 import numba
 import numpy as np
 import tskit
 
-from .approx import _b1r
-from .approx import _b2r
-from .approx import _f
-from .approx import _f1r
-from .approx import _f2w
-from .approx import _i1r
-from .approx import _i1w
-from .approx import _i2r
-from .approx import _i2w
-from .approx import _tuple
-from .approx import _void
+from .approx import _b1r, _b2r, _f, _f1r, _f2w, _i1r, _i1w, _i2r, _i2w, _tuple, _void
 
 # --- machinery used by ExpectationPropagation class --- #
 
 
 @numba.njit(_void(_f2w, _f1r, _i1r, _i2r))
-def reallocate_unphased(
-    edges_likelihood, mutations_phase, mutations_block, blocks_edges
-):
+def reallocate_unphased(edges_likelihood, mutations_phase, mutations_block, blocks_edges):
     """
     Add a proportion of each unphased singleton mutation to one of the two
     edges to which it maps
@@ -63,8 +52,10 @@ def reallocate_unphased(
         if b == tskit.NULL:
             continue
         i, j = blocks_edges[b]
-        assert tskit.NULL < i < num_edges and edges_unphased[i]
-        assert tskit.NULL < j < num_edges and edges_unphased[j]
+        assert tskit.NULL < i < num_edges
+        assert edges_unphased[i]
+        assert tskit.NULL < j < num_edges
+        assert edges_unphased[j]
         if np.isnan(mutations_phase[m]):  # TODO: fix rare numerical issue
             continue
         assert 0.0 <= mutations_phase[m] <= 1.0
@@ -297,7 +288,7 @@ def mutation_frequency(ts, sample_sets=None):
 
     nodes_sample = np.full((ts.num_nodes, len(sample_sets)), False)
     for i, s in enumerate(sample_sets):
-        assert min(s) >= 0 and max(s) < ts.num_samples, "Sample out of range"
+        assert min(s) >= 0 and max(s) < ts.num_samples, "Sample out of range"  # NOQA: PT018
         nodes_sample[s, i] = True
 
     return _mutation_frequency(

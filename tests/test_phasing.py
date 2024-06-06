@@ -24,6 +24,7 @@
 """
 Test cases for the gamma-variational approximations in tsdate
 """
+
 import msprime
 import numpy as np
 import pytest
@@ -31,11 +32,13 @@ import tsinfer
 import tskit
 
 import tsdate
-from tsdate.phasing import block_singletons
-from tsdate.phasing import insert_unphased_singletons
-from tsdate.phasing import mutation_frequency
-from tsdate.phasing import remove_singletons
-from tsdate.phasing import rephase_singletons
+from tsdate.phasing import (
+    block_singletons,
+    insert_unphased_singletons,
+    mutation_frequency,
+    remove_singletons,
+    rephase_singletons,
+)
 
 
 @pytest.fixture(scope="session")
@@ -92,9 +95,7 @@ class TestBlockSingletons:
         blocks_edge = np.array(blocks_edge).reshape(-1, 2)
         blocks_span = np.array(blocks_span).reshape(-1, 2)
         total_span = np.sum([t.interval.span for t in ts.trees() if t.num_edges > 0])
-        total_muts = np.sum(
-            np.logical_or(ts.mutations_node == j, ts.mutations_node == k)
-        )
+        total_muts = np.sum(np.logical_or(ts.mutations_node == j, ts.mutations_node == k))
         assert np.sum(blocks_span[:, 0]) == total_muts
         assert np.sum(blocks_span[:, 1]) == total_span
         return blocks_span, blocks_edge, muts_edges
@@ -108,9 +109,7 @@ class TestBlockSingletons:
         individuals_unphased = np.full(ts.num_individuals, False)
         unphased_individuals = np.arange(0, ts.num_individuals // 2)
         individuals_unphased[unphased_individuals] = True
-        block_stats, block_edges, muts_block = block_singletons(
-            ts, individuals_unphased
-        )
+        block_stats, block_edges, muts_block = block_singletons(ts, individuals_unphased)
         block_edges = block_edges
         singletons = muts_block != tskit.NULL
         muts_edges = np.full((ts.num_mutations, 2), tskit.NULL)
@@ -225,9 +224,7 @@ class TestBlockSingletons:
         """
         ts = inferred_ts
         individuals_unphased = np.full(ts.num_individuals, False)
-        block_stats, block_edges, block_muts = block_singletons(
-            ts, individuals_unphased
-        )
+        block_stats, block_edges, block_muts = block_singletons(ts, individuals_unphased)
         assert block_stats.shape == (0, 2)
         assert block_edges.shape == (0, 2)
         assert np.all(block_muts == tskit.NULL)
@@ -318,7 +315,8 @@ class TestModifySingletons:
         new_frq = mutation_frequency(new_ts)
         num_singletons = np.sum(old_frq == 1)
         assert inferred_ts.num_mutations - num_singletons == new_ts.num_mutations
-        assert np.any(old_frq == 1) and np.all(new_frq > 1)
+        assert np.any(old_frq == 1)
+        assert np.all(new_frq > 1)
 
     def test_insert_unphased_singletons(self, inferred_ts):
         its = inferred_ts

@@ -23,10 +23,10 @@
 """
 Routines and classes for creating priors and timeslices for use in tsdate
 """
+
 import logging
 import os
-from collections import defaultdict
-from collections import namedtuple
+from collections import defaultdict, namedtuple
 
 import numba
 import numpy as np
@@ -36,11 +36,7 @@ import scipy.stats
 import tskit
 from tqdm.auto import tqdm
 
-from . import base
-from . import cache
-from . import demography
-from . import provenance
-from . import util
+from . import base, cache, demography, provenance, util
 
 
 class PriorParams(namedtuple("PriorParamsBase", "alpha, beta, mean, var")):
@@ -244,22 +240,18 @@ class ConditionalCoalescentTimes:
             # NB: it should be possible to vectorize this in numpy
             expectation = self.tau_expect(tips, total_tips)
             alpha, beta = self.func_approx(expectation, var)
-            priors[tips] = PriorParams(
-                alpha=alpha, beta=beta, mean=expectation, var=var
-            )
+            priors[tips] = PriorParams(alpha=alpha, beta=beta, mean=expectation, var=var)
         self.prior_store[total_tips] = priors
 
     def precalculate_priors_for_approximation(self, precalc_approximation_n):
         n = precalc_approximation_n
         logging.warning(
             "Initialising your tsdate installation by creating a user cache of "
-            "conditional coalescent prior values for {} tips".format(n)
+            f"conditional coalescent prior values for {n} tips"
         )
         logging.info(
-            "Creating prior lookup table for a total tree of n={} tips"
-            " in `{}`, this may take some time for large n".format(
-                n, self.get_precalc_cache(n)
-            )
+            f"Creating prior lookup table for a total tree of n={n} tips"
+            f" in `{self.get_precalc_cache(n)}`, this may take some time for large n"
         )
         # The first value should be zero tips, we don't want the 1 tip value
         prior_lookup_table = np.zeros((n, 2))
@@ -274,8 +266,8 @@ class ConditionalCoalescentTimes:
             os.remove(self.get_precalc_cache(self.n_approx))
         else:
             logging.debug(
-                "Precalculated priors in `{}` not yet created, so cannot be"
-                " cleared".format(self.get_precalc_cache(self.n_approx))
+                f"Precalculated priors in `{self.get_precalc_cache(self.n_approx)}`"
+                "not yet created, so cannot be cleared"
             )
 
     @staticmethod
@@ -410,9 +402,7 @@ class ConditionalCoalescentTimes:
                         priors[node] = seen_mixtures[mixture_hash]
                 else:
                     # a large number of mixtures in this node - don't bother caching
-                    priors[node] = self.func_approx(
-                        *self.mixture_expect_and_var(mixture)
-                    )
+                    priors[node] = self.func_approx(*self.mixture_expect_and_var(mixture))
             else:
                 # The node spans trees with multiple total tip numbers,
                 # don't use the cache
@@ -584,10 +574,10 @@ class SpansBySamples:
             else:
                 coverage = 0
                 raise ValueError(
-                    "Node {} is dangling (no descendant samples) at pos {}: "
-                    "this node will have no weight in this region. Run "
-                    "`simplify(keep_unary=False)` before dating this tree "
-                    "sequence".format(node, stored_pos[node])
+                    f"Node {node} is dangling (no descendant samples) at pos "
+                    f"{stored_pos[node]}: this node will have no weight in "
+                    "this region. Run `simplify(keep_unary=False)` before dating "
+                    "this tree sequence"
                 )
             if node in self.sample_node_set:
                 return True
@@ -607,8 +597,8 @@ class SpansBySamples:
                 except ValueError:  # Happens if we have hit the root
                     assert top_node == tskit.NULL
                     logging.debug(
-                        "Unary node `{}` exists above highest coalescence in tree {}."
-                        " Skipping for now".format(node, prev_tree.index)
+                        f"Unary node `{node}` exists above highest coalescence in "
+                        "tree {prev_tree.index}. Skipping for now"
                     )
                     return None
                 # for unary nodes, a proportion of the span is allocated
@@ -810,8 +800,8 @@ class SpansBySamples:
                     continue
                 else:
                     logging.debug(
-                        "Assigning prior to unary node {}: connected to node {} which"
-                        " has a prior in tree {}".format(node, n, tree_id)
+                        f"Assigning prior to unary node {node}: connected to "
+                        f"node {n} which has a prior in tree {tree_id}"
                     )
                     for n_tips, spans in self._spans[n].items():
                         for k, v in spans.items():
@@ -869,10 +859,9 @@ class SpansBySamples:
 
         if self.nodes_remain_to_date():
             raise ValueError(
-                "When finalising node spans, found the following nodes not in any tree;"
-                " you must simplify your tree sequence first: {}".format(
-                    self.nodes_remaining_to_date()
-                )
+                "When finalising node spans, found the following nodes not in "
+                "any tree; you must simplify your tree sequence first:"
+                f"{self.nodes_remaining_to_date()}"
             )
 
         for node, spans_by_total_tips in self._spans.items():
@@ -1084,9 +1073,7 @@ class MixturePrior:
                 "Passed tree sequence is not simplified and/or contains "
                 "noncontemporaneous samples"
             )
-        span_data = SpansBySamples(
-            contmpr_ts, progress=progress, allow_unary=allow_unary
-        )
+        span_data = SpansBySamples(contmpr_ts, progress=progress, allow_unary=allow_unary)
 
         base_priors = ConditionalCoalescentTimes(
             approx_prior_size, prior_distribution, progress=progress
@@ -1120,11 +1107,11 @@ class MixturePrior:
             timepoints = create_timepoints(self.base_priors, timepoints + 1)
         elif isinstance(timepoints, np.ndarray):
             try:
-                timepoints = np.sort(
-                    timepoints.astype(base.FLOAT_DTYPE, casting="safe")
-                )
+                timepoints = np.sort(timepoints.astype(base.FLOAT_DTYPE, casting="safe"))
             except TypeError:
-                raise TypeError("Timepoints array cannot be converted to float dtype")
+                raise TypeError(
+                    "Timepoints array cannot be converted to float dtype"
+                ) from None
             if len(timepoints) < 2:
                 raise ValueError("You must have at least 2 time points")
             elif np.any(timepoints < 0):
@@ -1135,9 +1122,7 @@ class MixturePrior:
             # coalescent timescale to evaluate prior
             timepoints = population_size.to_coalescent_timescale(timepoints)
         else:
-            raise ValueError(
-                "time_slices must be an integer or a numpy array of floats"
-            )
+            raise ValueError("time_slices must be an integer or a numpy array of floats")
 
         # Set all fixed nodes (i.e. samples) to have 0 variance
         priors = fill_priors(
@@ -1286,9 +1271,7 @@ def parameter_grid(
 
 def has_locally_unary_nodes(ts):
     for tree, ediff in zip(ts.trees(), ts.edge_diffs()):
-        changed = {
-            e.parent for edges in (ediff.edges_out, ediff.edges_in) for e in edges
-        }
+        changed = {e.parent for edges in (ediff.edges_out, ediff.edges_in) for e in edges}
         if (tree.num_children_array[list(changed)] == 1).any():
             return True
     return False

@@ -24,7 +24,7 @@ jobs:
       - run:
           name: Lint Python
           command: |
-              flake8 --max-line-length 89 tsdate setup.py tests
+              ruff check --line-length 90 tsdate setup.py tests
       - save_cache:
           key: tsdate-{{ checksum "data/prior_1000df.bak" }} 
           paths:

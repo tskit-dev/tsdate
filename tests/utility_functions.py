@@ -22,6 +22,7 @@
 """
 A collection of utilities to edit and construct tree sequences for testing purposes
 """
+
 import io
 import itertools
 
@@ -1015,16 +1016,15 @@ def truncate_ts_samples(ts, average_span, random_seed, min_span=5):
     of the tree.
     """
 
-    np.random.seed(random_seed)
+    rng = np.random.default_rng(random_seed)
     # Make a list of (left,right) tuples giving the new limits of each sample
     # Keyed by sample ID.
     # for simplicity, we pick lengths from a poisson distribution of av 300 bp
-    span = np.random.poisson(average_span, ts.num_samples)
+    span = rng.poisson(average_span, ts.num_samples)
     span = np.maximum(span, min_span)
     span = np.minimum(span, ts.sequence_length)
-    start = np.random.uniform(0, ts.sequence_length - span)
+    start = rng.uniform(0, ts.sequence_length - span)
     to_slice = {id_: (a, b) for id_, a, b in zip(ts.samples(), start, start + span)}
-
     tables = ts.dump_tables()
     tables.edges.clear()
     for e in ts.tables.edges:

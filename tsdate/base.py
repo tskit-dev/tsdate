@@ -23,6 +23,7 @@
 """
 Base classes and internal constants used by tsdate
 """
+
 import numpy as np
 
 FLOAT_DTYPE = np.float64
@@ -85,19 +86,15 @@ class NodeGridValues:
         self.num_nodes = num_nodes
         self.nonfixed_nodes = nonfixed_nodes
         self.num_nonfixed = len(nonfixed_nodes)
-        self.grid_data = np.full(
-            (self.num_nonfixed, grid_size), fill_value, dtype=dtype
-        )
-        self.fixed_data = np.full(
-            num_nodes - self.num_nonfixed, fill_value, dtype=dtype
-        )
+        self.grid_data = np.full((self.num_nonfixed, grid_size), fill_value, dtype=dtype)
+        self.fixed_data = np.full(num_nodes - self.num_nonfixed, fill_value, dtype=dtype)
         self.row_lookup = np.empty(num_nodes, dtype=np.int64)
         # non-fixed nodes get a positive value, indicating lookup in the grid_data array
         self.row_lookup[nonfixed_nodes] = np.arange(self.num_nonfixed)
         # fixed nodes get a negative value from -1, indicating lookup in the scalar array
-        self.row_lookup[
-            np.logical_not(np.isin(np.arange(num_nodes), nonfixed_nodes))
-        ] = (-np.arange(num_nodes - self.num_nonfixed) - 1)
+        self.row_lookup[np.logical_not(np.isin(np.arange(num_nodes), nonfixed_nodes))] = (
+            -np.arange(num_nodes - self.num_nonfixed) - 1
+        )
         self.probability_space = LIN
 
     def force_probability_space(self, probability_space):
@@ -159,9 +156,7 @@ class NodeGridValues:
         in logarithmic space)
         """
         if self.probability_space != LIN:
-            raise NotImplementedError(
-                "Can only convert to probabilities in linear space"
-            )
+            raise NotImplementedError("Can only convert to probabilities in linear space")
         assert not np.any(self.grid_data < 0)
         self.grid_data = self.grid_data / self.grid_data.sum(axis=1)[:, np.newaxis]
 
