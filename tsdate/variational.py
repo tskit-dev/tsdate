@@ -48,6 +48,7 @@ from .hypergeo import _gammainc_inv as gammainc_inv
 from .rescaling import edge_sampling_weight
 from .rescaling import mutational_timescale
 from .rescaling import piecewise_scale_posterior
+from .util import contains_unary_nodes
 
 
 # columns for edge_factors
@@ -154,6 +155,10 @@ class ExpectationPropagation:
 
     @staticmethod
     def _check_valid_inputs(ts, likelihoods, constraints, mutations_edge):
+        if contains_unary_nodes(ts):
+            raise ValueError(
+                "Tree sequence contains unary nodes, simplify before dating"
+            )
         if likelihoods.shape != (ts.num_edges, 2):
             raise ValueError("Edge likelihoods are the wrong shape")
         if constraints.shape != (ts.num_nodes, 2):

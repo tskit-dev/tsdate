@@ -312,3 +312,38 @@ class TestPreprocessTs:
         assert ts.num_trees == num_trees + first_empty + last_empty
 
     # TODO - test minimum_gap param
+
+
+class TestUnaryNodeCheck:
+    def test_inferred(self):
+        ts = msprime.sim_ancestry(
+            10,
+            population_size=1e4,
+            recombination_rate=1e-8,
+            sequence_length=1e6,
+            random_seed=1,
+        )
+        ts = msprime.sim_mutations(ts, rate=1e-8, random_seed=1)
+        sample_data = tsinfer.SampleData.from_tree_sequence(ts)
+        inferred_ts = tsinfer.infer(sample_data)
+        simplified_ts = inferred_ts.simplify()
+        assert tsdate.util.contains_unary_nodes(inferred_ts)
+        assert not tsdate.util.contains_unary_nodes(simplified_ts)
+        with pytest.raises(ValueError, match="contains unary nodes"):
+            tsdate.date(inferred_ts, mutation_rate=1e-8, method="variational_gamma")
+
+    def test_simulated(self):
+        ts = msprime.sim_ancestry(
+            10,
+            population_size=1e4,
+            recombination_rate=1e-8,
+            sequence_length=1e6,
+            random_seed=1,
+            record_full_arg=True,
+        )
+        ts = msprime.sim_mutations(ts, rate=1e-8, random_seed=1)
+        simplified_ts = ts.simplify()
+        assert tsdate.util.contains_unary_nodes(ts)
+        assert not tsdate.util.contains_unary_nodes(simplified_ts)
+        with pytest.raises(ValueError, match="contains unary nodes"):
+            tsdate.date(ts, mutation_rate=1e-8, method="variational_gamma")

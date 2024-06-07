@@ -33,6 +33,7 @@ from numba.types import UniTuple as _unituple
 
 import tsdate
 from . import provenance
+from .approx import _b
 from .approx import _b1r
 from .approx import _f
 from .approx import _f1r
@@ -706,3 +707,70 @@ def constrain_mutations(ts, nodes_time, mutations_edge):
         logging.info(f"Set ages of {external} nonsegregating mutations to root times.")
 
     return constrained_time
+
+
+@numba.njit(_b(_i1r, _f1r, _f1r, _i1r, _i1r, _f, _i))
+def _contains_unary_nodes(
+    edges_parent,
+    edges_left,
+    edges_right,
+    indexes_insert,
+    indexes_remove,
+    sequence_length,
+    num_nodes,
+):
+    assert edges_parent.size == edges_left.size == edges_right.size
+    assert indexes_insert.size == indexes_remove.size == edges_parent.size
+
+    num_edges = edges_parent.size
+    nodes_children = np.zeros(num_nodes, dtype=np.int32)
+    position_insert = edges_left[indexes_insert]
+    position_remove = edges_right[indexes_remove]
+
+    left = 0.0
+    a, b = 0, 0
+    while a < num_edges or b < num_edges:
+        check = set()
+
+        while b < num_edges and position_remove[b] == left:  # edges out
+            e = indexes_remove[b]
+            p = edges_parent[e]
+            nodes_children[p] -= 1
+            check.add(p)
+            b += 1
+
+        while a < num_edges and position_insert[a] == left:  # edges in
+            e = indexes_insert[a]
+            p = edges_parent[e]
+            nodes_children[p] += 1
+            check.add(p)
+            a += 1
+
+        for p in check:
+            if nodes_children[p] == 1:
+                return True
+
+        right = sequence_length
+        if b < num_edges:
+            right = min(right, position_remove[b])
+        if a < num_edges:
+            right = min(right, position_insert[a])
+        left = right
+
+    return False
+
+
+def contains_unary_nodes(ts):
+    """
+    Check if any node in the tree sequence is unary over some portion of its span
+    """
+
+    return _contains_unary_nodes(
+        ts.edges_parent,
+        ts.edges_left,
+        ts.edges_right,
+        ts.indexes_edge_insertion_order,
+        ts.indexes_edge_removal_order,
+        ts.sequence_length,
+        ts.num_nodes,
+    )
