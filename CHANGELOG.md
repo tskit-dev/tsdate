@@ -1,6 +1,6 @@
 # Changelog
 
-## [0.1.7] - 2024-01-11
+## [0.2.0] - 2024-06-10
 
 **Bugfixes**
 
@@ -9,9 +9,6 @@
 
 - Variational gamma does not use mutational area of branches, but average path
   length, which reduces bias in tree sequences containing polytomies
-
-- In variational gamma, rescale messages at end of each iteration to avoid numerical
-  instability.
 
 **Breaking changes**
 
@@ -32,6 +29,14 @@
 - The `ignore-oldest` option has been removed from the command-line interface,
   as it is no longer very helpful with new _tsinfer_ output, which has the root
   node split. The option is still accessible from the Python API.
+
+
+## [0.1.7] - 2024-01-11
+
+**Bugfixes**
+
+- In variational gamma, rescale messages at end of each iteration to avoid numerical
+  instability.
 
 ## [0.1.6] - 2024-01-07
 
