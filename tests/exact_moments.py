@@ -13,8 +13,8 @@ def moments(a_i, b_i, a_j, b_j, y_ij, mu_ij):
     """
     log p(t_i, t_j) := \
         log(t_i - t_j) * y_ij - mu_ij * (t_i - t_j) + \
-        log(t_i) * (a_i - 1) - mu_ij * t_i + \
-        log(t_j) * (a_j - 1) - mu_ij * t_j
+        log(t_i) * (a_i - 1) - b_i * t_i + \
+        log(t_j) * (a_j - 1) - b_j * t_j
     """
     a = a_j
     b = a_i + a_j + y_ij
@@ -35,10 +35,10 @@ def moments(a_i, b_i, a_j, b_j, y_ij, mu_ij):
 
 
 def rootward_moments(t_j, a_i, b_i, y_ij, mu_ij):
-    r"""
+    """
     log p(t_i) := \
         log(t_i - t_j) * y_ij - mu_ij * (t_i - t_j) + \
-        log(t_i) * (a_i - 1) - mu_ij * t_i 
+        log(t_i) * (a_i - 1) - b_i * t_i 
     """
     assert t_j >= 0.0
     s = a_i + y_ij
@@ -63,10 +63,10 @@ def rootward_moments(t_j, a_i, b_i, y_ij, mu_ij):
 
 
 def leafward_moments(t_i, a_j, b_j, y_ij, mu_ij):
-    r"""
+    """
     log p(t_j) := \
         log(t_i - t_j) * y_ij - mu_ij * (t_i - t_j) + \
-        log(t_j) * (a_j - 1) - mu_ij * t_j
+        log(t_j) * (a_j - 1) - b_j * t_j
     """
     assert t_i > 0.0
     a = a_j
@@ -85,11 +85,11 @@ def leafward_moments(t_i, a_j, b_j, y_ij, mu_ij):
 
 
 def unphased_moments(a_i, b_i, a_j, b_j, y_ij, mu_ij):
-    r"""
+    """
     log p(t_i, t_j) := \
         log(t_i + t_j) * y_ij - mu_ij * (t_i + t_j) + \
-        log(t_i) * (a_i - 1) - mu_ij * t_i + \
-        log(t_j) * (a_j - 1) - mu_ij * t_j
+        log(t_i) * (a_i - 1) - b_i * t_i + \
+        log(t_j) * (a_j - 1) - b_j * t_j
     """
     a = a_j
     b = a_i + a_j + y_ij
@@ -114,11 +114,10 @@ def unphased_moments(a_i, b_i, a_j, b_j, y_ij, mu_ij):
 
 
 def unphased_rightward_moments(t_i, a_j, b_j, y_ij, mu_ij):
-    r"""
-    log p(t_i, t_j) := \
+    """
+    log p(t_j) := \
         log(t_i + t_j) * y_ij - mu_ij * (t_i + t_j) + \
-        log(t_i) * (a_i - 1) - mu_ij * t_i + \
-        log(t_j) * (a_j - 1) - mu_ij * t_j
+        log(t_j) * (a_j - 1) - b_j * t_j
     """
     assert t_i > 0.0
     a = a_j
@@ -133,12 +132,12 @@ def unphased_rightward_moments(t_i, a_j, b_j, y_ij, mu_ij):
 
 
 def mutation_moments(a_i, b_i, a_j, b_j, y_ij, mu_ij):
-    r"""
+    """
     log p(t_m, t_i, t_j) := \
         log(t_i - t_j) * y_ij - mu_ij * (t_i - t_j) + \
-        log(t_i) * (a_i - 1) - mu_ij * t_i + \
-        log(t_j) * (a_j - 1) - mu_ij * t_j - \
-        log(t_i - t_j) * int(t_j < t_m < t_i)
+        log(t_i) * (a_i - 1) - b_i * t_i + \
+        log(t_j) * (a_j - 1) - b_j * t_j - \
+        log(t_i - t_j) + log(int(t_j < t_m < t_i))
     """
     a = a_j
     b = a_i + a_j + y_ij
@@ -162,11 +161,11 @@ def mutation_moments(a_i, b_i, a_j, b_j, y_ij, mu_ij):
 
 
 def mutation_rootward_moments(t_j, a_i, b_i, y_ij, mu_ij):
-    r"""
+    """
     log p(t_m, t_i) := \
         log(t_i - t_j) * y_ij - mu_ij * (t_i - t_j) + \
-        log(t_i) * (a_i - 1) - mu_ij * t_i + \
-        log(t_i - t_j) * int(t_j < t_m < t_i)
+        log(t_i) * (a_i - 1) - b_i * t_i + \
+        log(t_i - t_j) + log(int(t_j < t_m < t_i))
     """
     logl, mn_i, va_i = rootward_moments(t_j, a_i, b_i, y_ij, mu_ij)
     mn_m = mn_i / 2 + t_j / 2
@@ -176,14 +175,82 @@ def mutation_rootward_moments(t_j, a_i, b_i, y_ij, mu_ij):
 
 
 def mutation_leafward_moments(t_i, a_j, b_j, y_ij, mu_ij):
-    r"""
+    """
     log p(t_m, t_j) := \
         log(t_i - t_j) * y_ij - mu_ij * (t_i - t_j) + \
-        log(t_j) * (a_j - 1) - mu_ij * t_j - \
-        log(t_i - t_j) * int(t_j < t_m < t_i)
+        log(t_j) * (a_j - 1) - b_j * t_j - \
+        log(t_i - t_j) + log(int(t_j < t_m < t_i))
     """
     logl, mn_j, va_j = leafward_moments(t_i, a_j, b_j, y_ij, mu_ij)
     mn_m = mn_j / 2 + t_i / 2
     sq_m = (va_j + mn_j**2 + mn_j * t_i + t_i**2) / 3
     va_m = sq_m - mn_m**2
     return mn_m, va_m
+
+
+def unphased_mutation_moments(a_i, b_i, a_j, b_j, y_ij, mu_ij):
+    """
+    log p(t_m, t_i, t_j) := \
+        log(t_i + t_j) * y_ij - mu_ij * (t_i + t_j) + \
+        log(t_i) * (a_i - 1) - b_i * t_i + \
+        log(t_j) * (a_j - 1) - b_j * t_j + \
+        log(t_i / (t_i + t_j) * int(0 < t_m < t_i) + \
+            t_j / (t_i + t_j) * int(0 < t_m < t_j))
+    """
+    a = a_j
+    b = a_j + a_i + y_ij
+    c = a_j + a_i
+    t = mu_ij + b_i
+    z = (mu_ij + b_j) / t
+    f000 = float(mpmath.log(mpmath.hyp2f1(a + 0, b + 0, c + 0, 1 - z)))
+    f001 = float(mpmath.log(mpmath.hyp2f1(a + 0, b + 0, c + 1, 1 - z)))
+    f012 = float(mpmath.log(mpmath.hyp2f1(a + 0, b + 1, c + 2, 1 - z)))
+    f023 = float(mpmath.log(mpmath.hyp2f1(a + 0, b + 2, c + 3, 1 - z)))
+    f212 = float(mpmath.log(mpmath.hyp2f1(a + 2, b + 1, c + 2, 1 - z)))
+    f323 = float(mpmath.log(mpmath.hyp2f1(a + 3, b + 2, c + 3, 1 - z)))
+    s0 = b / t / c / (c + 1)
+    s1 = (c - a) * (c - a + 1)
+    s2 = a * (a + 1)
+    d0 = s0 * (b + 1) / t / (c + 2)
+    d1 = s1 * (c - a + 2)
+    d2 = s2 * (a + 2)
+    mn_m = s0 * s1 * exp(f012 - f000) / 2 + s0 * s2 * exp(f212 - f000) / 2
+    sq_m = d0 * d1 * exp(f023 - f000) / 3 + d0 * d2 * exp(f323 - f000) / 3
+    va_m = sq_m - mn_m**2
+    pr_m = (c - a) / c * exp(f001 - f000)
+    return pr_m, mn_m, va_m
+
+
+def unphased_mutation_rightward_moments(t_i, a_j, b_j, y_ij, mu_ij):
+    """
+    log p(t_m, t_j) := \
+        log(t_i + t_j) * y_ij - mu_ij * (t_i + t_j) + \
+        log(t_j) * (a_j - 1) - b_j * t_j + \
+        log(t_i / (t_i + t_j) * int(0 < t_m < t_i) + \
+            t_j / (t_i + t_j) * int(0 < t_m < t_j))
+    """
+    a = a_j
+    b = a_j + y_ij + 1
+    z = t_i * (mu_ij + b_j)
+    f00 = float(mpmath.log(mpmath.hyperu(a + 0, b + 0, z)))
+    f10 = float(mpmath.log(mpmath.hyperu(a + 1, b + 0, z)))
+    f21 = float(mpmath.log(mpmath.hyperu(a + 2, b + 1, z)))
+    f32 = float(mpmath.log(mpmath.hyperu(a + 3, b + 2, z)))
+    pr_m = 1.0 - exp(f10 - f00) * a
+    mn_m = pr_m * t_i / 2 + t_i * exp(f21 - f00) * a * (a + 1) / 2
+    sq_m = pr_m * t_i ** 2 / 3 + t_i ** 2 * exp(f32 - f00) * a * (a + 1) * (a + 2) / 3
+    va_m = sq_m - mn_m**2
+    return pr_m, mn_m, va_m
+
+
+def unphased_mutation_fixed_moments(t_i, t_j):
+    """
+    log p(t_m) := \
+        log(t_i / (t_i + t_j) * int(0 < t_m < t_i) + \
+            t_j / (t_i + t_j) * int(0 < t_m < t_j))
+    """
+    pr_m = t_i / (t_i + t_j)
+    mn_m = pr_m * t_i / 2 + (1 - pr_m) * t_j / 2
+    sq_m = pr_m * t_i ** 2 / 3 + (1 - pr_m) * t_j ** 2 / 3 
+    va_m = sq_m - mn_m**2
+    return pr_m, mn_m, va_m

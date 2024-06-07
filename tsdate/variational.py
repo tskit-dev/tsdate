@@ -187,6 +187,7 @@ class ExpectationPropagation:
             posterior_check[p] += edge_factors[i, ROOTWARD]
             posterior_check[c] += edge_factors[i, LEAFWARD]
         # TODO: unphased factors
+        assert False
         posterior_check += node_factors[:, MIXPRIOR]
         posterior_check += node_factors[:, CONSTRNT]
         return np.allclose(posterior_check, posterior)
@@ -243,10 +244,14 @@ class ExpectationPropagation:
         # mutable
         self.node_factors = np.zeros((ts.num_nodes, 2, 2))
         self.edge_factors = np.zeros((ts.num_edges, 2, 2))
-        #self.unph_factors = np.zeros((..., 2, 2)) #TODO
+        self.block_factors = np.zeros((num_blocks, 2, 2)) #TODO
         self.posterior = np.zeros((ts.num_nodes, 2))
+        #self.mutation_posterior = np.full((ts.num_mutations, np.nan))
         self.log_partition = np.zeros(ts.num_edges)
+        #self.edge_logconst = ...
+        #self.block_logconst = ...
         self.scale = np.ones(ts.num_nodes)
+        assert False
 
         # terminal nodes
         has_parent = np.full(ts.num_nodes, False)
@@ -260,6 +265,8 @@ class ExpectationPropagation:
 
         # edge traversal order
         edges = np.arange(ts.num_edges, dtype=np.int32)
+        # TODO: mask singleton edges
+        assert False
         self.edge_order = np.concatenate((edges[:-1], np.flip(edges)))
         self.edge_weights = edge_sampling_weight(
             self.leaves,
@@ -270,6 +277,7 @@ class ExpectationPropagation:
             ts.indexes_edge_insertion_order,
             ts.indexes_edge_removal_order,
         )
+        self.block_order = np.arange(num_blocks, dtype=np.int32)
 
     @staticmethod
     @numba.njit(_f(_i1r, _i1r, _i1r, _f2r, _f2r, _f2w, _f3w, _f1w, _f1w, _f, _f))
@@ -322,6 +330,14 @@ class ExpectationPropagation:
         def posterior_damping(x):
             return _rescale(x, max_shape)
 
+        # TODO
+        # in "unphased" mode, edges are singleton blocks, and the two parents
+        # of each block are given by "parents" and "children"
+        assert False
+        leafward_projection = approx.leafward_projection if unphased else approx.unphased_fixed_projection
+        rootward_projection = approx.rootward_projection if unphased else approx.unphased_fixed_projection
+        gamma_projection = approx.gamma_projection if unphased else approx.unphased_projection
+
         fixed = constraints[:, LOWER] == constraints[:, UPPER]
 
         for i in edge_order:
@@ -338,7 +354,7 @@ class ExpectationPropagation:
 
                 # match moments and update factor
                 parent_age = constraints[p, LOWER]
-                lognorm[i], posterior[c] = approx.leafward_projection(
+                lognorm[i], posterior[c] = leafward_projection(
                     parent_age, child_cavity, edge_likelihood, 
                 )
                 factors[i, LEAFWARD] *= 1.0 - child_delta
@@ -358,7 +374,7 @@ class ExpectationPropagation:
 
                 # match moments and update factor
                 child_age = constraints[c, LOWER]
-                lognorm[i], posterior[p] = approx.rootward_projection(
+                lognorm[i], posterior[p] = rootward_projection(
                     child_age, parent_cavity, edge_likelihood, 
                 )
 
@@ -382,7 +398,7 @@ class ExpectationPropagation:
                 edge_likelihood = delta * likelihoods[i]
 
                 # match moments and update factors
-                lognorm[i], posterior[p], posterior[c] = approx.gamma_projection(
+                lognorm[i], posterior[p], posterior[c] = gamma_projection(
                     parent_cavity, child_cavity, edge_likelihood, 
                 )
                 factors[i, ROOTWARD] *= 1.0 - delta
@@ -458,49 +474,11 @@ class ExpectationPropagation:
 
         return np.nan
 
-    # @staticmethod
-    # @numba.njit(_f(_i2r, _i1r, _f2r, _f2w, _f3w, _f1w, _f))
-    # def propagate_unphased_likelihoods(
-    #     parents, individual, likelihoods, posterior, factors, scale, max_shape
-    # ):
-    #     """
-    #     Update approximating factors for unphased singletons.
-
-    #     :param ndarray parents: rows are unphased intervals, columns are first
-    #         and second parents of an individual over that interval.
-    #     :param ndarray individual: the individual associated with each
-    #         unphased interval.
-    #     :param ndarray likelihoods: rows are unphased intervals, columns are 
-    #         number of singleton mutations and interval span.
-    #     :param ndarray posterior: rows are nodes, columns are first and
-    #         second natural parameters of gamma posteriors. Updated in
-    #         place.
-    #     :param ndarray factors: rows are unphased intervals, columns index
-    #         different types of updates. Updated in place.
-    #     :param ndarray scale: array of dimension `[num_nodes]` containing a
-    #         scaling factor for the posteriors, updated in-place.
-    #     :param float max_shape: the maximum allowed shape for node posteriors.
-    #     """
-
-    #     # TODO assert ???
-    #     assert max_shape >= 1.0
-    #     assert 0.0 < min_step < 1.0
-
-    #     def cavity_damping(x, y):
-    #         return _damp(x, y, min_step)
-
-    #     def posterior_damping(x):
-    #         return _rescale(x, max_shape)
-
-    #     # TODO copy from propagate_likelihood...
-
-    #     # TODO copy from propagate_likelihood...
-
-    #     return np.nan
-
+    # TODO add arguments, void return
     @staticmethod
     @numba.njit(_f2w(_i1r, _i1r, _i1r, _f2r, _f2r, _f2r, _f3r, _f1r))
     def propagate_mutations(
+        TODO,
         mutations_edge,
         edges_parent,
         edges_child,
@@ -512,6 +490,11 @@ class ExpectationPropagation:
     ):
         """
         Calculate posteriors for mutations.
+
+        :param ndarray mutations_order: integer array giving order in
+            which to traverse mutations
+        :param ndarray mutations_posterior: array of dimension `[num_mutations, 2]`
+            containing natural parameters for each mutation
 
         :param ndarray mutations_edge: integer array giving edge for each
             mutation
@@ -539,20 +522,23 @@ class ExpectationPropagation:
         assert factors.shape == (edges_parent.size, 2, 2)
         assert likelihoods.shape == (edges_parent.size, 2)
 
-        mutations_posterior = np.zeros((mutations_edge.size, 2))
+        #mutations_posterior = np.zeros((mutations_edge.size, 2))
+        #pass in mutations posterior filled with nan TODO
         fixed = constraints[:, LOWER] == constraints[:, UPPER]
-        for m, i in enumerate(mutations_edge):
-            if i == tskit.NULL:  # skip mutations above root
-                mutations_posterior[m] = np.nan
+        for m in mutations_order:
+            i = mutations_edge[m]
+            if i == tskit.NULL:  # skip mutations above root or unphased
                 continue
-            # TODO: if unphased skip, set to nan
             p, c = edges_parent[i], edges_child[i]
             if fixed[p] and fixed[c]:
                 child_age = constraints[c, 0]
                 parent_age = constraints[p, 0]
-                mean = 1 / 2 * (child_age + parent_age)
-                variance = 1 / 12 * (parent_age - child_age) ** 2
-                mutations_posterior[m] = approx.approximate_gamma_mom(mean, variance)
+                mutations_posterior[m] = approx.mutation_fixed_projection(
+                  parent_age, child_age
+                )
+                #mean = 1 / 2 * (child_age + parent_age)
+                #variance = 1 / 12 * (parent_age - child_age) ** 2
+                #mutations_posterior[m] = approx.approximate_gamma_mom(mean, variance)
             elif fixed[p] and not fixed[c]:
                 child_message = factors[i, LEAFWARD] * scale[c]
                 child_delta = 1.0  # hopefully we don't need to damp
@@ -586,10 +572,7 @@ class ExpectationPropagation:
 
         return mutations_posterior
 
-    # @staticmethod
-    # @numba.njit(_f(_i2r, _i1r, _f2r, _f2w, _f3w, _f1w, _f))
-    # def propagate_unphased_mutations()
-
+    # TODO more arguments, blck_factors and block_parents
     @staticmethod
     @numba.njit(_void(_i1r, _i1r, _f3w, _f3w, _f1w))
     def rescale_factors(edges_parent, edges_child, node_factors, edge_factors, scale):
@@ -597,11 +580,11 @@ class ExpectationPropagation:
         p, c = edges_parent, edges_child
         edge_factors[:, ROOTWARD] *= scale[p, np.newaxis]
         edge_factors[:, LEAFWARD] *= scale[c, np.newaxis]
+        j, k = block_parents
+        block_factors[:, ROOTWARD] *= scale[j, np.newaxis]
+        block_factors[:, LEAFWARD] *= scale[k, np.newaxis]
         node_factors[:, MIXPRIOR] *= scale[:, np.newaxis]
         node_factors[:, CONSTRNT] *= scale[:, np.newaxis]
-        # TODO: unphased factors
-        #unph_factors[:, FIRSTPAR] *= scale[:, np.newaxis]
-        #unph_factors[:, SECNDPAR] *= scale[:, np.newaxis]
         scale[:] = 1.0
 
     def iterate(
@@ -615,8 +598,18 @@ class ExpectationPropagation:
         check_valid=False,
     ):
         # TODO: pass through unphased intervals
-        #self.propagate_unphased(
-        #    ...
+        #self.propagate_likelihood(
+        #    self.block_order,
+        #    self.block_parents[0],
+        #    self.block_parents[1],
+        #    self.block_likelihoods,
+        #    self.constraints,
+        #    self.block_factors,
+        #    self.block_log_partition,
+        #    self.scale,
+        #    max_shape,
+        #    min_step,
+        #    USE_BLOCK_LIKELIHOOD,
         #)
 
         # rootward + leafward pass through edges
@@ -632,6 +625,7 @@ class ExpectationPropagation:
             self.scale,
             max_shape,
             min_step,
+            USE_EDGE_LIKELIHOOD,
         )
 
         # exponential regularization on roots

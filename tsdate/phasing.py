@@ -25,10 +25,6 @@ Tools for phasing singleton mutations
 import numpy as np
 import tskit
 
-#def _mutations_frequency(ts):
-#
-#def mutations_frequency(ts):
-
 def remove_singletons(ts):
     """
     Remove all singleton mutations from the tree sequence.
@@ -72,7 +68,7 @@ def remove_singletons(ts):
 
 def rephase_singletons(ts, use_node_times=True, random_seed=None):
     """
-    Rephase singleton mutations in the tree sequence. How If `use_node_times`
+    Rephase singleton mutations in the tree sequence. If `use_node_times`
     is True, singletons are added to permissable branches with probability
     proportional to the branch length (and with equal probability otherwise).
     """
@@ -177,4 +173,4 @@ def accumulate_unphased(edges_mutations, mutations_phase, mutations_block, block
     return edges_mutations
         
 
-
+# TODO: mutation sort order
