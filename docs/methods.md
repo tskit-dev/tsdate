@@ -68,6 +68,8 @@ Pros
 : Old nodes do not suffer from time-discretisation issues caused by forcing
     bounds on the oldest times
 : Iterative updating properly accounts for cycles in the genealogy
+: No need to specify prior times
+: Can account for variable population sizes using rescaling
 
 Cons
 : Assumes posterior times can be reasonably modelled by gamma distributions
@@ -115,8 +117,15 @@ ts = tsdate.date(input_ts, mutation_rate=1e-8, progress=True)
 (sec_rescaling)=
 #### Rescaling
 
-The `variational_gamma` method implements a step that we call *rescaling*, which can account for
-the effects of variable population size though time.
+During each EP step, the `variational_gamma` method implements a further process
+that we call *rescaling*, and which can help to deal with the effects of variable population
+size though time. Basically, time is broken up into a number of intervals, and times within
+intervals are simultaneously scaled such that the expected density of mutations along each
+path from a sample to the root best matches the mutational density predicted from the
+user-provided mutation rate. The number of intervals can be specified using the
+`rescaling_intervals` parameter. If set to 0, no rescaling is performed; this means that
+dates may be inaccurately estimated if the dataset comes from a set of samples with a complex
+demographic history.
 
 TODO: describe the rescaling step in more detail. Could also link to [the population size docs](sec_popsize)
 
