@@ -114,7 +114,12 @@ ts = tsdate.date(input_ts, mutation_rate=1e-8, progress=True)
 (sec_rescaling)=
 #### Rescaling
 
-TODO: briefly describe the rescaling step. Could also link to [the population size docs](sec_popsize)
+The `variational_gamma` method implements a step that we call *rescaling*, which can account for
+the effects of variable population sizes though time.
+
+TODO: describe the rescaling step in more detail. Could also link to [the population size docs](sec_popsize)
+
+
 
 (sec_methods_discrete_time)=
 
