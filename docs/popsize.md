@@ -128,7 +128,8 @@ import tsdate
 est_pop_size = ts.diversity() / (4 * mutation_rate)  # calculate av Ne from data
 redated_ts = tsdate.inside_outside(ts, mutation_rate=mutation_rate, population_size=est_pop_size)
 unconstr_times = [nd.metadata.get("mn", nd.time) for nd in redated_ts.nodes()]
-plot_real_vs_tsdate_times(ts.nodes_time, unconstr_times, ts, redated_ts, delta=1000, alpha=0.1)
+fig, ax = plt.subplots(1, 1, figsize=(15, 3))
+plot_real_vs_tsdate_times(ax, ts.nodes_time, unconstr_times, ts, redated_ts, alpha=0.1)
 ```
 
 If you cannot use the `variational_gamma` method, 
@@ -173,7 +174,8 @@ gives a much better fit to the true times:
 ```{code-cell} ipython3
 prior = tsdate.build_prior_grid(ts, popsize)
 redated_ts = tsdate.inside_outside(ts, mutation_rate=mutation_rate, priors=prior)
-plot_real_vs_tsdate_times(ts.nodes_time, redated_ts.nodes_time, ts, redated_ts, delta=1000, alpha=0.1)
+fig, ax = plt.subplots(1, 1, figsize=(15, 3))
+plot_real_vs_tsdate_times(ax, ts.nodes_time, redated_ts.nodes_time, ts, redated_ts, alpha=0.1)
 ```
 
 ## Estimating population size
