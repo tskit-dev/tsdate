@@ -1,4 +1,5 @@
 appdirs
+demesdraw
 attrs
 matplotlib
 mpmath
