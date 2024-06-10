@@ -84,7 +84,7 @@ Cons
 The `variational_gamma` method approximates times by fitting separate gamma
 distributions for each node, in a similar spirit to {cite:t}`schweiger2023ultra`.
 The directed graph that represents the genealogy can (in its undirected form) contain
-cycles, so a technique called "expectation propagation" is used, in which
+cycles, so a technique called "expectation propagation" (EP) is used, in which
 local estimates to each gamma distribution are iteratively refined until
 they converge to a stable solution.  This comes under a class of approaches
 sometimes known as "loopy belief propagation".
@@ -102,7 +102,8 @@ The iterative expectation propagation should converge to a fixed
 point that approximately minimizes Kullback-Leibler divergence between the true posterior
 distribution and the approximation {cite}`minka2001expectation`.
 At the moment a relatively large number of iterations are used (which testing indicates is
-more than enough; this can be changed using the ``) but convergence is not formally checked.
+more than enough, but which can be also changed by using the `max_iterations` parameter);
+however, convergence is not formally checked.
 A stopping criterion will be implemented in future releases.
 
 Progress through iterations can be output using the progress bar:
@@ -115,7 +116,7 @@ ts = tsdate.date(input_ts, mutation_rate=1e-8, progress=True)
 #### Rescaling
 
 The `variational_gamma` method implements a step that we call *rescaling*, which can account for
-the effects of variable population sizes though time.
+the effects of variable population size though time.
 
 TODO: describe the rescaling step in more detail. Could also link to [the population size docs](sec_popsize)
 

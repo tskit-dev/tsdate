@@ -28,60 +28,93 @@ selection. The [rescaling](sec_rescaling) step of _tsdate_ attempts to distribut
 the mutation rate over time is reasonably constant. Assuming this is a good approximation, the inverse coalescence rate in a dated tree sequence can be used to infer historical processes.
 
 To illustrate this, we will generate data from a population that was large
-in recent history, but had a small bottleneck of only 200 individuals
-50,000 generations ago, with a medium-sized population before that:
+in recent history, but had a small bottleneck of only 100 individuals
+10 thousand generations ago, lasting for (say) 80 generations,
+with a medium-sized population before that:
 
 ```{code-cell} ipython3
 import msprime
+import demesdraw
+from matplotlib import pyplot as plt
 
 demography = msprime.Demography()
-demography.add_population(name="A", initial_size=1e6)
-demography.add_population_parameters_change(time=50000, initial_size=2e2)
-demography.add_population_parameters_change(time=50010, initial_size=1e4)
+demography.add_population(name="Population", initial_size=5e4)
+demography.add_population_parameters_change(time=10000, initial_size=100)
+demography.add_population_parameters_change(time=10080, initial_size=2e3)
 
 mutation_rate = 1e-8
 # Simulate a short tree sequence with a population size history.
 ts = msprime.sim_ancestry(
-    10, sequence_length=1e5, recombination_rate=2e-8, demography=demography, random_seed=123)
-ts = msprime.sim_mutations(ts, rate=mutation_rate, random_seed=123)
+    10, sequence_length=2e6, recombination_rate=2e-8, demography=demography, random_seed=321)
+ts = msprime.sim_mutations(ts, rate=mutation_rate, random_seed=321)
+fig, ax = plt.subplots(1, 1, figsize=(4, 6))
+demesdraw.tubes(demography.to_demes(), ax, scale_bar=True)
+ax.annotate("bottleneck", xy=(0, 8e3), xytext=(1e4, 8.2e3), arrowprops=dict(arrowstyle="->"))
 ```
 
-We can redate the known (true) tree sequence topology, which replaces the true node and mutation
-times with estimates from the dating algorithm. If we plot the coalescences implied by these
-estimated dates, we can see that they accurately reflect the true demographic history
+To test how well tsdate does in this situation, we can redate the known (true) tree sequence topology,
+which replaces the true node and mutation times with estimates from the dating algorithm. 
 
 ```{code-cell} ipython3
 import tsdate
 redated_ts = tsdate.date(ts, mutation_rate=mutation_rate)
-
-#TODO: plot coalescence rate and its inverse (estimate of Ne)
-
 ```
 
-
-Since we have the true times, we can also plot how well we have estimated the node dates.
+If we plot true node time against tsdate-estimated node time for
+each node in the tree sequence, we can see that the _tsdate_ estimates
+are pretty much in line with the truth, although there is a a clear band
+which is difficult to date at 10,000 generations, corresponding to the
+instantaneous change in population size at that time.
 
 ```{code-cell} ipython3
 :tags: [hide-input]
-from matplotlib import pyplot as plt
 import numpy as np
-def plot_real_vs_tsdate_times(x, y, ts_x=None, ts_y=None, delta = 0.1, **kwargs):
+
+fig, axes = plt.subplots(1, 2, figsize=(10, 5))
+def plot_real_vs_tsdate_times(ax, x, y, ts_x=None, ts_y=None, plot_zeros=False, title=None, **kwargs):
     x, y = np.array(x), np.array(y)
-    plt.scatter(x + delta, y + delta, **kwargs)
-    plt.xscale('log')
-    plt.xlabel(f'Real time' + ('' if ts_x is None else f' ({ts_x.time_units})'))
-    plt.yscale('log')
-    plt.ylabel(f'Estimated time from tsdate'+ ('' if ts_y is None else f' ({ts_y.time_units})'))
-    line_pts = np.logspace(np.log10(delta), np.log10(x.max()), 10)
-    plt.plot(line_pts, line_pts, linestyle=":")
+    if plot_zeros is False:
+        x, y = x[(x * y) > 0], y[(x * y) > 0]
+    ax.scatter(x, y, **kwargs)
+    ax.set_xscale('log')
+    ax.set_xlabel(f'Real time' + ('' if ts_x is None else f' ({ts_x.time_units})'))
+    ax.set_yscale('log')
+    ax.set_ylabel(f'Estimated time from tsdate'+ ('' if ts_y is None else f' ({ts_y.time_units})'))
+    line_pts = np.logspace(np.log10(x.min()), np.log10(x.max()), 10)
+    ax.plot(line_pts, line_pts, linestyle=":")
+    if title:
+      ax.set_title(title)
 
 unconstr_times = [nd.metadata.get("mn", nd.time) for nd in redated_ts.nodes()]
-plot_real_vs_tsdate_times(ts.nodes_time, unconstr_times, ts, redated_ts, delta=1000, alpha=0.1)
+plot_real_vs_tsdate_times(
+  axes[0], ts.nodes_time, unconstr_times, ts, redated_ts, alpha=0.1, title="With rescaling")
+redated_unscaled_ts = tsdate.date(ts, mutation_rate=mutation_rate, rescaling_intervals=0)
+unconstr_times2 = [nd.metadata.get("mn", nd.time) for nd in redated_unscaled_ts.nodes()]
+plot_real_vs_tsdate_times(
+  axes[1], ts.nodes_time, unconstr_times2, ts, redated_ts, alpha=0.1, title="Without rescaling")
 ```
 
-There's a clear band which is difficult to date at 50,000 generations, corresponding to the
-instantaneous change in population size at that time. Nevertheless, the estimates times are
-pretty much in line with the truth.
+The plot on the right is from running _tsdate_ without the [rescaling](sec_rescaling) step.
+It is clear that for populations with variable sizes over time, rescaling can help considerably
+in obtaining correct date estimations.
+
+
+<!--
+Since each node in this simulation corresponds to a coalescence, the node times can also
+be used to calculate the rate of coalescence over time, or its inverse (which
+in a panmictic population is a measure of effective population size). We can compare
+this to the actual population size in the simulation, to see how well we can infer
+historical population sizes:
+
+```{code-cell} ipython3
+fig, ax = plt.subplots(1, 1, figsize=(15, 3))
+demesdraw.size_history(demography.to_demes(), ax, log_size=True, inf_ratio=0.2)
+ax.set_ylabel("Population size", rotation=90);
+
+#TODO: add inverse coalescence rate and its inverse (estimate of Ne)
+```
+-->
+
 
 ## Misspecified priors
 
@@ -92,10 +125,11 @@ these perform very poorly on such data:
 
 ```{code-cell} ipython3
 import tsdate
-est_pop_size = 10_000  # use the ancestral size of 
+est_pop_size = ts.diversity() / (4 * mutation_rate)  # calculate av Ne from data
 redated_ts = tsdate.inside_outside(ts, mutation_rate=mutation_rate, population_size=est_pop_size)
 unconstr_times = [nd.metadata.get("mn", nd.time) for nd in redated_ts.nodes()]
-plot_real_vs_tsdate_times(ts.nodes_time, unconstr_times, ts, redated_ts, delta=1000, alpha=0.1)
+fig, ax = plt.subplots(1, 1, figsize=(15, 3))
+plot_real_vs_tsdate_times(ax, ts.nodes_time, unconstr_times, ts, redated_ts, alpha=0.1)
 ```
 
 If you cannot use the `variational_gamma` method, 
@@ -140,7 +174,8 @@ gives a much better fit to the true times:
 ```{code-cell} ipython3
 prior = tsdate.build_prior_grid(ts, popsize)
 redated_ts = tsdate.inside_outside(ts, mutation_rate=mutation_rate, priors=prior)
-plot_real_vs_tsdate_times(ts.nodes_time, redated_ts.nodes_time, ts, redated_ts, delta=1000, alpha=0.1)
+fig, ax = plt.subplots(1, 1, figsize=(15, 3))
+plot_real_vs_tsdate_times(ax, ts.nodes_time, redated_ts.nodes_time, ts, redated_ts, alpha=0.1)
 ```
 
 ## Estimating population size
