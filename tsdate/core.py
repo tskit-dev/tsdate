@@ -989,6 +989,7 @@ class EstimationMethod:
                 self.priors = priors
 
         # mutation to edge mapping
+        # TODO: this isn't needed except for mutations_edge in constrain_mutations
         mutspan_timing = time.time()
         self.edges_mutations, self.mutations_edge = util.mutation_span_array(ts)
         mutspan_timing -= time.time()
@@ -1011,6 +1012,7 @@ class EstimationMethod:
         # Constrain node ages for positive branch lengths
         constr_timing = time.time()
         nodes.time = util.constrain_ages(ts, node_mean_t, eps, self.constr_iterations)
+        # TODO: what if mutations_edge is NULL?
         mutations.time = util.constrain_mutations(ts, nodes.time, self.mutations_edge)
         tables.time_units = self.time_units
         constr_timing -= time.time()
