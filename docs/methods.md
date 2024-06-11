@@ -91,6 +91,7 @@ local estimates to each gamma distribution are iteratively refined until
 they converge to a stable solution.  This comes under a class of approaches
 sometimes known as "loopy belief propagation".
 
+(sec_methods_expectation_propagation)=
 #### Expectation propagation
 
 We are in the process of writing a formal description of the algorithm, but in
