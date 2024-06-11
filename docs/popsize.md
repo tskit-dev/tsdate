@@ -37,10 +37,11 @@ import msprime
 import demesdraw
 from matplotlib import pyplot as plt
 
+bottleneck_time = 10000
 demography = msprime.Demography()
 demography.add_population(name="Population", initial_size=5e4)
-demography.add_population_parameters_change(time=10000, initial_size=100)
-demography.add_population_parameters_change(time=10080, initial_size=2e3)
+demography.add_population_parameters_change(time=bottleneck_time, initial_size=100)
+demography.add_population_parameters_change(time=bottleneck_time + 80, initial_size=2e3)
 
 mutation_rate = 1e-8
 # Simulate a short tree sequence with a population size history.
@@ -49,7 +50,11 @@ ts = msprime.sim_ancestry(
 ts = msprime.sim_mutations(ts, rate=mutation_rate, random_seed=321)
 fig, ax = plt.subplots(1, 1, figsize=(4, 6))
 demesdraw.tubes(demography.to_demes(), ax, scale_bar=True)
-ax.annotate("bottleneck", xy=(0, 8e3), xytext=(1e4, 8.2e3), arrowprops=dict(arrowstyle="->"))
+ax.annotate(
+  "bottleneck",
+  xy=(0, bottleneck_time),
+  xytext=(1e4, bottleneck_time * 1.04),
+  arrowprops=dict(arrowstyle="->"))
 ```
 
 To test how well tsdate does in this situation, we can redate the known (true) tree sequence topology,
@@ -119,17 +124,18 @@ ax.set_ylabel("Population size", rotation=90);
 ## Misspecified priors
 
 The flat prior for the default `variational_gamma` [method](sec_methods) is robust to
-deviations from neutrality and panmixia. However, approaches such as the `inside_outside`
-method by default use a coalescent prior which assumes a fixed population size, and hence
-these perform very poorly on such data:
+deviations from neutrality and panmixia. However, alternative approaches such as the
+`inside_outside` method default to a coalescent prior that assumes a fixed population size.
+Hence these approaches currently perform very poorly on such data:
 
 ```{code-cell} ipython3
 import tsdate
 est_pop_size = ts.diversity() / (4 * mutation_rate)  # calculate av Ne from data
 redated_ts = tsdate.inside_outside(ts, mutation_rate=mutation_rate, population_size=est_pop_size)
 unconstr_times = [nd.metadata.get("mn", nd.time) for nd in redated_ts.nodes()]
-fig, ax = plt.subplots(1, 1, figsize=(15, 3))
-plot_real_vs_tsdate_times(ax, ts.nodes_time, unconstr_times, ts, redated_ts, alpha=0.1)
+fig, ax = plt.subplots(1, 1, figsize=(5, 5))
+title = "inside_outside method; prior based on fixed Ne"
+plot_real_vs_tsdate_times(ax, ts.nodes_time, unconstr_times, ts, redated_ts, alpha=0.1, title=title)
 ```
 
 If you cannot use the `variational_gamma` method, 
@@ -142,14 +148,14 @@ for its use and interpretation.
 
 ### Estimating Ne from data
 
-If you are constructing a coalescent prior, but don't have an established estimate
-for the effective population size of your data,
-a rough approximation is to use the (sitewise) genetic diversity divided by
-four-times the mutation rate:
+In the example above, in the absence of an expected effective population size for use in the
+`inside_outside` method, we used a value approximated from the data. The standard way to do so
+is to use the (sitewise) genetic diversity divided by four-times the mutation rate:
 
 ```{code-cell} ipython3
 print("A rough estimate of the effective population size is", ts.diversity() / (4 * 1e-6))
 ```
+
 
 <!--
 
