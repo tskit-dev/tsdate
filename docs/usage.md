@@ -282,12 +282,13 @@ has not been parallelised to allow running on many CPU cores.
 
 #### Continuous time optimisations
 
-TODO: Explain the `max_iterations` parameter
-
-:::{note}
-Rather than using a fixed number of iterations, future updates to _tsdate_ may
-carry out iterations until some convergence criterion has been reached.
-:::
+The [expectation progagation](sec_methods_expectation_propagation) approach
+in the `variational_gamma` method involves iteratively refining the
+local time estimates. The number of rounds of iteration can be
+set via the `max_iterations` parameter. Reducing this will speed up _tsdate_
+inference, but may produce worse date estimation. Future updates to _tsdate_ may
+optimise this so that iterations are halted after an appropriate convergence criterion
+has been reached.
 
 #### Continuous time optimisations
 
