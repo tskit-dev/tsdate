@@ -10,7 +10,7 @@ The method is frequently combined with the [tsinfer](https://tsinfer.readthedocs
 
 Please refer to the [documentation](https://tskit.dev/tsdate/docs/latest/) for information on installing and using the software.
 
-The algorithms for the original `inside_outside` and `maximization` [methods](https://tskit.dev/tsdate/docs/latest/methods.html) are described [in this Science paper](https://www.science.org/doi/10.1126/science.abi8264) (preprint [here](https://www.biorxiv.org/content/10.1101/2021.02.16.431497v2), evaluations in [another repository](https://github.com/awohns/unified_genealogy_paper)). The new `variational_gamma` method, which is now the default, has not yet been described in print. For the moment, please cite this github repository if you need a citable reference.
+The algorithms for the original `inside_outside` and `maximization` [methods](https://tskit.dev/tsdate/docs/latest/methods.html) are described [in this Science paper](https://www.science.org/doi/10.1126/science.abi8264) (citation below, preprint [here](https://www.biorxiv.org/content/10.1101/2021.02.16.431497v2), evaluations in [another repository](https://github.com/awohns/unified_genealogy_paper)). The new `variational_gamma` method, the default from version 0.2 onwards, has not yet been described in print. For the moment, please cite this github repository if you need a citable reference.
 
 The citation to use for the original tsdate algorithms is:
 
