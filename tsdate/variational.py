@@ -49,6 +49,8 @@ from .rescaling import edge_sampling_weight
 from .rescaling import mutational_timescale
 from .rescaling import piecewise_scale_posterior
 from .util import contains_unary_nodes
+from .phasing import count_mutations
+from .phasing import block_singletons
 
 
 # columns for edge_factors
@@ -233,51 +235,57 @@ class ExpectationPropagation:
         self._check_valid_inputs(ts, likelihoods, constraints, mutations_edge)
 
         # const
-        self.parents = ts.edges_parent
-        self.children = ts.edges_child
-        self.likelihoods = likelihoods
-        self.constraints = constraints
-        self.mutations_edge = mutations_edge
+        self.edge_parents = ts.edges_parent
+        self.edge_children = ts.edges_child
+        self.edge_likelihoods = likelihoods
+        self.node_constraints = constraints
+        self.mutation_edges = mutations_edge
 
         # TODO: get likelihoods + unphaseed
+        individual_unphased = np.full(ts.num_individuals, False)
+        self.edge_likelihoods, self.mutation_edges = count_mutations(ts)
+        self.block_likelihoods, self.block_edges, \
+            self.mutation_blocks = block_singletons(ts, individual_unphased)
+        self.block_edges = np.ascontiguousarray(self.block_edges.T)
+        self.edge_unphased = np.full(ts.num_edges, False)
+        self.edge_unphased[self.block_edges[0]] = True
+        self.edge_unphased[self.block_edges[1]] = True
+        num_blocks = self.block_likelihoods.shape[0]
 
         # mutable
         self.node_factors = np.zeros((ts.num_nodes, 2, 2))
         self.edge_factors = np.zeros((ts.num_edges, 2, 2))
-        self.block_factors = np.zeros((num_blocks, 2, 2)) #TODO
-        self.posterior = np.zeros((ts.num_nodes, 2))
-        #self.mutation_posterior = np.full((ts.num_mutations, np.nan))
-        self.log_partition = np.zeros(ts.num_edges)
-        #self.edge_logconst = ...
-        #self.block_logconst = ...
-        self.scale = np.ones(ts.num_nodes)
-        assert False
+        self.block_factors = np.zeros((num_blocks, 2, 2))
+        self.node_posterior = np.zeros((ts.num_nodes, 2))
+        self.mutation_posterior = np.full((ts.num_mutations, 2), np.nan)
+        self.edge_logconst = np.zeros(ts.num_edges)
+        self.block_logconst = np.zeros(num_blocks)
+        self.node_scale = np.ones(ts.num_nodes)
 
         # terminal nodes
         has_parent = np.full(ts.num_nodes, False)
         has_child = np.full(ts.num_nodes, False)
-        has_parent[self.children] = True
-        has_child[self.parents] = True
+        has_parent[self.edge_children] = True
+        has_child[self.edge_parents] = True
         self.roots = np.logical_and(has_child, ~has_parent)
         self.leaves = np.logical_and(~has_child, has_parent)
         if np.any(np.logical_and(~has_child, ~has_parent)):
             raise ValueError("Tree sequence contains disconnected nodes")
 
         # edge traversal order
-        edges = np.arange(ts.num_edges, dtype=np.int32)
-        # TODO: mask singleton edges
-        assert False
+        edges = np.arange(ts.num_edges, dtype=np.int32)[~self.edge_unphased]
         self.edge_order = np.concatenate((edges[:-1], np.flip(edges)))
         self.edge_weights = edge_sampling_weight(
             self.leaves,
-            ts.edges_parent,
-            ts.edges_child,
+            self.edge_parents,
+            self.edge_children,
             ts.edges_left,
             ts.edges_right,
             ts.indexes_edge_insertion_order,
             ts.indexes_edge_removal_order,
         )
         self.block_order = np.arange(num_blocks, dtype=np.int32)
+        self.mutation_order = np.arange(ts.num_mutations, dtype=np.int32)
 
     @staticmethod
     @numba.njit(_f(_i1r, _i1r, _i1r, _f2r, _f2r, _f2w, _f3w, _f1w, _f1w, _f, _f))
@@ -293,6 +301,7 @@ class ExpectationPropagation:
         scale,
         max_shape,
         min_step,
+        #unphased,
     ):
         """
         Update approximating factors for Poisson mutation likelihoods on edges.
@@ -330,13 +339,16 @@ class ExpectationPropagation:
         def posterior_damping(x):
             return _rescale(x, max_shape)
 
-        # TODO
-        # in "unphased" mode, edges are singleton blocks, and the two parents
+        # if "unphased" edges are singleton blocks, and the two parents
         # of each block are given by "parents" and "children"
-        assert False
-        leafward_projection = approx.leafward_projection if unphased else approx.unphased_fixed_projection
-        rootward_projection = approx.rootward_projection if unphased else approx.unphased_fixed_projection
-        gamma_projection = approx.gamma_projection if unphased else approx.unphased_projection
+        #if unphased:
+        #   leafward_projection = approx.sideways_projection
+        #   rootward_projection = approx.sideways_projection
+        #   gamma_projection = approx.unphased_projection
+        #else:
+        leafward_projection = approx.leafward_projection
+        rootward_projection = approx.rootward_projection
+        gamma_projection = approx.gamma_projection
 
         fixed = constraints[:, LOWER] == constraints[:, UPPER]
 
@@ -474,11 +486,11 @@ class ExpectationPropagation:
 
         return np.nan
 
-    # TODO add arguments, void return
     @staticmethod
-    @numba.njit(_f2w(_i1r, _i1r, _i1r, _f2r, _f2r, _f2r, _f3r, _f1r))
+    @numba.njit(_f(_i1r, _f2w, _i1r, _i1r, _i1r, _f2r, _f2r, _f2r, _f3r, _f1r))
     def propagate_mutations(
-        TODO,
+        mutations_order,
+        mutations_posterior,
         mutations_edge,
         edges_parent,
         edges_child,
@@ -495,7 +507,6 @@ class ExpectationPropagation:
             which to traverse mutations
         :param ndarray mutations_posterior: array of dimension `[num_mutations, 2]`
             containing natural parameters for each mutation
-
         :param ndarray mutations_edge: integer array giving edge for each
             mutation
         :param ndarray edges_parent: integer array of parent ids per edge
@@ -517,35 +528,43 @@ class ExpectationPropagation:
         # TODO: we don't seem to need to damp?
         # TODO: might as well copy format in other functions and have void return
 
+        # assert stuff here
         assert constraints.shape == posterior.shape
         assert edges_child.size == edges_parent.size
         assert factors.shape == (edges_parent.size, 2, 2)
         assert likelihoods.shape == (edges_parent.size, 2)
 
-        #mutations_posterior = np.zeros((mutations_edge.size, 2))
-        #pass in mutations posterior filled with nan TODO
+        #if unphased:
+        #   gamma_projection = approx.mutation_unphased_projection
+        #   leafward_projection = approx.mutation_sideways_projection
+        #   rootward_projection = approx.mutation_sideways_projection
+        #   fixed_projection = approx.mutation_block_projection
+        #else:
+        gamma_projection = approx.mutation_gamma_projection
+        leafward_projection = approx.mutation_leafward_projection
+        rootward_projection = approx.mutation_rootward_projection
+        fixed_projection = approx.mutation_edge_projection
+
+        phase = np.zeros(mutations_edge.size) # TODO
         fixed = constraints[:, LOWER] == constraints[:, UPPER]
         for m in mutations_order:
             i = mutations_edge[m]
-            if i == tskit.NULL:  # skip mutations above root or unphased
+            if i == tskit.NULL:  # skip mutations above root
                 continue
             p, c = edges_parent[i], edges_child[i]
             if fixed[p] and fixed[c]:
                 child_age = constraints[c, 0]
                 parent_age = constraints[p, 0]
-                mutations_posterior[m] = approx.mutation_fixed_projection(
-                  parent_age, child_age
+                phase[m], mutations_posterior[m] = fixed_projection(
+                    parent_age, child_age
                 )
-                #mean = 1 / 2 * (child_age + parent_age)
-                #variance = 1 / 12 * (parent_age - child_age) ** 2
-                #mutations_posterior[m] = approx.approximate_gamma_mom(mean, variance)
             elif fixed[p] and not fixed[c]:
                 child_message = factors[i, LEAFWARD] * scale[c]
                 child_delta = 1.0  # hopefully we don't need to damp
                 child_cavity = posterior[c] - child_delta * child_message
                 edge_likelihood = child_delta * likelihoods[i]
                 parent_age = constraints[p, LOWER]
-                mutations_posterior[m] = approx.mutation_leafward_projection(
+                phase[m], mutations_posterior[m] = leafward_projection(
                     parent_age, child_cavity, edge_likelihood, 
                 )
             elif fixed[c] and not fixed[p]:
@@ -554,7 +573,7 @@ class ExpectationPropagation:
                 parent_cavity = posterior[p] - parent_delta * parent_message
                 edge_likelihood = parent_delta * likelihoods[i]
                 child_age = constraints[c, LOWER]
-                mutations_posterior[m] = approx.mutation_rootward_projection(
+                phase[m], mutations_posterior[m] = rootward_projection(
                     child_age, parent_cavity, edge_likelihood, 
                 )
             else:
@@ -566,11 +585,11 @@ class ExpectationPropagation:
                 parent_cavity = posterior[p] - delta * parent_message
                 child_cavity = posterior[c] - delta * child_message
                 edge_likelihood = delta * likelihoods[i]
-                mutations_posterior[m] = approx.mutation_gamma_projection(
+                phase[m], mutations_posterior[m] = gamma_projection(
                     parent_cavity, child_cavity, edge_likelihood, 
                 )
 
-        return mutations_posterior
+        return np.nan
 
     # TODO more arguments, blck_factors and block_parents
     @staticmethod
@@ -580,9 +599,10 @@ class ExpectationPropagation:
         p, c = edges_parent, edges_child
         edge_factors[:, ROOTWARD] *= scale[p, np.newaxis]
         edge_factors[:, LEAFWARD] *= scale[c, np.newaxis]
-        j, k = block_parents
-        block_factors[:, ROOTWARD] *= scale[j, np.newaxis]
-        block_factors[:, LEAFWARD] *= scale[k, np.newaxis]
+        # TODO
+        #j, k = blocks_parents
+        #block_factors[:, ROOTWARD] *= scale[j, np.newaxis]
+        #block_factors[:, LEAFWARD] *= scale[k, np.newaxis]
         node_factors[:, MIXPRIOR] *= scale[:, np.newaxis]
         node_factors[:, CONSTRNT] *= scale[:, np.newaxis]
         scale[:] = 1.0
@@ -603,10 +623,10 @@ class ExpectationPropagation:
         #    self.block_parents[0],
         #    self.block_parents[1],
         #    self.block_likelihoods,
-        #    self.constraints,
+        #    self.node_constraints,
         #    self.block_factors,
         #    self.block_log_partition,
-        #    self.scale,
+        #    self.node_scale,
         #    max_shape,
         #    min_step,
         #    USE_BLOCK_LIKELIHOOD,
@@ -615,26 +635,26 @@ class ExpectationPropagation:
         # rootward + leafward pass through edges
         self.propagate_likelihood(
             self.edge_order,
-            self.parents,
-            self.children,
-            self.likelihoods,
-            self.constraints,
-            self.posterior,
+            self.edge_parents,
+            self.edge_children,
+            self.edge_likelihoods,
+            self.node_constraints,
+            self.node_posterior,
             self.edge_factors,
-            self.log_partition,
-            self.scale,
+            self.edge_logconst,
+            self.node_scale,
             max_shape,
             min_step,
-            USE_EDGE_LIKELIHOOD,
+            #USE_EDGE_LIKELIHOOD,
         )
 
         # exponential regularization on roots
         if regularise:
             self.propagate_prior(
                 self.roots,
-                self.posterior,
+                self.node_posterior,
                 self.node_factors,
-                self.scale,
+                self.node_scale,
                 max_shape,
                 em_maxitt,
                 em_reltol,
@@ -642,18 +662,18 @@ class ExpectationPropagation:
 
         # absorb the scaling term into the factors
         self.rescale_factors(
-            self.parents,
-            self.children,
+            self.edge_parents,
+            self.edge_children,
             self.node_factors,
             self.edge_factors,
-            self.scale,
+            self.node_scale,
         )
 
         if check_valid:  # for debugging
             assert self._check_valid_state(
-                self.parents,
-                self.children,
-                self.posterior,
+                self.edge_parents,
+                self.edge_children,
+                self.node_posterior,
                 self.node_factors,
                 self.edge_factors,
             )
@@ -672,25 +692,27 @@ class ExpectationPropagation:
         edge_weights = (
             np.ones(self.edge_weights.size) if rescale_segsites else self.edge_weights
         )
-        nodes_time = self._point_estimate(self.posterior, self.constraints, use_median)
+        nodes_time = self._point_estimate(
+            self.node_posterior, self.node_constraints, use_median
+        )
         original_breaks, rescaled_breaks = mutational_timescale(
             nodes_time,
-            self.likelihoods,
-            self.constraints,
-            self.parents,
-            self.children,
+            self.edge_likelihoods,
+            self.node_constraints,
+            self.edge_parents,
+            self.edge_children,
             edge_weights,
             rescale_intervals,
         )
-        self.posterior[:] = piecewise_scale_posterior(
-            self.posterior,
+        self.node_posterior[:] = piecewise_scale_posterior(
+            self.node_posterior,
             original_breaks,
             rescaled_breaks,
             quantile_width,
             use_median,
         )
-        self.mutations_posterior[:] = piecewise_scale_posterior(
-            self.mutations_posterior,
+        self.mutation_posterior[:] = piecewise_scale_posterior(
+            self.mutation_posterior,
             original_breaks,
             rescaled_breaks,
             quantile_width,
@@ -720,24 +742,26 @@ class ExpectationPropagation:
                 regularise=regularise,
             )
         nodes_timing -= time.time()
-        skipped_nodes = np.sum(np.isnan(self.log_partition))
-        if skipped_nodes:
-            logging.info(f"Skipped {skipped_nodes} nodes with invalid posteriors")
+        skipped_edges = np.sum(np.isnan(self.edge_logconst))
+        if skipped_edges:
+            logging.info(f"Skipped {skipped_edges} edges with invalid factors")
         logging.info(f"Calculated node posteriors in {abs(nodes_timing)} seconds")
 
         muts_timing = time.time()
-        self.mutations_posterior = self.propagate_mutations(
-            self.mutations_edge,
-            self.parents,
-            self.children,
-            self.likelihoods,
-            self.constraints,
-            self.posterior,
+        self.propagate_mutations(
+            self.mutation_order,
+            self.mutation_posterior,
+            self.mutation_edges,
+            self.edge_parents,
+            self.edge_children,
+            self.edge_likelihoods,
+            self.node_constraints,
+            self.node_posterior,
             self.edge_factors,
-            self.scale,
+            self.node_scale,
         )
         muts_timing -= time.time()
-        skipped_muts = np.sum(np.isnan(self.mutations_posterior[:, 0]))
+        skipped_muts = np.sum(np.isnan(self.mutation_posterior[:, 0]))
         if skipped_muts:
             logging.info(f"Skipped {skipped_muts} mutations with invalid posteriors")
         logging.info(f"Calculated mutation posteriors in {abs(muts_timing)} seconds")

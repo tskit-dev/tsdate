@@ -1281,11 +1281,11 @@ class VariationalGammaMethod(EstimationMethod):
 
         # TODO: use dynamic_prog.point_estimate
         posterior_mean, posterior_vari = self.mean_var(
-            dynamic_prog.posterior, dynamic_prog.constraints
+            dynamic_prog.node_posterior, dynamic_prog.node_constraints
         )
 
         # TODO: clean up
-        mutation_post = dynamic_prog.mutations_posterior
+        mutation_post = dynamic_prog.mutation_posterior
         mutation_mean = np.full(mutation_post.shape[0], np.nan)
         mutation_vari = np.full(mutation_post.shape[0], np.nan)
         idx = mutation_post[:, 1] > 0
@@ -1577,7 +1577,6 @@ def variational_gamma(
     max_shape=None,
     match_segregating_sites=None,
     regularise_roots=None,
-    rescaling_intervals=None,
     **kwargs,
 ):
     """
