@@ -160,24 +160,11 @@ class ExpectationPropagation:
             )
 
     @staticmethod
-    def _check_valid_inputs(ts, likelihoods, constraints, mutations_edge):
+    def _check_valid_inputs(ts, mutation_rate):
+        if not mutation_rate > 0.0:
+            raise ValueError("Mutation rate must be positive")
         if contains_unary_nodes(ts):
-            raise ValueError(
-                "Tree sequence contains unary nodes, simplify before dating"
-            )
-        if likelihoods.shape != (ts.num_edges, 2):
-            raise ValueError("Edge likelihoods are the wrong shape")
-        if constraints.shape != (ts.num_nodes, 2):
-            raise ValueError("Node age constraints are the wrong shape")
-        if np.any(likelihoods < 0.0):
-            raise ValueError("Edge likelihoods contains negative values")
-        if np.any(constraints < 0.0):
-            raise ValueError("Node age constraints contain negative values")
-        if mutations_edge.size > 0 and mutations_edge.max() >= ts.num_edges:
-            raise ValueError("Mutation edge indices are out-of-bounds")
-        ExpectationPropagation._check_valid_constraints(
-            constraints, ts.edges_parent, ts.edges_child
-        )
+            raise ValueError("Tree sequence contains unary nodes, simplify first")
 
     @staticmethod
     def _check_valid_state(
@@ -207,7 +194,7 @@ class ExpectationPropagation:
         point_estimate[fixed] = constraints[fixed, 0]
         return point_estimate
 
-    def __init__(self, ts, likelihoods, constraints, mutations_edge):
+    def __init__(self, ts, *, mutation_rate):
         """
         Initialize an expectation propagation algorithm for dating nodes
         in a tree sequence.
@@ -220,32 +207,32 @@ class ExpectationPropagation:
 
         :param ~tskit.TreeSequence ts: a tree sequence containing the partial
             ordering of nodes.
-        :param ~np.ndarray constraints: a `ts.num_nodes`-by-two array containing
-            lower and upper bounds for each node. If lower and upper bounds
-            are the same value, the node is considered fixed.
-        :param ~np.ndarray likelihoods: a `ts.num_edges`-by-two array containing
-            mutation counts and mutational spans (e.g. edge span multiplied by
-            mutation rate) per edge.
-        :param ~np.ndarray mutations_edge: an array containing edge indices
-            (one per mutation) for which to compute posteriors.
+        :param ~float mutation_rate: the expected per-base mutation rate per
+            time unit.
         """
 
-        # TODO: pass in edge table rather than tree sequence
-        # TODO: check valid mutations_edge
-        self._check_valid_inputs(ts, likelihoods, constraints, mutations_edge)
-
-        # const
+        self._check_valid_inputs(ts, mutation_rate)
         self.edge_parents = ts.edges_parent
         self.edge_children = ts.edges_child
-        self.edge_likelihoods = likelihoods
-        self.node_constraints = constraints
-        self.mutation_edges = mutations_edge
 
-        # TODO: get likelihoods + unphaseed
+        # lower and upper bounds on node ages
+        samples = list(ts.samples())
+        self.node_constraints = np.zeros((ts.num_nodes, 2))
+        self.node_constraints[:, 1] = np.inf
+        self.node_constraints[samples, :] = ts.nodes_time[samples, np.newaxis]
+        self._check_valid_constraints(
+            self.node_constraints, self.edge_parents, self.edge_children
+        )
+
+        # count mutations on edges
         individual_unphased = np.full(ts.num_individuals, False)
         self.edge_likelihoods, self.mutation_edges = count_mutations(ts)
+        self.edge_likelihoods[:, 1] *= mutation_rate
+
+        # count mutations in singleton blocks
         self.block_likelihoods, self.block_edges, \
             self.mutation_blocks = block_singletons(ts, individual_unphased)
+        self.block_likelihoods[:, 1] *= mutation_rate
         self.block_edges = np.ascontiguousarray(self.block_edges.T)
         self.edge_unphased = np.full(ts.num_edges, False)
         self.edge_unphased[self.block_edges[0]] = True

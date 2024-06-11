@@ -1234,20 +1234,8 @@ class VariationalGammaMethod(EstimationMethod):
         return mn_post, va_post
 
     def main_algorithm(self):
-        # edge likelihoods
-        # TODO: variable mutation rates across genome
-        # TODO: truncate edge spans with accessiblity mask
-        likelihoods = self.edges_mutations.copy()
-        likelihoods[:, 1] *= self.mutation_rate
-
-        # lower and upper bounds on node ages
-        sample_idx = list(self.ts.samples())
-        constraints = np.zeros((self.ts.num_nodes, 2))
-        constraints[:, 1] = np.inf
-        constraints[sample_idx, :] = self.ts.nodes_time[sample_idx, np.newaxis]
-
         return variational.ExpectationPropagation(
-            self.ts, likelihoods, constraints, self.mutations_edge
+            self.ts, mutation_rate=self.mutation_rate
         )
 
     def run(
