@@ -40,37 +40,39 @@ from .approx import _i2w
 from .approx import _b
 from .approx import _b1r
 from .approx import _tuple
+from .approx import _void
 
 # --- machinery used by ExpectationPropagation class --- #
 
-@numba.njit(_f1w(_f1r, _b1r, _f1r, _i1r, _i2r))
-def reallocate_unphased(edges_mutations, edges_unphased, mutations_phase, mutations_block, blocks_edges):
+@numba.njit(_void(_f2w, _f1r, _i1r, _i2r))
+def reallocate_unphased(edges_likelihood, mutations_phase, mutations_block, blocks_edges):
     """
     Add a proportion of each unphased singleton mutation to one of the two
-    edges to which it maps, and returns the modified `edges_mutations`.
+    edges to which it maps
     """
     assert mutations_phase.size == mutations_block.size
-    assert blocks_edges.shape[1] == 2
-    assert edges_mutations.size == edges_unphased.size
+    assert blocks_edges.shape[0] == 2
 
     num_mutations = mutations_phase.size
-    num_edges = edges_mutations.size
+    num_edges = edges_likelihood.shape[0]
     num_blocks = blocks_edges.shape[0]
 
-    new_edges_mutations = edges_mutations.copy()
-    new_edges_mutations[edges_unphased] = 0.0
+    edges_unphased = np.full(num_edges, False)
+    edges_unphased[blocks_edges[0]] = True
+    edges_unphased[blocks_edges[1]] = True
+
+    num_unphased = np.sum(edges_likelihood[edges_unphased, 0])
+    edges_likelihood[edges_unphased, 0] = 0.0
     for m, b in enumerate(mutations_block):
         if b == tskit.NULL:
             continue
-        i, j = blocks_edges[b]
+        i, j = blocks_edges[0, b], blocks_edges[1, b]
         assert tskit.NULL < i < num_edges and edges_unphased[i]
         assert tskit.NULL < j < num_edges and edges_unphased[j]
         assert 0.0 <= mutations_phase[m] <= 1.0
-        new_edges_mutations[i] += mutations_phase[m]
-        new_edges_mutations[j] += 1 - mutations_phase[m]
-
-    assert np.isclose(np.sum(new_edges_mutations), np.sum(edges_mutations))
-    return new_edges_mutations
+        edges_likelihood[i, 0] += mutations_phase[m]
+        edges_likelihood[j, 0] += 1 - mutations_phase[m]
+    assert np.isclose(num_unphased, np.sum(edges_likelihood[edges_unphased, 0]))
         
 
 @numba.njit(_tuple((_f2w, _i2w, _i1w))(_b1r, _i1r, _i1r, _f1r, _i1r, _i1r, _f1r, _f1r, _i1r, _i1r, _f))
@@ -177,8 +179,11 @@ def block_singletons(ts, individuals_unphased):
     TODO
     """
     for i in ts.individuals():
-        if individuals_unphased[i.id] and i.nodes.size != 2:
-            raise ValueError("Singleton blocking assumes diploid individuals")
+        if individuals_unphased[i.id]:
+            if i.nodes.size != 2:
+                raise ValueError("Singleton blocking assumes diploid individuals")
+            if not np.all(ts.nodes_time[i.nodes] == 0.0):
+                raise ValueError("Singleton blocking assumes contemporary individuals")
 
     # TODO: adjust spans by an accessibility mask
     return _block_singletons(
