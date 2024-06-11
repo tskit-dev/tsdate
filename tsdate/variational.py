@@ -51,6 +51,7 @@ from .rescaling import piecewise_scale_posterior
 from .util import contains_unary_nodes
 from .phasing import count_mutations
 from .phasing import block_singletons
+from .phasing import reallocate_unphased
 
 
 # columns for edge_factors
@@ -229,20 +230,29 @@ class ExpectationPropagation:
         )
 
         # count mutations on edges
+        count_timing = time.time()
         self.edge_likelihoods, self.mutation_edges = count_mutations(ts)
         self.edge_likelihoods[:, 1] *= mutation_rate
+        count_timing -= time.time()
+        logging.info(f"Extracted mutations in {abs(count_timing)} seconds")
 
         # count mutations in singleton blocks
-        # TODO: blocks should only be built from contemporary individuals
-        individual_unphased = np.full(ts.num_individuals, False)
+        phase_timing = time.time()
+        individual_unphased = np.full(ts.num_individuals, True)
         self.block_likelihoods, self.block_edges, \
             self.mutation_blocks = block_singletons(ts, individual_unphased)
         self.block_likelihoods[:, 1] *= mutation_rate
-        self.block_edges = np.ascontiguousarray(self.block_edges.T)
-        self.edge_unphased = np.full(ts.num_edges, False)
-        self.edge_unphased[self.block_edges[0]] = True
-        self.edge_unphased[self.block_edges[1]] = True
+        self.block_edges = np.ascontiguousarray(self.block_edges.T) # TODO: no need to transpose
+        self.block_nodes = np.full(self.block_edges.shape, tskit.NULL, dtype=np.int32)
+        self.block_nodes[0] = self.edge_parents[self.block_edges[0]]
+        self.block_nodes[1] = self.edge_parents[self.block_edges[1]]
+        self.mutation_phase = np.full(ts.num_mutations, np.nan)
+        num_unphased = np.sum(self.mutation_blocks != tskit.NULL)
         num_blocks = self.block_likelihoods.shape[0]
+        phase_timing -= time.time()
+        logging.info(f"Found {num_unphased} unphased singleton mutations")
+        logging.info(f"Split unphased singleton edges into {num_blocks} blocks")
+        logging.info(f"Phased singletons in {abs(phase_timing)} seconds")
 
         # mutable
         self.node_factors = np.zeros((ts.num_nodes, 2, 2))
@@ -265,7 +275,10 @@ class ExpectationPropagation:
             raise ValueError("Tree sequence contains disconnected nodes")
 
         # edge traversal order
-        edges = np.arange(ts.num_edges, dtype=np.int32)[~self.edge_unphased]
+        edge_unphased = np.full(ts.num_edges, False)
+        edge_unphased[self.block_edges[0]] = True
+        edge_unphased[self.block_edges[1]] = True
+        edges = np.arange(ts.num_edges, dtype=np.int32)[~edge_unphased]
         self.edge_order = np.concatenate((edges[:-1], np.flip(edges)))
         self.edge_weights = edge_sampling_weight(
             self.leaves,
@@ -485,10 +498,11 @@ class ExpectationPropagation:
         return np.nan
 
     @staticmethod
-    @numba.njit(_f(_i1r, _f2w, _i1r, _i1r, _i1r, _f2r, _f2r, _f2r, _f3r, _f1r, _b))
+    @numba.njit(_f(_i1r, _f2w, _f1w, _i1r, _i1r, _i1r, _f2r, _f2r, _f2r, _f3r, _f1r, _b))
     def propagate_mutations(
         mutations_order,
         mutations_posterior,
+        mutations_phase,
         mutations_edge,
         edges_parent,
         edges_child,
@@ -504,8 +518,10 @@ class ExpectationPropagation:
 
         :param ndarray mutations_order: integer array giving order in
             which to traverse mutations
-        :param ndarray mutations_posterior: array of dimension `[num_mutations, 2]`
-            containing natural parameters for each mutation
+        :param ndarray mutations_posterior: array of dimension `(num_mutations, 2)`
+            containing natural parameters for each mutation, modified in place
+        :param ndarray mutations_phase: array of dimension `(num_mutations, )`
+            containing mutation phase, modified in place
         :param ndarray mutations_edge: integer array giving edge for each
             mutation
         :param ndarray edges_parent: integer array of parent ids per edge
@@ -515,12 +531,12 @@ class ExpectationPropagation:
         :param ndarray constraints: array of dimension `[num_nodes, 2]`
             containing lower and upper bounds for each node.
         :param ndarray posterior: array of dimension `[num_nodes, 2]`
-            containing natural parameters for each node, updated in-place.
+            containing natural parameters for each node
         :param ndarray factors: array of dimension `[num_edges, 2, 2]`
             containing parent and child factors (natural parameters) for each
-            edge, updated in-place.
-        :param ndarray scale: array of dimension `[num_nodes]` containing a
-            scaling factor for the posteriors, updated in-place.
+            edge
+        :param ndarray scale: array of dimension `(num_nodes, )` containing a
+            scaling factor for the posteriors
         :param bool unphased: if True, edges are treated as blocks of unphased
             singletons in contemporary individuals
         """
@@ -530,6 +546,8 @@ class ExpectationPropagation:
         # TODO: might as well copy format in other functions and have void return
 
         # assert stuff here
+        assert mutations_phase.size == mutations_edge.size
+        assert mutations_posterior.shape == (mutations_phase.size, 2)
         assert constraints.shape == posterior.shape
         assert edges_child.size == edges_parent.size
         assert factors.shape == (edges_parent.size, 2, 2)
@@ -555,7 +573,6 @@ class ExpectationPropagation:
                 return approx.mutation_block_projection(x, y)
             return approx.mutation_edge_projection(x, y)
 
-        phase = np.zeros(mutations_edge.size) # TODO
         fixed = constraints[:, LOWER] == constraints[:, UPPER]
         for m in mutations_order:
             i = mutations_edge[m]
@@ -574,7 +591,7 @@ class ExpectationPropagation:
                 child_cavity = posterior[c] - child_delta * child_message
                 edge_likelihood = child_delta * likelihoods[i]
                 parent_age = constraints[p, LOWER]
-                phase[m], mutations_posterior[m] = leafward_projection(
+                mutations_phase[m], mutations_posterior[m] = leafward_projection(
                     parent_age, child_cavity, edge_likelihood, 
                 )
             elif fixed[c] and not fixed[p]:
@@ -583,7 +600,7 @@ class ExpectationPropagation:
                 parent_cavity = posterior[p] - parent_delta * parent_message
                 edge_likelihood = parent_delta * likelihoods[i]
                 child_age = constraints[c, LOWER]
-                phase[m], mutations_posterior[m] = rootward_projection(
+                mutations_phase[m], mutations_posterior[m] = rootward_projection(
                     child_age, parent_cavity, edge_likelihood, 
                 )
             else:
@@ -595,7 +612,7 @@ class ExpectationPropagation:
                 parent_cavity = posterior[p] - delta * parent_message
                 child_cavity = posterior[c] - delta * child_message
                 edge_likelihood = delta * likelihoods[i]
-                phase[m], mutations_posterior[m] = gamma_projection(
+                mutations_phase[m], mutations_posterior[m] = gamma_projection(
                     parent_cavity, child_cavity, edge_likelihood, 
                 )
 
@@ -622,26 +639,27 @@ class ExpectationPropagation:
         *,
         max_shape=1000,
         min_step=0.1,
-        em_maxitt=100,
+        em_maxitt=10,
         em_reltol=1e-8,
         regularise=True,
         check_valid=False,
     ):
 
-        # TODO: pass through unphased intervals
-        #self.propagate_likelihood(
-        #    self.block_order,
-        #    self.block_parents[0],
-        #    self.block_parents[1],
-        #    self.block_likelihoods,
-        #    self.node_constraints,
-        #    self.block_factors,
-        #    self.block_log_partition,
-        #    self.node_scale,
-        #    max_shape,
-        #    min_step,
-        #    USE_BLOCK_LIKELIHOOD,
-        #)
+        # pass through singleton blocks
+        self.propagate_likelihood(
+            self.block_order,
+            self.block_nodes[0],
+            self.block_nodes[1],
+            self.block_likelihoods,
+            self.node_constraints,
+            self.node_posterior,
+            self.block_factors,
+            self.block_logconst,
+            self.node_scale,
+            max_shape,
+            min_step,
+            USE_BLOCK_LIKELIHOOD,
+        )
 
         # rootward + leafward pass through edges
         self.propagate_likelihood(
@@ -706,6 +724,12 @@ class ExpectationPropagation:
         nodes_time = self._point_estimate(
             self.node_posterior, self.node_constraints, use_median
         )
+        reallocate_unphased(  # correct mutation counts for unphased singletons
+            self.edge_likelihoods,
+            self.mutation_phase,
+            self.mutation_blocks,
+            self.block_edges,
+        )
         original_breaks, rescaled_breaks = mutational_timescale(
             nodes_time,
             self.edge_likelihoods,
@@ -759,9 +783,24 @@ class ExpectationPropagation:
         logging.info(f"Calculated node posteriors in {abs(nodes_timing)} seconds")
 
         muts_timing = time.time()
-        self.propagate_mutations(
+        self.propagate_mutations(  # unphased singletons
             self.mutation_order,
             self.mutation_posterior,
+            self.mutation_phase,
+            self.mutation_blocks,
+            self.block_nodes[0],
+            self.block_nodes[1],
+            self.block_likelihoods,
+            self.node_constraints,
+            self.node_posterior,
+            self.block_factors,
+            self.node_scale,
+            USE_BLOCK_LIKELIHOOD,
+        )
+        self.propagate_mutations(  # phased mutations
+            self.mutation_order,
+            self.mutation_posterior,
+            self.mutation_phase,
             self.mutation_edges,
             self.edge_parents,
             self.edge_children,

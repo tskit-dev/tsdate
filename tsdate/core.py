@@ -881,7 +881,8 @@ Results = namedtuple(
         "posterior_obj",
         "mutation_mean",
         "mutation_var",
-        "mutation_likelihood",
+        "mutation_lik",
+        "mutation_edge",
     ],
 )
 
@@ -990,10 +991,7 @@ class EstimationMethod:
 
         # mutation to edge mapping
         # TODO: this isn't needed except for mutations_edge in constrain_mutations
-        mutspan_timing = time.time()
         self.edges_mutations, self.mutations_edge = util.mutation_span_array(ts)
-        mutspan_timing -= time.time()
-        logging.info(f"Extracted mutations in {abs(mutspan_timing)} seconds")
 
     def get_modified_ts(self, result, eps):
         # Return a new ts based on the existing one, but with the various
@@ -1003,6 +1001,7 @@ class EstimationMethod:
         node_var_t = result.posterior_var
         mut_mean_t = result.mutation_mean
         mut_var_t = result.mutation_var
+        mut_edge = result.mutation_edge
         tables = ts.dump_tables()
         nodes = tables.nodes
         mutations = tables.mutations
@@ -1013,7 +1012,7 @@ class EstimationMethod:
         constr_timing = time.time()
         nodes.time = util.constrain_ages(ts, node_mean_t, eps, self.constr_iterations)
         # TODO: what if mutations_edge is NULL?
-        mutations.time = util.constrain_mutations(ts, nodes.time, self.mutations_edge)
+        mutations.time = util.constrain_mutations(ts, nodes.time, mut_edge)
         tables.time_units = self.time_units
         constr_timing -= time.time()
         logging.info(f"Constrained node ages in {abs(constr_timing)} seconds")
@@ -1078,7 +1077,7 @@ class EstimationMethod:
                 pst_dict.update(extra_posterior_cols or {})
             ret.append(pst_dict)
         if self.return_likelihood:
-            ret.append(result.mutation_likelihood)
+            ret.append(result.mutation_lik)
         return tuple(ret) if len(ret) > 1 else ret.pop()
 
     def get_fixed_nodes_set(self):
@@ -1171,8 +1170,15 @@ class InsideOutsideMethod(DiscreteTimeMethod):
         posterior_obj.to_probabilities()
 
         posterior_mean, posterior_var = self.mean_var(self.ts, posterior_obj)
+        mut_edge = np.full(self.ts.num_mutations, tskit.NULL)
         return Results(
-            posterior_mean, posterior_var, posterior_obj, None, None, marginal_likl
+            posterior_mean, 
+            posterior_var, 
+            posterior_obj, 
+            None, 
+            None, 
+            marginal_likl, 
+            mut_edge
         )
 
 
@@ -1200,7 +1206,16 @@ class MaximizationMethod(DiscreteTimeMethod):
         dynamic_prog = self.main_algorithm(probability_space, eps, num_threads)
         marginal_likl = dynamic_prog.inside_pass(cache_inside=cache_inside)
         posterior_mean = dynamic_prog.outside_maximization(eps=eps)
-        return Results(posterior_mean, None, None, None, None, marginal_likl)
+        mut_edge = np.full(self.ts.num_mutations, tskit.NULL)
+        return Results(
+            posterior_mean, 
+            None, 
+            None, 
+            None, 
+            None, 
+            marginal_likl, 
+            mut_edge
+        )
 
 
 class VariationalGammaMethod(EstimationMethod):
@@ -1281,10 +1296,17 @@ class VariationalGammaMethod(EstimationMethod):
         idx = mutation_post[:, 1] > 0
         mutation_mean[idx] = (mutation_post[idx, 0] + 1) / mutation_post[idx, 1]
         mutation_vari[idx] = (mutation_post[idx, 0] + 1) / mutation_post[idx, 1] ** 2
+        mutation_edge = dynamic_prog.mutation_edges
 
         # TODO: return marginal likelihood
         return Results(
-            posterior_mean, posterior_vari, None, mutation_mean, mutation_vari, None
+            posterior_mean, 
+            posterior_vari, 
+            None, 
+            mutation_mean, 
+            mutation_vari, 
+            None, 
+            mutation_edge
         )
 
 
