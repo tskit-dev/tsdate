@@ -45,13 +45,13 @@ from .approx import _f3w
 from .approx import _i
 from .approx import _i1r
 from .hypergeo import _gammainc_inv as gammainc_inv
+from .phasing import block_singletons
+from .phasing import count_mutations
+from .phasing import reallocate_unphased
 from .rescaling import edge_sampling_weight
 from .rescaling import mutational_timescale
 from .rescaling import piecewise_scale_posterior
 from .util import contains_unary_nodes
-from .phasing import count_mutations
-from .phasing import block_singletons
-from .phasing import reallocate_unphased
 
 
 # columns for edge_factors
@@ -199,7 +199,7 @@ class ExpectationPropagation:
         point_estimate[fixed] = constraints[fixed, 0]
         return point_estimate
 
-    def __init__(self, ts, *, mutation_rate):
+    def __init__(self, ts, *, mutation_rate, singletons_phased=True):
         """
         Initialize an expectation propagation algorithm for dating nodes
         in a tree sequence.
@@ -238,11 +238,16 @@ class ExpectationPropagation:
 
         # count mutations in singleton blocks
         phase_timing = time.time()
-        individual_unphased = np.full(ts.num_individuals, True)
-        self.block_likelihoods, self.block_edges, \
-            self.mutation_blocks = block_singletons(ts, individual_unphased)
+        individual_phased = np.full(ts.num_individuals, singletons_phased)
+        (
+            self.block_likelihoods,
+            self.block_edges,
+            self.mutation_blocks,
+        ) = block_singletons(ts, ~individual_phased)
         self.block_likelihoods[:, 1] *= mutation_rate
-        self.block_edges = np.ascontiguousarray(self.block_edges.T) # TODO: no need to transpose
+        self.block_edges = np.ascontiguousarray(
+            self.block_edges.T
+        )  # TODO: no need to transpose
         self.block_nodes = np.full(self.block_edges.shape, tskit.NULL, dtype=np.int32)
         self.block_nodes[0] = self.edge_parents[self.block_edges[0]]
         self.block_nodes[1] = self.edge_parents[self.block_edges[1]]
@@ -353,12 +358,12 @@ class ExpectationPropagation:
 
         def rootward_projection(x, y, z):
             if unphased:
-                return approx.sideways_projection(x, y, z) 
+                return approx.sideways_projection(x, y, z)
             return approx.rootward_projection(x, y, z)
 
         def gamma_projection(x, y, z):
             if unphased:
-                return approx.unphased_projection(x, y, z) 
+                return approx.unphased_projection(x, y, z)
             return approx.gamma_projection(x, y, z)
 
         fixed = constraints[:, LOWER] == constraints[:, UPPER]
@@ -378,7 +383,9 @@ class ExpectationPropagation:
                 # match moments and update factor
                 parent_age = constraints[p, LOWER]
                 lognorm[i], posterior[c] = leafward_projection(
-                    parent_age, child_cavity, edge_likelihood, 
+                    parent_age,
+                    child_cavity,
+                    edge_likelihood,
                 )
                 factors[i, LEAFWARD] *= 1.0 - child_delta
                 factors[i, LEAFWARD] += (posterior[c] - child_cavity) / scale[c]
@@ -398,7 +405,9 @@ class ExpectationPropagation:
                 # match moments and update factor
                 child_age = constraints[c, LOWER]
                 lognorm[i], posterior[p] = rootward_projection(
-                    child_age, parent_cavity, edge_likelihood, 
+                    child_age,
+                    parent_cavity,
+                    edge_likelihood,
                 )
 
                 factors[i, ROOTWARD] *= 1.0 - parent_delta
@@ -422,7 +431,9 @@ class ExpectationPropagation:
 
                 # match moments and update factors
                 lognorm[i], posterior[p], posterior[c] = gamma_projection(
-                    parent_cavity, child_cavity, edge_likelihood, 
+                    parent_cavity,
+                    child_cavity,
+                    edge_likelihood,
                 )
                 factors[i, ROOTWARD] *= 1.0 - delta
                 factors[i, ROOTWARD] += (posterior[p] - parent_cavity) / scale[p]
@@ -498,7 +509,9 @@ class ExpectationPropagation:
         return np.nan
 
     @staticmethod
-    @numba.njit(_f(_i1r, _f2w, _f1w, _i1r, _i1r, _i1r, _f2r, _f2r, _f2r, _f3r, _f1r, _b))
+    @numba.njit(
+        _f(_i1r, _f2w, _f1w, _i1r, _i1r, _i1r, _f2r, _f2r, _f2r, _f3r, _f1r, _b)
+    )
     def propagate_mutations(
         mutations_order,
         mutations_posterior,
@@ -560,12 +573,12 @@ class ExpectationPropagation:
 
         def rootward_projection(x, y, z):
             if unphased:
-                return approx.mutation_sideways_projection(x, y, z) 
+                return approx.mutation_sideways_projection(x, y, z)
             return approx.mutation_rootward_projection(x, y, z)
 
         def gamma_projection(x, y, z):
             if unphased:
-                return approx.mutation_unphased_projection(x, y, z) 
+                return approx.mutation_unphased_projection(x, y, z)
             return approx.mutation_gamma_projection(x, y, z)
 
         def fixed_projection(x, y):
@@ -592,7 +605,9 @@ class ExpectationPropagation:
                 edge_likelihood = child_delta * likelihoods[i]
                 parent_age = constraints[p, LOWER]
                 mutations_phase[m], mutations_posterior[m] = leafward_projection(
-                    parent_age, child_cavity, edge_likelihood, 
+                    parent_age,
+                    child_cavity,
+                    edge_likelihood,
                 )
             elif fixed[c] and not fixed[p]:
                 parent_message = factors[i, ROOTWARD] * scale[p]
@@ -601,7 +616,9 @@ class ExpectationPropagation:
                 edge_likelihood = parent_delta * likelihoods[i]
                 child_age = constraints[c, LOWER]
                 mutations_phase[m], mutations_posterior[m] = rootward_projection(
-                    child_age, parent_cavity, edge_likelihood, 
+                    child_age,
+                    parent_cavity,
+                    edge_likelihood,
                 )
             else:
                 parent_message = factors[i, ROOTWARD] * scale[p]
@@ -613,7 +630,9 @@ class ExpectationPropagation:
                 child_cavity = posterior[c] - delta * child_message
                 edge_likelihood = delta * likelihoods[i]
                 mutations_phase[m], mutations_posterior[m] = gamma_projection(
-                    parent_cavity, child_cavity, edge_likelihood, 
+                    parent_cavity,
+                    child_cavity,
+                    edge_likelihood,
                 )
 
         return np.nan
@@ -627,9 +646,9 @@ class ExpectationPropagation:
         edge_factors[:, ROOTWARD] *= scale[p, np.newaxis]
         edge_factors[:, LEAFWARD] *= scale[c, np.newaxis]
         # TODO
-        #j, k = blocks_parents
-        #block_factors[:, ROOTWARD] *= scale[j, np.newaxis]
-        #block_factors[:, LEAFWARD] *= scale[k, np.newaxis]
+        # j, k = blocks_parents
+        # block_factors[:, ROOTWARD] *= scale[j, np.newaxis]
+        # block_factors[:, LEAFWARD] *= scale[k, np.newaxis]
         node_factors[:, MIXPRIOR] *= scale[:, np.newaxis]
         node_factors[:, CONSTRNT] *= scale[:, np.newaxis]
         scale[:] = 1.0
@@ -644,7 +663,6 @@ class ExpectationPropagation:
         regularise=True,
         check_valid=False,
     ):
-
         # pass through singleton blocks
         self.propagate_likelihood(
             self.block_order,

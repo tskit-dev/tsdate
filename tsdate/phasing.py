@@ -22,11 +22,13 @@
 """
 Tools for phasing singleton mutations
 """
-
 import numba
 import numpy as np
 import tskit
 
+from .approx import _b
+from .approx import _b1r
+from .approx import _b2r
 from .approx import _f
 from .approx import _f1r
 from .approx import _f1w
@@ -37,15 +39,16 @@ from .approx import _i1r
 from .approx import _i1w
 from .approx import _i2r
 from .approx import _i2w
-from .approx import _b
-from .approx import _b1r
 from .approx import _tuple
 from .approx import _void
 
 # --- machinery used by ExpectationPropagation class --- #
 
+
 @numba.njit(_void(_f2w, _f1r, _i1r, _i2r))
-def reallocate_unphased(edges_likelihood, mutations_phase, mutations_block, blocks_edges):
+def reallocate_unphased(
+    edges_likelihood, mutations_phase, mutations_block, blocks_edges
+):
     """
     Add a proportion of each unphased singleton mutation to one of the two
     edges to which it maps
@@ -73,10 +76,26 @@ def reallocate_unphased(edges_likelihood, mutations_phase, mutations_block, bloc
         edges_likelihood[i, 0] += mutations_phase[m]
         edges_likelihood[j, 0] += 1 - mutations_phase[m]
     assert np.isclose(num_unphased, np.sum(edges_likelihood[edges_unphased, 0]))
-        
 
-@numba.njit(_tuple((_f2w, _i2w, _i1w))(_b1r, _i1r, _i1r, _f1r, _i1r, _i1r, _f1r, _f1r, _i1r, _i1r, _f))
-def _block_singletons(individuals_unphased, nodes_individual, mutations_node, mutations_position, edges_parent, edges_child, edges_left, edges_right, indexes_insert, indexes_remove, sequence_length):
+
+@numba.njit(
+    _tuple((_f2w, _i2w, _i1w))(
+        _b1r, _i1r, _i1r, _f1r, _i1r, _i1r, _f1r, _f1r, _i1r, _i1r, _f
+    )
+)
+def _block_singletons(
+    individuals_unphased,
+    nodes_individual,
+    mutations_node,
+    mutations_position,
+    edges_parent,
+    edges_child,
+    edges_left,
+    edges_right,
+    indexes_insert,
+    indexes_remove,
+    sequence_length,
+):
     """
     TODO
     """
@@ -110,7 +129,7 @@ def _block_singletons(individuals_unphased, nodes_individual, mutations_node, mu
     a, b, d = 0, 0, 0
     while a < num_edges or b < num_edges:
         while b < num_edges and position_remove[b] == left:  # edges out
-            e = indexes_remove[b] 
+            e = indexes_remove[b]
             p, c = edges_parent[e], edges_child[e]
             i = nodes_individual[c]
             if i != tskit.NULL and individuals_unphased[i]:
@@ -127,7 +146,7 @@ def _block_singletons(individuals_unphased, nodes_individual, mutations_node, mu
                     individuals_block[i] = tskit.NULL
                     individuals_singletons[i] = 0.0
             b += 1
-        
+
         while a < num_edges and position_insert[a] == left:  # edges in
             e = indexes_insert[a]
             p, c = edges_parent[e], edges_child[e]
@@ -148,7 +167,7 @@ def _block_singletons(individuals_unphased, nodes_individual, mutations_node, mu
         if a < num_edges:
             right = min(right, position_insert[a])
         left = right
-        
+
         while d < num_mutations and position_mutation[d] < right:  # mutations
             m = indexes_mutation[d]
             c = mutations_node[m]
@@ -157,7 +176,7 @@ def _block_singletons(individuals_unphased, nodes_individual, mutations_node, mu
                 mutations_block[m] = individuals_block[i]
                 individuals_singletons[i] += 1.0
             d += 1
-    
+
     mutations_block = mutations_block.astype(np.int32)
     blocks_edges = np.array(blocks_edges, dtype=np.int32).reshape(-1, 2)
     blocks_singletons = np.array(blocks_singletons)
@@ -201,8 +220,21 @@ def block_singletons(ts, individuals_unphased):
     )
 
 
-@numba.njit(_tuple((_f2w, _i1w))(_i1r, _f1r, _i1r, _i1r, _f1r, _f1r, _i1r, _i1r, _i, _f))
-def _count_mutations(mutations_node, mutations_position, edges_parent, edges_child, edges_left, edges_right, indexes_insert, indexes_remove, num_nodes, sequence_length):
+@numba.njit(
+    _tuple((_f2w, _i1w))(_i1r, _f1r, _i1r, _i1r, _f1r, _f1r, _i1r, _i1r, _i, _f)
+)
+def _count_mutations(
+    mutations_node,
+    mutations_position,
+    edges_parent,
+    edges_child,
+    edges_left,
+    edges_right,
+    indexes_insert,
+    indexes_remove,
+    num_nodes,
+    sequence_length,
+):
     """
     TODO
     """
@@ -227,11 +259,11 @@ def _count_mutations(mutations_node, mutations_position, edges_parent, edges_chi
     a, b, d = 0, 0, 0
     while a < num_edges or b < num_edges:
         while b < num_edges and position_remove[b] == left:  # edges out
-            e = indexes_remove[b] 
+            e = indexes_remove[b]
             p, c = edges_parent[e], edges_child[e]
             nodes_edge[c] = tskit.NULL
             b += 1
-        
+
         while a < num_edges and position_insert[a] == left:  # edges in
             e = indexes_insert[a]
             p, c = edges_parent[e], edges_child[e]
@@ -244,7 +276,7 @@ def _count_mutations(mutations_node, mutations_position, edges_parent, edges_chi
         if a < num_edges:
             right = min(right, position_insert[a])
         left = right
-        
+
         while d < num_mutations and position_mutation[d] < right:
             m = indexes_mutation[d]
             c = mutations_node[m]
@@ -253,7 +285,7 @@ def _count_mutations(mutations_node, mutations_position, edges_parent, edges_chi
                 mutations_edge[m] = e
                 edges_mutations[e] += 1.0
             d += 1
-    
+
     mutations_edge = mutations_edge.astype(np.int32)
     edges_stats = np.column_stack((edges_mutations, edges_span))
 
@@ -279,7 +311,108 @@ def count_mutations(ts):
     )
 
 
+@numba.njit(_i2w(_b2r, _i1r, _f1r, _i1r, _i1r, _f1r, _f1r, _i1r, _i1r, _f))
+def _mutation_frequency(
+    nodes_sample,
+    mutations_node,
+    mutations_position,
+    edges_parent,
+    edges_child,
+    edges_left,
+    edges_right,
+    indexes_insert,
+    indexes_remove,
+    sequence_length,
+):
+    """
+    TODO
+    """
+    assert edges_parent.size == edges_child.size == edges_left.size == edges_right.size
+    assert indexes_insert.size == indexes_remove.size == edges_parent.size
+    assert mutations_node.size == mutations_position.size
+
+    num_nodes, num_sample_sets = nodes_sample.shape
+    num_mutations = mutations_node.size
+    num_edges = edges_parent.size
+
+    indexes_mutation = np.argsort(mutations_position)
+    position_insert = edges_left[indexes_insert]
+    position_remove = edges_right[indexes_remove]
+    position_mutation = mutations_position[indexes_mutation]
+
+    nodes_parent = np.full(num_nodes, tskit.NULL)
+    nodes_samples = np.zeros((num_nodes, num_sample_sets), dtype=np.int32)
+    mutations_freq = np.zeros((num_mutations, num_sample_sets), dtype=np.int32)
+
+    # TODO: there's a better way than passing a big bool array
+    for i in range(num_sample_sets):
+        nodes_samples[nodes_sample[:, i], i] = 1.0
+
+    left = 0.0
+    a, b, d = 0, 0, 0
+    while a < num_edges or b < num_edges:
+        while b < num_edges and position_remove[b] == left:  # edges out
+            e = indexes_remove[b]
+            p, c = edges_parent[e], edges_child[e]
+            nodes_parent[c] = tskit.NULL
+            while p != tskit.NULL:
+                nodes_samples[p] -= nodes_samples[c]
+                p = nodes_parent[p]
+            b += 1
+
+        while a < num_edges and position_insert[a] == left:  # edges in
+            e = indexes_insert[a]
+            p, c = edges_parent[e], edges_child[e]
+            nodes_parent[c] = p
+            while p != tskit.NULL:
+                nodes_samples[p] += nodes_samples[c]
+                p = nodes_parent[p]
+            a += 1
+
+        right = sequence_length
+        if b < num_edges:
+            right = min(right, position_remove[b])
+        if a < num_edges:
+            right = min(right, position_insert[a])
+        left = right
+
+        while d < num_mutations and position_mutation[d] < right:
+            m = indexes_mutation[d]
+            c = mutations_node[m]
+            mutations_freq[m] = nodes_samples[c]
+            d += 1
+
+    return mutations_freq
+
+
+def mutation_frequency(ts, sample_sets=None):
+    """
+    TODO
+    """
+    if sample_sets is None:
+        sample_sets = [list(ts.samples())]
+
+    nodes_sample = np.full((ts.num_nodes, len(sample_sets)), False)
+    for i, s in enumerate(sample_sets):
+        assert min(s) >= 0 and max(s) < ts.num_samples, "Sample out of range"
+        nodes_sample[s, i] = True
+
+    return _mutation_frequency(
+        nodes_sample,
+        ts.mutations_node,
+        ts.sites_position[ts.mutations_site],
+        ts.edges_parent,
+        ts.edges_child,
+        ts.edges_left,
+        ts.edges_right,
+        ts.indexes_edge_insertion_order,
+        ts.indexes_edge_removal_order,
+        ts.sequence_length,
+    ).squeeze()
+
+
 # --- helper functions --- #
+
 
 def remove_singletons(ts):
     """
@@ -294,14 +427,18 @@ def remove_singletons(ts):
     assert np.all(~nodes_sample[ts.edges_parent]), "Sample node has a child"
     singletons = nodes_sample[ts.mutations_node]
 
-    old_metadata = np.array(tskit.unpack_strings(
-        ts.tables.mutations.metadata, 
-        ts.tables.mutations.metadata_offset,
-    ))
-    old_state = np.array(tskit.unpack_strings(
-        ts.tables.mutations.derived_state, 
-        ts.tables.mutations.derived_state_offset,
-    ))
+    old_metadata = np.array(
+        tskit.unpack_strings(
+            ts.tables.mutations.metadata,
+            ts.tables.mutations.metadata_offset,
+        )
+    )
+    old_state = np.array(
+        tskit.unpack_strings(
+            ts.tables.mutations.derived_state,
+            ts.tables.mutations.derived_state_offset,
+        )
+    )
     new_metadata, new_metadata_offset = tskit.pack_strings(old_metadata[~singletons])
     new_state, new_state_offset = tskit.pack_strings(old_state[~singletons])
 
@@ -346,7 +483,9 @@ def rephase_singletons(ts, use_node_times=True, random_seed=None):
         nodes_id = ts.individual(individual).nodes
         nodes_length = np.array([tree.time(tree.parent(n)) - time for n in nodes_id])
         nodes_prob = nodes_length if use_node_times else np.ones(nodes_id.size)
-        mutations_node[i] = rng.choice(nodes_id, p=nodes_prob / nodes_prob.sum(), size=1)
+        mutations_node[i] = rng.choice(
+            nodes_id, p=nodes_prob / nodes_prob.sum(), size=1
+        )
         if not np.isnan(mutations_time[i]):
             mutations_time[i] = (time + tree.time(tree.parent(mutations_node[i]))) / 2
 
@@ -358,9 +497,16 @@ def rephase_singletons(ts, use_node_times=True, random_seed=None):
     return tables.tree_sequence(), singletons
 
 
-def insert_unphased_singletons(ts, position, individual, reference_state, alternate_state, allow_overlapping_sites=False):
+def insert_unphased_singletons(
+    ts,
+    position,
+    individual,
+    reference_state,
+    alternate_state,
+    allow_overlapping_sites=False,
+):
     """
-    Insert unphased singletons into the tree sequence. The phase is arbitrarily chosen 
+    Insert unphased singletons into the tree sequence. The phase is arbitrarily chosen
     so that the mutation subtends the node with the lowest id, at a given position for a
     a given individual.
 
@@ -380,7 +526,9 @@ def insert_unphased_singletons(ts, position, individual, reference_state, altern
     individuals_node = {i.id: min(i.nodes) for i in ts.individuals()}
     sites_id = {p: i for i, p in enumerate(ts.sites_position)}
     overlap = False
-    for pos, ind, ref, alt in zip(position, individual, reference_state, alternate_state):
+    for pos, ind, ref, alt in zip(
+        position, individual, reference_state, alternate_state
+    ):
         if ind not in individuals_nodes:
             raise LookupError(f"Individual {ind} is not in the tree sequence")
         if pos in sites_id:
@@ -404,5 +552,3 @@ def insert_unphased_singletons(ts, position, individual, reference_state, altern
         tables.build_index()
         tables.compute_mutation_parents()
     return tables.tree_sequence()
-
-
