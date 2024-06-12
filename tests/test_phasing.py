@@ -24,15 +24,15 @@
 """
 Test cases for the gamma-variational approximations in tsdate
 """
-
+import msprime
 import numpy as np
 import pytest
-import tskit
-import msprime
 import tsinfer
+import tskit
 
 from tsdate.phasing import block_singletons
 from tsdate.phasing import count_mutations
+from tsdate.phasing import mutation_frequency
 
 
 @pytest.fixture(scope="session")
@@ -66,7 +66,6 @@ class TestCountMutations:
 
 
 class TestBlockSingletons:
-
     @staticmethod
     def naive_block_singletons(ts, individual):
         """
@@ -81,7 +80,7 @@ class TestBlockSingletons:
         blocks_edge = []
         blocks_span = []
         for tree in ts.trees():
-            if tree.num_edges == 0: # skip tree
+            if tree.num_edges == 0:  # skip tree
                 muts = []
                 span = 0.0
                 block = tskit.NULL, tskit.NULL
@@ -91,19 +90,23 @@ class TestBlockSingletons:
                 block = tree.edge(j), tree.edge(k)
                 for m in muts:
                     muts_edges[m] = block
-            if last_block[0] != tskit.NULL and not np.array_equal(block, last_block): # flush block
+            if last_block[0] != tskit.NULL and not np.array_equal(
+                block, last_block
+            ):  # flush block
                 blocks_edge.extend(last_block)
                 blocks_span.extend(last_span)
                 last_span[:] = 0.0
             last_span += len(muts), span
             last_block[:] = block
-        if last_block[0] != tskit.NULL: # flush last block
+        if last_block[0] != tskit.NULL:  # flush last block
             blocks_edge.extend(last_block)
             blocks_span.extend(last_span)
         blocks_edge = np.array(blocks_edge).reshape(-1, 2)
         blocks_span = np.array(blocks_span).reshape(-1, 2)
         total_span = np.sum([t.interval.span for t in ts.trees() if t.num_edges > 0])
-        total_muts = np.sum(np.logical_or(ts.mutations_node == j, ts.mutations_node == k))
+        total_muts = np.sum(
+            np.logical_or(ts.mutations_node == j, ts.mutations_node == k)
+        )
         assert np.sum(blocks_span[:, 0]) == total_muts
         assert np.sum(blocks_span[:, 1]) == total_span
         return blocks_span, blocks_edge, muts_edges
@@ -117,7 +120,9 @@ class TestBlockSingletons:
         individuals_unphased = np.full(ts.num_individuals, False)
         unphased_individuals = np.arange(0, ts.num_individuals // 2)
         individuals_unphased[unphased_individuals] = True
-        block_stats, block_edges, muts_block = block_singletons(ts, individuals_unphased)
+        block_stats, block_edges, muts_block = block_singletons(
+            ts, individuals_unphased
+        )
         block_edges = block_edges
         singletons = muts_block != tskit.NULL
         muts_edges = np.full((ts.num_mutations, 2), tskit.NULL)
@@ -125,7 +130,9 @@ class TestBlockSingletons:
         ck_num_blocks = 0
         ck_num_singletons = 0
         for i in np.flatnonzero(individuals_unphased):
-            ck_block_stats, ck_block_edges, ck_muts_edges = self.naive_block_singletons(ts, i)
+            ck_block_stats, ck_block_edges, ck_muts_edges = self.naive_block_singletons(
+                ts, i
+            )
             ck_num_blocks += ck_block_stats.shape[0]
             # blocks of individual i
             nodes_i = ts.individual(i).nodes
@@ -140,11 +147,11 @@ class TestBlockSingletons:
             # singleton mutations in unphased individual i
             ck_muts_i = ck_muts_edges[:, 0] != tskit.NULL
             np.testing.assert_array_equal(
-                np.min(muts_edges[ck_muts_i], axis=1), 
+                np.min(muts_edges[ck_muts_i], axis=1),
                 np.min(ck_muts_edges[ck_muts_i], axis=1),
             )
             np.testing.assert_array_equal(
-                np.max(muts_edges[ck_muts_i], axis=1), 
+                np.max(muts_edges[ck_muts_i], axis=1),
                 np.max(ck_muts_edges[ck_muts_i], axis=1),
             )
             ck_num_singletons += np.sum(ck_muts_i)
@@ -160,11 +167,14 @@ class TestBlockSingletons:
         individuals_unphased = np.full(ts.num_individuals, False)
         unphased_individuals = np.arange(0, ts.num_individuals // 2)
         individuals_unphased[unphased_individuals] = True
-        unphased_nodes = np.concatenate([ts.individual(i).nodes for i in unphased_individuals])
+        unphased_nodes = np.concatenate(
+            [ts.individual(i).nodes for i in unphased_individuals]
+        )
         total_singleton_span = 0.0
         total_singleton_muts = 0.0
         for t in ts.trees():
-            if t.num_edges == 0: continue
+            if t.num_edges == 0:
+                continue
             for s in t.samples():
                 if s in unphased_nodes:
                     total_singleton_span += t.span
@@ -185,15 +195,18 @@ class TestBlockSingletons:
         individuals_unphased = np.full(ts.num_individuals, False)
         unphased_individuals = np.arange(0, ts.num_individuals // 2)
         individuals_unphased[unphased_individuals] = True
-        unphased_nodes = set(np.concatenate([ts.individual(i).nodes for i in unphased_individuals]))
+        unphased_nodes = set(
+            np.concatenate([ts.individual(i).nodes for i in unphased_individuals])
+        )
         ck_singleton_edge = set()
         for t in ts.trees():
-            if t.num_edges == 0: continue
+            if t.num_edges == 0:
+                continue
             for s in ts.samples():
                 if s in unphased_nodes:
                     ck_singleton_edge.add(t.edge(s))
         _, block_edges, *_ = block_singletons(ts, individuals_unphased)
-        singleton_edge = set([i for i in block_edges.flatten()])
+        singleton_edge = {i for i in block_edges.flatten()}
         assert singleton_edge == ck_singleton_edge
 
     def test_singleton_mutations(self, inferred_ts):
@@ -205,15 +218,18 @@ class TestBlockSingletons:
         individuals_unphased = np.full(ts.num_individuals, False)
         unphased_individuals = np.arange(0, ts.num_individuals // 2)
         individuals_unphased[unphased_individuals] = True
-        unphased_nodes = np.concatenate([ts.individual(i).nodes for i in unphased_individuals])
+        unphased_nodes = np.concatenate(
+            [ts.individual(i).nodes for i in unphased_individuals]
+        )
         ck_singleton_muts = set()
         for t in ts.trees():
-            if t.num_edges == 0: continue
+            if t.num_edges == 0:
+                continue
             for m in t.mutations():
                 if t.num_samples(m.node) == 1 and (m.node in unphased_nodes):
                     ck_singleton_muts.add(m.id)
         _, _, block_muts = block_singletons(ts, individuals_unphased)
-        singleton_muts = set([i for i in np.flatnonzero(block_muts != tskit.NULL)])
+        singleton_muts = {i for i in np.flatnonzero(block_muts != tskit.NULL)}
         assert singleton_muts == ck_singleton_muts
 
     def test_all_phased(self, inferred_ts):
@@ -222,8 +238,36 @@ class TestBlockSingletons:
         """
         ts = inferred_ts
         individuals_unphased = np.full(ts.num_individuals, False)
-        block_stats, block_edges, block_muts = block_singletons(ts, individuals_unphased)
+        block_stats, block_edges, block_muts = block_singletons(
+            ts, individuals_unphased
+        )
         assert block_stats.shape == (0, 2)
         assert block_edges.shape == (0, 2)
         assert np.all(block_muts == tskit.NULL)
 
+
+class TestMutationFrequency:
+    @staticmethod
+    def naive_mutation_frequency(ts, sample_set):
+        frq = np.zeros(ts.num_mutations)
+        for t in ts.trees():
+            for m in t.mutations():
+                for s in t.samples(m.node):
+                    frq[m.id] += int(s in sample_set)
+        return frq
+
+    def test_mutation_frequency(self, inferred_ts):
+        ck_freq = self.naive_mutation_frequency(inferred_ts, inferred_ts.samples())
+        freq = mutation_frequency(inferred_ts)
+        np.testing.assert_array_equal(ck_freq, freq.squeeze())
+
+    def test_mutation_frequency_stratified(self, inferred_ts):
+        sample_sets = [
+            list(np.arange(5)),
+            list(np.arange(3, 10)),
+            list(np.arange(15, 20)),
+        ]
+        freqs = mutation_frequency(inferred_ts, sample_sets)
+        for i, s in enumerate(sample_sets):
+            ck_freq = self.naive_mutation_frequency(inferred_ts, s)
+            np.testing.assert_array_equal(ck_freq, freqs[:, i])

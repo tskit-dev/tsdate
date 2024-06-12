@@ -1172,13 +1172,13 @@ class InsideOutsideMethod(DiscreteTimeMethod):
         posterior_mean, posterior_var = self.mean_var(self.ts, posterior_obj)
         mut_edge = np.full(self.ts.num_mutations, tskit.NULL)
         return Results(
-            posterior_mean, 
-            posterior_var, 
-            posterior_obj, 
-            None, 
-            None, 
-            marginal_likl, 
-            mut_edge
+            posterior_mean,
+            posterior_var,
+            posterior_obj,
+            None,
+            None,
+            marginal_likl,
+            mut_edge,
         )
 
 
@@ -1207,15 +1207,7 @@ class MaximizationMethod(DiscreteTimeMethod):
         marginal_likl = dynamic_prog.inside_pass(cache_inside=cache_inside)
         posterior_mean = dynamic_prog.outside_maximization(eps=eps)
         mut_edge = np.full(self.ts.num_mutations, tskit.NULL)
-        return Results(
-            posterior_mean, 
-            None, 
-            None, 
-            None, 
-            None, 
-            marginal_likl, 
-            mut_edge
-        )
+        return Results(posterior_mean, None, None, None, None, marginal_likl, mut_edge)
 
 
 class VariationalGammaMethod(EstimationMethod):
@@ -1250,11 +1242,6 @@ class VariationalGammaMethod(EstimationMethod):
 
         return mn_post, va_post
 
-    def main_algorithm(self):
-        return variational.ExpectationPropagation(
-            self.ts, mutation_rate=self.mutation_rate
-        )
-
     def run(
         self,
         eps,
@@ -1263,6 +1250,7 @@ class VariationalGammaMethod(EstimationMethod):
         rescaling_intervals,
         match_segregating_sites,
         regularise_roots,
+        singletons_phased,
     ):
         if self.provenance_params is not None:
             self.provenance_params.update(
@@ -1274,8 +1262,12 @@ class VariationalGammaMethod(EstimationMethod):
             raise ValueError("Variational gamma method requires mutation rate")
 
         # match sufficient statistics or match central moments
-        dynamic_prog = self.main_algorithm()
-        dynamic_prog.run(
+        posterior = variational.ExpectationPropagation(
+            self.ts,
+            mutation_rate=self.mutation_rate,
+            singletons_phased=singletons_phased,
+        )
+        posterior.run(
             ep_maxitt=max_iterations,
             max_shape=max_shape,
             rescale_intervals=rescaling_intervals,
@@ -1284,29 +1276,29 @@ class VariationalGammaMethod(EstimationMethod):
             progress=self.pbar,
         )
 
-        # TODO: use dynamic_prog.point_estimate
+        # TODO: use posterior.point_estimate
         posterior_mean, posterior_vari = self.mean_var(
-            dynamic_prog.node_posterior, dynamic_prog.node_constraints
+            posterior.node_posterior, posterior.node_constraints
         )
 
         # TODO: clean up
-        mutation_post = dynamic_prog.mutation_posterior
+        mutation_post = posterior.mutation_posterior
         mutation_mean = np.full(mutation_post.shape[0], np.nan)
         mutation_vari = np.full(mutation_post.shape[0], np.nan)
         idx = mutation_post[:, 1] > 0
         mutation_mean[idx] = (mutation_post[idx, 0] + 1) / mutation_post[idx, 1]
         mutation_vari[idx] = (mutation_post[idx, 0] + 1) / mutation_post[idx, 1] ** 2
-        mutation_edge = dynamic_prog.mutation_edges
+        mutation_edge = posterior.mutation_edges
 
         # TODO: return marginal likelihood
         return Results(
-            posterior_mean, 
-            posterior_vari, 
-            None, 
-            mutation_mean, 
-            mutation_vari, 
-            None, 
-            mutation_edge
+            posterior_mean,
+            posterior_vari,
+            None,
+            mutation_mean,
+            mutation_vari,
+            None,
+            mutation_edge,
         )
 
 
@@ -1589,6 +1581,7 @@ def variational_gamma(
     max_shape=None,
     match_segregating_sites=None,
     regularise_roots=None,
+    singletons_phased=None,
     **kwargs,
 ):
     """
@@ -1655,6 +1648,8 @@ def variational_gamma(
         match_segregating_sites = False
     if regularise_roots is None:
         regularise_roots = True
+    if singletons_phased is None:
+        singletons_phased = True
     if tree_sequence.num_mutations == 0:
         raise ValueError(
             "No mutations present: these are required for the variational_gamma method"
@@ -1669,6 +1664,7 @@ def variational_gamma(
         rescaling_intervals=rescaling_intervals,
         match_segregating_sites=match_segregating_sites,
         regularise_roots=regularise_roots,
+        singletons_phased=singletons_phased,
     )
     return dating_method.parse_result(result, eps, {"parameter": ["shape", "rate"]})
 
@@ -1759,7 +1755,6 @@ def date(
     :param bool record_provenance: Should the tsdate command be appended to the
         provenence information in the returned tree sequence?
         Default: None, treated as True.
-    :param float Ne: Deprecated, use the``population_size`` argument instead.
     :param \\**kwargs: Other keyword arguments specific to the
         :data:`estimation method<tsdate.core.estimation_methods>` used. These are
         documented in those specific functions.

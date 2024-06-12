@@ -29,11 +29,8 @@ from math import lgamma
 from math import log
 from math import nan
 
-import mpmath
 import numba
 import numpy as np
-from numba.types import Tuple as _tuple
-from numba.types import UniTuple as _unituple
 
 from . import hypergeo
 
@@ -59,8 +56,14 @@ _i1w = numba.types.Array(_i, 1, "C", readonly=False)
 _i1r = numba.types.Array(_i, 1, "C", readonly=True)
 _i2w = numba.types.Array(_i, 2, "C", readonly=False)
 _i2r = numba.types.Array(_i, 2, "C", readonly=True)
+_i3w = numba.types.Array(_i, 3, "C", readonly=False)
+_i3r = numba.types.Array(_i, 3, "C", readonly=True)
 _b1w = numba.types.Array(_b, 1, "C", readonly=False)
 _b1r = numba.types.Array(_b, 1, "C", readonly=True)
+_b2w = numba.types.Array(_b, 2, "C", readonly=False)
+_b2r = numba.types.Array(_b, 2, "C", readonly=True)
+_b3w = numba.types.Array(_b, 3, "C", readonly=False)
+_b3r = numba.types.Array(_b, 3, "C", readonly=True)
 _tuple = numba.types.Tuple
 _unituple = numba.types.UniTuple
 _void = numba.types.void
@@ -241,6 +244,7 @@ def _valid_hyp2f1(a, b, c, z):
 
 
 # --- various EP updates --- #
+
 
 @numba.njit(_unituple(_f, 5)(_f, _f, _f, _f, _f, _f))
 def moments(a_i, b_i, a_j, b_j, y_ij, mu_ij):
@@ -462,12 +466,16 @@ def mutation_moments(a_i, b_i, a_j, b_j, y_ij, mu_ij):
 
     s1 = a * b / c
     s2 = s1 * (a + 1) * (b + 1) / (c + 1)
-    d1 = b * (b + 1) / t ** 2
+    d1 = b * (b + 1) / t**2
     d2 = d1 * a / c
     d3 = d2 * (a + 1) / (c + 1)
 
     mn_m = s1 * exp(f111 - f000) / t / 2 * (1 + z) + b / t / 2
-    sq_m = d1 * exp(f020 - f000) / 3 + d2 * exp(f121 - f000) / 3 + d3 * exp(f222 - f000) / 3
+    sq_m = (
+        d1 * exp(f020 - f000) / 3
+        + d2 * exp(f121 - f000) / 3
+        + d3 * exp(f222 - f000) / 3
+    )
     va_m = sq_m - mn_m**2
 
     return mn_m, va_m
@@ -596,12 +604,12 @@ def mutation_sideways_moments(t_i, a_j, b_j, y_ij, mu_ij):
     # direct but unstable:
     hyperu = hypergeo._hyperu_laplace
     f00, d00 = hyperu(a + 0, b + 0, z)
-    f10, d10 = hyperu(a + 1, b + 0, z) 
-    f21, d21 = hyperu(a + 2, b + 1, z) 
+    f10, d10 = hyperu(a + 1, b + 0, z)
+    f21, d21 = hyperu(a + 2, b + 1, z)
     f32, d32 = hyperu(a + 3, b + 2, z)
     pr_m = 1.0 - exp(f10 - f00) * a
     mn_m = pr_m * t_i / 2 + t_i * exp(f21 - f00) * a * (a + 1) / 2
-    sq_m = pr_m * t_i ** 2 / 3 + t_i ** 2 * exp(f32 - f00) * a * (a + 1) * (a + 2) / 3
+    sq_m = pr_m * t_i**2 / 3 + t_i**2 * exp(f32 - f00) * a * (a + 1) * (a + 2) / 3
 
     # TODO: use a stabler approach with derivatives
     # note that exp(f10 - f00) = (a + z * d00) / (a - b + 1)
@@ -643,13 +651,14 @@ def mutation_block_moments(t_i, t_j):
 
     pr_m = t_i / (t_i + t_j)
     mn_m = pr_m * t_i / 2 + (1 - pr_m) * t_j / 2
-    sq_m = pr_m * t_i ** 2 / 3 + (1 - pr_m) * t_j ** 2 / 3 
+    sq_m = pr_m * t_i**2 / 3 + (1 - pr_m) * t_j**2 / 3
     va_m = sq_m - mn_m**2
 
     return pr_m, mn_m, va_m
 
 
 # --- wrappers around updates --- #
+
 
 @numba.njit(_tuple((_f, _f1r, _f1r))(_f1r, _f1r, _f1r))
 def gamma_projection(pars_i, pars_j, pars_ij):
