@@ -239,21 +239,15 @@ class ExpectationPropagation:
         # count mutations in singleton blocks
         phase_timing = time.time()
         individual_phased = np.full(ts.num_individuals, singletons_phased)
-        (
-            self.block_likelihoods,
-            self.block_edges,
-            self.mutation_blocks,
-        ) = block_singletons(ts, ~individual_phased)
+        self.block_likelihoods, self.block_edges, self.mutation_blocks = \
+            block_singletons(ts, ~individual_phased)  # fmt: skip
         self.block_likelihoods[:, 1] *= mutation_rate
-        self.block_edges = np.ascontiguousarray(
-            self.block_edges.T
-        )  # TODO: no need to transpose
-        self.block_nodes = np.full(self.block_edges.shape, tskit.NULL, dtype=np.int32)
-        self.block_nodes[0] = self.edge_parents[self.block_edges[0]]
-        self.block_nodes[1] = self.edge_parents[self.block_edges[1]]
+        num_blocks = self.block_likelihoods.shape[0]
+        self.block_nodes = np.full((2, num_blocks), tskit.NULL, dtype=np.int32)
+        self.block_nodes[0] = self.edge_parents[self.block_edges[:, 0]]
+        self.block_nodes[1] = self.edge_parents[self.block_edges[:, 1]]
         self.mutation_phase = np.full(ts.num_mutations, np.nan)
         num_unphased = np.sum(self.mutation_blocks != tskit.NULL)
-        num_blocks = self.block_likelihoods.shape[0]
         phase_timing -= time.time()
         logging.info(f"Found {num_unphased} unphased singleton mutations")
         logging.info(f"Split unphased singleton edges into {num_blocks} blocks")
@@ -281,8 +275,8 @@ class ExpectationPropagation:
 
         # edge traversal order
         edge_unphased = np.full(ts.num_edges, False)
-        edge_unphased[self.block_edges[0]] = True
-        edge_unphased[self.block_edges[1]] = True
+        edge_unphased[self.block_edges[:, 0]] = True
+        edge_unphased[self.block_edges[:, 1]] = True
         edges = np.arange(ts.num_edges, dtype=np.int32)[~edge_unphased]
         self.edge_order = np.concatenate((edges[:-1], np.flip(edges)))
         self.edge_weights = edge_sampling_weight(
