@@ -245,7 +245,7 @@ def piecewise_scale_posterior(
 
     # reproject posteriors using inter-quantile range
     # TODO: catch rare cases where lower/upper quantiles are nearly identical
-    new_posteriors = np.zeros(posteriors.shape)
+    new_posteriors = np.full(posteriors.shape, np.nan)
     for i in np.flatnonzero(freed):
         alpha, beta = approximate_gamma_iqr(
             quant_lower, quant_upper, lower[i], upper[i]

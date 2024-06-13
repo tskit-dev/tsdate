@@ -883,6 +883,7 @@ Results = namedtuple(
         "mutation_var",
         "mutation_lik",
         "mutation_edge",
+        "mutation_node",
     ],
 )
 
@@ -1002,6 +1003,7 @@ class EstimationMethod:
         mut_mean_t = result.mutation_mean
         mut_var_t = result.mutation_var
         mut_edge = result.mutation_edge
+        mut_node = result.mutation_node
         tables = ts.dump_tables()
         nodes = tables.nodes
         mutations = tables.mutations
@@ -1011,8 +1013,8 @@ class EstimationMethod:
         # Constrain node ages for positive branch lengths
         constr_timing = time.time()
         nodes.time = util.constrain_ages(ts, node_mean_t, eps, self.constr_iterations)
-        # TODO: what if mutations_edge is NULL?
         mutations.time = util.constrain_mutations(ts, nodes.time, mut_edge)
+        mutations.node = mut_node
         tables.time_units = self.time_units
         constr_timing -= time.time()
         logging.info(f"Constrained node ages in {abs(constr_timing)} seconds")
@@ -1171,6 +1173,7 @@ class InsideOutsideMethod(DiscreteTimeMethod):
 
         posterior_mean, posterior_var = self.mean_var(self.ts, posterior_obj)
         mut_edge = np.full(self.ts.num_mutations, tskit.NULL)
+        mut_node = self.ts.mutations_node
         return Results(
             posterior_mean,
             posterior_var,
@@ -1179,6 +1182,7 @@ class InsideOutsideMethod(DiscreteTimeMethod):
             None,
             marginal_likl,
             mut_edge,
+            mut_node,
         )
 
 
@@ -1207,7 +1211,10 @@ class MaximizationMethod(DiscreteTimeMethod):
         marginal_likl = dynamic_prog.inside_pass(cache_inside=cache_inside)
         posterior_mean = dynamic_prog.outside_maximization(eps=eps)
         mut_edge = np.full(self.ts.num_mutations, tskit.NULL)
-        return Results(posterior_mean, None, None, None, None, marginal_likl, mut_edge)
+        mut_node = self.ts.mutations_node
+        return Results(
+            posterior_mean, None, None, None, None, marginal_likl, mut_edge, mut_node
+        )
 
 
 class VariationalGammaMethod(EstimationMethod):
@@ -1216,31 +1223,6 @@ class VariationalGammaMethod(EstimationMethod):
 
     def __init__(self, ts, **kwargs):
         super().__init__(ts, **kwargs)
-
-    @staticmethod
-    def mean_var(posteriors, constraints):
-        """
-        Mean and variance of node age from variational posterior (e.g. gamma
-        distributions).  Fixed nodes will be given a mean of their exact time in
-        the tree sequence, and zero variance (as long as they are identified by the
-        fixed_node_set). This is a static method for ease of testing.
-        """
-
-        mn_post = np.full(
-            posteriors.shape[0], np.nan
-        )  # Fill with NaNs so we detect when
-        va_post = np.full(posteriors.shape[0], np.nan)  # there's been an error
-
-        fixed = constraints[:, 0] == constraints[:, 1]
-        mn_post[fixed] = constraints[fixed, 0]
-        va_post[fixed] = 0
-
-        for i in np.flatnonzero(~fixed):
-            pars = posteriors[i]
-            mn_post[i] = (pars[0] + 1) / pars[1]
-            va_post[i] = (pars[0] + 1) / pars[1] ** 2
-
-        return mn_post, va_post
 
     def run(
         self,
@@ -1276,29 +1258,21 @@ class VariationalGammaMethod(EstimationMethod):
             progress=self.pbar,
         )
 
-        # TODO: use posterior.point_estimate
-        posterior_mean, posterior_vari = self.mean_var(
-            posterior.node_posterior, posterior.node_constraints
-        )
+        node_mn, node_va = posterior.node_moments()
+        mutation_mn, mutation_va = posterior.mutation_moments()
 
-        # TODO: clean up
-        mutation_post = posterior.mutation_posterior
-        mutation_mean = np.full(mutation_post.shape[0], np.nan)
-        mutation_vari = np.full(mutation_post.shape[0], np.nan)
-        idx = mutation_post[:, 1] > 0
-        mutation_mean[idx] = (mutation_post[idx, 0] + 1) / mutation_post[idx, 1]
-        mutation_vari[idx] = (mutation_post[idx, 0] + 1) / mutation_post[idx, 1] ** 2
         mutation_edge = posterior.mutation_edges
+        mutation_edge, mutation_node = posterior.mutation_mapping()
 
-        # TODO: return marginal likelihood
         return Results(
-            posterior_mean,
-            posterior_vari,
+            node_mn,
+            node_va,
             None,
-            mutation_mean,
-            mutation_vari,
+            mutation_mn,
+            mutation_va,
             None,
             mutation_edge,
+            mutation_node,
         )
 
 

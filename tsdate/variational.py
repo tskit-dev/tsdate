@@ -256,7 +256,6 @@ class ExpectationPropagation:
         self.block_nodes = np.full((2, num_blocks), tskit.NULL, dtype=np.int32)
         self.block_nodes[0] = self.edge_parents[self.block_edges[:, 0]]
         self.block_nodes[1] = self.edge_parents[self.block_edges[:, 1]]
-        self.mutation_phase = np.full(ts.num_mutations, np.nan)
         num_unphased = np.sum(self.mutation_blocks != tskit.NULL)
         phase_timing -= time.time()
         logging.info(f"Found {num_unphased} unphased singleton mutations")
@@ -269,6 +268,8 @@ class ExpectationPropagation:
         self.block_factors = np.zeros((num_blocks, 2, 2))
         self.node_posterior = np.zeros((ts.num_nodes, 2))
         self.mutation_posterior = np.full((ts.num_mutations, 2), np.nan)
+        self.mutation_phase = np.ones(ts.num_mutations)
+        self.mutation_nodes = ts.mutations_node.copy()
         self.edge_logconst = np.zeros(ts.num_edges)
         self.block_logconst = np.zeros(num_blocks)
         self.node_scale = np.ones(ts.num_nodes)
@@ -689,7 +690,7 @@ class ExpectationPropagation:
         em_maxitt=10,
         em_reltol=1e-8,
         regularise=True,
-        check_valid=True,  # DEBUG
+        check_valid=False,  # for debugging
     ):
         # pass through singleton blocks
         self.propagate_likelihood(
@@ -828,13 +829,13 @@ class ExpectationPropagation:
             )
         nodes_timing -= time.time()
         skipped_edges = np.sum(np.isnan(self.edge_logconst))
-        if skipped_edges:
-            logging.info(f"Skipped {skipped_edges} edges with invalid factors")
+        logging.info(f"Skipped {skipped_edges} edges with invalid factors")
         logging.info(f"Calculated node posteriors in {abs(nodes_timing)} seconds")
 
         muts_timing = time.time()
+        mutations_phased = self.mutation_blocks == tskit.NULL
         self.propagate_mutations(  # unphased singletons
-            self.mutation_order,
+            self.mutation_order[~mutations_phased],
             self.mutation_posterior,
             self.mutation_phase,
             self.mutation_blocks,
@@ -848,7 +849,7 @@ class ExpectationPropagation:
             USE_BLOCK_LIKELIHOOD,
         )
         self.propagate_mutations(  # phased mutations
-            self.mutation_order,
+            self.mutation_order[mutations_phased],
             self.mutation_posterior,
             self.mutation_phase,
             self.mutation_edges,
@@ -863,9 +864,21 @@ class ExpectationPropagation:
         )
         muts_timing -= time.time()
         skipped_muts = np.sum(np.isnan(self.mutation_posterior[:, 0]))
-        if skipped_muts:
-            logging.info(f"Skipped {skipped_muts} mutations with invalid posteriors")
+        logging.info(f"Skipped {skipped_muts} mutations with invalid posteriors")
         logging.info(f"Calculated mutation posteriors in {abs(muts_timing)} seconds")
+
+        singletons = self.mutation_blocks != tskit.NULL
+        switched_blocks = self.mutation_blocks[singletons]
+        switched_edges = np.where(
+            self.mutation_phase[singletons] < 0.5,
+            self.block_edges[switched_blocks, 1],
+            self.block_edges[switched_blocks, 0],
+        )
+        self.mutation_edges[singletons] = switched_edges
+        self.mutation_nodes[singletons] = self.edge_children[switched_edges]
+        switched = self.mutation_phase < 0.5
+        self.mutation_phase[switched] = 1 - self.mutation_phase[switched]
+        logging.info(f"Switched phase of {np.sum(switched)} singletons")
 
         if rescale_intervals > 0:
             rescale_timing = time.time()
@@ -874,3 +887,35 @@ class ExpectationPropagation:
             )
             rescale_timing -= time.time()
             logging.info(f"Timescale rescaled in {abs(rescale_timing)} seconds")
+
+    def node_moments(self):
+        """
+        Posterior mean and variance of node ages
+        """
+        alpha, beta = self.node_posterior.T
+        nodes_mn = np.ascontiguousarray(self.node_constraints[:, 0])
+        nodes_va = np.zeros(nodes_mn.size)
+        free = self.node_constraints[:, 0] != self.node_constraints[:, 1]
+        nodes_mn[free] = (alpha[free] + 1) / beta[free]
+        nodes_va[free] = nodes_mn[free] / beta[free]
+        return nodes_mn, nodes_va
+
+    def mutation_moments(self):
+        """
+        Posterior mean and variance of mutation ages
+        """
+        alpha, beta = self.mutation_posterior.T
+        muts_mn = np.full(alpha.size, np.nan)
+        muts_va = np.full(alpha.size, np.nan)
+        free = np.isfinite(alpha)
+        muts_mn[free] = (alpha[free] + 1) / beta[free]
+        muts_va[free] = muts_mn[free] / beta[free]
+        return muts_mn, muts_va
+
+    def mutation_mapping(self):
+        """
+        Map from mutations to edges and subtended node, using estimated singleton
+        phase (if singletons were unphased)
+        """
+        # TODO: should these be copies? Should members be readonly?
+        return self.mutation_edges, self.mutation_nodes
