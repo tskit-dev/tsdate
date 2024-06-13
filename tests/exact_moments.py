@@ -121,6 +121,20 @@ def unphased_moments(a_i, b_i, a_j, b_j, y_ij, mu_ij):
     return logl, mn_i, va_i, mn_j, va_j
 
 
+def twin_moments(a_i, b_i, y_ij, mu_ij):
+    """
+    log p(t_i) := \
+        log(2 * t_i) * y_ij - mu_ij * (2 * t_i) + \
+        log(t_i) * (a_i - 1) - b_i * t_i
+    """
+    s = a_i + y_ij
+    r = b_i + 2 * mu_ij
+    logl = log(2) * y_ij + gammaln(s) - log(r) * s
+    mn_i = s / r
+    va_i = s / r**2
+    return logl, mn_i, va_i
+
+
 def sideways_moments(t_i, a_j, b_j, y_ij, mu_ij):
     """
     log p(t_j) := \
@@ -147,8 +161,8 @@ def mutation_moments(a_i, b_i, a_j, b_j, y_ij, mu_ij):
     log p(t_m, t_i, t_j) := \
         log(t_i - t_j) * y_ij - mu_ij * (t_i - t_j) + \
         log(t_i) * (a_i - 1) - b_i * t_i + \
-        log(t_j) * (a_j - 1) - b_j * t_j - \
-        log(t_i - t_j) + log(int(t_j < t_m < t_i))
+        log(t_j) * (a_j - 1) - b_j * t_j + \
+        log(int(t_j < t_m < t_i) / (t_i - t_j))
     """
     a = a_j
     b = a_i + a_j + y_ij
@@ -180,7 +194,7 @@ def mutation_rootward_moments(t_j, a_i, b_i, y_ij, mu_ij):
     log p(t_m, t_i) := \
         log(t_i - t_j) * y_ij - mu_ij * (t_i - t_j) + \
         log(t_i) * (a_i - 1) - b_i * t_i + \
-        log(t_i - t_j) + log(int(t_j < t_m < t_i))
+        log(int(t_j < t_m < t_i) / (t_i - t_j))
     """
     logl, mn_i, va_i = rootward_moments(t_j, a_i, b_i, y_ij, mu_ij)
     mn_m = mn_i / 2 + t_j / 2
@@ -193,8 +207,8 @@ def mutation_leafward_moments(t_i, a_j, b_j, y_ij, mu_ij):
     """
     log p(t_m, t_j) := \
         log(t_i - t_j) * y_ij - mu_ij * (t_i - t_j) + \
-        log(t_j) * (a_j - 1) - b_j * t_j - \
-        log(t_i - t_j) + log(int(t_j < t_m < t_i))
+        log(t_j) * (a_j - 1) - b_j * t_j + \
+        log(int(t_j < t_m < t_i) / (t_i - t_j))
     """
     logl, mn_j, va_j = leafward_moments(t_i, a_j, b_j, y_ij, mu_ij)
     mn_m = mn_j / 2 + t_i / 2
@@ -209,8 +223,8 @@ def mutation_unphased_moments(a_i, b_i, a_j, b_j, y_ij, mu_ij):
         log(t_i + t_j) * y_ij - mu_ij * (t_i + t_j) + \
         log(t_i) * (a_i - 1) - b_i * t_i + \
         log(t_j) * (a_j - 1) - b_j * t_j + \
-        log(t_i / (t_i + t_j) * int(0 < t_m < t_i) + \
-            t_j / (t_i + t_j) * int(0 < t_m < t_j))
+        log(t_i / (t_i + t_j) * int(0 < t_m < t_i) / t_i + \
+            t_j / (t_i + t_j) * int(0 < t_m < t_j) / t_j)
     """
     a = a_j
     b = a_j + a_i + y_ij
@@ -236,13 +250,29 @@ def mutation_unphased_moments(a_i, b_i, a_j, b_j, y_ij, mu_ij):
     return pr_m, mn_m, va_m
 
 
+def mutation_twin_moments(a_i, b_i, y_ij, mu_ij):
+    """
+    log p(t_m, t_i) := \
+        log(int(0 < t_m < t_i) / t_i) + \
+        log(2 * t_i) * y_ij - mu_ij * (2 * t_i) + \
+        log(t_i) * (a_i - 1) - b_i * t_i
+    """
+    s = a_i + y_ij
+    r = b_i + 2 * mu_ij
+    pr_m = 0.5
+    mn_m = s / r / 2
+    sq_m = (s + 1) * s / 3 / r**2
+    va_m = sq_m - mn_m**2
+    return pr_m, mn_m, va_m
+
+
 def mutation_sideways_moments(t_i, a_j, b_j, y_ij, mu_ij):
     """
     log p(t_m, t_j) := \
         log(t_i + t_j) * y_ij - mu_ij * (t_i + t_j) + \
         log(t_j) * (a_j - 1) - b_j * t_j + \
-        log(t_i / (t_i + t_j) * int(0 < t_m < t_i) + \
-            t_j / (t_i + t_j) * int(0 < t_m < t_j))
+        log(t_i / (t_i + t_j) * int(0 < t_m < t_i) / t_i + \
+            t_j / (t_i + t_j) * int(0 < t_m < t_j) / t_j)
     """
     a = a_j
     b = a_j + y_ij + 1
@@ -270,8 +300,8 @@ def mutation_edge_moments(t_i, t_j):
 def mutation_block_moments(t_i, t_j):
     """
     log p(t_m) := \
-        log(t_i / (t_i + t_j) * int(0 < t_m < t_i) + \
-            t_j / (t_i + t_j) * int(0 < t_m < t_j))
+        log(t_i / (t_i + t_j) * int(0 < t_m < t_i) / t_i + \
+            t_j / (t_i + t_j) * int(0 < t_m < t_j) / t_j)
     """
     pr_m = t_i / (t_i + t_j)
     mn_m = pr_m * t_i / 2 + (1 - pr_m) * t_j / 2
@@ -345,6 +375,21 @@ class TestExactMoments:
             * np.exp(-t_j * b_j)
             * (t_i + t_j) ** y
             * np.exp(-(t_i + t_j) * mu)
+        )
+
+    @staticmethod
+    def pdf_twin(t_i, a_i, b_i, y, mu):
+        """
+        Target marginal distribution, proportional to the parent
+        marginal (gamma) and a Poisson mutation likelihood over the two
+        branches leading from (present-day) individual to a *single* parent
+        """
+        assert t_i > 0
+        return (
+            t_i ** (a_i - 1)
+            * np.exp(-t_i * b_i)
+            * (t_i + t_i) ** y
+            * np.exp(-(t_i + t_i) * mu)
         )
 
     @staticmethod
@@ -571,6 +616,38 @@ class TestExactMoments:
         )
         assert np.isclose(var_t_j, ck_var_t_j)
 
+    def test_twin_moments(self, pars):
+        """
+        Parent age for one singleton node above an unphased individual
+        """
+        a_i, b_i, a_j, b_j, y_ij, mu_ij = pars
+        pars_redux = (a_i, b_i, y_ij, mu_ij)
+        logconst, t_i, var_t_i = twin_moments(*pars_redux)
+        ck_normconst = scipy.integrate.quad(
+            lambda t_i: self.pdf_twin(t_i, *pars_redux),
+            0,
+            np.inf,
+            epsabs=0,
+        )[0]
+        assert np.isclose(logconst, np.log(ck_normconst))
+        ck_t_i = scipy.integrate.quad(
+            lambda t_i: t_i * self.pdf_twin(t_i, *pars_redux) / ck_normconst,
+            0,
+            np.inf,
+            epsabs=0,
+        )[0]
+        assert np.isclose(t_i, ck_t_i)
+        ck_var_t_i = (
+            scipy.integrate.quad(
+                lambda t_i: t_i**2 * self.pdf_twin(t_i, *pars_redux) / ck_normconst,
+                0,
+                np.inf,
+                epsabs=0,
+            )[0]
+            - ck_t_i**2
+        )
+        assert np.isclose(var_t_i, ck_var_t_i)
+
     def test_sideways_moments(self, pars):
         """
         Parent ages for an singleton nodes above an unphased individual, where
@@ -784,6 +861,59 @@ class TestExactMoments:
                 lambda t_i, t_j: f(t_i, t_j)[2] * self.pdf_unphased(t_i, t_j, *pars),
                 0,
                 np.inf,
+                0,
+                np.inf,
+                epsabs=0,
+            )[0]
+            / nc
+            - ck_mn**2
+        )
+        assert np.isclose(va, ck_va)
+
+    def test_mutation_twin_moments(self, pars):
+        """
+        Mutation mapped to two singleton branches with children fixed to time zero
+        and a single parent node
+        """
+
+        def f(t_i):  # conditional moments
+            pr = 0.5
+            mn = t_i / 2
+            sq = t_i**2 / 3
+            return pr, mn, sq
+
+        a_i, b_i, a_j, b_j, y_ij, mu_ij = pars
+        pars_redux = (a_i, b_i, y_ij, mu_ij)
+        pr, mn, va = mutation_twin_moments(*pars_redux)
+        nc = scipy.integrate.quad(
+            lambda t_i: self.pdf_twin(t_i, *pars_redux),
+            0,
+            np.inf,
+            epsabs=0,
+        )[0]
+        ck_pr = (
+            scipy.integrate.quad(
+                lambda t_i: f(t_i)[0] * self.pdf_twin(t_i, *pars_redux),
+                0,
+                np.inf,
+                epsabs=0,
+            )[0]
+            / nc
+        )
+        assert np.isclose(pr, ck_pr)
+        ck_mn = (
+            scipy.integrate.quad(
+                lambda t_i: f(t_i)[1] * self.pdf_twin(t_i, *pars_redux),
+                0,
+                np.inf,
+                epsabs=0,
+            )[0]
+            / nc
+        )
+        assert np.isclose(mn, ck_mn)
+        ck_va = (
+            scipy.integrate.quad(
+                lambda t_i: f(t_i)[2] * self.pdf_twin(t_i, *pars_redux),
                 0,
                 np.inf,
                 epsabs=0,

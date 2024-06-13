@@ -44,6 +44,7 @@ from .approx import _f3r
 from .approx import _f3w
 from .approx import _i
 from .approx import _i1r
+from .approx import _i2r
 from .hypergeo import _gammainc_inv as gammainc_inv
 from .phasing import block_singletons
 from .phasing import count_mutations
@@ -59,8 +60,8 @@ ROOTWARD = 0  # edge likelihood to parent
 LEAFWARD = 1  # edge likelihood to child
 
 # columns for unphased_factors
-FIRSTPAR = 0  # edge likelihood to first parent
-SECNDPAR = 1  # edge likelihood to second parent
+NODEONE = 0  # block likelihood to first parent
+NODETWO = 1  # block likelihood to second parent
 
 # columns for node_factors
 MIXPRIOR = 0  # mixture prior to node
@@ -173,18 +174,26 @@ class ExpectationPropagation:
 
     @staticmethod
     def _check_valid_state(
-        edges_parent, edges_child, posterior, node_factors, edge_factors
+        edges_parent,
+        edges_child,
+        block_nodes,
+        posterior,
+        node_factors,
+        edge_factors,
+        block_factors,
     ):
         """Check that the messages sum to the posterior (debugging only)"""
+        block_one, block_two = block_nodes
         posterior_check = np.zeros(posterior.shape)
         for i, (p, c) in enumerate(zip(edges_parent, edges_child)):
             posterior_check[p] += edge_factors[i, ROOTWARD]
             posterior_check[c] += edge_factors[i, LEAFWARD]
-        # TODO: unphased factors
-        assert False
+        for i, (j, k) in enumerate(zip(block_one, block_two)):
+            posterior_check[j] += block_factors[i, ROOTWARD]
+            posterior_check[k] += block_factors[i, LEAFWARD]
         posterior_check += node_factors[:, MIXPRIOR]
         posterior_check += node_factors[:, CONSTRNT]
-        return np.allclose(posterior_check, posterior)
+        np.testing.assert_allclose(posterior_check, posterior)
 
     @staticmethod
     @numba.njit(_f1w(_f2r, _f2r, _b))
@@ -194,7 +203,8 @@ class ExpectationPropagation:
         point_estimate = np.zeros(posteriors.shape[0])
         for i in np.flatnonzero(~fixed):
             alpha, beta = posteriors[i]
-            point_estimate[i] = gammainc_inv(alpha + 1, 0.5) if median else (alpha + 1)
+            point_estimate[i] = gammainc_inv(alpha + 1, 0.5) \
+                if median else (alpha + 1)  # fmt: skip
             point_estimate[i] /= beta
         point_estimate[fixed] = constraints[fixed, 0]
         return point_estimate
@@ -360,6 +370,10 @@ class ExpectationPropagation:
                 return approx.unphased_projection(x, y, z)
             return approx.gamma_projection(x, y, z)
 
+        def twin_projection(x, y):
+            assert unphased, "Invalid update"
+            return approx.twin_projection(x, y)
+
         fixed = constraints[:, LOWER] == constraints[:, UPPER]
 
         for i in edge_order:
@@ -373,8 +387,6 @@ class ExpectationPropagation:
                 child_delta = cavity_damping(posterior[c], child_message)
                 child_cavity = posterior[c] - child_delta * child_message
                 edge_likelihood = child_delta * likelihoods[i]
-
-                # match moments and update factor
                 parent_age = constraints[p, LOWER]
                 lognorm[i], posterior[c] = leafward_projection(
                     parent_age,
@@ -383,8 +395,6 @@ class ExpectationPropagation:
                 )
                 factors[i, LEAFWARD] *= 1.0 - child_delta
                 factors[i, LEAFWARD] += (posterior[c] - child_cavity) / scale[c]
-
-                # upper bound posterior
                 child_eta = posterior_damping(posterior[c])
                 posterior[c] *= child_eta
                 scale[c] *= child_eta
@@ -395,52 +405,61 @@ class ExpectationPropagation:
                 parent_delta = cavity_damping(posterior[p], parent_message)
                 parent_cavity = posterior[p] - parent_delta * parent_message
                 edge_likelihood = parent_delta * likelihoods[i]
-
-                # match moments and update factor
                 child_age = constraints[c, LOWER]
                 lognorm[i], posterior[p] = rootward_projection(
                     child_age,
                     parent_cavity,
                     edge_likelihood,
                 )
-
                 factors[i, ROOTWARD] *= 1.0 - parent_delta
                 factors[i, ROOTWARD] += (posterior[p] - parent_cavity) / scale[p]
-
-                # upper-bound posterior
                 parent_eta = posterior_damping(posterior[p])
                 posterior[p] *= parent_eta
                 scale[p] *= parent_eta
             else:
-                # lower-bound cavity
-                parent_message = factors[i, ROOTWARD] * scale[p]
-                child_message = factors[i, LEAFWARD] * scale[c]
-                parent_delta = cavity_damping(posterior[p], parent_message)
-                child_delta = cavity_damping(posterior[c], child_message)
-                delta = min(parent_delta, child_delta)
+                if p == c:  # singleton block with single parent
+                    parent_message = factors[i, ROOTWARD] * scale[p]
+                    parent_delta = cavity_damping(posterior[p], parent_message)
+                    parent_cavity = posterior[p] - parent_delta * parent_message
+                    edge_likelihood = parent_delta * likelihoods[i]
+                    child_age = constraints[c, LOWER]
+                    lognorm[i], posterior[p] = \
+                        twin_projection(parent_cavity, edge_likelihood)  # fmt: skip
+                    factors[i, ROOTWARD] *= 1.0 - parent_delta
+                    factors[i, ROOTWARD] += (posterior[p] - parent_cavity) / scale[p]
+                    parent_eta = posterior_damping(posterior[p])
+                    posterior[p] *= parent_eta
+                    scale[p] *= parent_eta
+                else:
+                    # lower-bound cavity
+                    parent_message = factors[i, ROOTWARD] * scale[p]
+                    child_message = factors[i, LEAFWARD] * scale[c]
+                    parent_delta = cavity_damping(posterior[p], parent_message)
+                    child_delta = cavity_damping(posterior[c], child_message)
+                    delta = min(parent_delta, child_delta)
 
-                parent_cavity = posterior[p] - delta * parent_message
-                child_cavity = posterior[c] - delta * child_message
-                edge_likelihood = delta * likelihoods[i]
+                    parent_cavity = posterior[p] - delta * parent_message
+                    child_cavity = posterior[c] - delta * child_message
+                    edge_likelihood = delta * likelihoods[i]
 
-                # match moments and update factors
-                lognorm[i], posterior[p], posterior[c] = gamma_projection(
-                    parent_cavity,
-                    child_cavity,
-                    edge_likelihood,
-                )
-                factors[i, ROOTWARD] *= 1.0 - delta
-                factors[i, ROOTWARD] += (posterior[p] - parent_cavity) / scale[p]
-                factors[i, LEAFWARD] *= 1.0 - delta
-                factors[i, LEAFWARD] += (posterior[c] - child_cavity) / scale[c]
+                    # match moments and update factors
+                    lognorm[i], posterior[p], posterior[c] = gamma_projection(
+                        parent_cavity,
+                        child_cavity,
+                        edge_likelihood,
+                    )
+                    factors[i, ROOTWARD] *= 1.0 - delta
+                    factors[i, ROOTWARD] += (posterior[p] - parent_cavity) / scale[p]
+                    factors[i, LEAFWARD] *= 1.0 - delta
+                    factors[i, LEAFWARD] += (posterior[c] - child_cavity) / scale[c]
 
-                # upper-bound posterior
-                parent_eta = posterior_damping(posterior[p])
-                child_eta = posterior_damping(posterior[c])
-                posterior[p] *= parent_eta
-                posterior[c] *= child_eta
-                scale[p] *= parent_eta
-                scale[c] *= child_eta
+                    # upper-bound posterior
+                    parent_eta = posterior_damping(posterior[p])
+                    child_eta = posterior_damping(posterior[c])
+                    posterior[p] *= parent_eta
+                    posterior[c] *= child_eta
+                    scale[p] *= parent_eta
+                    scale[c] *= child_eta
 
         return np.nan
 
@@ -492,9 +511,8 @@ class ExpectationPropagation:
 
         # update posteriors and rescale to keep shape bounded
         posterior[free, 1] = cavity[free, 1] + penalty
-        factors[free, MIXPRIOR] = (posterior[free] - cavity[free]) / scale[
-            free, np.newaxis
-        ]
+        factors[free, MIXPRIOR] = \
+            (posterior[free] - cavity[free]) / scale[free, np.newaxis]  # fmt: skip
         for i in np.flatnonzero(free):
             eta = posterior_damping(posterior[i])
             posterior[i] *= eta
@@ -550,9 +568,8 @@ class ExpectationPropagation:
 
         # TODO: scale should be 1.0, can we delete
         # TODO: we don't seem to need to damp?
-        # TODO: might as well copy format in other functions and have void return
 
-        # assert stuff here
+        # TODO: assert more stuff here?
         assert mutations_phase.size == mutations_edge.size
         assert mutations_posterior.shape == (mutations_phase.size, 2)
         assert constraints.shape == posterior.shape
@@ -580,7 +597,10 @@ class ExpectationPropagation:
                 return approx.mutation_block_projection(x, y)
             return approx.mutation_edge_projection(x, y)
 
+        twin_projection = approx.mutation_twin_projection
+
         fixed = constraints[:, LOWER] == constraints[:, UPPER]
+
         for m in mutations_order:
             i = mutations_edge[m]
             if i == tskit.NULL:  # skip mutations above root
@@ -589,9 +609,8 @@ class ExpectationPropagation:
             if fixed[p] and fixed[c]:
                 child_age = constraints[c, 0]
                 parent_age = constraints[p, 0]
-                phase[m], mutations_posterior[m] = fixed_projection(
-                    parent_age, child_age
-                )
+                mutations_phase[m], mutations_posterior[m] = \
+                    fixed_projection(parent_age, child_age)  # fmt: skip
             elif fixed[p] and not fixed[c]:
                 child_message = factors[i, LEAFWARD] * scale[c]
                 child_delta = 1.0  # hopefully we don't need to damp
@@ -615,34 +634,49 @@ class ExpectationPropagation:
                     edge_likelihood,
                 )
             else:
-                parent_message = factors[i, ROOTWARD] * scale[p]
-                child_message = factors[i, LEAFWARD] * scale[c]
-                parent_delta = 1.0  # hopefully we don't need to damp
-                child_delta = 1.0  # hopefully we don't need to damp
-                delta = min(parent_delta, child_delta)
-                parent_cavity = posterior[p] - delta * parent_message
-                child_cavity = posterior[c] - delta * child_message
-                edge_likelihood = delta * likelihoods[i]
-                mutations_phase[m], mutations_posterior[m] = gamma_projection(
-                    parent_cavity,
-                    child_cavity,
-                    edge_likelihood,
-                )
+                if p == c:  # singleton block with single parent
+                    parent_message = factors[i, ROOTWARD] * scale[p]
+                    parent_delta = 1.0  # hopefully we don't need to damp
+                    parent_cavity = posterior[p] - parent_delta * parent_message
+                    edge_likelihood = parent_delta * likelihoods[i]
+                    child_age = constraints[c, LOWER]
+                    mutations_phase[m], mutations_posterior[m] = \
+                        twin_projection(parent_cavity, edge_likelihood)  # fmt: skip
+                else:
+                    parent_message = factors[i, ROOTWARD] * scale[p]
+                    child_message = factors[i, LEAFWARD] * scale[c]
+                    parent_delta = 1.0  # hopefully we don't need to damp
+                    child_delta = 1.0  # hopefully we don't need to damp
+                    delta = min(parent_delta, child_delta)
+                    parent_cavity = posterior[p] - delta * parent_message
+                    child_cavity = posterior[c] - delta * child_message
+                    edge_likelihood = delta * likelihoods[i]
+                    mutations_phase[m], mutations_posterior[m] = gamma_projection(
+                        parent_cavity,
+                        child_cavity,
+                        edge_likelihood,
+                    )
 
         return np.nan
 
-    # TODO more arguments, blck_factors and block_parents
     @staticmethod
-    @numba.njit(_void(_i1r, _i1r, _f3w, _f3w, _f1w))
-    def rescale_factors(edges_parent, edges_child, node_factors, edge_factors, scale):
+    @numba.njit(_void(_i1r, _i1r, _i2r, _f3w, _f3w, _f3w, _f1w))
+    def rescale_factors(
+        edges_parent,
+        edges_child,
+        block_nodes,
+        node_factors,
+        edge_factors,
+        block_factors,
+        scale,
+    ):
         """Incorporate scaling term into factors and reset"""
         p, c = edges_parent, edges_child
+        j, k = block_nodes
         edge_factors[:, ROOTWARD] *= scale[p, np.newaxis]
         edge_factors[:, LEAFWARD] *= scale[c, np.newaxis]
-        # TODO
-        # j, k = blocks_parents
-        # block_factors[:, ROOTWARD] *= scale[j, np.newaxis]
-        # block_factors[:, LEAFWARD] *= scale[k, np.newaxis]
+        block_factors[:, ROOTWARD] *= scale[j, np.newaxis]
+        block_factors[:, LEAFWARD] *= scale[k, np.newaxis]
         node_factors[:, MIXPRIOR] *= scale[:, np.newaxis]
         node_factors[:, CONSTRNT] *= scale[:, np.newaxis]
         scale[:] = 1.0
@@ -655,13 +689,13 @@ class ExpectationPropagation:
         em_maxitt=10,
         em_reltol=1e-8,
         regularise=True,
-        check_valid=False,
+        check_valid=True,  # DEBUG
     ):
         # pass through singleton blocks
         self.propagate_likelihood(
             self.block_order,
-            self.block_nodes[0],
-            self.block_nodes[1],
+            self.block_nodes[ROOTWARD],
+            self.block_nodes[LEAFWARD],
             self.block_likelihoods,
             self.node_constraints,
             self.node_posterior,
@@ -705,18 +739,22 @@ class ExpectationPropagation:
         self.rescale_factors(
             self.edge_parents,
             self.edge_children,
+            self.block_nodes,
             self.node_factors,
             self.edge_factors,
+            self.block_factors,
             self.node_scale,
         )
 
         if check_valid:  # for debugging
-            assert self._check_valid_state(
+            self._check_valid_state(
                 self.edge_parents,
                 self.edge_children,
+                self.block_nodes,
                 self.node_posterior,
                 self.node_factors,
                 self.edge_factors,
+                self.block_factors,
             )
 
         return np.nan  # TODO: placeholder for marginal likelihood
@@ -800,8 +838,8 @@ class ExpectationPropagation:
             self.mutation_posterior,
             self.mutation_phase,
             self.mutation_blocks,
-            self.block_nodes[0],
-            self.block_nodes[1],
+            self.block_nodes[ROOTWARD],
+            self.block_nodes[LEAFWARD],
             self.block_likelihoods,
             self.node_constraints,
             self.node_posterior,

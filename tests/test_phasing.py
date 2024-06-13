@@ -31,12 +31,11 @@ import tsinfer
 import tskit
 
 import tsdate
-
 from tsdate.phasing import block_singletons
 from tsdate.phasing import count_mutations
+from tsdate.phasing import insert_unphased_singletons
 from tsdate.phasing import mutation_frequency
 from tsdate.phasing import remove_singletons
-from tsdate.phasing import insert_unphased_singletons
 from tsdate.phasing import rephase_singletons
 
 
@@ -185,7 +184,6 @@ class TestBlockSingletons:
                     total_singleton_span += t.span
             for m in t.mutations():
                 if t.num_samples(m.node) == 1 and (m.node in unphased_nodes):
-                    e = t.edge(m.node)
                     total_singleton_muts += 1.0
         block_stats, *_ = block_singletons(ts, individuals_unphased)
         assert np.isclose(np.sum(block_stats[:, 0]), total_singleton_muts)
@@ -252,30 +250,50 @@ class TestBlockSingletons:
 
 
 class TestPhaseAgnosticDating:
-   """
-   If singleton phase is randomized, we should get same results with the phase
-   agnostic algorithm
-   """
+    """
+    If singleton phase is randomized, we should get same results with the phase
+    agnostic algorithm
+    """
 
-   def test_phase_invariance(self, inferred_ts):
-       ts1 = inferred_ts
-       ts2 = rephase_singletons(ts1, use_node_times=False, random_seed=1)
-       frq = mutation_frequency(ts1)
-       assert np.all(ts1.mutations_node[frq != 1] == ts2.mutations_node[frq != 1])
-       assert np.any(ts1.mutations_node[frq == 1] != ts2.mutations_node[frq == 1])
-       dts1 = tsdate.date(
+    def test_phase_invariance(self, inferred_ts):
+        ts1 = inferred_ts
+        ts2 = rephase_singletons(ts1, use_node_times=False, random_seed=1)
+        frq = mutation_frequency(ts1)
+        assert np.all(ts1.mutations_node[frq != 1] == ts2.mutations_node[frq != 1])
+        assert np.any(ts1.mutations_node[frq == 1] != ts2.mutations_node[frq == 1])
+        dts1 = tsdate.date(
             ts1,
             mutation_rate=1.29e-8,
-            method='variational_gamma',
+            method="variational_gamma",
             singletons_phased=False,
-       )
-       dts2 = tsdate.date(
+        )
+        dts2 = tsdate.date(
             ts2,
             mutation_rate=1.29e-8,
-            method='variational_gamma',
+            method="variational_gamma",
             singletons_phased=False,
-       )
-       np.testing.assert_allclose(dts1.nodes_time, dts2.nodes_time)
+        )
+        np.testing.assert_allclose(dts1.nodes_time, dts2.nodes_time)
+
+    def test_not_phase_invariance(self, inferred_ts):
+        ts1 = inferred_ts
+        ts2 = rephase_singletons(ts1, use_node_times=False, random_seed=1)
+        frq = mutation_frequency(ts1)
+        assert np.all(ts1.mutations_node[frq != 1] == ts2.mutations_node[frq != 1])
+        assert np.any(ts1.mutations_node[frq == 1] != ts2.mutations_node[frq == 1])
+        dts1 = tsdate.date(
+            ts1,
+            mutation_rate=1.29e-8,
+            method="variational_gamma",
+            singletons_phased=True,
+        )
+        dts2 = tsdate.date(
+            ts2,
+            mutation_rate=1.29e-8,
+            method="variational_gamma",
+            singletons_phased=True,
+        )
+        assert not np.allclose(dts1.nodes_time, dts2.nodes_time)
 
 
 class TestMutationFrequency:
@@ -318,23 +336,19 @@ class TestModifySingletons:
         its = inferred_ts
         inter_ts, removed = remove_singletons(its)
         new_ts = insert_unphased_singletons(inter_ts, *removed)
-        old_frq = mutation_frequency(its)
-        new_frq = mutation_frequency(new_ts)
         assert new_ts.num_mutations == its.num_mutations
-        old_singles = old_frq == 1
-        old_singleton_pos = its.sites_position[its.mutations_site]
-        old_singleton_ind = its.nodes_individual[its.mutations_node]
-        old_order = np.argsort(old_singleton_pos)
-        new_singles = new_frq == 1
-        new_singleton_pos = new_ts.sites_position[new_ts.mutations_site]
-        new_singleton_ind = new_ts.nodes_individual[new_ts.mutations_node]
-        new_order = np.argsort(new_singleton_pos)
+        old_pos = its.sites_position[its.mutations_site]
+        old_ind = its.nodes_individual[its.mutations_node]
+        old_order = np.argsort(old_pos)
+        new_pos = new_ts.sites_position[new_ts.mutations_site]
+        new_ind = new_ts.nodes_individual[new_ts.mutations_node]
+        new_order = np.argsort(new_pos)
         np.testing.assert_array_equal(
-            old_singleton_pos[old_order], 
-            new_singleton_pos[new_order],
+            old_pos[old_order],
+            new_pos[new_order],
         )
         np.testing.assert_array_equal(
-            old_singleton_ind[old_order], 
-            new_singleton_ind[new_order],
+            old_ind[old_order],
+            new_ind[new_order],
         )
         # TODO: more thorough testing (ancestral state, etc)
