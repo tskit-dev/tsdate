@@ -274,6 +274,8 @@ class TestPhaseAgnosticDating:
             singletons_phased=False,
         )
         np.testing.assert_allclose(dts1.nodes_time, dts2.nodes_time)
+        np.testing.assert_allclose(dts1.mutations_node, dts2.mutations_node)
+        np.testing.assert_allclose(dts1.mutations_time, dts2.mutations_time)
 
     def test_not_phase_invariance(self, inferred_ts):
         ts1 = inferred_ts
