@@ -26,13 +26,10 @@ import numba
 import numpy as np
 import tskit
 
-from .approx import _b
 from .approx import _b1r
 from .approx import _b2r
 from .approx import _f
 from .approx import _f1r
-from .approx import _f1w
-from .approx import _f2r
 from .approx import _f2w
 from .approx import _i
 from .approx import _i1r
@@ -56,10 +53,7 @@ def reallocate_unphased(
     assert mutations_phase.size == mutations_block.size
     assert blocks_edges.shape[1] == 2
 
-    num_mutations = mutations_phase.size
     num_edges = edges_likelihood.shape[0]
-    num_blocks = blocks_edges.shape[0]
-
     edges_unphased = np.full(num_edges, False)
     edges_unphased[blocks_edges[:, 0]] = True
     edges_unphased[blocks_edges[:, 1]] = True
@@ -103,7 +97,6 @@ def _block_singletons(
     assert indexes_insert.size == indexes_remove.size == edges_parent.size
     assert mutations_node.size == mutations_position.size
 
-    num_nodes = nodes_individual.size
     num_mutations = mutations_node.size
     num_edges = edges_parent.size
     num_individuals = individuals_unphased.size
@@ -130,7 +123,7 @@ def _block_singletons(
     while a < num_edges or b < num_edges:
         while b < num_edges and position_remove[b] == left:  # edges out
             e = indexes_remove[b]
-            p, c = edges_parent[e], edges_child[e]
+            c = edges_child[e]
             i = nodes_individual[c]
             if i != tskit.NULL and individuals_unphased[i]:
                 u, v = individuals_edges[i]
@@ -149,7 +142,7 @@ def _block_singletons(
 
         while a < num_edges and position_insert[a] == left:  # edges in
             e = indexes_insert[a]
-            p, c = edges_parent[e], edges_child[e]
+            c = edges_child[e]
             i = nodes_individual[c]
             if i != tskit.NULL and individuals_unphased[i]:
                 u, v = individuals_edges[i]
@@ -260,13 +253,13 @@ def _count_mutations(
     while a < num_edges or b < num_edges:
         while b < num_edges and position_remove[b] == left:  # edges out
             e = indexes_remove[b]
-            p, c = edges_parent[e], edges_child[e]
+            c = edges_child[e]
             nodes_edge[c] = tskit.NULL
             b += 1
 
         while a < num_edges and position_insert[a] == left:  # edges in
             e = indexes_insert[a]
-            p, c = edges_parent[e], edges_child[e]
+            c = edges_child[e]
             nodes_edge[c] = e
             a += 1
 
@@ -312,7 +305,6 @@ def count_mutations(ts):
 
 
 # def mutations_node(mutations_block, mutations_phase, blocks_nodes):
-
 
 
 @numba.njit(_i2w(_b2r, _i1r, _f1r, _i1r, _i1r, _f1r, _f1r, _i1r, _i1r, _f))
@@ -508,9 +500,7 @@ def insert_unphased_singletons(
     tables = ts.dump_tables()
     individuals_node = {i.id: max(i.nodes) for i in ts.individuals()}
     sites_id = {p: i for i, p in enumerate(ts.sites_position)}
-    for pos, ind, ref, alt in zip(
-        position, individual, ancestral_state, derived_state
-    ):
+    for pos, ind, ref, alt in zip(position, individual, ancestral_state, derived_state):
         if ind not in individuals_node:
             raise LookupError(f"Individual {ind} is not in the tree sequence")
         if pos in sites_id:

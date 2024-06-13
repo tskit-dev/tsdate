@@ -39,9 +39,11 @@ from exact_moments import mutation_leafward_moments
 from exact_moments import mutation_moments
 from exact_moments import mutation_rootward_moments
 from exact_moments import mutation_sideways_moments
+from exact_moments import mutation_twin_moments
 from exact_moments import mutation_unphased_moments
 from exact_moments import rootward_moments
 from exact_moments import sideways_moments
+from exact_moments import twin_moments
 from exact_moments import unphased_moments
 
 from tsdate import approx
@@ -117,6 +119,19 @@ class TestPosteriorMomentMatching:
         assert np.isclose(sqrt(ck_va_i), sqrt(va_i), rtol=rtol)
         assert np.isclose(sqrt(ck_va_j), sqrt(va_j), rtol=rtol)
 
+    def test_twin_moments(self, pars):
+        """
+        Parent age for a singleton node above both edges of an unphased
+        individual
+        """
+        a_i, b_i, a_j, b_j, y_ij, mu_ij = pars
+        pars_redux = (a_i, b_i, y_ij, mu_ij)
+        ll, mn_i, va_i = approx.twin_moments(*pars_redux)
+        ck_ll, ck_mn_i, ck_va_i = twin_moments(*pars_redux)
+        assert np.isclose(ck_ll, ll)
+        assert np.isclose(ck_mn_i, mn_i)
+        assert np.isclose(sqrt(ck_va_i), sqrt(va_i))
+
     def test_sideways_moments(self, pars):
         """
         Parent ages for an singleton nodes above an unphased individual, where
@@ -179,6 +194,19 @@ class TestPosteriorMomentMatching:
         assert np.isclose(ck_pr, pr, rtol=rtol)
         assert np.isclose(ck_mn, mn, rtol=rtol)
         assert np.isclose(sqrt(ck_va), sqrt(va), rtol=rtol)
+
+    def test_mutation_twin_moments(self, pars):
+        """
+        Mutation mapped to two singleton branches with children fixed to time zero
+        and the same parent
+        """
+        a_i, b_i, a_j, b_j, y_ij, mu_ij = pars
+        pars_redux = (a_i, b_i, y_ij, mu_ij)
+        pr, mn, va = approx.mutation_twin_moments(*pars_redux)
+        ck_pr, ck_mn, ck_va = mutation_twin_moments(*pars_redux)
+        assert np.isclose(ck_pr, pr)
+        assert np.isclose(ck_mn, mn)
+        assert np.isclose(sqrt(ck_va), sqrt(va))
 
     def test_mutation_sideways_moments(self, pars):
         """

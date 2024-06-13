@@ -293,7 +293,7 @@ def rootward_moments(t_j, a_i, b_i, y_ij, mu_ij):
     r"""
     log p(t_i) := \
         log(t_i - t_j) * y_ij - mu_ij * (t_i - t_j) + \
-        log(t_i) * (a_i - 1) - b_i * t_i 
+        log(t_i) * (a_i - 1) - b_i * t_i
 
     Returns normalizing constant, E[t_i], V[t_i].
     """
@@ -406,6 +406,23 @@ def unphased_moments(a_i, b_i, a_j, b_j, y_ij, mu_ij):
     return logl, mn_i, va_i, mn_j, va_j
 
 
+@numba.njit(_unituple(_f, 3)(_f, _f, _f, _f))
+def twin_moments(a_i, b_i, y_ij, mu_ij):
+    r"""
+    log p(t_i) := \
+        log(2 * t_i) * y_ij - mu_ij * (2 * t_i) + \
+        log(t_i) * (a_i - 1) - b_i * t_i
+
+    Returns normalizing constant, E[t_i], V[t_i].
+    """
+    s = a_i + y_ij
+    r = b_i + 2 * mu_ij
+    logl = log(2) * y_ij + hypergeo._gammaln(s) - log(r) * s
+    mn_i = s / r
+    va_i = s / r**2
+    return logl, mn_i, va_i
+
+
 @numba.njit(_unituple(_f, 3)(_f, _f, _f, _f, _f))
 def sideways_moments(t_i, a_j, b_j, y_ij, mu_ij):
     r"""
@@ -465,7 +482,6 @@ def mutation_moments(a_i, b_i, a_j, b_j, y_ij, mu_ij):
     f222 = hyp2f1(a + 2, b + 2, c + 2, z)
 
     s1 = a * b / c
-    s2 = s1 * (a + 1) * (b + 1) / (c + 1)
     d1 = b * (b + 1) / t**2
     d2 = d1 * a / c
     d3 = d2 * (a + 1) / (c + 1)
@@ -526,8 +542,8 @@ def mutation_unphased_moments(a_i, b_i, a_j, b_j, y_ij, mu_ij):
         log(t_i + t_j) * y_ij - mu_ij * (t_i + t_j) + \
         log(t_i) * (a_i - 1) - b_i * t_i + \
         log(t_j) * (a_j - 1) - b_j * t_j + \
-        log(t_i / (t_i + t_j) * int(0 < t_m < t_i) + \
-            t_j / (t_i + t_j) * int(0 < t_m < t_j))
+        log(t_i / (t_i + t_j) * int(0 < t_m < t_i) / t_i + \
+            t_j / (t_i + t_j) * int(0 < t_m < t_j) / t_j)
 
     Returns P[m under i], E[t_m], V[t_m].
     """
@@ -572,14 +588,33 @@ def mutation_unphased_moments(a_i, b_i, a_j, b_j, y_ij, mu_ij):
     return pr_m, mn_m, va_m
 
 
+@numba.njit(_unituple(_f, 3)(_f, _f, _f, _f))
+def mutation_twin_moments(a_i, b_i, y_ij, mu_ij):
+    r"""
+    log p(t_m, t_i) := \
+        log(2 * t_i) * y_ij - mu_ij * (2 * t_i) + \
+        log(t_i) * (a_i - 1) - b_i * t_i + \
+        log(int(0 < t_m < t_i) / t_i)
+    """
+
+    s = a_i + y_ij
+    r = b_i + 2 * mu_ij
+    pr_m = 0.5
+    mn_m = s / r / 2
+    sq_m = (s + 1) * s / 3 / r**2
+    va_m = sq_m - mn_m**2
+
+    return pr_m, mn_m, va_m
+
+
 @numba.njit(_unituple(_f, 3)(_f, _f, _f, _f, _f))
 def mutation_sideways_moments(t_i, a_j, b_j, y_ij, mu_ij):
     r"""
     log p(t_m, t_j) := \
         log(t_i + t_j) * y_ij - mu_ij * (t_i + t_j) + \
         log(t_j) * (a_j - 1) - b_j * t_j + \
-        log(t_i / (t_i + t_j) * int(0 < t_m < t_i) + \
-            t_j / (t_i + t_j) * int(0 < t_m < t_j))
+        log(t_i / (t_i + t_j) * int(0 < t_m < t_i) / t_i + \
+            t_j / (t_i + t_j) * int(0 < t_m < t_j) / t_j)
 
     Returns P[m under i], E[t_m], V[t_m].
     """
@@ -640,8 +675,8 @@ def mutation_edge_moments(t_i, t_j):
 def mutation_block_moments(t_i, t_j):
     r"""
     log p(t_m) := \
-        log(t_i / (t_i + t_j) * int(0 < t_m < t_i) + \
-            t_j / (t_i + t_j) * int(0 < t_m < t_j))
+        log(t_i / (t_i + t_j) * int(0 < t_m < t_i) / t_i + \
+            t_j / (t_i + t_j) * int(0 < t_m < t_j) / t_j)
 
     Returns P[m under i], E[t_m], V[t_m].
     """
@@ -758,6 +793,29 @@ def unphased_projection(pars_i, pars_j, pars_ij):
     proj_j = approximate_gamma_mom(mn_j, va_j)
 
     return logl, np.array(proj_i), np.array(proj_j)
+
+
+@numba.njit(_tuple((_f, _f1r))(_f1r, _f1r))
+def twin_projection(pars_i, pars_ij):
+    r"""
+    log p(t_i) := \
+        log(2 * t_i) * y_ij - mu_ij * (2 * t_i) + \
+        log(t_i) * (a_i - 1) - b_i * t_i
+
+    Returns normalizing constant, gamma natural parameters for parent ages
+    """
+    a_i, b_i = pars_i
+    y_ij, mu_ij = pars_ij
+    a_i += 1
+
+    logl, mn_i, va_i = twin_moments(a_i, b_i, y_ij, mu_ij)
+
+    if not _valid_moments(mn_i, va_i):
+        return np.nan, pars_i
+
+    proj_i = approximate_gamma_mom(mn_i, va_i)
+
+    return logl, np.array(proj_i)
 
 
 @numba.njit(_tuple((_f, _f1r))(_f, _f1r, _f1r))
@@ -895,6 +953,30 @@ def mutation_unphased_projection(pars_i, pars_j, pars_ij):
     a_j += 1
 
     pr_m, mn_m, va_m = mutation_unphased_moments(a_i, b_i, a_j, b_j, y_ij, mu_ij)
+
+    if not _valid_moments(mn_m, va_m) or not (0 <= pr_m <= 1):
+        return np.nan, np.full(2, np.nan)
+
+    proj_m = approximate_gamma_mom(mn_m, va_m)
+
+    return pr_m, np.array(proj_m)
+
+
+@numba.njit(_tuple((_f, _f1r))(_f1r, _f1r))
+def mutation_twin_projection(pars_i, pars_ij):
+    r"""
+    log p(t_m, t_i) := \
+        log(2 * t_i) * y_ij - mu_ij * (2 * t_i) + \
+        log(t_i) * (a_i - 1) - b_i * t_i + \
+        log(int(0 < t_m < t_i) / t_i)
+
+    Returns phase probability, gamma natural parameters for mutation age
+    """
+    a_i, b_i = pars_i
+    y_ij, mu_ij = pars_ij
+    a_i += 1
+
+    pr_m, mn_m, va_m = mutation_twin_moments(a_i, b_i, y_ij, mu_ij)
 
     if not _valid_moments(mn_m, va_m) or not (0 <= pr_m <= 1):
         return np.nan, np.full(2, np.nan)
