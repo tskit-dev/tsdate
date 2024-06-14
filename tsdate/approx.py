@@ -27,11 +27,10 @@ from math import exp
 from math import inf
 from math import lgamma
 from math import log
+from math import nan
 
 import numba
 import numpy as np
-from numba.types import Tuple as _tuple
-from numba.types import UniTuple as _unituple
 
 from . import hypergeo
 
@@ -55,8 +54,19 @@ _f3w = numba.types.Array(_f, 3, "C", readonly=False)
 _f3r = numba.types.Array(_f, 3, "C", readonly=True)
 _i1w = numba.types.Array(_i, 1, "C", readonly=False)
 _i1r = numba.types.Array(_i, 1, "C", readonly=True)
+_i2w = numba.types.Array(_i, 2, "C", readonly=False)
+_i2r = numba.types.Array(_i, 2, "C", readonly=True)
+_i3w = numba.types.Array(_i, 3, "C", readonly=False)
+_i3r = numba.types.Array(_i, 3, "C", readonly=True)
 _b1w = numba.types.Array(_b, 1, "C", readonly=False)
 _b1r = numba.types.Array(_b, 1, "C", readonly=True)
+_b2w = numba.types.Array(_b, 2, "C", readonly=False)
+_b2r = numba.types.Array(_b, 2, "C", readonly=True)
+_b3w = numba.types.Array(_b, 3, "C", readonly=False)
+_b3r = numba.types.Array(_b, 3, "C", readonly=True)
+_tuple = numba.types.Tuple
+_unituple = numba.types.UniTuple
+_void = numba.types.void
 
 
 class KLMinimizationFailed(Exception):
@@ -184,141 +194,130 @@ def average_gammas(alpha, beta):
     return approximate_gamma_kl(avg_x, avg_logx)
 
 
-@numba.njit(_unituple(_f, 7)(_f, _f, _f, _f, _f, _f))
+@numba.njit(_b(_f, _f))
+def _valid_moments(mn, va):
+    if not (np.isfinite(mn) and np.isfinite(va)):
+        return False
+    if not (mn > 0.0 and va > 0.0):
+        return False
+    return True
+
+
+@numba.njit(_b(_f, _f))
+def _valid_gamma(s, r):
+    if not (np.isfinite(s) and np.isfinite(r)):
+        return False
+    if s <= 0.0 or r <= 0.0:
+        return False
+    return True
+
+
+@numba.njit(_b(_f, _f, _f))
+def _valid_hyp1f1(a, b, z):
+    if not (np.isfinite(a) and np.isfinite(b) and np.isfinite(z)):
+        return False
+    if not (b >= a > 0.0):
+        return False
+    return True
+
+
+@numba.njit(_b(_f, _f, _f))
+def _valid_hyperu(a, b, z):
+    if not (np.isfinite(a) and np.isfinite(b) and np.isfinite(z)):
+        return False
+    if z <= 0.0:
+        return False
+    if not (b > a > 0.0):
+        return False
+    return True
+
+
+@numba.njit(_b(_f, _f, _f, _f))
+def _valid_hyp2f1(a, b, c, z):
+    if not (np.isfinite(a) and np.isfinite(b) and np.isfinite(c)):
+        return False
+    if not np.isfinite(z) or z >= 1 or z / (z - 1) >= 1:
+        return False
+    if not (a > 0 and b > 0 and c > 0):
+        return False
+    return True
+
+
+# --- various EP updates --- #
+
+
+@numba.njit(_unituple(_f, 5)(_f, _f, _f, _f, _f, _f))
 def moments(a_i, b_i, a_j, b_j, y_ij, mu_ij):
-    """
-    Calculate sufficient statistics for the PDF proportional to
-    :math:`Ga(t_j | a_j, b_j) Ga(t_i | a_i, b_i) Po(y_{ij} |
-    \\mu_{ij} t_i - t_j)`, where :math:`i` is the parent and :math:`j` is
-    the child. The logarithmic moments are approximated via a Taylor
-    expansion around the mean.
+    r"""
+    log p(t_i, t_j) := \
+        log(t_i - t_j) * y_ij - mu_ij * (t_i - t_j) + \
+        log(t_i) * (a_i - 1) - b_i * t_i + \
+        log(t_j) * (a_j - 1) - b_j * t_j
 
-    :param float a_i: the shape parameter of the cavity distribution for the parent
-    :param float b_i: the rate parameter of the cavity distribution for the parent
-    :param float a_j: the shape parameter of the cavity distribution for the child
-    :param float b_j: the rate parameter of the cavity distribution for the child
-    :param float y_ij: the number of mutations on the edge
-    :param float mu_ij: the span-weighted mutation rate of the edge
-
-    :return: normalizing constant, E[t_i], E[log t_i], V[t_i],
-        E[t_j], E[log t_j], V[t_j]
+    Returns normalizing constant, E[t_i], V[t_i], E[t_j], V[t_j].
     """
 
     a = a_j
     b = a_i + a_j + y_ij
     c = a_j + y_ij + 1
     t = mu_ij + b_i
-    z = (mu_ij - b_j) / t
+    z = (mu_ij - b_j) / t if t > 0 else nan
 
-    # with numba.objmode(f0='f8', f1='f8', f2='f8'):
-    #    f0 = float(mpmath.log(mpmath.hyp2f1(a + 0, b + 0, c + 0, z)))
-    #    f1 = float(mpmath.log(mpmath.hyp2f1(a + 1, b + 1, c + 1, z)))
-    #    f2 = float(mpmath.log(mpmath.hyp2f1(a + 2, b + 2, c + 2, z)))
+    if not _valid_hyp2f1(a, b, c, z):
+        return nan, nan, nan, nan, nan
+
     hyp2f1 = hypergeo._hyp2f1_laplace
     f0 = hyp2f1(a + 0, b + 0, c + 0, z)
     f1 = hyp2f1(a + 1, b + 1, c + 1, z)
     f2 = hyp2f1(a + 2, b + 2, c + 2, z)
     s1 = a * b / c
     s2 = s1 * (a + 1) * (b + 1) / (c + 1)
-    d1 = s1 * np.exp(f1 - f0)
-    d2 = s2 * np.exp(f2 - f0)
+    d1 = s1 * exp(f1 - f0)
+    d2 = s2 * exp(f2 - f0)
 
-    logl = f0 + hypergeo._betaln(y_ij + 1, a) + hypergeo._gammaln(b) - b * np.log(t)
+    logl = f0 + hypergeo._betaln(y_ij + 1, a) + hypergeo._gammaln(b) - b * log(t)
 
     mn_j = d1 / t
     sq_j = d2 / t**2
     va_j = sq_j - mn_j**2
-    ln_j = np.log(mn_j) - va_j / 2 / mn_j**2 if mn_j > 0 else -np.inf
 
     mn_i = mn_j * z + b / t
     sq_i = sq_j * z**2 + (b + 1) * (mn_i + mn_j * z) / t
     va_i = sq_i - mn_i**2
-    ln_i = np.log(mn_i) - va_i / 2 / mn_i**2 if mn_j > 0 else -np.inf
 
-    return logl, mn_i, ln_i, va_i, mn_j, ln_j, va_j
-
-
-# @numba.njit("UniTuple(f8, 4)(f8, f8, f8, f8, f8)")
-# def rootward_moments(t_j, a_i, b_i, y_ij, mu_ij):
-#    """
-#    Numerically unstable.
-#
-#    Calculate sufficient statistics for the PDF proportional to
-#    :math:`Ga(t_i | a_i, b_i) Po(y_{ij} | \\mu_{ij} t_i - t_j)`, where
-#    :math:`i` is the parent and :math:`j` is the child. The logarithmic moments
-#    are approximated via a Taylor expansion around the mean.
-#
-#    :param float t_j: the age of the child
-#    :param float a_i: the shape parameter of the cavity distribution for the parent
-#    :param float b_i: the rate parameter of the cavity distribution for the parent
-#    :param float y_ij: the number of mutations on the edge
-#    :param float mu_ij: the span-weighted mutation rate of the edge
-#
-#    :return: normalizing constant, E[t_i], E[log t_i], V[t_i]
-#    """
-#
-#    assert t_j >= 0.0
-#
-#    if t_j == 0.0:
-#        shape = a_i + y_ij
-#        rate = mu_ij + b_i
-#        logl = hypergeo._gammaln(shape) - shape * log(rate)
-#        mn_i = shape / rate
-#        va_i = shape / rate**2
-#        ln_i = hypergeo._digamma(shape) - log(rate)
-#        return logl, mn_i, ln_i, va_i
-#
-#    a = y_ij + 1
-#    b = a_i + y_ij + 1
-#    z = t_j * (mu_ij + b_i)
-#
-#    hyperu = hypergeo._hyperu_laplace
-#    f0 = hyperu(a + 0, b + 0, z)
-#    f1 = hyperu(a + 1, b + 1, z)
-#    f2 = hyperu(a + 2, b + 2, z)
-#    d1 = a * exp(f1 - f0)
-#    d2 = a * (a + 1) * exp(f2 - f0)
-#
-#    logl = f0 - b_i * t_j + (b - 1) * log(t_j) + hypergeo._gammaln(a)
-#    mn_i = t_j * (1 + d1)
-#    sq_i = t_j**2 * (1 + 2 * d1 + d2)
-#    va_i = sq_i - mn_i**2
-#    ln_i = log(mn_i) - va_i / 2 / mn_i**2
-#
-#    return logl, mn_i, ln_i, va_i
+    return logl, mn_i, va_i, mn_j, va_j
 
 
-@numba.njit(_unituple(_f, 4)(_f, _f, _f, _f, _f))
+@numba.njit(_unituple(_f, 3)(_f, _f, _f, _f, _f))
 def rootward_moments(t_j, a_i, b_i, y_ij, mu_ij):
-    """
-    Calculate sufficient statistics for the PDF proportional to
-    :math:`Ga(t_i | a_i, b_i) Po(y_{ij} | \\mu_{ij} t_i - t_j)`, where
-    :math:`i` is the parent and :math:`j` is the child. The logarithmic moments
-    are approximated via a Taylor expansion around the mean.
+    r"""
+    log p(t_i) := \
+        log(t_i - t_j) * y_ij - mu_ij * (t_i - t_j) + \
+        log(t_i) * (a_i - 1) - b_i * t_i
 
-    :param float t_j: the age of the child
-    :param float a_i: the shape parameter of the cavity distribution for the parent
-    :param float b_i: the rate parameter of the cavity distribution for the parent
-    :param float y_ij: the number of mutations on the edge
-    :param float mu_ij: the span-weighted mutation rate of the edge
-
-    :return: normalizing constant, E[t_i], E[log t_i], V[t_i]
+    Returns normalizing constant, E[t_i], V[t_i].
     """
 
     assert t_j >= 0.0
 
     s = a_i + y_ij
     r = mu_ij + b_i
-    a = y_ij + 1
-    b = s + 1
-    z = t_j * r
+
+    if not _valid_gamma(s, r):
+        return nan, nan, nan
 
     if t_j == 0.0:
         logl = hypergeo._gammaln(s) - s * log(r)
         mn_i = s / r
         va_i = s / r**2
-        ln_i = hypergeo._digamma(s) - log(r)
-        return logl, mn_i, ln_i, va_i
+        return logl, mn_i, va_i
+
+    a = y_ij + 1
+    b = s + 1
+    z = t_j * r
+
+    if not _valid_hyperu(a, b, z):
+        return nan, nan, nan
 
     hyperu = hypergeo._hyperu_laplace
     f0, d0 = hyperu(a + 0, b + 0, z)
@@ -327,26 +326,18 @@ def rootward_moments(t_j, a_i, b_i, y_ij, mu_ij):
     logl = f0 - b_i * t_j + (b - 1) * log(t_j) + hypergeo._gammaln(a)
     mn_i = t_j * (1 - d0)
     va_i = t_j**2 * d0 * (d1 - d0)
-    ln_i = log(mn_i) - va_i / 2 / mn_i**2 if mn_i > 0 else -np.inf
 
-    return logl, mn_i, ln_i, va_i
+    return logl, mn_i, va_i
 
 
-@numba.njit(_unituple(_f, 4)(_f, _f, _f, _f, _f))
+@numba.njit(_unituple(_f, 3)(_f, _f, _f, _f, _f))
 def leafward_moments(t_i, a_j, b_j, y_ij, mu_ij):
-    """
-    Calculate sufficient statistics for the PDF proportional to
-    :math:`Ga(t_j | a_j, b_j) Po(y_{ij} | \\mu_{ij} t_i - t_j)`, where
-    :math:`i` is the parent and :math:`j` is the child. The logarithmic moments
-    are approximated via a Taylor expansion around the mean.
+    r"""
+    log p(t_j) := \
+        log(t_i - t_j) * y_ij - mu_ij * (t_i - t_j) + \
+        log(t_j) * (a_j - 1) - b_j * t_j
 
-    :param float t_i: the age of the parent
-    :param float a_j: the shape parameter of the cavity distribution for the child
-    :param float b_j: the rate parameter of the cavity distribution for the child
-    :param float y_ij: the number of mutations on the edge
-    :param float mu_ij: the span-weighted mutation rate of the edge
-
-    :return: normalizing constant, E[t_j], E[log t_j], V[t_j]
+    Returns normalizing constant, E[t_j], V[t_j].
     """
 
     assert t_i > 0.0
@@ -354,6 +345,9 @@ def leafward_moments(t_i, a_j, b_j, y_ij, mu_ij):
     a = a_j
     b = a_j + y_ij + 1
     z = t_i * (mu_ij - b_j)
+
+    if not _valid_hyp1f1(a, b, z):
+        return nan, nan, nan
 
     hyp1f1 = hypergeo._hyp1f1_laplace
     f0 = hyp1f1(a + 0, b + 0, z)
@@ -366,468 +360,671 @@ def leafward_moments(t_i, a_j, b_j, y_ij, mu_ij):
     mn_j = t_i * d1
     sq_j = t_i**2 * d2
     va_j = sq_j - mn_j**2
-    ln_j = log(mn_j) - va_j / 2 / mn_j**2 if mn_j > 0 else -np.inf
 
-    return logl, mn_j, ln_j, va_j
+    return logl, mn_j, va_j
 
 
-@numba.njit(_unituple(_f, 4)(_f, _f, _f, _f))
-def truncated_moments(low, upp, a_i, b_i):
-    """
-    Calculate sufficient statistics for a gamma PDF truncated to (low, upp).
-    The logarithmic moments are approximated via a Taylor expansion around the
-    mean.
+@numba.njit(_unituple(_f, 5)(_f, _f, _f, _f, _f, _f))
+def unphased_moments(a_i, b_i, a_j, b_j, y_ij, mu_ij):
+    r"""
+    log p(t_i, t_j) := \
+        log(t_i + t_j) * y_ij - mu_ij * (t_i + t_j) + \
+        log(t_i) * (a_i - 1) - b_i * t_i + \
+        log(t_j) * (a_j - 1) - b_j * t_j
 
-    :param float low: lower bound on node age
-    :param float upp: upper bound on node age
-    :param float a_i: the shape parameter of the cavity distribution for the node
-    :param float b_i: the rate parameter of the cavity distribution for the node
-
-    See, e.g., https://doi.org/10.1080%2F03610920008832519
+    Returns normalizing constant, E[t_i], V[t_i], E[t_j], V[t_j].
     """
 
-    assert upp > low
+    a = a_j
+    b = a_i + a_j + y_ij
+    c = a_j + a_i
+    t = mu_ij + b_i
+    z = (mu_ij + b_j) / t if t > 0 else nan
 
-    gammainc = hypergeo._gammainc
-    p0 = gammainc(a_i + 0, b_i * upp) - gammainc(a_i + 0, b_i * low)
-    p1 = gammainc(a_i + 1, b_i * upp) - gammainc(a_i + 1, b_i * low)
-    p2 = gammainc(a_i + 2, b_i * upp) - gammainc(a_i + 2, b_i * low)
+    if not _valid_hyp2f1(a, b, c, 1 - z):
+        return nan, nan, nan, nan, nan
 
-    # TODO: replace with error? skip update?
-    assert p0 > 0.0, "Zero mass in truncation region"
+    hyp2f1 = hypergeo._hyp2f1_laplace
+    f0 = hyp2f1(a + 0, b + 0, c + 0, 1 - z)
+    f1 = hyp2f1(a + 1, b + 1, c + 1, 1 - z)
+    f2 = hyp2f1(a + 2, b + 2, c + 2, 1 - z)
+    s1 = a * b / c
+    s2 = s1 * (a + 1) * (b + 1) / (c + 1)
+    d1 = s1 * exp(f1 - f0)
+    d2 = s2 * exp(f2 - f0)
 
-    t = a_i / b_i
+    logl = f0 + hypergeo._betaln(a_j, a_i) + hypergeo._gammaln(b) - b * log(t)
 
-    logl = log(p0)
-    mn_i = p1 / p0 * t
-    sq_i = p2 / p0 * t * (1 / b_i + t)
+    mn_j = d1 / t
+    sq_j = d2 / t**2
+    va_j = sq_j - mn_j**2
+
+    mn_i = b / t - mn_j * z
+    sq_i = sq_j * z**2 + (b + 1) * (mn_i - mn_j * z) / t
     va_i = sq_i - mn_i**2
-    ln_i = log(mn_i) - va_i / 2 / mn_i**2 if mn_i > 0 else -np.inf
 
-    return logl, mn_i, ln_i, va_i
-
-
-@numba.njit(_b(_f, _f, _f, _f, _f, _f))
-def _hyp2f1_valid_parameterization(a_i, b_i, a_j, b_j, y, mu):
-    """Uses shape / rate parameterization"""
-    a = a_j
-    b = a_i + a_j + y
-    c = a_j + y + 1
-    s = mu - b_j
-    t = mu + b_i
-    # check that 2F1 argument is less than unity
-    if t <= 0.0:
-        return False
-    z = s / t
-    if z >= 1.0 or z / (z - 1) >= 1.0:
-        return False
-    # check that 2F1 is positive
-    if a <= 0:
-        return False
-    if b <= 0:
-        return False
-    if c <= 0:
-        return False
-    return True
+    return logl, mn_i, va_i, mn_j, va_j
 
 
-@numba.njit(_b(_f, _f, _f, _f, _f))
-def _hyp1f1_valid_parameterization(t_i, a_j, b_j, y, mu):
-    """Uses shape / rate parameterization"""
-    a = a_j
-    b = a_j + y + 1
-    if not (b > a > 0.0):
-        return False
-    return True
-
-
-@numba.njit(_b(_f, _f, _f, _f, _f))
-def _hyperu_valid_parameterization(t_j, a_i, b_i, y, mu):
-    """Uses shape / rate parameterization"""
-    a = y + 1
-    b = a_i + y + 1
-    if t_j < 0.0:
-        return False
-    if mu + b_i <= 0.0:
-        return False
-    if not (b > a > 0.0):
-        return False
-    return True
-
-
-@numba.njit(_b(_f, _f, _f))
-def _valid_moments(mn, ln, va):
-    if not (mn > 0.0 and va > 0.0):
-        return False
-    if not (ln < log(mn)):
-        return False
-    return True
-
-
-@numba.njit(_tuple((_f, _f1r, _f1r))(_f1r, _f1r, _f1r, _b))
-def gamma_projection(pars_i, pars_j, pars_ij, min_kl):
-    """
-    Match a pair of gamma distributions to the potential function
-    :math:`Ga(t_j | a_j + 1, b_j) Ga(t_i | a_i + 1, b_i) Po(y_{ij} |
-    \\mu_{ij} t_i - t_j)`, where :math:`i` is the parent and :math:`j` is
-    the child, by minimizing KL divergence.
-
-    :param float pars_i: gamma natural parameters for the parent cavity distribution
-    :param float pars_j: gamma natural parameters for the child cavity distribution
-    :param float pars_ij: gamma natural parameters for the edge likelihood
-    :param bool min_kl: minimize KL divergence (match central moments if False)
-
-    :return: normalizing constant, gamma natural parameters for parent and child
-    """
-
-    # switch from natural to canonical parameterization
-    a_i, b_i = pars_i
-    a_j, b_j = pars_j
-    y_ij, mu_ij = pars_ij
-    a_i += 1
-    a_j += 1
-
-    if not _hyp2f1_valid_parameterization(a_i, b_i, a_j, b_j, y_ij, mu_ij):
-        return np.nan, pars_i, pars_j
-
-    logconst, t_i, ln_t_i, va_t_i, t_j, ln_t_j, va_t_j = moments(
-        a_i,
-        b_i,
-        a_j,
-        b_j,
-        y_ij,
-        mu_ij,
-    )
-
-    valid_i = _valid_moments(t_i, ln_t_i, va_t_i)
-    valid_j = _valid_moments(t_j, ln_t_j, va_t_j)
-    if not (valid_i and valid_j):
-        return np.nan, pars_i, pars_j
-
-    if min_kl:
-        proj_i = approximate_gamma_kl(t_i, ln_t_i)
-        proj_j = approximate_gamma_kl(t_j, ln_t_j)
-    else:
-        proj_i = approximate_gamma_mom(t_i, va_t_i)
-        proj_j = approximate_gamma_mom(t_j, va_t_j)
-
-    return logconst, np.array(proj_i), np.array(proj_j)
-
-
-@numba.njit(_tuple((_f, _f1r))(_f, _f1r, _f1r, _b))
-def leafward_projection(t_i, pars_j, pars_ij, min_kl):
+@numba.njit(_unituple(_f, 3)(_f, _f, _f, _f))
+def twin_moments(a_i, b_i, y_ij, mu_ij):
     r"""
-    Match a gamma distributions to the potential function :math:`Ga(t_j | a_j +
-    1, b_j) Po(y_{ij} | \mu_{ij} t_i - t_j)`, where :math:`i` is the parent and
-    :math:`j` is the child, by minimizing KL divergence.
+    log p(t_i) := \
+        log(2 * t_i) * y_ij - mu_ij * (2 * t_i) + \
+        log(t_i) * (a_i - 1) - b_i * t_i
 
-    :param float t_i: the age of the parent
-    :param float pars_j: gamma natural parameters for the child cavity distribution
-    :param float pars_ij: gamma natural parameters for the edge likelihood
-    :param bool min_kl: minimize KL divergence (match central moments if False)
-
-    :return: normalizing constant, gamma natural parameters for child
+    Returns normalizing constant, E[t_i], V[t_i].
     """
-
-    # switch from natural to canonical parameterization
-    a_j, b_j = pars_j
-    y_ij, mu_ij = pars_ij
-    a_j += 1
-
-    # skip update, zeroing out message
-    if not _hyp1f1_valid_parameterization(t_i, a_j, b_j, y_ij, mu_ij):
-        return np.nan, pars_j
-
-    logconst, t_j, ln_t_j, va_t_j = leafward_moments(t_i, a_j, b_j, y_ij, mu_ij)
-
-    valid_j = _valid_moments(t_j, ln_t_j, va_t_j)
-    if not valid_j:
-        return np.nan, pars_j
-
-    if min_kl:
-        proj_j = approximate_gamma_kl(t_j, ln_t_j)
-    else:
-        proj_j = approximate_gamma_mom(t_j, va_t_j)
-
-    return logconst, np.array(proj_j)
-
-
-@numba.njit(_tuple((_f, _f1r))(_f, _f1r, _f1r, _b))
-def rootward_projection(t_j, pars_i, pars_ij, min_kl):
-    r"""
-    Match a gamma distributions to the potential function :math:`Ga(t_i | a_i +
-    1, b_i) Po(y_{ij} | \mu_{ij} t_i - t_j)`, where :math:`i` is the parent and
-    :math:`j` is the child, by minimizing KL divergence.
-
-    :param float t_j: the age of the child
-    :param float pars_i: gamma natural parameters for the parent cavity distribution
-    :param float pars_ij: gamma natural parameters for the edge likelihood
-    :param bool min_kl: minimize KL divergence (match central moments if False)
-
-    :return: normalizing constant, gamma natural parameters for child
-    """
-
-    # switch from natural to canonical parameterization
-    a_i, b_i = pars_i
-    y_ij, mu_ij = pars_ij
-    a_i += 1
-
-    # skip update, zeroing out message
-    if not _hyperu_valid_parameterization(t_j, a_i, b_i, y_ij, mu_ij):
-        return np.nan, pars_i
-
-    logconst, t_i, ln_t_i, va_t_i = rootward_moments(t_j, a_i, b_i, y_ij, mu_ij)
-
-    valid_i = _valid_moments(t_i, ln_t_i, va_t_i)
-    if not valid_i:
-        return np.nan, pars_i
-
-    if min_kl:
-        proj_i = approximate_gamma_kl(t_i, ln_t_i)
-    else:
-        proj_i = approximate_gamma_mom(t_i, va_t_i)
-
-    return logconst, np.array(proj_i)
-
-
-@numba.njit(_tuple((_f, _f1r))(_f1r, _f1r, _b))
-def truncated_projection(bounds_i, pars_i, min_kl):
-    r"""
-    Match a gamma distributions to the surrogate posterior :math:`Ga(t_i | a_i +
-    1, b_i) I[low < t_i < upp]`, by minimizing KL divergence.
-
-    :param float bounds_i: lower and upper bounds on node age
-    :param float pars_i: gamma natural parameters for the cavity distribution
-    :param bool min_kl: minimize KL divergence (match central moments if False)
-
-    :return: normalizing constant, gamma natural parameters for node
-    """
-
-    # switch from natural to canonical parameterization
-    a_i, b_i = pars_i
-    low, upp = bounds_i
-    a_i += 1
-
-    logconst, t_i, ln_t_i, va_t_i = truncated_moments(low, upp, a_i, b_i)
-
-    valid_i = _valid_moments(t_i, ln_t_i, va_t_i)
-    if not valid_i:
-        return np.nan, pars_i
-
-    if min_kl:
-        proj_i = approximate_gamma_kl(t_i, ln_t_i)
-    else:
-        proj_i = approximate_gamma_mom(t_i, va_t_i)
-
-    return logconst, np.array(proj_i)
-
-
-# --- mutation posteriors from node posteriors --- #
-
-
-@numba.njit(_unituple(_f, 3)(_f, _f, _f, _f, _f, _f))
-def mutation_moments(a_i, b_i, a_j, b_j, y_ij, mu_ij):
-    r"""
-    Calculate gamma sufficient statistics for the PDF proportional to:
-
-    ..math::
-
-        p(x) = \int_0^\infty \int_0^{t_i} Unif(x | t_i, t_j)
-        Ga(t_i | a_i, b_i) Ga(t_j | a_j b_j) Po(y | \mu_ij (t_i - t_j)) dt_j dt_i
-
-    which models the time :math:`x` of a mutation uniformly distributed between
-    parent age :math:`t_i` and child age :math:`t_j`, on a branch with
-    :math:`y_{ij}` mutations and total mutation rate :math:`\mu_{ij}`.
-
-    Returns E[x], E[\log x], V[x].
-    """
-
-    f, t_i, _, _, t_j, _, _ = moments(a_i, b_i, a_j, b_j, y_ij, mu_ij)
-    f_ii, _, _, _, _, _, _ = moments(a_i + 2, b_i, a_j, b_j, y_ij, mu_ij)
-    f_ij, _, _, _, _, _, _ = moments(a_i + 1, b_i, a_j + 1, b_j, y_ij, mu_ij)
-    f_jj, _, _, _, _, _, _ = moments(a_i, b_i, a_j + 2, b_j, y_ij, mu_ij)
-    mn_m = t_i / 2 + t_j / 2
-    sq_m = 1 / 3 * (np.exp(f_ii - f) + np.exp(f_ij - f) + np.exp(f_jj - f))
-    va_m = sq_m - mn_m**2
-    ln_m = log(mn_m) - va_m / 2 / mn_m**2 if mn_m > 0 else -np.inf
-
-    return mn_m, ln_m, va_m
+    s = a_i + y_ij
+    r = b_i + 2 * mu_ij
+    logl = log(2) * y_ij + hypergeo._gammaln(s) - log(r) * s
+    mn_i = s / r
+    va_i = s / r**2
+    return logl, mn_i, va_i
 
 
 @numba.njit(_unituple(_f, 3)(_f, _f, _f, _f, _f))
-def mutation_rootward_moments(t_j, a_i, b_i, y_ij, mu_ij):
+def sideways_moments(t_i, a_j, b_j, y_ij, mu_ij):
     r"""
-    Calculate gamma sufficient statistics for the PDF proportional to:
+    log p(t_j) := \
+        log(t_i + t_j) * y_ij - mu_ij * (t_i + t_j) + \
+        log(t_j) * (a_j - 1) - b_j * t_j
 
-    ..math::
-
-        p(x) = \int_{t_j}^\infty Unif(x | t_i, t_j)
-        Ga(t_i | a_i, b_i) Po(y | \mu_ij (t_i - t_j)) dt_i
-
-    which models the time :math:`x` of a mutation uniformly distributed between
-    parent age :math:`t_i` and child age :math:`t_j`, on a branch with
-    :math:`y_{ij}` mutations and total mutation rate :math:`\mu_{ij}`.
-
-    Returns E[x], E[\log x], V[x].
+    Returns normalizing constant, E[t_j], V[t_j].
     """
 
-    _, mn_i, _, va_i = rootward_moments(t_j, a_i, b_i, y_ij, mu_ij)
+    assert t_i > 0.0
+
+    a = a_j
+    b = a_j + y_ij + 1
+    z = t_i * (mu_ij + b_j)
+
+    if not _valid_hyperu(a, b, z):
+        return nan, nan, nan
+
+    hyperu = hypergeo._hyperu_laplace
+    f0, d0 = hyperu(a + 0, b + 0, z)
+    f1, d1 = hyperu(a + 1, b + 1, z)
+
+    logl = f0 - mu_ij * t_i + (b - 1) * log(t_i) + hypergeo._gammaln(a)
+    mn_j = -t_i * d0
+    va_j = t_i**2 * d0 * (d1 - d0)
+
+    return logl, mn_j, va_j
+
+
+@numba.njit(_unituple(_f, 2)(_f, _f, _f, _f, _f, _f))
+def mutation_moments(a_i, b_i, a_j, b_j, y_ij, mu_ij):
+    r"""
+    log p(t_m, t_i, t_j) = \
+        log(t_i - t_j) * y_ij - mu_ij * (t_i - t_j) + \
+        log(t_i) * (a_i - 1) - b_i * t_i + \
+        log(t_j) * (a_j - 1) - b_j * t_j - \
+        log(t_i - t_j) + log(int(t_j < t_m < t_i))
+
+    Returns E[t_m], V[t_m].
+    """
+
+    a = a_j
+    b = a_i + a_j + y_ij
+    c = a_j + y_ij + 1
+    t = mu_ij + b_i
+    z = (mu_ij - b_j) / t if t > 0 else nan
+
+    if not _valid_hyp2f1(a, b, c, z):
+        return nan, nan
+
+    hyp2f1 = hypergeo._hyp2f1_laplace
+    f000 = hyp2f1(a + 0, b + 0, c + 0, z)
+    f020 = hyp2f1(a + 0, b + 2, c + 0, z)
+    f111 = hyp2f1(a + 1, b + 1, c + 1, z)
+    f121 = hyp2f1(a + 1, b + 2, c + 1, z)
+    f222 = hyp2f1(a + 2, b + 2, c + 2, z)
+
+    s1 = a * b / c
+    d1 = b * (b + 1) / t**2
+    d2 = d1 * a / c
+    d3 = d2 * (a + 1) / (c + 1)
+
+    mn_m = s1 * exp(f111 - f000) / t / 2 * (1 + z) + b / t / 2
+    sq_m = (
+        d1 * exp(f020 - f000) / 3
+        + d2 * exp(f121 - f000) / 3
+        + d3 * exp(f222 - f000) / 3
+    )
+    va_m = sq_m - mn_m**2
+
+    return mn_m, va_m
+
+
+@numba.njit(_unituple(_f, 2)(_f, _f, _f, _f, _f))
+def mutation_rootward_moments(t_j, a_i, b_i, y_ij, mu_ij):
+    r"""
+    log p(t_m, t_i) := \
+        log(t_i - t_j) * y_ij - mu_ij * (t_i - t_j) + \
+        log(t_i) * (a_i - 1) - b_i * t_i - \
+        log(t_i - t_j) + log(int(t_j < t_m < t_i))
+
+    Returns E[t_m], V[t_m].
+    """
+
+    logl, mn_i, va_i = rootward_moments(t_j, a_i, b_i, y_ij, mu_ij)
     mn_m = mn_i / 2 + t_j / 2
     sq_m = (va_i + mn_i**2 + mn_i * t_j + t_j**2) / 3
     va_m = sq_m - mn_m**2
-    ln_m = log(mn_m) - va_m / 2 / mn_m**2 if mn_m > 0 else -np.inf
 
-    return mn_m, ln_m, va_m
+    return mn_m, va_m
 
 
-@numba.njit(_unituple(_f, 3)(_f, _f, _f, _f, _f))
+@numba.njit(_unituple(_f, 2)(_f, _f, _f, _f, _f))
 def mutation_leafward_moments(t_i, a_j, b_j, y_ij, mu_ij):
     r"""
-    Calculate gamma sufficient statistics for the PDF proportional to:
+    log p(t_m, t_j) := \
+        log(t_i - t_j) * y_ij - mu_ij * (t_i - t_j) + \
+        log(t_j) * (a_j - 1) - b_j * t_j - \
+        log(t_i - t_j) + log(int(t_j < t_m < t_i))
 
-    ..math::
-
-        p(x) = \int_0^{t_i} Unif(x | t_i, t_j)
-        Ga(t_j | a_j, b_j) Po(y | \mu_ij (t_i - t_j)) dt_j
-
-    which models the time :math:`x` of a mutation uniformly distributed between
-    parent age :math:`t_i` and child age :math:`t_j`, on a branch with
-    :math:`y_{ij}` mutations and total mutation rate :math:`\mu_{ij}`.
-
-    Returns E[x], E[\log x], V[x].
+    Returns E[t_m], V[t_m].
     """
 
-    _, mn_j, _, va_j = leafward_moments(t_i, a_j, b_j, y_ij, mu_ij)
+    logl, mn_j, va_j = leafward_moments(t_i, a_j, b_j, y_ij, mu_ij)
     mn_m = mn_j / 2 + t_i / 2
     sq_m = (va_j + mn_j**2 + mn_j * t_i + t_i**2) / 3
     va_m = sq_m - mn_m**2
-    ln_m = log(mn_m) - va_m / 2 / mn_m**2 if mn_m > 0 else -np.inf
 
-    return mn_m, ln_m, va_m
+    return mn_m, va_m
 
 
-@numba.njit(_f1r(_f1r, _f1r, _f1r, _b))
-def mutation_gamma_projection(pars_i, pars_j, pars_ij, min_kl):
+@numba.njit(_unituple(_f, 3)(_f, _f, _f, _f, _f, _f))
+def mutation_unphased_moments(a_i, b_i, a_j, b_j, y_ij, mu_ij):
     r"""
-    Match a gamma distribution via KL minimization to the potential function
+    log p(t_m, t_i, t_j) := \
+        log(t_i + t_j) * y_ij - mu_ij * (t_i + t_j) + \
+        log(t_i) * (a_i - 1) - b_i * t_i + \
+        log(t_j) * (a_j - 1) - b_j * t_j + \
+        log(t_i / (t_i + t_j) * int(0 < t_m < t_i) / t_i + \
+            t_j / (t_i + t_j) * int(0 < t_m < t_j) / t_j)
 
-    ..math::
-
-        p(x) = \int_0^\infty \int_0^{t_i} Unif(x | t_i, t_j)
-        Ga(t_i | a_i, b_i) Ga(t_j | a_j b_j) Po(y | \mu_ij (t_i - t_j)) dt_j dt_i
-
-    which models the time :math:`x` of a mutation uniformly distributed between
-    parent age :math:`t_i` and child age :math:`t_j`, on a branch with
-    :math:`y_{ij}` mutations and total mutation rate :math:`\mu_{ij}`.
-
-    TODO: params
-
-    :return: gamma parameters for mutation age
+    Returns P[m under i], E[t_m], V[t_m].
     """
 
-    # switch from natural to canonical parameterization
+    # Conditioning on ages of parents:
+    #   P[x under i | t_i, t_j] = t_i / (t_i + t_j)
+    #   E[x | x under t_i, t_i] = t_i / 2
+    #   E[x^2 | x under t_i, t_i] = t_i**2 / 3
+    # and equivalently for t_j. Integrating these moments over the EP surrogate
+    # density leads to hypergeometric functions similar to the node case, but
+    # with integer perturbations of a_i, a_j, y_ij.
+
+    a = a_j
+    b = a_j + a_i + y_ij
+    c = a_j + a_i
+    t = mu_ij + b_i
+    z = (mu_ij + b_j) / t if t > 0 else nan
+
+    if not _valid_hyp2f1(a, b, c, 1 - z):
+        return nan, nan, nan
+
+    hyp2f1 = hypergeo._hyp2f1_laplace
+    f000 = hyp2f1(a + 0, b + 0, c + 0, 1 - z)
+    f001 = hyp2f1(a + 0, b + 0, c + 1, 1 - z)
+    f012 = hyp2f1(a + 0, b + 1, c + 2, 1 - z)
+    f023 = hyp2f1(a + 0, b + 2, c + 3, 1 - z)
+    f212 = hyp2f1(a + 2, b + 1, c + 2, 1 - z)
+    f323 = hyp2f1(a + 3, b + 2, c + 3, 1 - z)
+
+    s0 = b / t / c / (c + 1)
+    s1 = (c - a) * (c - a + 1)
+    s2 = a * (a + 1)
+    d0 = s0 * (b + 1) / t / (c + 2)
+    d1 = s1 * (c - a + 2)
+    d2 = s2 * (a + 2)
+
+    mn_m = s0 * s1 * exp(f012 - f000) / 2 + s0 * s2 * exp(f212 - f000) / 2
+    sq_m = d0 * d1 * exp(f023 - f000) / 3 + d0 * d2 * exp(f323 - f000) / 3
+    va_m = sq_m - mn_m**2
+    pr_m = (c - a) / c * exp(f001 - f000)
+
+    return pr_m, mn_m, va_m
+
+
+@numba.njit(_unituple(_f, 3)(_f, _f, _f, _f))
+def mutation_twin_moments(a_i, b_i, y_ij, mu_ij):
+    r"""
+    log p(t_m, t_i) := \
+        log(2 * t_i) * y_ij - mu_ij * (2 * t_i) + \
+        log(t_i) * (a_i - 1) - b_i * t_i + \
+        log(int(0 < t_m < t_i) / t_i)
+    """
+
+    s = a_i + y_ij
+    r = b_i + 2 * mu_ij
+    pr_m = 0.5
+    mn_m = s / r / 2
+    sq_m = (s + 1) * s / 3 / r**2
+    va_m = sq_m - mn_m**2
+
+    return pr_m, mn_m, va_m
+
+
+@numba.njit(_unituple(_f, 3)(_f, _f, _f, _f, _f))
+def mutation_sideways_moments(t_i, a_j, b_j, y_ij, mu_ij):
+    r"""
+    log p(t_m, t_j) := \
+        log(t_i + t_j) * y_ij - mu_ij * (t_i + t_j) + \
+        log(t_j) * (a_j - 1) - b_j * t_j + \
+        log(t_i / (t_i + t_j) * int(0 < t_m < t_i) / t_i + \
+            t_j / (t_i + t_j) * int(0 < t_m < t_j) / t_j)
+
+    Returns P[m under i], E[t_m], V[t_m].
+    """
+
+    assert t_i > 0
+
+    # Conditioning on ages of parents:
+    #   P[x under i | t_i, t_j] = t_i / (t_i + t_j)
+    #   E[x | x under t_i, t_i] = t_i / 2
+    #   E[x^2 | x under t_i, t_i] = t_i**2 / 3
+    # and equivalently for t_j. Integrating these moments over the EP surrogate
+    # density leads to Tricomi functions similar to the node case, but
+    # with integer perturbations of a_j, y_ij.
+
+    a = a_j
+    b = a_j + y_ij + 1
+    z = t_i * (mu_ij + b_j)
+
+    if not _valid_hyperu(a, b, z):
+        return nan, nan, nan
+
+    # direct but unstable:
+    hyperu = hypergeo._hyperu_laplace
+    f00, d00 = hyperu(a + 0, b + 0, z)
+    f10, d10 = hyperu(a + 1, b + 0, z)
+    f21, d21 = hyperu(a + 2, b + 1, z)
+    f32, d32 = hyperu(a + 3, b + 2, z)
+    pr_m = 1.0 - exp(f10 - f00) * a
+    mn_m = pr_m * t_i / 2 + t_i * exp(f21 - f00) * a * (a + 1) / 2
+    sq_m = pr_m * t_i**2 / 3 + t_i**2 * exp(f32 - f00) * a * (a + 1) * (a + 2) / 3
+
+    # TODO: use a stabler approach with derivatives
+    # note that exp(f10 - f00) = (a + z * d00) / (a - b + 1)
+    # however the denominator is 0 if y_ij is 0
+    # note that when y_ij == 0 then a == b + 1 and f00 = z**(-a)
+
+    va_m = sq_m - mn_m**2
+
+    return pr_m, mn_m, va_m
+
+
+@numba.njit(_unituple(_f, 2)(_f, _f))
+def mutation_edge_moments(t_i, t_j):
+    r"""
+    log p(t_m) := \
+        log(t_i - t_j) + log(int(t_j < t_m < t_i))
+
+    Returns E[t_m], V[t_m].
+    """
+
+    mn_m = 1 / 2 * (t_i + t_j)
+    va_m = 1 / 12 * (t_i - t_j) ** 2
+
+    return mn_m, va_m
+
+
+@numba.njit(_unituple(_f, 3)(_f, _f))
+def mutation_block_moments(t_i, t_j):
+    r"""
+    log p(t_m) := \
+        log(t_i / (t_i + t_j) * int(0 < t_m < t_i) / t_i + \
+            t_j / (t_i + t_j) * int(0 < t_m < t_j) / t_j)
+
+    Returns P[m under i], E[t_m], V[t_m].
+    """
+
+    assert t_i > 0
+    assert t_j > 0
+
+    pr_m = t_i / (t_i + t_j)
+    mn_m = pr_m * t_i / 2 + (1 - pr_m) * t_j / 2
+    sq_m = pr_m * t_i**2 / 3 + (1 - pr_m) * t_j**2 / 3
+    va_m = sq_m - mn_m**2
+
+    return pr_m, mn_m, va_m
+
+
+# --- wrappers around updates --- #
+
+
+@numba.njit(_tuple((_f, _f1r, _f1r))(_f1r, _f1r, _f1r))
+def gamma_projection(pars_i, pars_j, pars_ij):
+    r"""
+    log p(t_i, t_j) := \
+        log(t_i - t_j) * y_ij - mu_ij * (t_i - t_j) + \
+        log(t_i) * (a_i - 1) - b_i * t_i + \
+        log(t_j) * (a_j - 1) - b_j * t_j
+
+    Returns normalizing constant, gamma natural parameters for parent and child ages
+    """
     a_i, b_i = pars_i
     a_j, b_j = pars_j
     y_ij, mu_ij = pars_ij
     a_i += 1
     a_j += 1
 
-    if not _hyp2f1_valid_parameterization(a_i, b_i, a_j, b_j, y_ij, mu_ij):
-        return np.full(2, np.nan)
+    logl, mn_i, va_i, mn_j, va_j = moments(a_i, b_i, a_j, b_j, y_ij, mu_ij)
 
-    t_m, ln_t_m, va_t_m = mutation_moments(a_i, b_i, a_j, b_j, y_ij, mu_ij)
+    if not (_valid_moments(mn_i, va_i) and _valid_moments(mn_j, va_j)):
+        return np.nan, pars_i, pars_j
 
-    valid = _valid_moments(t_m, ln_t_m, va_t_m)
-    if not valid:
-        return np.full(2, np.nan)
+    proj_i = approximate_gamma_mom(mn_i, va_i)
+    proj_j = approximate_gamma_mom(mn_j, va_j)
 
-    if min_kl:
-        proj_m = approximate_gamma_kl(t_m, ln_t_m)
-    else:
-        proj_m = approximate_gamma_mom(t_m, va_t_m)
-
-    return np.array(proj_m)
+    return logl, np.array(proj_i), np.array(proj_j)
 
 
-@numba.njit(_f1r(_f, _f1r, _f1r, _b))
-def mutation_leafward_projection(t_i, pars_j, pars_ij, min_kl):
+@numba.njit(_tuple((_f, _f1r))(_f, _f1r, _f1r))
+def leafward_projection(t_i, pars_j, pars_ij):
     r"""
-    Match a gamma distribution via KL minimization to the potential function
+    log p(t_j) := \
+        log(t_i - t_j) * y_ij - mu_ij * (t_i - t_j) + \
+        log(t_j) * (a_j - 1) - b_j * t_j
 
-    ..math::
-
-        p(x) = \int_0^{t_i} Unif(x | t_i, t_j)
-        Ga(t_j | a_j, b_j) Po(y | \mu_ij (t_i - t_j)) dt_j
-
-    which models the time :math:`x` of a mutation uniformly distributed between
-    parent age :math:`t_i` and child age :math:`t_j`, on a branch with
-    :math:`y_{ij}` mutations and total mutation rate :math:`\mu_{ij}`.
-
-    TODO
-
-    :return: gamma parameters for mutation age
+    Returns normalizing constant, gamma natural parameters for child age
     """
-
-    # switch from natural to canonical parameterization
     a_j, b_j = pars_j
     y_ij, mu_ij = pars_ij
     a_j += 1
 
-    # skip update, zeroing out message
-    if not _hyp1f1_valid_parameterization(t_i, a_j, b_j, y_ij, mu_ij):
-        return np.full(2, np.nan)
+    logl, mn_j, va_j = leafward_moments(t_i, a_j, b_j, y_ij, mu_ij)
 
-    t_m, ln_t_m, va_t_m = mutation_leafward_moments(t_i, a_j, b_j, y_ij, mu_ij)
+    if not _valid_moments(mn_j, va_j):
+        return np.nan, pars_j
 
-    valid = _valid_moments(t_m, ln_t_m, va_t_m)
-    if not valid:
-        return np.full(2, np.nan)
+    proj_j = approximate_gamma_mom(mn_j, va_j)
 
-    if min_kl:
-        proj_m = approximate_gamma_kl(t_m, ln_t_m)
-    else:
-        proj_m = approximate_gamma_mom(t_m, va_t_m)
-
-    return np.array(proj_m)
+    return logl, np.array(proj_j)
 
 
-@numba.njit(_f1r(_f, _f1r, _f1r, _b))
-def mutation_rootward_projection(t_j, pars_i, pars_ij, min_kl):
+@numba.njit(_tuple((_f, _f1r))(_f, _f1r, _f1r))
+def rootward_projection(t_j, pars_i, pars_ij):
     r"""
-    Match a gamma distribution via KL minimization to the potential function
+    log p(t_i) := \
+        log(t_i - t_j) * y_ij - mu_ij * (t_i - t_j) + \
+        log(t_i) * (a_i - 1) - b_i * t_i
 
-    ..math::
-
-        p(x) = \int_{t_j}^{\infty} Unif(x | t_i, t_j)
-        Ga(t_i | a_i, b_i) Po(y | \mu_ij (t_i - t_j)) dt_i
-
-    which models the time :math:`x` of a mutation uniformly distributed between
-    parent age :math:`t_i` and child age :math:`t_j`, on a branch with
-    :math:`y_{ij}` mutations and total mutation rate :math:`\mu_{ij}`.
-
-    TODO
-
-    :return: gamma parameters for mutation age
+    Returns normalizing constant, gamma natural parameters for parent age
     """
-
-    # switch from natural to canonical parameterization
     a_i, b_i = pars_i
     y_ij, mu_ij = pars_ij
     a_i += 1
 
-    # skip update, zeroing out message
-    if not _hyperu_valid_parameterization(t_j, a_i, b_i, y_ij, mu_ij):
-        return np.full(2, np.nan)
+    logl, mn_i, va_i = rootward_moments(t_j, a_i, b_i, y_ij, mu_ij)
 
-    t_m, ln_t_m, va_t_m = mutation_rootward_moments(t_j, a_i, b_i, y_ij, mu_ij)
+    if not _valid_moments(mn_i, va_i):
+        return np.nan, pars_i
 
-    valid = _valid_moments(t_m, ln_t_m, va_t_m)
-    if not valid:
-        return np.full(2, np.nan)
+    proj_i = approximate_gamma_mom(mn_i, va_i)
 
-    if min_kl:
-        proj_m = approximate_gamma_kl(t_m, ln_t_m)
-    else:
-        proj_m = approximate_gamma_mom(t_m, va_t_m)
+    return logl, np.array(proj_i)
 
-    return np.array(proj_m)
+
+@numba.njit(_tuple((_f, _f1r, _f1r))(_f1r, _f1r, _f1r))
+def unphased_projection(pars_i, pars_j, pars_ij):
+    r"""
+    log p(t_i, t_j) := \
+        log(t_i + t_j) * y_ij - mu_ij * (t_i + t_j) + \
+        log(t_i) * (a_i - 1) - b_i * t_i + \
+        log(t_j) * (a_j - 1) - b_j * t_j
+
+    Returns normalizing constant, gamma natural parameters for parent ages
+    """
+    a_i, b_i = pars_i
+    a_j, b_j = pars_j
+    y_ij, mu_ij = pars_ij
+    a_i += 1
+    a_j += 1
+
+    logl, mn_i, va_i, mn_j, va_j = unphased_moments(a_i, b_i, a_j, b_j, y_ij, mu_ij)
+
+    if not _valid_moments(mn_i, va_i) or not _valid_moments(mn_j, va_j):
+        return np.nan, pars_i, pars_j
+
+    proj_i = approximate_gamma_mom(mn_i, va_i)
+    proj_j = approximate_gamma_mom(mn_j, va_j)
+
+    return logl, np.array(proj_i), np.array(proj_j)
+
+
+@numba.njit(_tuple((_f, _f1r))(_f1r, _f1r))
+def twin_projection(pars_i, pars_ij):
+    r"""
+    log p(t_i) := \
+        log(2 * t_i) * y_ij - mu_ij * (2 * t_i) + \
+        log(t_i) * (a_i - 1) - b_i * t_i
+
+    Returns normalizing constant, gamma natural parameters for parent ages
+    """
+    a_i, b_i = pars_i
+    y_ij, mu_ij = pars_ij
+    a_i += 1
+
+    logl, mn_i, va_i = twin_moments(a_i, b_i, y_ij, mu_ij)
+
+    if not _valid_moments(mn_i, va_i):
+        return np.nan, pars_i
+
+    proj_i = approximate_gamma_mom(mn_i, va_i)
+
+    return logl, np.array(proj_i)
+
+
+@numba.njit(_tuple((_f, _f1r))(_f, _f1r, _f1r))
+def sideways_projection(t_i, pars_j, pars_ij):
+    r"""
+    log p(t_j) := \
+        log(t_i + t_j) * y_ij - mu_ij * (t_i + t_j) + \
+        log(t_j) * (a_j - 1) - b_j * t_j
+
+    Returns normalizing constant, gamma natural parameters for nonfixed parent age
+    """
+    a_j, b_j = pars_j
+    y_ij, mu_ij = pars_ij
+    a_j += 1
+
+    logl, mn_j, va_j = sideways_moments(t_i, a_j, b_j, y_ij, mu_ij)
+
+    if not _valid_moments(mn_j, va_j):
+        return np.nan, pars_j
+
+    proj_j = approximate_gamma_mom(mn_j, va_j)
+
+    return logl, np.array(proj_j)
+
+
+@numba.njit(_tuple((_f, _f1r))(_f1r, _f1r, _f1r))
+def mutation_gamma_projection(pars_i, pars_j, pars_ij):
+    r"""
+    log p(t_m, t_i, t_j) = \
+        log(t_i - t_j) * y_ij - mu_ij * (t_i - t_j) + \
+        log(t_i) * (a_i - 1) - b_i * t_i + \
+        log(t_j) * (a_j - 1) - b_j * t_j - \
+        log(t_i - t_j) + log(int(t_j < t_m < t_i))
+
+    Returns phase probability, gamma natural parameters for mutation age
+    """
+    a_i, b_i = pars_i
+    a_j, b_j = pars_j
+    y_ij, mu_ij = pars_ij
+    a_i += 1
+    a_j += 1
+
+    mn_m, va_m = mutation_moments(a_i, b_i, a_j, b_j, y_ij, mu_ij)
+
+    if not _valid_moments(mn_m, va_m):
+        return np.nan, np.full(2, np.nan)
+
+    proj_m = approximate_gamma_mom(mn_m, va_m)
+
+    return 1.0, np.array(proj_m)
+
+
+@numba.njit(_tuple((_f, _f1r))(_f, _f1r, _f1r))
+def mutation_leafward_projection(t_i, pars_j, pars_ij):
+    r"""
+    log p(t_m, t_j) := \
+        log(t_i - t_j) * y_ij - mu_ij * (t_i - t_j) + \
+        log(t_j) * (a_j - 1) - b_j * t_j - \
+        log(t_i - t_j) + log(int(t_j < t_m < t_i))
+
+    Returns phase probability, gamma natural parameters for mutation age
+    """
+    a_j, b_j = pars_j
+    y_ij, mu_ij = pars_ij
+    a_j += 1
+
+    mn_m, va_m = mutation_leafward_moments(t_i, a_j, b_j, y_ij, mu_ij)
+
+    if not _valid_moments(mn_m, va_m):
+        return np.nan, np.full(2, np.nan)
+
+    proj_m = approximate_gamma_mom(mn_m, va_m)
+
+    return 1.0, np.array(proj_m)
+
+
+@numba.njit(_tuple((_f, _f1r))(_f, _f1r, _f1r))
+def mutation_rootward_projection(t_j, pars_i, pars_ij):
+    r"""
+    log p(t_m, t_i) := \
+        log(t_i - t_j) * y_ij - mu_ij * (t_i - t_j) + \
+        log(t_i) * (a_i - 1) - b_i * t_i - \
+        log(t_i - t_j) + log(int(t_j < t_m < t_i))
+
+    Returns phase probability, gamma natural parameters for mutation age
+    """
+    a_i, b_i = pars_i
+    y_ij, mu_ij = pars_ij
+    a_i += 1
+
+    mn_m, va_m = mutation_rootward_moments(t_j, a_i, b_i, y_ij, mu_ij)
+
+    if not _valid_moments(mn_m, va_m):
+        return np.nan, np.full(2, np.nan)
+
+    proj_m = approximate_gamma_mom(mn_m, va_m)
+
+    return 1.0, np.array(proj_m)
+
+
+@numba.njit(_tuple((_f, _f1r))(_f, _f))
+def mutation_edge_projection(t_i, t_j):
+    r"""
+    log p(t_m) := \
+        log(t_i - t_j) + log(int(t_j < t_m < t_i))
+
+    Returns phase probability, gamma natural parameters for mutation age
+    """
+    mn_m, va_m = mutation_edge_moments(t_i, t_j)
+
+    if not _valid_moments(mn_m, va_m):
+        return np.nan, np.full(2, np.nan)
+
+    proj_m = approximate_gamma_mom(mn_m, va_m)
+
+    return 1.0, np.array(proj_m)
+
+
+@numba.njit(_tuple((_f, _f1r))(_f1r, _f1r, _f1r))
+def mutation_unphased_projection(pars_i, pars_j, pars_ij):
+    r"""
+    log p(t_m, t_i, t_j) := \
+        log(t_i + t_j) * y_ij - mu_ij * (t_i + t_j) + \
+        log(t_i) * (a_i - 1) - b_i * t_i + \
+        log(t_j) * (a_j - 1) - b_j * t_j + \
+        log(t_i / (t_i + t_j) * int(0 < t_m < t_i) + \
+            t_j / (t_i + t_j) * int(0 < t_m < t_j))
+
+    Returns phase probability, gamma natural parameters for mutation age
+    """
+    a_i, b_i = pars_i
+    a_j, b_j = pars_j
+    y_ij, mu_ij = pars_ij
+    a_i += 1
+    a_j += 1
+
+    pr_m, mn_m, va_m = mutation_unphased_moments(a_i, b_i, a_j, b_j, y_ij, mu_ij)
+
+    if not _valid_moments(mn_m, va_m) or not (0 <= pr_m <= 1):
+        return np.nan, np.full(2, np.nan)
+
+    proj_m = approximate_gamma_mom(mn_m, va_m)
+
+    return pr_m, np.array(proj_m)
+
+
+@numba.njit(_tuple((_f, _f1r))(_f1r, _f1r))
+def mutation_twin_projection(pars_i, pars_ij):
+    r"""
+    log p(t_m, t_i) := \
+        log(2 * t_i) * y_ij - mu_ij * (2 * t_i) + \
+        log(t_i) * (a_i - 1) - b_i * t_i + \
+        log(int(0 < t_m < t_i) / t_i)
+
+    Returns phase probability, gamma natural parameters for mutation age
+    """
+    a_i, b_i = pars_i
+    y_ij, mu_ij = pars_ij
+    a_i += 1
+
+    pr_m, mn_m, va_m = mutation_twin_moments(a_i, b_i, y_ij, mu_ij)
+
+    if not _valid_moments(mn_m, va_m) or not (0 <= pr_m <= 1):
+        return np.nan, np.full(2, np.nan)
+
+    proj_m = approximate_gamma_mom(mn_m, va_m)
+
+    return pr_m, np.array(proj_m)
+
+
+@numba.njit(_tuple((_f, _f1r))(_f, _f1r, _f1r))
+def mutation_sideways_projection(t_i, pars_j, pars_ij):
+    r"""
+    log p(t_m, t_j) := \
+        log(t_i + t_j) * y_ij - mu_ij * (t_i + t_j) + \
+        log(t_j) * (a_j - 1) - b_j * t_j + \
+        log(t_i / (t_i + t_j) * int(0 < t_m < t_i) + \
+            t_j / (t_i + t_j) * int(0 < t_m < t_j))
+
+    Returns phase probability, gamma natural parameters for mutation age
+    """
+    a_j, b_j = pars_j
+    y_ij, mu_ij = pars_ij
+    a_j += 1
+
+    pr_m, mn_m, va_m = mutation_sideways_moments(t_i, a_j, b_j, y_ij, mu_ij)
+
+    if not _valid_moments(mn_m, va_m) or not (0 <= pr_m <= 1):
+        return np.nan, np.full(2, np.nan)
+
+    proj_m = approximate_gamma_mom(mn_m, va_m)
+
+    return pr_m, np.array(proj_m)
+
+
+@numba.njit(_tuple((_f, _f1r))(_f, _f))
+def mutation_block_projection(t_i, t_j):
+    r"""
+    log p(t_m) := \
+        log(t_i / (t_i + t_j) * int(0 < t_m < t_i) + \
+            t_j / (t_i + t_j) * int(0 < t_m < t_j))
+
+    Returns phase probability, gamma natural parameters for mutation age
+    """
+    pr_m, mn_m, va_m = mutation_block_moments(t_i, t_j)
+
+    if not _valid_moments(mn_m, va_m) or not (0 <= pr_m <= 1):
+        return np.nan, np.full(2, np.nan)
+
+    proj_m = approximate_gamma_mom(mn_m, va_m)
+
+    return pr_m, np.array(proj_m)

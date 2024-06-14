@@ -881,7 +881,9 @@ Results = namedtuple(
         "posterior_obj",
         "mutation_mean",
         "mutation_var",
-        "mutation_likelihood",
+        "mutation_lik",
+        "mutation_edge",
+        "mutation_node",
     ],
 )
 
@@ -989,10 +991,8 @@ class EstimationMethod:
                 self.priors = priors
 
         # mutation to edge mapping
-        mutspan_timing = time.time()
+        # TODO: this isn't needed except for mutations_edge in constrain_mutations
         self.edges_mutations, self.mutations_edge = util.mutation_span_array(ts)
-        mutspan_timing -= time.time()
-        logging.info(f"Extracted mutations in {abs(mutspan_timing)} seconds")
 
     def get_modified_ts(self, result, eps):
         # Return a new ts based on the existing one, but with the various
@@ -1002,6 +1002,8 @@ class EstimationMethod:
         node_var_t = result.posterior_var
         mut_mean_t = result.mutation_mean
         mut_var_t = result.mutation_var
+        mut_edge = result.mutation_edge
+        mut_node = result.mutation_node
         tables = ts.dump_tables()
         nodes = tables.nodes
         mutations = tables.mutations
@@ -1011,7 +1013,9 @@ class EstimationMethod:
         # Constrain node ages for positive branch lengths
         constr_timing = time.time()
         nodes.time = util.constrain_ages(ts, node_mean_t, eps, self.constr_iterations)
-        mutations.time = util.constrain_mutations(ts, nodes.time, self.mutations_edge)
+        mutations.time = util.constrain_mutations(ts, nodes.time, mut_edge)
+        mutations.node = mut_node
+        mutations.parent = np.full(mutations.num_rows, tskit.NULL, dtype=np.int32)
         tables.time_units = self.time_units
         constr_timing -= time.time()
         logging.info(f"Constrained node ages in {abs(constr_timing)} seconds")
@@ -1027,7 +1031,12 @@ class EstimationMethod:
         logging.info(
             f"Inserted node and mutation metadata in {abs(meta_timing)} seconds"
         )
+        sort_timing = time.time()
         tables.sort()
+        tables.build_index()
+        tables.compute_mutation_parents()
+        sort_timing -= time.time()
+        logging.info(f"Sorted tree sequence in {abs(sort_timing)} seconds")
         return tables.tree_sequence()
 
     def set_time_metadata(self, table, mean, var, default_schema, overwrite=False):
@@ -1076,7 +1085,7 @@ class EstimationMethod:
                 pst_dict.update(extra_posterior_cols or {})
             ret.append(pst_dict)
         if self.return_likelihood:
-            ret.append(result.mutation_likelihood)
+            ret.append(result.mutation_lik)
         return tuple(ret) if len(ret) > 1 else ret.pop()
 
     def get_fixed_nodes_set(self):
@@ -1169,8 +1178,17 @@ class InsideOutsideMethod(DiscreteTimeMethod):
         posterior_obj.to_probabilities()
 
         posterior_mean, posterior_var = self.mean_var(self.ts, posterior_obj)
+        mut_edge = np.full(self.ts.num_mutations, tskit.NULL)
+        mut_node = self.ts.mutations_node
         return Results(
-            posterior_mean, posterior_var, posterior_obj, None, None, marginal_likl
+            posterior_mean,
+            posterior_var,
+            posterior_obj,
+            None,
+            None,
+            marginal_likl,
+            mut_edge,
+            mut_node,
         )
 
 
@@ -1198,7 +1216,11 @@ class MaximizationMethod(DiscreteTimeMethod):
         dynamic_prog = self.main_algorithm(probability_space, eps, num_threads)
         marginal_likl = dynamic_prog.inside_pass(cache_inside=cache_inside)
         posterior_mean = dynamic_prog.outside_maximization(eps=eps)
-        return Results(posterior_mean, None, None, None, None, marginal_likl)
+        mut_edge = np.full(self.ts.num_mutations, tskit.NULL)
+        mut_node = self.ts.mutations_node
+        return Results(
+            posterior_mean, None, None, None, None, marginal_likl, mut_edge, mut_node
+        )
 
 
 class VariationalGammaMethod(EstimationMethod):
@@ -1208,57 +1230,15 @@ class VariationalGammaMethod(EstimationMethod):
     def __init__(self, ts, **kwargs):
         super().__init__(ts, **kwargs)
 
-    @staticmethod
-    def mean_var(posteriors, constraints):
-        """
-        Mean and variance of node age from variational posterior (e.g. gamma
-        distributions).  Fixed nodes will be given a mean of their exact time in
-        the tree sequence, and zero variance (as long as they are identified by the
-        fixed_node_set). This is a static method for ease of testing.
-        """
-
-        mn_post = np.full(
-            posteriors.shape[0], np.nan
-        )  # Fill with NaNs so we detect when
-        va_post = np.full(posteriors.shape[0], np.nan)  # there's been an error
-
-        fixed = constraints[:, 0] == constraints[:, 1]
-        mn_post[fixed] = constraints[fixed, 0]
-        va_post[fixed] = 0
-
-        for i in np.flatnonzero(~fixed):
-            pars = posteriors[i]
-            mn_post[i] = (pars[0] + 1) / pars[1]
-            va_post[i] = (pars[0] + 1) / pars[1] ** 2
-
-        return mn_post, va_post
-
-    def main_algorithm(self):
-        # edge likelihoods
-        # TODO: variable mutation rates across genome
-        # TODO: truncate edge spans with accessiblity mask
-        likelihoods = self.edges_mutations.copy()
-        likelihoods[:, 1] *= self.mutation_rate
-
-        # lower and upper bounds on node ages
-        sample_idx = list(self.ts.samples())
-        constraints = np.zeros((self.ts.num_nodes, 2))
-        constraints[:, 1] = np.inf
-        constraints[sample_idx, :] = self.ts.nodes_time[sample_idx, np.newaxis]
-
-        return variational.ExpectationPropagation(
-            self.ts, likelihoods, constraints, self.mutations_edge
-        )
-
     def run(
         self,
         eps,
         max_iterations,
         max_shape,
-        match_central_moments,
         rescaling_intervals,
         match_segregating_sites,
         regularise_roots,
+        singletons_phased,
     ):
         if self.provenance_params is not None:
             self.provenance_params.update(
@@ -1269,35 +1249,33 @@ class VariationalGammaMethod(EstimationMethod):
         if self.mutation_rate is None:
             raise ValueError("Variational gamma method requires mutation rate")
 
-        # match sufficient statistics or match central moments
-        min_kl = not match_central_moments
-        dynamic_prog = self.main_algorithm()
-        dynamic_prog.run(
+        posterior = variational.ExpectationPropagation(
+            self.ts,
+            mutation_rate=self.mutation_rate,
+            singletons_phased=singletons_phased,
+        )
+        posterior.run(
             ep_maxitt=max_iterations,
             max_shape=max_shape,
-            min_kl=min_kl,
             rescale_intervals=rescaling_intervals,
             regularise=regularise_roots,
             rescale_segsites=match_segregating_sites,
             progress=self.pbar,
         )
 
-        # TODO: use dynamic_prog.point_estimate
-        posterior_mean, posterior_vari = self.mean_var(
-            dynamic_prog.posterior, dynamic_prog.constraints
-        )
+        node_mn, node_va = posterior.node_moments()
+        mutation_mn, mutation_va = posterior.mutation_moments()
+        mutation_edge, mutation_node = posterior.mutation_mapping()
 
-        # TODO: clean up
-        mutation_post = dynamic_prog.mutations_posterior
-        mutation_mean = np.full(mutation_post.shape[0], np.nan)
-        mutation_vari = np.full(mutation_post.shape[0], np.nan)
-        idx = mutation_post[:, 1] > 0
-        mutation_mean[idx] = (mutation_post[idx, 0] + 1) / mutation_post[idx, 1]
-        mutation_vari[idx] = (mutation_post[idx, 0] + 1) / mutation_post[idx, 1] ** 2
-
-        # TODO: return marginal likelihood
         return Results(
-            posterior_mean, posterior_vari, None, mutation_mean, mutation_vari, None
+            node_mn,
+            node_va,
+            None,
+            mutation_mn,
+            mutation_va,
+            None,
+            mutation_edge,
+            mutation_node,
         )
 
 
@@ -1578,9 +1556,9 @@ def variational_gamma(
     rescaling_intervals=None,
     # deliberately undocumented parameters below. We may eventually document these
     max_shape=None,
-    match_central_moments=None,
     match_segregating_sites=None,
     regularise_roots=None,
+    singletons_phased=None,
     **kwargs,
 ):
     """
@@ -1643,12 +1621,12 @@ def variational_gamma(
         max_shape = 1000
     if rescaling_intervals is None:
         rescaling_intervals = DEFAULT_RESCALING_INTERVALS
-    if match_central_moments is None:
-        match_central_moments = True
     if match_segregating_sites is None:
         match_segregating_sites = False
     if regularise_roots is None:
         regularise_roots = True
+    if singletons_phased is None:
+        singletons_phased = True
     if tree_sequence.num_mutations == 0:
         raise ValueError(
             "No mutations present: these are required for the variational_gamma method"
@@ -1660,10 +1638,10 @@ def variational_gamma(
         eps=eps,
         max_iterations=max_iterations,
         max_shape=max_shape,
-        match_central_moments=match_central_moments,
         rescaling_intervals=rescaling_intervals,
         match_segregating_sites=match_segregating_sites,
         regularise_roots=regularise_roots,
+        singletons_phased=singletons_phased,
     )
     return dating_method.parse_result(result, eps, {"parameter": ["shape", "rate"]})
 
@@ -1754,7 +1732,6 @@ def date(
     :param bool record_provenance: Should the tsdate command be appended to the
         provenence information in the returned tree sequence?
         Default: None, treated as True.
-    :param float Ne: Deprecated, use the``population_size`` argument instead.
     :param \\**kwargs: Other keyword arguments specific to the
         :data:`estimation method<tsdate.core.estimation_methods>` used. These are
         documented in those specific functions.

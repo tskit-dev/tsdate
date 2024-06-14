@@ -163,7 +163,7 @@ def _hyperu_laplace(a, b, x):
     TODO: details
     """
 
-    assert b > a > 0.0
+    assert b >= a > 0.0
     assert x > 0.0
 
     t = b - x - 1
