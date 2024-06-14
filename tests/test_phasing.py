@@ -296,6 +296,8 @@ class TestPhaseAgnosticDating:
             singletons_phased=True,
         )
         assert not np.allclose(dts1.nodes_time, dts2.nodes_time)
+        assert not np.allclose(dts1.mutations_node, dts2.mutations_node)
+        assert not np.allclose(dts1.mutations_time, dts2.mutations_time)
 
 
 class TestMutationFrequency:

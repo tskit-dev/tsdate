@@ -919,3 +919,46 @@ class ExpectationPropagation:
         """
         # TODO: should these be copies? Should members be readonly?
         return self.mutation_edges, self.mutation_nodes
+
+
+# def date(
+#     ts,
+#     *,
+#     mutation_rate,
+#     singletons_phased=True,
+#     max_iterations=10,
+#     match_segregating_sites=False,
+#     regularise_roots=True,
+#     constr_iterations=0,
+#     progress=True,
+# ):
+#     """
+#     Date a tree sequence with expectation propagation. Returns dated tree
+#     sequence and converged ExpectationPropagation object.
+#     """
+#
+#     posterior = variational.ExpectationPropagation(
+#         ts,
+#         mutation_rate=mutation_rate,
+#         singletons_phased=singletons_phased,
+#     )
+#     posterior.run(
+#         ep_maxitt=max_iterations,
+#         max_shape=max_shape,
+#         rescale_intervals=rescaling_intervals,
+#         regularise=regularise_roots,
+#         rescale_segsites=match_segregating_sites,
+#         progress=progress,
+#     )
+#
+#     node_mn, node_va = posterior.node_moments()
+#     mutation_mn, mutation_va = posterior.mutation_moments()
+#     mutation_edge, mutation_node = posterior.mutation_mapping()
+#
+#     tables = ts.dump_tables()
+#     tables.nodes.time = constrain_ages(
+#       ts, node_mn, constr_iterations=constr_iterations)
+#     tables.mutations.node = mutation_node
+#     tables.sort()
+#
+#     return tables.tree_sequence(), posterior
