@@ -508,13 +508,19 @@ def insert_unphased_singletons(
                 raise ValueError(
                     f"Existing site at position {pos} has a different ancestral state"
                 )
+            muts = ts.site(sites_id[pos]).mutations
+            set_time = len(muts) and np.isfinite(muts[0].time)
         else:
             sites_id[pos] = tables.sites.add_row(position=pos, ancestral_state=ref)
+            set_time = False
         # TODO: more efficient to do in bulk?
+        site = sites_id[pos]
+        node = individuals_node[ind]
+        time = ts.nodes_time[node] if set_time else tskit.UNKNOWN_TIME
         tables.mutations.add_row(
-            site=sites_id[pos],
-            node=individuals_node[ind],
-            time=tskit.UNKNOWN_TIME,
+            site=site,
+            node=node,
+            time=time,
             derived_state=alt,
         )
     tables.sort()

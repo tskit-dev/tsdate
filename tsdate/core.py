@@ -1015,6 +1015,7 @@ class EstimationMethod:
         nodes.time = util.constrain_ages(ts, node_mean_t, eps, self.constr_iterations)
         mutations.time = util.constrain_mutations(ts, nodes.time, mut_edge)
         mutations.node = mut_node
+        mutations.parent = np.full(mutations.num_rows, tskit.NULL, dtype=np.int32)
         tables.time_units = self.time_units
         constr_timing -= time.time()
         logging.info(f"Constrained node ages in {abs(constr_timing)} seconds")
@@ -1030,7 +1031,12 @@ class EstimationMethod:
         logging.info(
             f"Inserted node and mutation metadata in {abs(meta_timing)} seconds"
         )
+        sort_timing = time.time()
         tables.sort()
+        tables.build_index()
+        tables.compute_mutation_parents()
+        sort_timing -= time.time()
+        logging.info(f"Sorted tree sequence in {abs(sort_timing)} seconds")
         return tables.tree_sequence()
 
     def set_time_metadata(self, table, mean, var, default_schema, overwrite=False):
@@ -1243,7 +1249,6 @@ class VariationalGammaMethod(EstimationMethod):
         if self.mutation_rate is None:
             raise ValueError("Variational gamma method requires mutation rate")
 
-        # match sufficient statistics or match central moments
         posterior = variational.ExpectationPropagation(
             self.ts,
             mutation_rate=self.mutation_rate,
@@ -1260,8 +1265,6 @@ class VariationalGammaMethod(EstimationMethod):
 
         node_mn, node_va = posterior.node_moments()
         mutation_mn, mutation_va = posterior.mutation_moments()
-
-        mutation_edge = posterior.mutation_edges
         mutation_edge, mutation_node = posterior.mutation_mapping()
 
         return Results(
