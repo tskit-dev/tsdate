@@ -241,8 +241,7 @@ class ExpectationPropagation:
 
         # count mutations on edges
         count_timing = time.time()
-        self.edge_likelihoods, self.mutation_edges = \
-            count_mutations(ts, self.node_constraints)  # fmt: skip
+        self.edge_likelihoods, self.mutation_edges = count_mutations(ts)
         self.edge_likelihoods[:, 1] *= mutation_rate
         count_timing -= time.time()
         logging.info(f"Extracted mutations in {abs(count_timing)} seconds")

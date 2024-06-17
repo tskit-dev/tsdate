@@ -34,7 +34,6 @@ import tskit
 
 import tsdate
 from tsdate.rescaling import count_mutations
-from tsdate.rescaling import count_sizebiased
 from tsdate.rescaling import edge_sampling_weight
 from tsdate.rescaling import mutational_area
 
@@ -114,7 +113,7 @@ class TestMutationalArea:
             width = edge.right - edge.left
             area[c:p] += width
             muts[c:p] += edges_muts[edge.id] / length
-        return muts, area, np.diff(unique_node_times)
+        return muts, area, np.diff(unique_node_times), node_map
 
     @staticmethod
     def naive_total_path_area(ts):
@@ -142,7 +141,7 @@ class TestMutationalArea:
     def test_total_mutational_area(self, inferred_ts):
         ts = inferred_ts
         likelihoods, _ = count_mutations(ts)
-        epoch_muts, epoch_span, epoch_duration = mutational_area(
+        epoch_muts, epoch_span, epoch_duration, _ = mutational_area(
             ts.nodes_time,
             likelihoods,
             ts.edges_parent,
@@ -157,11 +156,8 @@ class TestMutationalArea:
 
     def test_total_path_area(self, inferred_ts):
         ts = inferred_ts
-        constraints = np.zeros((ts.num_nodes, 2))
-        constraints[:, 1] = np.inf
-        constraints[list(ts.samples())] = 0.0
-        likelihoods, _ = tsdate.rescaling.count_sizebiased(ts, constraints)
-        epoch_muts, epoch_span, epoch_duration = mutational_area(
+        likelihoods, _ = tsdate.rescaling.count_mutations(ts, size_biased=True)
+        epoch_muts, epoch_span, epoch_duration, _ = mutational_area(
             ts.nodes_time,
             likelihoods,
             ts.edges_parent,
@@ -176,20 +172,17 @@ class TestMutationalArea:
     def test_vs_naive(self, inferred_ts):
         ts = inferred_ts
         likelihoods, _ = count_mutations(inferred_ts)
-        epoch_muts, epoch_span, epoch_duration = mutational_area(
+        epoch_muts, epoch_span, epoch_duration, node_index = mutational_area(
             ts.nodes_time,
             likelihoods,
             ts.edges_parent,
             ts.edges_child,
         )
-        ck_muts, ck_span, ck_duration = self.naive_mutational_area(ts)
+        ck_muts, ck_span, ck_duration, ck_index = self.naive_mutational_area(ts)
         np.testing.assert_allclose(epoch_muts, ck_muts)
         np.testing.assert_allclose(epoch_span, ck_span)
         np.testing.assert_allclose(epoch_duration, ck_duration)
-
-    # TODO: for count mutations variants:
-    # def test_masked_mutations(...):
-    # def test_masked_samples(...):
+        np.testing.assert_allclose(node_index, ck_index)
 
 
 class TestCountMutations:
@@ -197,28 +190,16 @@ class TestCountMutations:
     Test tallying of mutations on edges
     """
 
-    def test_count_mutations(self, inferred_ts):
-        constraints = np.zeros((inferred_ts.num_nodes, 2))
-        constraints[:, 1] = np.inf
-        constraints[list(inferred_ts.samples()), 0] = 0.0
-        edge_stats, muts_edge = count_mutations(inferred_ts, constraints)
-        ck_edge_muts = np.zeros(inferred_ts.num_edges)
-        ck_muts_edge = np.full(inferred_ts.num_mutations, tskit.NULL)
-        for m in inferred_ts.mutations():
+    @staticmethod
+    def naive_count_mutations(ts):
+        edge_muts = np.zeros(ts.num_edges)
+        muts_edge = np.full(ts.num_mutations, tskit.NULL)
+        for m in ts.mutations():
             if m.edge != tskit.NULL:
-                ck_edge_muts[m.edge] += 1.0
-                ck_muts_edge[m.id] = m.edge
-        ck_edge_span = inferred_ts.edges_right - inferred_ts.edges_left
-        np.testing.assert_array_almost_equal(ck_edge_muts, edge_stats[:, 0])
-        np.testing.assert_array_almost_equal(ck_edge_span, edge_stats[:, 1])
-        np.testing.assert_array_equal(ck_muts_edge, muts_edge)
-
-
-class TestCountSizeBiased:
-    """
-    Count sized-biased mutations and edge area. E.g. weighting the contribution
-    from each tree by the number of samples subtended by a mutation or edge.
-    """
+                edge_muts[m.edge] += 1.0
+                muts_edge[m.id] = m.edge
+        edge_span = ts.edges_right - ts.edges_left
+        return np.column_stack([edge_muts, edge_span]), muts_edge
 
     @staticmethod
     def naive_count_sizebiased(ts):
@@ -243,17 +224,25 @@ class TestCountSizeBiased:
                 edge_span[e] += t.span * t.num_samples(n)
         return np.column_stack([edge_muts, edge_span]), muts_edge
 
+    def test_count_mutations(self, inferred_ts):
+        edge_stats, muts_edge = count_mutations(inferred_ts)
+        ck_edge_stats, ck_muts_edge = self.naive_count_mutations(inferred_ts)
+        np.testing.assert_array_almost_equal(ck_edge_stats, edge_stats)
+        np.testing.assert_array_equal(ck_muts_edge, muts_edge)
+
     def test_count_sizebiased(self, inferred_ts):
-        constraints = np.zeros((inferred_ts.num_nodes, 2))
-        constraints[:, 1] = np.inf
-        constraints[list(inferred_ts.samples())] = 0.0
-        edge_stats, muts_edge = count_sizebiased(inferred_ts, constraints)
+        edge_stats, muts_edge = count_mutations(inferred_ts, size_biased=True)
         ck_edge_stats, ck_muts_edge = self.naive_count_sizebiased(inferred_ts)
         np.testing.assert_array_almost_equal(ck_edge_stats, edge_stats)
         np.testing.assert_array_equal(ck_muts_edge, muts_edge)
 
-    @pytest.mark.skip("Ancestral samples not implemented")
-    def test_ancestral_samples(self, inferred_ts):
+    @pytest.mark.skip("Ancient samples not implemented")
+    def test_count_sizebiased_with_ancient(self, inferred_ts):
         # TODO: if there are ancestral samples, these should not be used as weights.
         # test when ancestral samples are fully implemented.
+        return
+
+    @pytest.mark.skip("Accessibility mask not implemented")
+    def test_count_mutations_with_accessible(self, inferred_ts):
+        # TODO
         return

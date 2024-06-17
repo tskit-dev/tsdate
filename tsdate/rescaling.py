@@ -111,11 +111,113 @@ def _poisson_changepoints(counts, offset, penalty, min_counts, min_offset):
     return breaks
 
 
+#@numba.njit(
+#    _tuple((_f2w, _i1w))(_b1r, _i1r, _f1r, _i1r, _i1r, _f1r, _f1r, _i1r, _i1r, _f)
+#)
+#def _count_mutations(
+#    node_is_leaf,
+#    mutations_node,
+#    mutations_position,
+#    edges_parent,
+#    edges_child,
+#    edges_left,
+#    edges_right,
+#    indexes_insert,
+#    indexes_remove,
+#    sequence_length,
+#):
+#    """
+#    Internals for `count_mutations`
+#    """
+#    assert edges_parent.size == edges_child.size == edges_left.size == edges_right.size
+#    assert indexes_insert.size == indexes_remove.size == edges_parent.size
+#    assert mutations_node.size == mutations_position.size
+#
+#    num_mutations = mutations_node.size
+#    num_edges = edges_parent.size
+#    num_nodes = node_is_leaf.size
+#
+#    indexes_mutation = np.argsort(mutations_position)
+#    position_insert = edges_left[indexes_insert]
+#    position_remove = edges_right[indexes_remove]
+#    position_mutation = mutations_position[indexes_mutation]
+#
+#    nodes_edge = np.full(num_nodes, tskit.NULL)
+#    mutations_edge = np.full(num_mutations, tskit.NULL)
+#    edges_mutations = np.zeros(num_edges)
+#    edges_span = edges_right - edges_left
+#
+#    left = 0.0
+#    a, b, d = 0, 0, 0
+#    while a < num_edges or b < num_edges:
+#        while b < num_edges and position_remove[b] == left:  # edges out
+#            e = indexes_remove[b]
+#            c = edges_child[e]
+#            nodes_edge[c] = tskit.NULL
+#            b += 1
+#
+#        while a < num_edges and position_insert[a] == left:  # edges in
+#            e = indexes_insert[a]
+#            c = edges_child[e]
+#            nodes_edge[c] = e
+#            a += 1
+#
+#        right = sequence_length
+#        if b < num_edges:
+#            right = min(right, position_remove[b])
+#        if a < num_edges:
+#            right = min(right, position_insert[a])
+#        left = right
+#
+#        while d < num_mutations and position_mutation[d] < right:
+#            m = indexes_mutation[d]
+#            c = mutations_node[m]
+#            e = nodes_edge[c]
+#            if e != tskit.NULL:
+#                mutations_edge[m] = e
+#                edges_mutations[e] += 1.0
+#            d += 1
+#
+#    mutations_edge = mutations_edge.astype(np.int32)
+#    edges_stats = np.column_stack((edges_mutations, edges_span))
+#
+#    return edges_stats, mutations_edge
+#
+#
+#def count_mutations(ts, constraints=None):
+#    """
+#    Return an array with `num_edges` rows, and columns that are the number of
+#    mutations per edge and the total span per edge
+#    """
+#    # TODO: adjust spans by an accessibility mask
+#    if constraints is None:
+#        node_is_leaf = np.full(ts.num_nodes, False)
+#        node_is_leaf[list(ts.samples())] = True
+#    else:
+#        assert constraints.shape == (ts.num_nodes, 2)
+#        node_is_leaf = np.logical_and(
+#            constraints[:, 0] == 0.0,
+#            constraints[:, 0] == constraints[:, 1],
+#        )
+#    return _count_mutations(
+#        node_is_leaf,
+#        ts.mutations_node,
+#        ts.sites_position[ts.mutations_site],
+#        ts.edges_parent,
+#        ts.edges_child,
+#        ts.edges_left,
+#        ts.edges_right,
+#        ts.indexes_edge_insertion_order,
+#        ts.indexes_edge_removal_order,
+#        ts.sequence_length,
+#    )
+
+
 @numba.njit(
-    _tuple((_f2w, _i1w))(_b1r, _i1r, _f1r, _i1r, _i1r, _f1r, _f1r, _i1r, _i1r, _f)
+    _tuple((_f2w, _i1w))(_b1r, _i1r, _f1r, _i1r, _i1r, _f1r, _f1r, _i1r, _i1r, _f, _b)
 )
 def _count_mutations(
-    node_is_leaf,
+    node_is_sample,
     mutations_node,
     mutations_position,
     edges_parent,
@@ -125,109 +227,7 @@ def _count_mutations(
     indexes_insert,
     indexes_remove,
     sequence_length,
-):
-    """
-    Internals for `count_mutations`
-    """
-    assert edges_parent.size == edges_child.size == edges_left.size == edges_right.size
-    assert indexes_insert.size == indexes_remove.size == edges_parent.size
-    assert mutations_node.size == mutations_position.size
-
-    num_mutations = mutations_node.size
-    num_edges = edges_parent.size
-    num_nodes = node_is_leaf.size
-
-    indexes_mutation = np.argsort(mutations_position)
-    position_insert = edges_left[indexes_insert]
-    position_remove = edges_right[indexes_remove]
-    position_mutation = mutations_position[indexes_mutation]
-
-    nodes_edge = np.full(num_nodes, tskit.NULL)
-    mutations_edge = np.full(num_mutations, tskit.NULL)
-    edges_mutations = np.zeros(num_edges)
-    edges_span = edges_right - edges_left
-
-    left = 0.0
-    a, b, d = 0, 0, 0
-    while a < num_edges or b < num_edges:
-        while b < num_edges and position_remove[b] == left:  # edges out
-            e = indexes_remove[b]
-            c = edges_child[e]
-            nodes_edge[c] = tskit.NULL
-            b += 1
-
-        while a < num_edges and position_insert[a] == left:  # edges in
-            e = indexes_insert[a]
-            c = edges_child[e]
-            nodes_edge[c] = e
-            a += 1
-
-        right = sequence_length
-        if b < num_edges:
-            right = min(right, position_remove[b])
-        if a < num_edges:
-            right = min(right, position_insert[a])
-        left = right
-
-        while d < num_mutations and position_mutation[d] < right:
-            m = indexes_mutation[d]
-            c = mutations_node[m]
-            e = nodes_edge[c]
-            if e != tskit.NULL:
-                mutations_edge[m] = e
-                edges_mutations[e] += 1.0
-            d += 1
-
-    mutations_edge = mutations_edge.astype(np.int32)
-    edges_stats = np.column_stack((edges_mutations, edges_span))
-
-    return edges_stats, mutations_edge
-
-
-def count_mutations(ts, constraints=None):
-    """
-    Return an array with `num_edges` rows, and columns that are the number of
-    mutations per edge and the total span per edge
-    """
-    # TODO: adjust spans by an accessibility mask
-    if constraints is None:
-        node_is_leaf = np.full(ts.num_nodes, False)
-        node_is_leaf[list(ts.samples())] = True
-    else:
-        assert constraints.shape == (ts.num_nodes, 2)
-        node_is_leaf = np.logical_and(
-            constraints[:, 0] == 0.0,
-            constraints[:, 0] == constraints[:, 1],
-        )
-    return _count_mutations(
-        node_is_leaf,
-        ts.mutations_node,
-        ts.sites_position[ts.mutations_site],
-        ts.edges_parent,
-        ts.edges_child,
-        ts.edges_left,
-        ts.edges_right,
-        ts.indexes_edge_insertion_order,
-        ts.indexes_edge_removal_order,
-        ts.sequence_length,
-    )
-
-
-# TODO: similar enough to count_mutations to combine, with adequate testing
-@numba.njit(
-    _tuple((_f2w, _i1w))(_b1r, _i1r, _f1r, _i1r, _i1r, _f1r, _f1r, _i1r, _i1r, _f)
-)
-def _count_sizebiased(
-    node_is_leaf,
-    mutations_node,
-    mutations_position,
-    edges_parent,
-    edges_child,
-    edges_left,
-    edges_right,
-    indexes_insert,
-    indexes_remove,
-    sequence_length,
+    size_biased,
 ):
     """
     Internals for `count_sizebiased`
@@ -238,7 +238,7 @@ def _count_sizebiased(
 
     num_mutations = mutations_node.size
     num_edges = edges_parent.size
-    num_nodes = node_is_leaf.size
+    num_nodes = node_is_sample.size
 
     indexes_mutation = np.argsort(mutations_position)
     position_insert = edges_left[indexes_insert]
@@ -252,7 +252,7 @@ def _count_sizebiased(
     edges_mutations = np.zeros(num_edges)
     edges_span = np.zeros(num_edges)
 
-    nodes_samples[node_is_leaf] = 1.0
+    nodes_samples[node_is_sample] = 1.0
     left = 0.0
     a, b, d = 0, 0, 0
     while a < num_edges or b < num_edges:
@@ -263,10 +263,13 @@ def _count_sizebiased(
             p, c = edges_parent[e], edges_child[e]
             nodes_edge[c] = tskit.NULL
             nodes_parent[c] = tskit.NULL
-            while p != tskit.NULL:  # downdate sample counts
-                edges_span[e] -= nodes_samples[c] * remainder
-                nodes_samples[p] -= nodes_samples[c]
-                e, p = nodes_edge[p], nodes_parent[p]
+            if size_biased:
+                while p != tskit.NULL:  # downdate sample counts
+                    edges_span[e] -= nodes_samples[c] * remainder
+                    nodes_samples[p] -= nodes_samples[c]
+                    e, p = nodes_edge[p], nodes_parent[p]
+            else:
+                edges_span[e] -= remainder
             b += 1
 
         while a < num_edges and position_insert[a] == left:  # edges in
@@ -274,10 +277,13 @@ def _count_sizebiased(
             p, c = edges_parent[e], edges_child[e]
             nodes_edge[c] = e
             nodes_parent[c] = p
-            while p != tskit.NULL:  # update sample counts
-                edges_span[e] += nodes_samples[c] * remainder
-                nodes_samples[p] += nodes_samples[c]
-                e, p = nodes_edge[p], nodes_parent[p]
+            if size_biased:
+                while p != tskit.NULL:  # update sample counts
+                    edges_span[e] += nodes_samples[c] * remainder
+                    nodes_samples[p] += nodes_samples[c]
+                    e, p = nodes_edge[p], nodes_parent[p]
+            else:
+                edges_span[e] += remainder
             a += 1
 
         right = sequence_length
@@ -293,7 +299,7 @@ def _count_sizebiased(
             e = nodes_edge[c]
             if e != tskit.NULL:
                 mutations_edge[m] = e
-                edges_mutations[e] += nodes_samples[c]
+                edges_mutations[e] += nodes_samples[c] if size_biased else 1.0
             d += 1
 
     mutations_edge = mutations_edge.astype(np.int32)
@@ -302,7 +308,7 @@ def _count_sizebiased(
     return edges_stats, mutations_edge
 
 
-def count_sizebiased(ts, constraints):
+def count_mutations(ts, node_is_sample=None, size_biased=False):
     """
     Return an array with `num_edges` rows, and columns that are the number of
     mutations per edge and the total span per edge. If `size_biased` is `True`,
@@ -310,14 +316,18 @@ def count_sizebiased(ts, constraints):
 
     Note that weighting edges by frequency is done tree-by-tree.
     """
-    # TODO: adjust spans by an accessibility mask
-    assert constraints.shape == (ts.num_nodes, 2)
-    node_is_leaf = np.logical_and(
-        constraints[:, 0] == 0.0,
-        constraints[:, 0] == constraints[:, 1],
-    )
-    return _count_sizebiased(
-        node_is_leaf,
+    # TODO: adjust spans by an accessibility mask:
+    # need to supply cumulative accessible sequence at each
+    # breakpoint
+
+    if node_is_sample is None:
+        node_is_sample = np.full(ts.num_nodes, False)
+        node_is_sample[list(ts.samples())] = True
+    else:
+        assert node_is_sample.size != ts.num_nodes
+
+    return _count_mutations(
+        node_is_sample,
         ts.mutations_node,
         ts.sites_position[ts.mutations_site],
         ts.edges_parent,
@@ -327,10 +337,11 @@ def count_sizebiased(ts, constraints):
         ts.indexes_edge_insertion_order,
         ts.indexes_edge_removal_order,
         ts.sequence_length,
+        size_biased,
     )
 
 
-@numba.njit(_unituple(_f1w, 3)(_f1r, _f2r, _i1r, _i1r))
+@numba.njit(_tuple((_f1w, _f1w, _f1w, _i1w))(_f1r, _f2r, _i1r, _i1r))
 def mutational_area(
     nodes_time,
     likelihoods,
@@ -363,8 +374,7 @@ def mutational_area(
             k += 1
         nodes_index[i] = k
     epoch_breaks = np.array(epoch_breaks)
-    epoch_length = np.diff(epoch_breaks)
-    num_epochs = epoch_length.size
+    num_epochs = epoch_breaks.size - 1
 
     # instantaneous mutation rate per edge
     edges_length = nodes_time[edges_parent] - nodes_time[edges_child]
@@ -383,8 +393,96 @@ def mutational_area(
             epoch_counts[b] -= edges_counts[e]
     counts = np.cumsum(epoch_counts[:, 0])
     offset = np.cumsum(epoch_counts[:, 1])
+    duration = np.diff(epoch_breaks)
 
-    return counts, offset, epoch_length
+    return counts, offset, duration, nodes_index
+
+
+#@numba.njit(_unituple(_f1w, 2)(_f1r, _f2r, _f2r, _i1r, _i1r, _f1r, _i))
+#def mutational_timescale(
+#    nodes_time,
+#    likelihoods,
+#    constraints,
+#    edges_parent,
+#    edges_child,
+#    edges_weight,
+#    max_intervals,
+#):
+#    """
+#    Rescale node ages so that the instantaneous mutation rate is constant.
+#    Edges with a negative duration are ignored when calculating the total
+#    rate. Returns a rescaled point estimate and the posterior.
+#
+#    :param np.ndarray nodes_time: point estimates for node ages
+#    :param np.ndarray likelihoods: edges are rows; mutation
+#        counts and mutational span are columns
+#    :param np.ndarray constraints: lower and upper bounds on node age
+#    :param np.ndarray edges_parent: node index for the parent of each edge
+#    :param np.ndarray edges_child: node index for the child of each edge
+#    :param np.ndarray edges_weight: a weight for each edge
+#    :param int max_intervals: maximum number of intervals within which to
+#        estimate the time scaling
+#    """
+#
+#    assert edges_parent.size == edges_child.size == edges_weight.size
+#    assert likelihoods.shape[0] == edges_parent.size and likelihoods.shape[1] == 2
+#    assert constraints.shape[0] == nodes_time.size and constraints.shape[1] == 2
+#    assert max_intervals > 0
+#
+#    nodes_fixed = constraints[:, 0] == constraints[:, 1]
+#    assert np.all(nodes_time[nodes_fixed] == constraints[nodes_fixed, 0])
+#
+#    # index node by unique time breaks
+#    nodes_order = np.argsort(nodes_time)
+#    nodes_index = np.zeros(nodes_time.size, dtype=np.int32)
+#    epoch_breaks = [0.0]
+#    k = 0
+#    for i, j in zip(nodes_order[1:], nodes_order[:-1]):
+#        if nodes_time[i] > nodes_time[j]:
+#            epoch_breaks.append(nodes_time[i])
+#            k += 1
+#        nodes_index[i] = k
+#    epoch_breaks = np.array(epoch_breaks)
+#    epoch_length = np.diff(epoch_breaks)
+#    num_epochs = epoch_length.size
+#
+#    # instantaneous mutation rate per edge
+#    edges_length = nodes_time[edges_parent] - nodes_time[edges_child]
+#    edges_subset = edges_length > 0
+#    edges_counts = likelihoods.copy()
+#    edges_counts[edges_subset, 0] /= edges_length[edges_subset]
+#
+#    # pass over edges, measuring overlap with each time interval
+#    epoch_counts = np.zeros((num_epochs, 2))
+#    for e in np.flatnonzero(edges_subset):
+#        p, c = edges_parent[e], edges_child[e]
+#        a, b = nodes_index[c], nodes_index[p]
+#        if a < num_epochs:
+#            epoch_counts[a] += edges_counts[e] * edges_weight[e]
+#        if b < num_epochs:
+#            epoch_counts[b] -= edges_counts[e] * edges_weight[e]
+#    counts = np.cumsum(epoch_counts[:, 0])
+#    offset = np.cumsum(epoch_counts[:, 1])
+#
+#    # rescale time such that mutation density is constant between changepoints
+#    # TODO: use poisson changepoints to further refine
+#    changepoints = _fixed_changepoints(offset * epoch_length, max_intervals)
+#    changepoints = np.union1d(changepoints, nodes_index[nodes_fixed])
+#    adjust = np.zeros(changepoints.size)
+#    k = 0
+#    for i, j in zip(changepoints[:-1], changepoints[1:]):
+#        assert j > i
+#        # TODO: when changepoint intersects a fixed node?
+#        n = np.sum(offset[i:j])
+#        y = np.sum(counts[i:j])
+#        z = np.sum(epoch_length[i:j])
+#        assert n > 0, "Zero edge span in interval"
+#        adjust[k + 1] = z * y / n
+#        k += 1
+#    adjust = np.cumsum(adjust)
+#    origin = epoch_breaks[changepoints]
+#
+#    return origin, adjust
 
 
 @numba.njit(_unituple(_f1w, 2)(_f1r, _f2r, _f2r, _i1r, _i1r, _f1r, _i))
@@ -413,7 +511,7 @@ def mutational_timescale(
         estimate the time scaling
     """
 
-    assert edges_parent.size == edges_child.size == edges_weight.size
+    assert edges_parent.size == edges_child.size
     assert likelihoods.shape[0] == edges_parent.size and likelihoods.shape[1] == 2
     assert constraints.shape[0] == nodes_time.size and constraints.shape[1] == 2
     assert max_intervals > 0
@@ -421,42 +519,18 @@ def mutational_timescale(
     nodes_fixed = constraints[:, 0] == constraints[:, 1]
     assert np.all(nodes_time[nodes_fixed] == constraints[nodes_fixed, 0])
 
-    # index node by unique time breaks
-    nodes_order = np.argsort(nodes_time)
-    nodes_index = np.zeros(nodes_time.size, dtype=np.int32)
-    epoch_breaks = [0.0]
-    k = 0
-    for i, j in zip(nodes_order[1:], nodes_order[:-1]):
-        if nodes_time[i] > nodes_time[j]:
-            epoch_breaks.append(nodes_time[i])
-            k += 1
-        nodes_index[i] = k
-    epoch_breaks = np.array(epoch_breaks)
-    epoch_length = np.diff(epoch_breaks)
-    num_epochs = epoch_length.size
-
-    # instantaneous mutation rate per edge
-    edges_length = nodes_time[edges_parent] - nodes_time[edges_child]
-    edges_subset = edges_length > 0
-    edges_counts = likelihoods.copy()
-    edges_counts[edges_subset, 0] /= edges_length[edges_subset]
-
-    # pass over edges, measuring overlap with each time interval
-    epoch_counts = np.zeros((num_epochs, 2))
-    for e in np.flatnonzero(edges_subset):
-        p, c = edges_parent[e], edges_child[e]
-        a, b = nodes_index[c], nodes_index[p]
-        if a < num_epochs:
-            epoch_counts[a] += edges_counts[e] * edges_weight[e]
-        if b < num_epochs:
-            epoch_counts[b] -= edges_counts[e] * edges_weight[e]
-    counts = np.cumsum(epoch_counts[:, 0])
-    offset = np.cumsum(epoch_counts[:, 1])
+    counts, offset, duration, indexes = mutational_area(
+        nodes_time, 
+        likelihoods, 
+        edges_parent, 
+        edges_child,
+    )
 
     # rescale time such that mutation density is constant between changepoints
     # TODO: use poisson changepoints to further refine
-    changepoints = _fixed_changepoints(offset * epoch_length, max_intervals)
-    changepoints = np.union1d(changepoints, nodes_index[nodes_fixed])
+    epoch_breaks = np.append(0.0, np.cumsum(duration))
+    changepoints = _fixed_changepoints(offset * duration, max_intervals)
+    changepoints = np.union1d(changepoints, indexes[nodes_fixed])
     adjust = np.zeros(changepoints.size)
     k = 0
     for i, j in zip(changepoints[:-1], changepoints[1:]):
@@ -464,7 +538,7 @@ def mutational_timescale(
         # TODO: when changepoint intersects a fixed node?
         n = np.sum(offset[i:j])
         y = np.sum(counts[i:j])
-        z = np.sum(epoch_length[i:j])
+        z = np.sum(duration[i:j])
         assert n > 0, "Zero edge span in interval"
         adjust[k + 1] = z * y / n
         k += 1
