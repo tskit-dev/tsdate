@@ -47,8 +47,8 @@ from .approx import _i1r
 from .approx import _i2r
 from .hypergeo import _gammainc_inv as gammainc_inv
 from .phasing import block_singletons
-from .phasing import count_mutations
 from .phasing import reallocate_unphased
+from .rescaling import count_mutations
 from .rescaling import edge_sampling_weight
 from .rescaling import mutational_timescale
 from .rescaling import piecewise_scale_posterior
@@ -241,7 +241,8 @@ class ExpectationPropagation:
 
         # count mutations on edges
         count_timing = time.time()
-        self.edge_likelihoods, self.mutation_edges = count_mutations(ts)
+        self.edge_likelihoods, self.mutation_edges = \
+            count_mutations(ts, self.node_constraints)  # fmt: skip
         self.edge_likelihoods[:, 1] *= mutation_rate
         count_timing -= time.time()
         logging.info(f"Extracted mutations in {abs(count_timing)} seconds")

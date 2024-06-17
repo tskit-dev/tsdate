@@ -34,8 +34,8 @@ import numpy as np
 import scipy.sparse
 import tskit
 
-from .phasing import count_mutations
 from .phasing import mutation_frequency
+from .rescaling import count_mutations
 
 
 class CladeMap:
@@ -544,7 +544,7 @@ def mutations_time(
     max_freq=None,
     plotpath=None,
     title=None,
-    subtending_node=False,
+    what=0,
 ):
     """
     Return true and inferred mutation ages, optionally creating a scatterplot and
@@ -588,9 +588,11 @@ def mutations_time(
         infr_mut = infr_mut[is_freq]
         true_mut = true_mut[is_freq]
     # get age of mutation or subtended node
-    if subtending_node:
-        infr_node = infer_ts.mutations_node[infr_mut]
-        true_node = ts.mutations_node[true_mut]
+    if what == 1:
+        infr_node = infer_ts.edges_child[infr_edge[infr_mut]]
+        assert np.allclose(infr_node, infer_ts.mutations_node[infr_mut])
+        true_node = ts.edges_child[true_edge[true_mut]]
+        assert np.allclose(true_node, ts.mutations_node[true_mut])
         _, uniq_idx = np.unique(infr_node, return_index=True)
         infr_node = infr_node[uniq_idx]
         true_node = true_node[uniq_idx]
@@ -602,7 +604,22 @@ def mutations_time(
         nonzero = np.logical_and(mean > 0, truth > 0)
         mean = mean[nonzero]
         truth = truth[nonzero]
-    else:  # midpoint on branch
+    elif what == 2:
+        infr_node = infer_ts.edges_parent[infr_edge[infr_mut]]
+        true_node = ts.edges_parent[true_edge[true_mut]]
+        _, uniq_idx = np.unique(infr_node, return_index=True)
+        infr_node = infr_node[uniq_idx]
+        true_node = true_node[uniq_idx]
+        _, uniq_idx = np.unique(true_node, return_index=True)
+        infr_node = infr_node[uniq_idx]
+        true_node = true_node[uniq_idx]
+        mean = infer_ts.nodes_time[infr_node]
+        truth = ts.nodes_time[true_node]
+        nonzero = np.logical_and(mean > 0, truth > 0)
+        mean = mean[nonzero]
+        truth = truth[nonzero]
+    elif what == 0:  # midpoint on branch
+        # TODO clean up
         infr_p = infer_ts.edges_parent[infr_edge[infr_mut]]
         true_p = ts.edges_parent[true_edge[true_mut]]
         infr_c = infer_ts.edges_child[infr_edge[infr_mut]]
@@ -612,6 +629,8 @@ def mutations_time(
         else:
             mean = (infer_ts.nodes_time[infr_p] + infer_ts.nodes_time[infr_c]) / 2
         truth = (ts.nodes_time[true_p] + ts.nodes_time[true_c]) / 2
+    else:
+        raise ValueError("Invalid choice of `what`")
     if plotpath is not None:
         rsq = np.corrcoef(np.log10(mean), np.log10(truth))[0, 1] ** 2
         bias = np.mean(np.log10(mean) - np.log10(truth))
@@ -621,7 +640,7 @@ def mutations_time(
         plt.hexbin(truth, mean, xscale="log", yscale="log", mincnt=1)
         plt.text(0.01, 0.99, info, ha="left", va="top", transform=plt.gca().transAxes)
         plt.axline(pt1, pt2, linestyle="--", color="firebrick")
-        if subtending_node:
+        if what != 0:
             plt.xlabel("True node age")
             plt.ylabel("Estimated node age")
         else:

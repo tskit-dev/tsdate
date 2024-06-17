@@ -28,7 +28,6 @@ from math import log
 import numba
 import numpy as np
 import tskit
-from numba.types import UniTuple as _unituple
 
 from .approx import _b
 from .approx import _b1r
@@ -40,6 +39,8 @@ from .approx import _f2w
 from .approx import _i
 from .approx import _i1r
 from .approx import _i1w
+from .approx import _tuple
+from .approx import _unituple
 from .approx import approximate_gamma_iqr
 from .hypergeo import _gammainc_inv as gammainc_inv
 from .util import mutation_span_array  # NOQA: F401
@@ -108,6 +109,282 @@ def _poisson_changepoints(counts, offset, penalty, min_counts, min_offset):
 
     breaks = np.append(C[dim], dim).astype(np.int32)
     return breaks
+
+
+@numba.njit(
+    _tuple((_f2w, _i1w))(_b1r, _i1r, _f1r, _i1r, _i1r, _f1r, _f1r, _i1r, _i1r, _f)
+)
+def _count_mutations(
+    node_is_leaf,
+    mutations_node,
+    mutations_position,
+    edges_parent,
+    edges_child,
+    edges_left,
+    edges_right,
+    indexes_insert,
+    indexes_remove,
+    sequence_length,
+):
+    """
+    Internals for `count_mutations`
+    """
+    assert edges_parent.size == edges_child.size == edges_left.size == edges_right.size
+    assert indexes_insert.size == indexes_remove.size == edges_parent.size
+    assert mutations_node.size == mutations_position.size
+
+    num_mutations = mutations_node.size
+    num_edges = edges_parent.size
+    num_nodes = node_is_leaf.size
+
+    indexes_mutation = np.argsort(mutations_position)
+    position_insert = edges_left[indexes_insert]
+    position_remove = edges_right[indexes_remove]
+    position_mutation = mutations_position[indexes_mutation]
+
+    nodes_edge = np.full(num_nodes, tskit.NULL)
+    mutations_edge = np.full(num_mutations, tskit.NULL)
+    edges_mutations = np.zeros(num_edges)
+    edges_span = edges_right - edges_left
+
+    left = 0.0
+    a, b, d = 0, 0, 0
+    while a < num_edges or b < num_edges:
+        while b < num_edges and position_remove[b] == left:  # edges out
+            e = indexes_remove[b]
+            c = edges_child[e]
+            nodes_edge[c] = tskit.NULL
+            b += 1
+
+        while a < num_edges and position_insert[a] == left:  # edges in
+            e = indexes_insert[a]
+            c = edges_child[e]
+            nodes_edge[c] = e
+            a += 1
+
+        right = sequence_length
+        if b < num_edges:
+            right = min(right, position_remove[b])
+        if a < num_edges:
+            right = min(right, position_insert[a])
+        left = right
+
+        while d < num_mutations and position_mutation[d] < right:
+            m = indexes_mutation[d]
+            c = mutations_node[m]
+            e = nodes_edge[c]
+            if e != tskit.NULL:
+                mutations_edge[m] = e
+                edges_mutations[e] += 1.0
+            d += 1
+
+    mutations_edge = mutations_edge.astype(np.int32)
+    edges_stats = np.column_stack((edges_mutations, edges_span))
+
+    return edges_stats, mutations_edge
+
+
+def count_mutations(ts, constraints=None):
+    """
+    Return an array with `num_edges` rows, and columns that are the number of
+    mutations per edge and the total span per edge
+    """
+    # TODO: adjust spans by an accessibility mask
+    if constraints is None:
+        node_is_leaf = np.full(ts.num_nodes, False)
+        node_is_leaf[list(ts.samples())] = True
+    else:
+        assert constraints.shape == (ts.num_nodes, 2)
+        node_is_leaf = np.logical_and(
+            constraints[:, 0] == 0.0,
+            constraints[:, 0] == constraints[:, 1],
+        )
+    return _count_mutations(
+        node_is_leaf,
+        ts.mutations_node,
+        ts.sites_position[ts.mutations_site],
+        ts.edges_parent,
+        ts.edges_child,
+        ts.edges_left,
+        ts.edges_right,
+        ts.indexes_edge_insertion_order,
+        ts.indexes_edge_removal_order,
+        ts.sequence_length,
+    )
+
+
+# TODO: similar enough to count_mutations to combine, with adequate testing
+@numba.njit(
+    _tuple((_f2w, _i1w))(_b1r, _i1r, _f1r, _i1r, _i1r, _f1r, _f1r, _i1r, _i1r, _f)
+)
+def _count_sizebiased(
+    node_is_leaf,
+    mutations_node,
+    mutations_position,
+    edges_parent,
+    edges_child,
+    edges_left,
+    edges_right,
+    indexes_insert,
+    indexes_remove,
+    sequence_length,
+):
+    """
+    Internals for `count_sizebiased`
+    """
+    assert edges_parent.size == edges_child.size == edges_left.size == edges_right.size
+    assert indexes_insert.size == indexes_remove.size == edges_parent.size
+    assert mutations_node.size == mutations_position.size
+
+    num_mutations = mutations_node.size
+    num_edges = edges_parent.size
+    num_nodes = node_is_leaf.size
+
+    indexes_mutation = np.argsort(mutations_position)
+    position_insert = edges_left[indexes_insert]
+    position_remove = edges_right[indexes_remove]
+    position_mutation = mutations_position[indexes_mutation]
+
+    nodes_samples = np.zeros(num_nodes)
+    nodes_edge = np.full(num_nodes, tskit.NULL)
+    nodes_parent = np.full(num_nodes, tskit.NULL)
+    mutations_edge = np.full(num_mutations, tskit.NULL)
+    edges_mutations = np.zeros(num_edges)
+    edges_span = np.zeros(num_edges)
+
+    nodes_samples[node_is_leaf] = 1.0
+    left = 0.0
+    a, b, d = 0, 0, 0
+    while a < num_edges or b < num_edges:
+        remainder = sequence_length - left
+
+        while b < num_edges and position_remove[b] == left:  # edges out
+            e = indexes_remove[b]
+            p, c = edges_parent[e], edges_child[e]
+            nodes_edge[c] = tskit.NULL
+            nodes_parent[c] = tskit.NULL
+            while p != tskit.NULL:  # downdate sample counts
+                edges_span[e] -= nodes_samples[c] * remainder
+                nodes_samples[p] -= nodes_samples[c]
+                e, p = nodes_edge[p], nodes_parent[p]
+            b += 1
+
+        while a < num_edges and position_insert[a] == left:  # edges in
+            e = indexes_insert[a]
+            p, c = edges_parent[e], edges_child[e]
+            nodes_edge[c] = e
+            nodes_parent[c] = p
+            while p != tskit.NULL:  # update sample counts
+                edges_span[e] += nodes_samples[c] * remainder
+                nodes_samples[p] += nodes_samples[c]
+                e, p = nodes_edge[p], nodes_parent[p]
+            a += 1
+
+        right = sequence_length
+        if b < num_edges:
+            right = min(right, position_remove[b])
+        if a < num_edges:
+            right = min(right, position_insert[a])
+        left = right
+
+        while d < num_mutations and position_mutation[d] < right:
+            m = indexes_mutation[d]
+            c = mutations_node[m]
+            e = nodes_edge[c]
+            if e != tskit.NULL:
+                mutations_edge[m] = e
+                edges_mutations[e] += nodes_samples[c]
+            d += 1
+
+    mutations_edge = mutations_edge.astype(np.int32)
+    edges_stats = np.column_stack((edges_mutations, edges_span))
+
+    return edges_stats, mutations_edge
+
+
+def count_sizebiased(ts, constraints):
+    """
+    Return an array with `num_edges` rows, and columns that are the number of
+    mutations per edge and the total span per edge. If `size_biased` is `True`,
+    then mutations and edges are weighted by frequency.
+
+    Note that weighting edges by frequency is done tree-by-tree.
+    """
+    # TODO: adjust spans by an accessibility mask
+    assert constraints.shape == (ts.num_nodes, 2)
+    node_is_leaf = np.logical_and(
+        constraints[:, 0] == 0.0,
+        constraints[:, 0] == constraints[:, 1],
+    )
+    return _count_sizebiased(
+        node_is_leaf,
+        ts.mutations_node,
+        ts.sites_position[ts.mutations_site],
+        ts.edges_parent,
+        ts.edges_child,
+        ts.edges_left,
+        ts.edges_right,
+        ts.indexes_edge_insertion_order,
+        ts.indexes_edge_removal_order,
+        ts.sequence_length,
+    )
+
+
+@numba.njit(_unituple(_f1w, 3)(_f1r, _f2r, _i1r, _i1r))
+def mutational_area(
+    nodes_time,
+    likelihoods,
+    edges_parent,
+    edges_child,
+):
+    """
+    Calculate the total number of mutations and mutational area per inter-node
+    interval.
+
+    :param np.ndarray nodes_time: point estimates for node ages
+    :param np.ndarray likelihoods: edges are rows; mutation
+        counts and mutational span are columns
+    :param np.ndarray edges_parent: node index for the parent of each edge
+    :param np.ndarray edges_child: node index for the child of each edge
+    :param np.ndarray edges_weight: a weight for each edge
+    """
+
+    assert edges_parent.size == edges_child.size
+    assert likelihoods.shape == (edges_parent.size, 2)
+
+    # index node by unique time breaks
+    nodes_order = np.argsort(nodes_time)
+    nodes_index = np.zeros(nodes_time.size, dtype=np.int32)
+    epoch_breaks = [0.0]
+    k = 0
+    for i, j in zip(nodes_order[1:], nodes_order[:-1]):
+        if nodes_time[i] > nodes_time[j]:
+            epoch_breaks.append(nodes_time[i])
+            k += 1
+        nodes_index[i] = k
+    epoch_breaks = np.array(epoch_breaks)
+    epoch_length = np.diff(epoch_breaks)
+    num_epochs = epoch_length.size
+
+    # instantaneous mutation rate per edge
+    edges_length = nodes_time[edges_parent] - nodes_time[edges_child]
+    edges_subset = edges_length > 0
+    edges_counts = likelihoods.copy()
+    edges_counts[edges_subset, 0] /= edges_length[edges_subset]
+
+    # pass over edges, measuring overlap with each time interval
+    epoch_counts = np.zeros((num_epochs, 2))
+    for e in np.flatnonzero(edges_subset):
+        p, c = edges_parent[e], edges_child[e]
+        a, b = nodes_index[c], nodes_index[p]
+        if a < num_epochs:
+            epoch_counts[a] += edges_counts[e]
+        if b < num_epochs:
+            epoch_counts[b] -= edges_counts[e]
+    counts = np.cumsum(epoch_counts[:, 0])
+    offset = np.cumsum(epoch_counts[:, 1])
+
+    return counts, offset, epoch_length
 
 
 @numba.njit(_unituple(_f1w, 2)(_f1r, _f2r, _f2r, _i1r, _i1r, _f1r, _i))

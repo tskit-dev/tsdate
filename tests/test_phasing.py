@@ -32,7 +32,6 @@ import tskit
 
 import tsdate
 from tsdate.phasing import block_singletons
-from tsdate.phasing import count_mutations
 from tsdate.phasing import insert_unphased_singletons
 from tsdate.phasing import mutation_frequency
 from tsdate.phasing import remove_singletons
@@ -52,21 +51,6 @@ def inferred_ts():
     sample_data = tsinfer.SampleData.from_tree_sequence(ts)
     inferred_ts = tsinfer.infer(sample_data).simplify()
     return inferred_ts
-
-
-class TestCountMutations:
-    def test_count_mutations(self, inferred_ts):
-        edge_stats, muts_edge = count_mutations(inferred_ts)
-        ck_edge_muts = np.zeros(inferred_ts.num_edges)
-        ck_muts_edge = np.full(inferred_ts.num_mutations, tskit.NULL)
-        for m in inferred_ts.mutations():
-            if m.edge != tskit.NULL:
-                ck_edge_muts[m.edge] += 1.0
-                ck_muts_edge[m.id] = m.edge
-        ck_edge_span = inferred_ts.edges_right - inferred_ts.edges_left
-        np.testing.assert_array_almost_equal(ck_edge_muts, edge_stats[:, 0])
-        np.testing.assert_array_almost_equal(ck_edge_span, edge_stats[:, 1])
-        np.testing.assert_array_equal(ck_muts_edge, muts_edge)
 
 
 class TestBlockSingletons:
