@@ -292,7 +292,6 @@ def run_date(args):
             error_exit(
                 "rescaling_intervals is not currently used in discrete-time methods"
             )
-            print("FOOOO")
         if args.max_iterations is not None:
             error_exit("max_iterations is not currently used in discrete-time methods")
         params = dict(
