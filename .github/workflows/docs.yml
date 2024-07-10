@@ -33,7 +33,7 @@ jobs:
       - name: Create venv and install deps
         run: |
           pip install --upgrade pip wheel
-          pip install -r ${{env.REQUIREMENTS}}          
+          pip install -r ${{env.REQUIREMENTS}} --no-binary tsinfer        
 
       - name: Build Docs
         run: |
