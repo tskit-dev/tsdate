@@ -243,6 +243,8 @@ class ExpectationPropagation:
         count_timing = time.time()
         self.edge_likelihoods, self.mutation_edges = count_mutations(ts)
         self.edge_likelihoods[:, 1] *= mutation_rate
+        self.sizebiased_likelihoods, _ = count_mutations(ts, size_biased=True)
+        self.sizebiased_likelihoods[:, 1] *= mutation_rate
         count_timing -= time.time()
         logging.info(f"Extracted mutations in {abs(count_timing)} seconds")
 
@@ -769,25 +771,24 @@ class ExpectationPropagation:
         quantile_width=0.5,
     ):
         """Normalise posteriors so that empirical mutation rate is constant"""
-        edge_weights = (
-            np.ones(self.edge_weights.size) if rescale_segsites else self.edge_weights
+        likelihoods = (
+            self.edge_likelihoods if rescale_segsites else self.sizebiased_likelihoods
         )
         nodes_time = self._point_estimate(
             self.node_posterior, self.node_constraints, use_median
         )
         reallocate_unphased(  # correct mutation counts for unphased singletons
-            self.edge_likelihoods,
+            likelihoods,
             self.mutation_phase,
             self.mutation_blocks,
             self.block_edges,
         )
         original_breaks, rescaled_breaks = mutational_timescale(
             nodes_time,
-            self.edge_likelihoods,
+            likelihoods,
             self.node_constraints,
             self.edge_parents,
             self.edge_children,
-            edge_weights,
             rescale_intervals,
         )
         self.node_posterior[:] = piecewise_scale_posterior(

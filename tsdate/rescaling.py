@@ -111,10 +111,10 @@ def _poisson_changepoints(counts, offset, penalty, min_counts, min_offset):
     return breaks
 
 
-#@numba.njit(
+# @numba.njit(
 #    _tuple((_f2w, _i1w))(_b1r, _i1r, _f1r, _i1r, _i1r, _f1r, _f1r, _i1r, _i1r, _f)
-#)
-#def _count_mutations(
+# )
+# def _count_mutations(
 #    node_is_leaf,
 #    mutations_node,
 #    mutations_position,
@@ -125,7 +125,7 @@ def _poisson_changepoints(counts, offset, penalty, min_counts, min_offset):
 #    indexes_insert,
 #    indexes_remove,
 #    sequence_length,
-#):
+# ):
 #    """
 #    Internals for `count_mutations`
 #    """
@@ -184,7 +184,7 @@ def _poisson_changepoints(counts, offset, penalty, min_counts, min_offset):
 #    return edges_stats, mutations_edge
 #
 #
-#def count_mutations(ts, constraints=None):
+# def count_mutations(ts, constraints=None):
 #    """
 #    Return an array with `num_edges` rows, and columns that are the number of
 #    mutations per edge and the total span per edge
@@ -230,7 +230,7 @@ def _count_mutations(
     size_biased,
 ):
     """
-    Internals for `count_sizebiased`
+    Internals for `count_mutations`
     """
     assert edges_parent.size == edges_child.size == edges_left.size == edges_right.size
     assert indexes_insert.size == indexes_remove.size == edges_parent.size
@@ -398,8 +398,8 @@ def mutational_area(
     return counts, offset, duration, nodes_index
 
 
-#@numba.njit(_unituple(_f1w, 2)(_f1r, _f2r, _f2r, _i1r, _i1r, _f1r, _i))
-#def mutational_timescale(
+# @numba.njit(_unituple(_f1w, 2)(_f1r, _f2r, _f2r, _i1r, _i1r, _f1r, _i))
+# def mutational_timescale(
 #    nodes_time,
 #    likelihoods,
 #    constraints,
@@ -407,7 +407,7 @@ def mutational_area(
 #    edges_child,
 #    edges_weight,
 #    max_intervals,
-#):
+# ):
 #    """
 #    Rescale node ages so that the instantaneous mutation rate is constant.
 #    Edges with a negative duration are ignored when calculating the total
@@ -485,14 +485,13 @@ def mutational_area(
 #    return origin, adjust
 
 
-@numba.njit(_unituple(_f1w, 2)(_f1r, _f2r, _f2r, _i1r, _i1r, _f1r, _i))
+@numba.njit(_unituple(_f1w, 2)(_f1r, _f2r, _f2r, _i1r, _i1r, _i))
 def mutational_timescale(
     nodes_time,
     likelihoods,
     constraints,
     edges_parent,
     edges_child,
-    edges_weight,
     max_intervals,
 ):
     """
@@ -506,7 +505,6 @@ def mutational_timescale(
     :param np.ndarray constraints: lower and upper bounds on node age
     :param np.ndarray edges_parent: node index for the parent of each edge
     :param np.ndarray edges_child: node index for the child of each edge
-    :param np.ndarray edges_weight: a weight for each edge
     :param int max_intervals: maximum number of intervals within which to
         estimate the time scaling
     """
@@ -520,9 +518,9 @@ def mutational_timescale(
     assert np.all(nodes_time[nodes_fixed] == constraints[nodes_fixed, 0])
 
     counts, offset, duration, indexes = mutational_area(
-        nodes_time, 
-        likelihoods, 
-        edges_parent, 
+        nodes_time,
+        likelihoods,
+        edges_parent,
         edges_child,
     )
 
