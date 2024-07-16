@@ -771,9 +771,8 @@ class ExpectationPropagation:
         quantile_width=0.5,
     ):
         """Normalise posteriors so that empirical mutation rate is constant"""
-        likelihoods = (
-            self.edge_likelihoods if rescale_segsites else self.sizebiased_likelihoods
-        )
+        likelihoods = self.edge_likelihoods if rescale_segsites \
+            else self.sizebiased_likelihoods  # fmt: skip
         nodes_time = self._point_estimate(
             self.node_posterior, self.node_constraints, use_median
         )
