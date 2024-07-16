@@ -155,7 +155,7 @@ def tsdate_cli_parser():
         "--rescaling-intervals",
         type=float,
         help=(
-            "The number of time intervals within which to estimate a time scaling"
+            "The number of time intervals within which to estimate a time scaling "
             f"parameter. Default: None treated as {core.DEFAULT_RESCALING_INTERVALS}"
         ),
         default=None,
