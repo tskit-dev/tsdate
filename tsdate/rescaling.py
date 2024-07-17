@@ -28,6 +28,7 @@ from math import log
 import numba
 import numpy as np
 import tskit
+from tqdm import tqdm
 
 from .approx import _b
 from .approx import _b1r
@@ -694,72 +695,75 @@ def edge_sampling_weight(
 
 
 # TODO: standalone API for rescaling
-# def rescale_tree_sequence(
-#     ts, mutation_rate, *, rescaling_intervals=1000, match_segregating_sites=False
-# ):
-#     """
-#     Adjust the time scaling of a tree sequence so that expected mutational area
-#     matches the expected number of mutations on a path from leaf to root, where
-#     the expectation is taken over all paths and bases in the sequence.
-#
-#     :param tskit.TreeSequence ts: the tree sequence to rescale
-#     :param float mutation_rate: the per-base mutation rate
-#     :param int rescaling_intervals: the number of time intervals for which
-#         to estimate a separate time rescaling parameter
-#     :param bool match_segregating_sites: if True, match the total number of
-#         mutations rather than the average number of differences from the ancestral
-#         state
-#     """
-#     if match_segregating_sites:
-#         edge_weights = np.ones(ts.num_edges)
-#     else:
-#         has_parent = np.full(ts.num_nodes, False)
-#         has_child = np.full(ts.num_nodes, False)
-#         has_parent[ts.edges_child] = True
-#         has_child[ts.edges_parent] = True
-#         is_leaf = np.logical_and(~has_child, has_parent)
-#         edge_weights = edge_sampling_weight(
-#             is_leaf,
-#             ts.edges_parent,
-#             ts.edges_child,
-#             ts.edges_left,
-#             ts.edges_right,
-#             ts.indexes_edge_insertion_order,
-#             ts.indexes_edge_removal_order,
-#         )
-#     # estimate time rescaling parameter within intervals
-#     samples = list(ts.samples())
-#     if not np.all(ts.nodes_time[samples] == 0.0):
-#         raise ValueError("Normalisation not implemented for ancient samples")
-#     constraints = np.zeros((ts.num_nodes, 2))
-#     constraints[:, 1] = np.inf
-#     constraints[samples, :] = ts.nodes_time[samples, np.newaxis]
-#     mutations_span, mutations_edge = mutation_span_array(ts)
-#     mutations_span[:, 1] *= mutation_rate
-#     original_breaks, rescaled_breaks = mutational_timescale(
-#         ts.nodes_time,
-#         mutations_span,
-#         constraints,
-#         ts.edges_parent,
-#         ts.edges_child,
-#         edge_weights,
-#         rescaling_intervals,
-#     )
-#     # rescale node time
-#     assert np.all(np.diff(rescaled_breaks) > 0)
-#     assert np.all(np.diff(original_breaks) > 0)
-#     scalings = np.append(np.diff(rescaled_breaks) / np.diff(original_breaks), 0)
-#     idx = np.searchsorted(original_breaks, ts.nodes_time, "right") - 1
-#     nodes_time = rescaled_breaks[idx] + scalings[idx] * (
-#         ts.nodes_time - original_breaks[idx]
-#     )
-#     # calculate mutation time
-#     mutations_parent = ts.edges_parent[mutations_edge]
-#     mutations_child = ts.edges_child[mutations_edge]
-#     mutations_time = (nodes_time[mutations_parent] + nodes_time[mutations_child]) / 2
-#     above_root = mutations_edge == tskit.NULL
-#     mutations_time[above_root] = nodes_time[mutations_child[above_root]]
-#     tables = ts.dump_tables()
-#     tables.nodes.time = nodes_time
-#     tables.mutations.time = mutations_time
-#     return tables.tree_sequence()
+def rescale_tree_sequence(
+    ts,
+    mutation_rate,
+    *,
+    num_intervals=1000,
+    num_iterations=10,
+    match_segregating_sites=False,
+    progress=False
+):
+    """
+    Adjust the time scaling of a tree sequence so that expected mutational area
+    matches the expected number of mutations on a path from leaf to root, where
+    the expectation is taken over all paths and bases in the sequence.
+
+    :param tskit.TreeSequence ts: the tree sequence to rescale
+    :param float mutation_rate: the per-base mutation rate
+    :param int num_intervals: the number of time intervals for which
+        to estimate a separate time rescaling parameter
+    :param int num_iterations: the number of iterations to repeat rescaling
+    :param bool match_segregating_sites: if True, match the total number of
+        mutations rather than the average number of differences from the ancestral
+        state
+    :param bool progress: if True, show a progress bar
+    """
+    samples = list(ts.samples())
+    if not np.all(ts.nodes_time[samples] == 0.0):
+        raise ValueError("Normalisation not implemented for ancient samples")
+    constraints = np.zeros((ts.num_nodes, 2))
+    constraints[:, 1] = np.inf
+    constraints[samples, :] = ts.nodes_time[samples, np.newaxis]
+    if match_segregating_sites:
+        mutations_span, mutations_edge = count_mutations(ts)
+    else:
+        mutations_span, mutations_edge = count_mutations(ts, size_biased=True)
+    mutations_span[:, 1] *= mutation_rate
+    for _ in tqdm(
+        np.arange(num_iterations),
+        desc="Path Rescaling",
+        disable=not progress,
+    ):
+        original_breaks, rescaled_breaks = mutational_timescale(
+            ts.nodes_time,
+            mutations_span,
+            constraints,
+            ts.edges_parent,
+            ts.edges_child,
+            num_intervals,
+        )
+        # rescale node time
+        assert np.all(np.diff(rescaled_breaks) > 0)
+        assert np.all(np.diff(original_breaks) > 0)
+        scalings = np.append(np.diff(rescaled_breaks) / np.diff(original_breaks), 0)
+        idx = np.searchsorted(original_breaks, ts.nodes_time, "right") - 1
+        nodes_time = rescaled_breaks[idx] + scalings[idx] * (
+            ts.nodes_time - original_breaks[idx]
+        )
+        # calculate mutation time
+        mutations_parent = ts.edges_parent[mutations_edge]
+        mutations_child = ts.edges_child[mutations_edge]
+        mutations_time = (
+            nodes_time[mutations_parent] + nodes_time[mutations_child]
+        ) / 2
+        above_root = mutations_edge == tskit.NULL
+        mutations_time[above_root] = nodes_time[mutations_child[above_root]]
+        tables = ts.dump_tables()
+        tables.nodes.time = nodes_time
+        tables.mutations.time = mutations_time
+        tables.sort()
+        tables.build_index()
+        tables.compute_mutation_parents()
+        ts = tables.tree_sequence()
+    return ts

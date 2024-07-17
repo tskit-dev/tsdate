@@ -821,17 +821,18 @@ class ExpectationPropagation:
     def run(
         self,
         *,
-        ep_maxitt=10,
+        ep_iterations=10,
         max_shape=1000,
         min_step=0.1,
         rescale_intervals=1000,
         rescale_segsites=False,
+        rescale_iterations=5,
         regularise=True,
         progress=None,
     ):
         nodes_timing = time.time()
         for _ in tqdm(
-            np.arange(ep_maxitt),
+            np.arange(ep_iterations),
             desc="Expectation Propagation",
             disable=not progress,
         ):
@@ -893,11 +894,17 @@ class ExpectationPropagation:
         self.mutation_phase[switched] = 1 - self.mutation_phase[switched]
         logging.info(f"Switched phase of {np.sum(switched)} singletons")
 
-        if rescale_intervals > 0:
+        if rescale_intervals > 0 and rescale_iterations > 0:
             rescale_timing = time.time()
-            self.rescale(
-                rescale_intervals=rescale_intervals, rescale_segsites=rescale_segsites
-            )
+            for _ in tqdm(
+                np.arange(rescale_iterations),
+                desc="Path Rescaling",
+                disable=not progress,
+            ):
+                self.rescale(
+                    rescale_intervals=rescale_intervals,
+                    rescale_segsites=rescale_segsites,
+                )
             rescale_timing -= time.time()
             logging.info(f"Timescale rescaled in {abs(rescale_timing)} seconds")
 

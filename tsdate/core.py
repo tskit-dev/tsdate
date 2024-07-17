@@ -48,6 +48,7 @@ from . import variational
 
 FORMAT_NAME = "tsdate"
 DEFAULT_RESCALING_INTERVALS = 1000
+DEFAULT_RESCALING_ITERATIONS = 1
 DEFAULT_MAX_ITERATIONS = 10
 DEFAULT_EPSILON = 1e-6
 
@@ -1236,6 +1237,7 @@ class VariationalGammaMethod(EstimationMethod):
         max_iterations,
         max_shape,
         rescaling_intervals,
+        rescaling_iterations,
         match_segregating_sites,
         regularise_roots,
         singletons_phased,
@@ -1255,9 +1257,10 @@ class VariationalGammaMethod(EstimationMethod):
             singletons_phased=singletons_phased,
         )
         posterior.run(
-            ep_maxitt=max_iterations,
+            ep_iterations=max_iterations,
             max_shape=max_shape,
             rescale_intervals=rescaling_intervals,
+            rescale_iterations=rescaling_iterations,
             regularise=regularise_roots,
             rescale_segsites=match_segregating_sites,
             progress=self.pbar,
@@ -1554,6 +1557,7 @@ def variational_gamma(
     eps=None,
     max_iterations=None,
     rescaling_intervals=None,
+    rescaling_iterations=None,
     # deliberately undocumented parameters below. We may eventually document these
     max_shape=None,
     match_segregating_sites=None,
@@ -1589,6 +1593,9 @@ def variational_gamma(
     :param float rescaling_intervals: For time rescaling, the number of time
         intervals within which to estimate a rescaling parameter. Setting this to zero
         means that rescaling is not performed. Default ``None``, treated as 1000.
+    :param float rescaling_intervals: The number of iterations for time rescaling.
+        Setting this to zero means that rescaling is not performed. Default
+        ``None``, treated as 1.
     :param \\**kwargs: Other keyword arguments as described in the :func:`date` wrapper
         function, including ``time_units``, ``progress``, and ``record_provenance``.
         The arguments ``return_posteriors`` and ``return_likelihood`` can be
@@ -1621,6 +1628,8 @@ def variational_gamma(
         max_shape = 1000
     if rescaling_intervals is None:
         rescaling_intervals = DEFAULT_RESCALING_INTERVALS
+    if rescaling_iterations is None:
+        rescaling_iterations = DEFAULT_RESCALING_ITERATIONS
     if match_segregating_sites is None:
         match_segregating_sites = False
     if regularise_roots is None:
@@ -1639,6 +1648,7 @@ def variational_gamma(
         max_iterations=max_iterations,
         max_shape=max_shape,
         rescaling_intervals=rescaling_intervals,
+        rescaling_iterations=rescaling_iterations,
         match_segregating_sites=match_segregating_sites,
         regularise_roots=regularise_roots,
         singletons_phased=singletons_phased,
