@@ -659,6 +659,19 @@ class ExpectationPropagation:
                         child_cavity,
                         edge_likelihood,
                     )
+                # DEBUG: nan in phase vector
+                if unphased and not np.isfinite(mutations_phase[m]):
+                    print(
+                        "ERR\tm:",
+                        m,
+                        "p:",
+                        parent_cavity,
+                        "c:",
+                        child_cavity,
+                        "e:",
+                        edge_likelihood,
+                    )
+                # /DEBUG: nan in phase vector
 
         return np.nan
 

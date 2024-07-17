@@ -544,7 +544,7 @@ def mutations_time(
     max_freq=None,
     plotpath=None,
     title=None,
-    what=0,
+    what="midpoint",
 ):
     """
     Return true and inferred mutation ages, optionally creating a scatterplot and
@@ -588,7 +588,7 @@ def mutations_time(
         infr_mut = infr_mut[is_freq]
         true_mut = true_mut[is_freq]
     # get age of mutation or subtended node
-    if what == 1:
+    if what == "child":
         infr_node = infer_ts.edges_child[infr_edge[infr_mut]]
         assert np.allclose(infr_node, infer_ts.mutations_node[infr_mut])
         true_node = ts.edges_child[true_edge[true_mut]]
@@ -604,7 +604,7 @@ def mutations_time(
         nonzero = np.logical_and(mean > 0, truth > 0)
         mean = mean[nonzero]
         truth = truth[nonzero]
-    elif what == 2:
+    elif what == "parent":
         infr_node = infer_ts.edges_parent[infr_edge[infr_mut]]
         true_node = ts.edges_parent[true_edge[true_mut]]
         _, uniq_idx = np.unique(infr_node, return_index=True)
@@ -618,7 +618,7 @@ def mutations_time(
         nonzero = np.logical_and(mean > 0, truth > 0)
         mean = mean[nonzero]
         truth = truth[nonzero]
-    elif what == 0:  # midpoint on branch
+    elif what == "midpoint":  # midpoint on branch
         # TODO clean up
         infr_p = infer_ts.edges_parent[infr_edge[infr_mut]]
         true_p = ts.edges_parent[true_edge[true_mut]]
