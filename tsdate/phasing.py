@@ -31,7 +31,6 @@ from .approx import _b2r
 from .approx import _f
 from .approx import _f1r
 from .approx import _f2w
-from .approx import _i
 from .approx import _i1r
 from .approx import _i1w
 from .approx import _i2r
@@ -66,6 +65,9 @@ def reallocate_unphased(
         i, j = blocks_edges[b]
         assert tskit.NULL < i < num_edges and edges_unphased[i]
         assert tskit.NULL < j < num_edges and edges_unphased[j]
+        if np.isnan(mutations_phase[m]):  # DEBUG
+            print("ERR skip nan in phase")
+            continue
         assert 0.0 <= mutations_phase[m] <= 1.0
         edges_likelihood[i, 0] += mutations_phase[m]
         edges_likelihood[j, 0] += 1 - mutations_phase[m]
