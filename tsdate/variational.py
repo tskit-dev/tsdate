@@ -54,6 +54,7 @@ from .rescaling import mutational_timescale
 from .rescaling import piecewise_scale_posterior
 from .util import contains_unary_nodes
 
+logger = logging.getLogger(__name__)
 
 # columns for edge_factors
 ROOTWARD = 0  # edge likelihood to parent
@@ -246,7 +247,7 @@ class ExpectationPropagation:
         self.sizebiased_likelihoods, _ = count_mutations(ts, size_biased=True)
         self.sizebiased_likelihoods[:, 1] *= mutation_rate
         count_timing -= time.time()
-        logging.info(f"Extracted mutations in {abs(count_timing)} seconds")
+        logger.info(f"Extracted mutations in {abs(count_timing)} seconds")
 
         # count mutations in singleton blocks
         phase_timing = time.time()
@@ -260,9 +261,9 @@ class ExpectationPropagation:
         self.block_nodes[1] = self.edge_parents[self.block_edges[:, 1]]
         num_unphased = np.sum(self.mutation_blocks != tskit.NULL)
         phase_timing -= time.time()
-        logging.info(f"Found {num_unphased} unphased singleton mutations")
-        logging.info(f"Split unphased singleton edges into {num_blocks} blocks")
-        logging.info(f"Phased singletons in {abs(phase_timing)} seconds")
+        logger.info(f"Found {num_unphased} unphased singleton mutations")
+        logger.info(f"Split unphased singleton edges into {num_blocks} blocks")
+        logger.info(f"Phased singletons in {abs(phase_timing)} seconds")
 
         # mutable
         self.node_factors = np.zeros((ts.num_nodes, 2, 2))
@@ -659,19 +660,6 @@ class ExpectationPropagation:
                         child_cavity,
                         edge_likelihood,
                     )
-                # DEBUG: nan in phase vector
-                if unphased and not np.isfinite(mutations_phase[m]):
-                    print(
-                        "ERR\tm:",
-                        m,
-                        "p:",
-                        parent_cavity,
-                        "c:",
-                        child_cavity,
-                        "e:",
-                        edge_likelihood,
-                    )
-                # /DEBUG: nan in phase vector
 
         return np.nan
 
@@ -843,8 +831,8 @@ class ExpectationPropagation:
             )
         nodes_timing -= time.time()
         skipped_edges = np.sum(np.isnan(self.edge_logconst))
-        logging.info(f"Skipped {skipped_edges} edges with invalid factors")
-        logging.info(f"Calculated node posteriors in {abs(nodes_timing)} seconds")
+        logger.info(f"Skipped {skipped_edges} edges with invalid factors")
+        logger.info(f"Calculated node posteriors in {abs(nodes_timing)} seconds")
 
         muts_timing = time.time()
         mutations_phased = self.mutation_blocks == tskit.NULL
@@ -878,8 +866,8 @@ class ExpectationPropagation:
         )
         muts_timing -= time.time()
         skipped_muts = np.sum(np.isnan(self.mutation_posterior[:, 0]))
-        logging.info(f"Skipped {skipped_muts} mutations with invalid posteriors")
-        logging.info(f"Calculated mutation posteriors in {abs(muts_timing)} seconds")
+        logger.info(f"Skipped {skipped_muts} mutations with invalid posteriors")
+        logger.info(f"Calculated mutation posteriors in {abs(muts_timing)} seconds")
 
         singletons = self.mutation_blocks != tskit.NULL
         switched_blocks = self.mutation_blocks[singletons]
@@ -892,7 +880,7 @@ class ExpectationPropagation:
         self.mutation_nodes[singletons] = self.edge_children[switched_edges]
         switched = self.mutation_phase < 0.5
         self.mutation_phase[switched] = 1 - self.mutation_phase[switched]
-        logging.info(f"Switched phase of {np.sum(switched)} singletons")
+        logger.info(f"Switched phase of {np.sum(switched)} singletons")
 
         if rescale_intervals > 0 and rescale_iterations > 0:
             rescale_timing = time.time()
@@ -906,7 +894,7 @@ class ExpectationPropagation:
                     rescale_segsites=rescale_segsites,
                 )
             rescale_timing -= time.time()
-            logging.info(f"Timescale rescaled in {abs(rescale_timing)} seconds")
+            logger.info(f"Timescale rescaled in {abs(rescale_timing)} seconds")
 
     def node_moments(self):
         """

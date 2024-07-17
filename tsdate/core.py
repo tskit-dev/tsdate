@@ -46,6 +46,8 @@ from . import schemas
 from . import util
 from . import variational
 
+logger = logging.getLogger(__name__)
+
 FORMAT_NAME = "tsdate"
 DEFAULT_RESCALING_INTERVALS = 1000
 DEFAULT_RESCALING_ITERATIONS = 1
@@ -983,7 +985,7 @@ class EstimationMethod:
                     ts, Ne, approximate_priors=approx, progress=progress
                 )
             else:
-                logging.info("Using user-specified priors")
+                logger.info("Using user-specified priors")
                 if Ne is not None:
                     raise ValueError(
                         "Cannot specify population size if specifying priors "
@@ -1019,7 +1021,7 @@ class EstimationMethod:
         mutations.parent = np.full(mutations.num_rows, tskit.NULL, dtype=np.int32)
         tables.time_units = self.time_units
         constr_timing -= time.time()
-        logging.info(f"Constrained node ages in {abs(constr_timing)} seconds")
+        logger.info(f"Constrained node ages in {abs(constr_timing)} seconds")
         # Add posterior mean and variance to node/mutation metadata
         meta_timing = time.time()
         self.set_time_metadata(
@@ -1029,7 +1031,7 @@ class EstimationMethod:
             mutations, mut_mean_t, mut_var_t, schemas.default_mutation_schema
         )
         meta_timing -= time.time()
-        logging.info(
+        logger.info(
             f"Inserted node and mutation metadata in {abs(meta_timing)} seconds"
         )
         sort_timing = time.time()
@@ -1037,7 +1039,7 @@ class EstimationMethod:
         tables.build_index()
         tables.compute_mutation_parents()
         sort_timing -= time.time()
-        logging.info(f"Sorted tree sequence in {abs(sort_timing)} seconds")
+        logger.info(f"Sorted tree sequence in {abs(sort_timing)} seconds")
         return tables.tree_sequence()
 
     def set_time_metadata(self, table, mean, var, default_schema, overwrite=False):
@@ -1050,9 +1052,9 @@ class EstimationMethod:
                     md_iter = ({} for _ in range(table.num_rows))
                     # For speed, assume we don't need to validate
                     encoder = table.metadata_schema.encode_row
-                    logging.info(f"Set metadata schema on {table_name}")
+                    logger.info(f"Set metadata schema on {table_name}")
                 else:
-                    logging.warning(
+                    logger.warning(
                         f"Could not set metadata on {table_name}: "
                         "data already exists with no schema"
                     )
@@ -1073,7 +1075,7 @@ class EstimationMethod:
                     metadata_array.append(encoder(metadata_dict))
                 table.packset_metadata(metadata_array)
             except tskit.MetadataValidationError as e:
-                logging.warning(f"Could not set time metadata in {table_name}: {e}")
+                logger.warning(f"Could not set time metadata in {table_name}: {e}")
 
     def parse_result(self, result, epsilon, extra_posterior_cols=None):
         # Construct the tree sequence to return and add other stuff we might want to
