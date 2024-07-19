@@ -34,7 +34,6 @@ import tskit
 
 import tsdate
 from tsdate.rescaling import count_mutations
-from tsdate.rescaling import edge_sampling_weight
 from tsdate.rescaling import mutational_area
 
 
@@ -52,41 +51,6 @@ def inferred_ts():
     inferred_ts = tsinfer.infer(sample_data).simplify()
     inferred_ts = tsdate.date(inferred_ts, mutation_rate=1e-8, max_iterations=2)
     return inferred_ts
-
-
-# TODO: delete, methodology is flawed
-class TestEdgeSamplingWeight:
-    @staticmethod
-    def naive_edge_sampling_weight(ts):
-        out = np.zeros(ts.num_edges)
-        tot = 0.0
-        for t in ts.trees():
-            if t.num_edges == 0:
-                continue
-            tot += t.num_samples() * t.span
-            for n in t.nodes():
-                e = t.edge(n)
-                if e == tskit.NULL:
-                    continue
-                out[e] += t.num_samples(n) * t.span
-        out /= tot
-        return out
-
-    def test_edge_sampling_weight(self, inferred_ts):
-        ts = inferred_ts
-        is_leaf = np.full(ts.num_nodes, False)
-        is_leaf[list(ts.samples())] = True
-        edges_weight = edge_sampling_weight(
-            is_leaf,
-            ts.edges_parent,
-            ts.edges_child,
-            ts.edges_left,
-            ts.edges_right,
-            ts.indexes_edge_insertion_order,
-            ts.indexes_edge_removal_order,
-        )
-        ck_edges_weight = self.naive_edge_sampling_weight(ts)
-        np.testing.assert_allclose(edges_weight, ck_edges_weight)
 
 
 class TestMutationalArea:
