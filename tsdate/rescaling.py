@@ -28,7 +28,6 @@ from math import log
 import numba
 import numpy as np
 import tskit
-from tqdm import tqdm
 
 from .approx import _b
 from .approx import _b1r
@@ -112,108 +111,6 @@ def _poisson_changepoints(counts, offset, penalty, min_counts, min_offset):
     return breaks
 
 
-# @numba.njit(
-#    _tuple((_f2w, _i1w))(_b1r, _i1r, _f1r, _i1r, _i1r, _f1r, _f1r, _i1r, _i1r, _f)
-# )
-# def _count_mutations(
-#    node_is_leaf,
-#    mutations_node,
-#    mutations_position,
-#    edges_parent,
-#    edges_child,
-#    edges_left,
-#    edges_right,
-#    indexes_insert,
-#    indexes_remove,
-#    sequence_length,
-# ):
-#    """
-#    Internals for `count_mutations`
-#    """
-#    assert edges_parent.size == edges_child.size == edges_left.size == edges_right.size
-#    assert indexes_insert.size == indexes_remove.size == edges_parent.size
-#    assert mutations_node.size == mutations_position.size
-#
-#    num_mutations = mutations_node.size
-#    num_edges = edges_parent.size
-#    num_nodes = node_is_leaf.size
-#
-#    indexes_mutation = np.argsort(mutations_position)
-#    position_insert = edges_left[indexes_insert]
-#    position_remove = edges_right[indexes_remove]
-#    position_mutation = mutations_position[indexes_mutation]
-#
-#    nodes_edge = np.full(num_nodes, tskit.NULL)
-#    mutations_edge = np.full(num_mutations, tskit.NULL)
-#    edges_mutations = np.zeros(num_edges)
-#    edges_span = edges_right - edges_left
-#
-#    left = 0.0
-#    a, b, d = 0, 0, 0
-#    while a < num_edges or b < num_edges:
-#        while b < num_edges and position_remove[b] == left:  # edges out
-#            e = indexes_remove[b]
-#            c = edges_child[e]
-#            nodes_edge[c] = tskit.NULL
-#            b += 1
-#
-#        while a < num_edges and position_insert[a] == left:  # edges in
-#            e = indexes_insert[a]
-#            c = edges_child[e]
-#            nodes_edge[c] = e
-#            a += 1
-#
-#        right = sequence_length
-#        if b < num_edges:
-#            right = min(right, position_remove[b])
-#        if a < num_edges:
-#            right = min(right, position_insert[a])
-#        left = right
-#
-#        while d < num_mutations and position_mutation[d] < right:
-#            m = indexes_mutation[d]
-#            c = mutations_node[m]
-#            e = nodes_edge[c]
-#            if e != tskit.NULL:
-#                mutations_edge[m] = e
-#                edges_mutations[e] += 1.0
-#            d += 1
-#
-#    mutations_edge = mutations_edge.astype(np.int32)
-#    edges_stats = np.column_stack((edges_mutations, edges_span))
-#
-#    return edges_stats, mutations_edge
-#
-#
-# def count_mutations(ts, constraints=None):
-#    """
-#    Return an array with `num_edges` rows, and columns that are the number of
-#    mutations per edge and the total span per edge
-#    """
-#    # TODO: adjust spans by an accessibility mask
-#    if constraints is None:
-#        node_is_leaf = np.full(ts.num_nodes, False)
-#        node_is_leaf[list(ts.samples())] = True
-#    else:
-#        assert constraints.shape == (ts.num_nodes, 2)
-#        node_is_leaf = np.logical_and(
-#            constraints[:, 0] == 0.0,
-#            constraints[:, 0] == constraints[:, 1],
-#        )
-#    return _count_mutations(
-#        node_is_leaf,
-#        ts.mutations_node,
-#        ts.sites_position[ts.mutations_site],
-#        ts.edges_parent,
-#        ts.edges_child,
-#        ts.edges_left,
-#        ts.edges_right,
-#        ts.indexes_edge_insertion_order,
-#        ts.indexes_edge_removal_order,
-#        ts.sequence_length,
-#    )
-
-
 @numba.njit(
     _tuple((_f2w, _i1w))(_b1r, _i1r, _f1r, _i1r, _i1r, _f1r, _f1r, _i1r, _i1r, _f, _b)
 )
@@ -230,9 +127,6 @@ def _count_mutations(
     sequence_length,
     size_biased,
 ):
-    """
-    Internals for `count_mutations`
-    """
     assert edges_parent.size == edges_child.size == edges_left.size == edges_right.size
     assert indexes_insert.size == indexes_remove.size == edges_parent.size
     assert mutations_node.size == mutations_position.size
@@ -547,13 +441,12 @@ def mutational_timescale(
     return origin, adjust
 
 
-@numba.njit(_f2w(_f2r, _f1r, _f1r, _f, _b))
+@numba.njit(_f2w(_f2r, _f1r, _f1r, _f))
 def piecewise_scale_posterior(
     posteriors,
     original_breaks,
     rescaled_breaks,
     quantile_width,
-    use_median,
 ):
     """
     :param float quantile_width: width of interquantile range to use for estimating
@@ -567,7 +460,7 @@ def piecewise_scale_posterior(
     quant_lower = quantile_width / 2
     quant_upper = 1 - quantile_width / 2
 
-    # use posterior mean or median as a point estimate
+    # use posterior mean as a point estimate
     freed = np.logical_and(posteriors[:, 0] > -1, posteriors[:, 1] > 0)
     lower = np.zeros(dim)
     upper = np.zeros(dim)
@@ -576,12 +469,11 @@ def piecewise_scale_posterior(
         alpha, beta = posteriors[i]
         lower[i] = gammainc_inv(alpha + 1, quant_lower) / beta
         upper[i] = gammainc_inv(alpha + 1, quant_upper) / beta
-        midpt[i] = gammainc_inv(alpha + 1, 0.5) if use_median else (alpha + 1)
-        midpt[i] /= beta
+        midpt[i] = (alpha + 1) / beta
 
     # rescale quantiles
-    assert np.all(np.diff(rescaled_breaks) > 0)
-    assert np.all(np.diff(original_breaks) > 0)
+    assert np.all(np.diff(rescaled_breaks) > 0), "Use fewer rescaling intervals"
+    assert np.all(np.diff(original_breaks) > 0), "Use fewer rescaling intervals"
     scalings = np.append(np.diff(rescaled_breaks) / np.diff(original_breaks), 0)
 
     def rescale(x):
@@ -600,109 +492,35 @@ def piecewise_scale_posterior(
         alpha, beta = approximate_gamma_iqr(
             quant_lower, quant_upper, lower[i], upper[i]
         )
-        beta = gammainc_inv(alpha + 1, 0.5) if use_median else (alpha + 1)
-        beta /= midpt[i]  # choose rate so as to keep mean or median
+        beta = (alpha + 1) / midpt[i]  # choose rate so as to keep mean
         new_posteriors[i] = alpha, beta
 
     return new_posteriors
 
 
-@numba.njit(_f1w(_b1r, _i1r, _i1r, _f1r, _f1r, _i1r, _i1r))
-def edge_sampling_weight(
-    is_leaf,
-    edges_parent,
-    edges_child,
-    edges_left,
-    edges_right,
-    insert_index,
-    remove_index,
+@numba.njit(_f1w(_f1r, _f1r, _f1r))
+def piecewise_scale_point_estimate(
+    point_estimate,
+    original_breaks,
+    rescaled_breaks,
 ):
-    """
-    Calculate the probability that a randomly selected root-to-leaf path from a
-    random point on the sequence contains a given edge, for all edges.
-
-    :param np.ndarray is_leaf: boolean array indicating whether a node is a leaf
-    """
-    num_nodes = is_leaf.size
-    num_edges = edges_child.size
-
-    insert_position = edges_left[insert_index]
-    remove_position = edges_right[remove_index]
-    sequence_length = remove_position[-1]
-
-    nodes_parent = np.full(num_nodes, tskit.NULL)
-    nodes_edge = np.full(num_nodes, tskit.NULL)
-    nodes_leaves = np.zeros(num_nodes)
-    edges_leaves = np.zeros(num_edges)
-
-    nodes_leaves[is_leaf] = 1.0
-    total_leaves = 0.0
-    position = 0.0
-    a, b = 0, 0
-    while position < sequence_length:
-        edges_out = []
-        while b < num_edges and remove_position[b] == position:
-            edges_out.append(remove_index[b])
-            b += 1
-
-        edges_in = []
-        while a < num_edges and insert_position[a] == position:  # edges in
-            edges_in.append(insert_index[a])
-            a += 1
-
-        remainder = sequence_length - position
-
-        for e in edges_out:
-            p, c = edges_parent[e], edges_child[e]
-            update = nodes_leaves[c]
-            while p != tskit.NULL:
-                u = nodes_edge[c]
-                edges_leaves[u] -= update * remainder
-                c, p = p, nodes_parent[p]
-            p, c = edges_parent[e], edges_child[e]
-            while p != tskit.NULL:
-                nodes_leaves[p] -= update
-                p = nodes_parent[p]
-            nodes_parent[c] = tskit.NULL
-            nodes_edge[c] = tskit.NULL
-            if is_leaf[c]:
-                total_leaves -= remainder
-
-        for e in edges_in:
-            p, c = edges_parent[e], edges_child[e]
-            nodes_parent[c] = p
-            nodes_edge[c] = e
-            if is_leaf[c]:
-                total_leaves += remainder
-            update = nodes_leaves[c]
-            while p != tskit.NULL:
-                nodes_leaves[p] += update
-                p = nodes_parent[p]
-            p, c = edges_parent[e], edges_child[e]
-            while p != tskit.NULL:
-                u = nodes_edge[c]
-                edges_leaves[u] += update * remainder
-                c, p = p, nodes_parent[p]
-
-        position = sequence_length
-        if b < num_edges:
-            position = min(position, remove_position[b])
-        if a < num_edges:
-            position = min(position, insert_position[a])
-
-    edges_leaves /= total_leaves
-    return edges_leaves
+    assert np.all(np.diff(rescaled_breaks) > 0), "Use fewer rescaling intervals"
+    assert np.all(np.diff(original_breaks) > 0), "Use fewer rescaling intervals"
+    scalings = np.append(np.diff(rescaled_breaks) / np.diff(original_breaks), 0)
+    idx = np.searchsorted(original_breaks, point_estimate, "right") - 1
+    rescaled_estimate = rescaled_breaks[idx] + \
+        scalings[idx] * (point_estimate - original_breaks[idx])  # fmt: skip
+    return rescaled_estimate
 
 
-# TODO: standalone API for rescaling
+# standalone API for rescaling (TODO: needs testing)
 def rescale_tree_sequence(
     ts,
     mutation_rate,
     *,
-    num_intervals=1000,
+    num_intervals=100,
     num_iterations=10,
     match_segregating_sites=False,
-    progress=False
 ):
     """
     Adjust the time scaling of a tree sequence so that expected mutational area
@@ -730,40 +548,32 @@ def rescale_tree_sequence(
     else:
         mutations_span, mutations_edge = count_mutations(ts, size_biased=True)
     mutations_span[:, 1] *= mutation_rate
-    for _ in tqdm(
-        np.arange(num_iterations),
-        desc="Path Rescaling",
-        disable=not progress,
-    ):
+    # rescale node ages
+    nodes_time = ts.nodes_time.copy()
+    for _ in np.arange(num_iterations):
         original_breaks, rescaled_breaks = mutational_timescale(
-            ts.nodes_time,
+            nodes_time,
             mutations_span,
             constraints,
             ts.edges_parent,
             ts.edges_child,
             num_intervals,
         )
-        # rescale node time
-        assert np.all(np.diff(rescaled_breaks) > 0)
-        assert np.all(np.diff(original_breaks) > 0)
-        scalings = np.append(np.diff(rescaled_breaks) / np.diff(original_breaks), 0)
-        idx = np.searchsorted(original_breaks, ts.nodes_time, "right") - 1
-        nodes_time = rescaled_breaks[idx] + scalings[idx] * (
-            ts.nodes_time - original_breaks[idx]
+        nodes_time = piecewise_scale_point_estimate(
+            nodes_time, original_breaks, rescaled_breaks
         )
-        # calculate mutation time
-        mutations_parent = ts.edges_parent[mutations_edge]
-        mutations_child = ts.edges_child[mutations_edge]
-        mutations_time = (
-            nodes_time[mutations_parent] + nodes_time[mutations_child]
-        ) / 2
-        above_root = mutations_edge == tskit.NULL
-        mutations_time[above_root] = nodes_time[mutations_child[above_root]]
-        tables = ts.dump_tables()
-        tables.nodes.time = nodes_time
-        tables.mutations.time = mutations_time
-        tables.sort()
-        tables.build_index()
-        tables.compute_mutation_parents()
-        ts = tables.tree_sequence()
+    # calculate mutation ages
+    mutations_parent = ts.edges_parent[mutations_edge]
+    mutations_child = ts.edges_child[mutations_edge]
+    mutations_time = (nodes_time[mutations_parent] + nodes_time[mutations_child]) / 2
+    above_root = mutations_edge == tskit.NULL
+    assert np.allclose(mutations_child[~above_root], ts.mutations_node[~above_root])
+    mutations_time[above_root] = nodes_time[ts.mutations_node[above_root]]
+    tables = ts.dump_tables()
+    tables.nodes.time = nodes_time
+    tables.mutations.time = mutations_time
+    tables.sort()
+    tables.build_index()
+    tables.compute_mutation_parents()
+    ts = tables.tree_sequence()
     return ts

@@ -65,7 +65,7 @@ def reallocate_unphased(
         i, j = blocks_edges[b]
         assert tskit.NULL < i < num_edges and edges_unphased[i]
         assert tskit.NULL < j < num_edges and edges_unphased[j]
-        if np.isnan(mutations_phase[m]):  # TODO: rare numerical issue
+        if np.isnan(mutations_phase[m]):  # TODO: fix rare numerical issue
             continue
         assert 0.0 <= mutations_phase[m] <= 1.0
         edges_likelihood[i, 0] += mutations_phase[m]

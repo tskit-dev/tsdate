@@ -50,7 +50,7 @@ logger = logging.getLogger(__name__)
 
 FORMAT_NAME = "tsdate"
 DEFAULT_RESCALING_INTERVALS = 1000
-DEFAULT_RESCALING_ITERATIONS = 1
+DEFAULT_RESCALING_ITERATIONS = 5
 DEFAULT_MAX_ITERATIONS = 10
 DEFAULT_EPSILON = 1e-6
 
@@ -1021,7 +1021,7 @@ class EstimationMethod:
         mutations.parent = np.full(mutations.num_rows, tskit.NULL, dtype=np.int32)
         tables.time_units = self.time_units
         constr_timing -= time.time()
-        logger.info(f"Constrained node ages in {abs(constr_timing)} seconds")
+        logger.info(f"Constrained node ages in {abs(constr_timing):.2f} seconds")
         # Add posterior mean and variance to node/mutation metadata
         meta_timing = time.time()
         self.set_time_metadata(
@@ -1039,7 +1039,7 @@ class EstimationMethod:
         tables.build_index()
         tables.compute_mutation_parents()
         sort_timing -= time.time()
-        logger.info(f"Sorted tree sequence in {abs(sort_timing)} seconds")
+        logger.info(f"Sorted tree sequence in {abs(sort_timing):.2f} seconds")
         return tables.tree_sequence()
 
     def set_time_metadata(self, table, mean, var, default_schema, overwrite=False):
@@ -1595,9 +1595,9 @@ def variational_gamma(
     :param float rescaling_intervals: For time rescaling, the number of time
         intervals within which to estimate a rescaling parameter. Setting this to zero
         means that rescaling is not performed. Default ``None``, treated as 1000.
-    :param float rescaling_intervals: The number of iterations for time rescaling.
+    :param float rescaling_iterations: The number of iterations for time rescaling.
         Setting this to zero means that rescaling is not performed. Default
-        ``None``, treated as 1.
+        ``None``, treated as 5.
     :param \\**kwargs: Other keyword arguments as described in the :func:`date` wrapper
         function, including ``time_units``, ``progress``, and ``record_provenance``.
         The arguments ``return_posteriors`` and ``return_likelihood`` can be

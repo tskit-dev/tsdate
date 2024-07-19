@@ -45,12 +45,11 @@ from .approx import _f3w
 from .approx import _i
 from .approx import _i1r
 from .approx import _i2r
-from .hypergeo import _gammainc_inv as gammainc_inv
 from .phasing import block_singletons
 from .phasing import reallocate_unphased
 from .rescaling import count_mutations
-from .rescaling import edge_sampling_weight
 from .rescaling import mutational_timescale
+from .rescaling import piecewise_scale_point_estimate
 from .rescaling import piecewise_scale_posterior
 from .util import contains_unary_nodes
 
@@ -196,20 +195,6 @@ class ExpectationPropagation:
         posterior_check += node_factors[:, CONSTRNT]
         np.testing.assert_allclose(posterior_check, posterior)
 
-    @staticmethod
-    @numba.njit(_f1w(_f2r, _f2r, _b))
-    def _point_estimate(posteriors, constraints, median):
-        assert posteriors.shape == constraints.shape
-        fixed = constraints[:, 0] == constraints[:, 1]
-        point_estimate = np.zeros(posteriors.shape[0])
-        for i in np.flatnonzero(~fixed):
-            alpha, beta = posteriors[i]
-            point_estimate[i] = gammainc_inv(alpha + 1, 0.5) \
-                if median else (alpha + 1)  # fmt: skip
-            point_estimate[i] /= beta
-        point_estimate[fixed] = constraints[fixed, 0]
-        return point_estimate
-
     def __init__(self, ts, *, mutation_rate, singletons_phased=True):
         """
         Initialize an expectation propagation algorithm for dating nodes
@@ -247,7 +232,7 @@ class ExpectationPropagation:
         self.sizebiased_likelihoods, _ = count_mutations(ts, size_biased=True)
         self.sizebiased_likelihoods[:, 1] *= mutation_rate
         count_timing -= time.time()
-        logger.info(f"Extracted mutations in {abs(count_timing)} seconds")
+        logger.info(f"Extracted mutations in {abs(count_timing):.2f} seconds")
 
         # count mutations in singleton blocks
         phase_timing = time.time()
@@ -263,7 +248,7 @@ class ExpectationPropagation:
         phase_timing -= time.time()
         logger.info(f"Found {num_unphased} unphased singleton mutations")
         logger.info(f"Split unphased singleton edges into {num_blocks} blocks")
-        logger.info(f"Phased singletons in {abs(phase_timing)} seconds")
+        logger.info(f"Phased singletons in {abs(phase_timing):.2f} seconds")
 
         # mutable
         self.node_factors = np.zeros((ts.num_nodes, 2, 2))
@@ -293,20 +278,11 @@ class ExpectationPropagation:
         edge_unphased[self.block_edges[:, 1]] = True
         edges = np.arange(ts.num_edges, dtype=np.int32)[~edge_unphased]
         self.edge_order = np.concatenate((edges[:-1], np.flip(edges)))
-        self.edge_weights = edge_sampling_weight(
-            self.leaves,
-            self.edge_parents,
-            self.edge_children,
-            ts.edges_left,
-            ts.edges_right,
-            ts.indexes_edge_insertion_order,
-            ts.indexes_edge_removal_order,
-        )
         self.block_order = np.arange(num_blocks, dtype=np.int32)
         self.mutation_order = np.arange(ts.num_mutations, dtype=np.int32)
 
     @staticmethod
-    @numba.njit(_f(_i1r, _i1r, _i1r, _f2r, _f2r, _f2w, _f3w, _f1w, _f1w, _f, _f, _b))
+    @numba.njit(_void(_i1r, _i1r, _i1r, _f2r, _f2r, _f2w, _f3w, _f1w, _f1w, _f, _f, _b))
     def propagate_likelihood(
         edge_order,
         edges_parent,
@@ -465,10 +441,8 @@ class ExpectationPropagation:
                     scale[p] *= parent_eta
                     scale[c] *= child_eta
 
-        return np.nan
-
     @staticmethod
-    @numba.njit(_f(_b1r, _f2w, _f3w, _f1w, _f, _i, _f))
+    @numba.njit(_void(_b1r, _f2w, _f3w, _f1w, _f, _i, _f))
     def propagate_prior(
         free, posterior, factors, scale, max_shape, em_maxitt, em_reltol
     ):
@@ -522,11 +496,9 @@ class ExpectationPropagation:
             posterior[i] *= eta
             scale[i] *= eta
 
-        return np.nan
-
     @staticmethod
     @numba.njit(
-        _f(_i1r, _f2w, _f1w, _i1r, _i1r, _i1r, _f2r, _f2r, _f2r, _f3r, _f1r, _b)
+        _void(_i1r, _f2w, _f1w, _i1r, _i1r, _i1r, _f2r, _f2r, _f2r, _f3r, _f1r, _b)
     )
     def propagate_mutations(
         mutations_order,
@@ -661,8 +633,6 @@ class ExpectationPropagation:
                         edge_likelihood,
                     )
 
-        return np.nan
-
     @staticmethod
     @numba.njit(_void(_i1r, _i1r, _i2r, _f3w, _f3w, _f3w, _f1w))
     def rescale_factors(
@@ -761,49 +731,53 @@ class ExpectationPropagation:
                 self.block_factors,
             )
 
-        return np.nan  # TODO: placeholder for marginal likelihood
-
     def rescale(
         self,
         *,
         rescale_intervals=1000,
         rescale_segsites=False,
-        use_median=False,
+        rescale_iterations=10,
         quantile_width=0.5,
+        progress=False,
     ):
         """Normalise posteriors so that empirical mutation rate is constant"""
         likelihoods = self.edge_likelihoods if rescale_segsites \
             else self.sizebiased_likelihoods  # fmt: skip
-        nodes_time = self._point_estimate(
-            self.node_posterior, self.node_constraints, use_median
-        )
         reallocate_unphased(  # correct mutation counts for unphased singletons
             likelihoods,
             self.mutation_phase,
             self.mutation_blocks,
             self.block_edges,
         )
-        original_breaks, rescaled_breaks = mutational_timescale(
-            nodes_time,
-            likelihoods,
-            self.node_constraints,
-            self.edge_parents,
-            self.edge_children,
-            rescale_intervals,
+        nodes_time, _ = self.node_moments()
+        rescaled_nodes_time = nodes_time.copy()
+        for _ in np.arange(rescale_iterations):  # estimate time rescaling
+            original_breaks, rescaled_breaks = mutational_timescale(
+                rescaled_nodes_time,
+                likelihoods,
+                self.node_constraints,
+                self.edge_parents,
+                self.edge_children,
+                rescale_intervals,
+            )
+            rescaled_nodes_time = piecewise_scale_point_estimate(
+                rescaled_nodes_time, original_breaks, rescaled_breaks
+            )
+        _, unique = np.unique(rescaled_nodes_time, return_index=True)
+        original_breaks = piecewise_scale_point_estimate(
+            rescaled_breaks, rescaled_nodes_time[unique], nodes_time[unique]
         )
         self.node_posterior[:] = piecewise_scale_posterior(
             self.node_posterior,
             original_breaks,
             rescaled_breaks,
             quantile_width,
-            use_median,
         )
         self.mutation_posterior[:] = piecewise_scale_posterior(
             self.mutation_posterior,
             original_breaks,
             rescaled_breaks,
             quantile_width,
-            use_median,
         )
 
     def run(
@@ -814,7 +788,7 @@ class ExpectationPropagation:
         min_step=0.1,
         rescale_intervals=1000,
         rescale_segsites=False,
-        rescale_iterations=5,
+        rescale_iterations=10,
         regularise=True,
         progress=None,
     ):
@@ -832,7 +806,7 @@ class ExpectationPropagation:
         nodes_timing -= time.time()
         skipped_edges = np.sum(np.isnan(self.edge_logconst))
         logger.info(f"Skipped {skipped_edges} edges with invalid factors")
-        logger.info(f"Calculated node posteriors in {abs(nodes_timing)} seconds")
+        logger.info(f"Calculated node posteriors in {abs(nodes_timing):.2f} seconds")
 
         muts_timing = time.time()
         mutations_phased = self.mutation_blocks == tskit.NULL
@@ -867,7 +841,7 @@ class ExpectationPropagation:
         muts_timing -= time.time()
         skipped_muts = np.sum(np.isnan(self.mutation_posterior[:, 0]))
         logger.info(f"Skipped {skipped_muts} mutations with invalid posteriors")
-        logger.info(f"Calculated mutation posteriors in {abs(muts_timing)} seconds")
+        logger.info(f"Calculated mutation posteriors in {abs(muts_timing):.2f} seconds")
 
         singletons = self.mutation_blocks != tskit.NULL
         switched_blocks = self.mutation_blocks[singletons]
@@ -884,17 +858,14 @@ class ExpectationPropagation:
 
         if rescale_intervals > 0 and rescale_iterations > 0:
             rescale_timing = time.time()
-            for _ in tqdm(
-                np.arange(rescale_iterations),
-                desc="Path Rescaling",
-                disable=not progress,
-            ):
-                self.rescale(
-                    rescale_intervals=rescale_intervals,
-                    rescale_segsites=rescale_segsites,
-                )
+            self.rescale(
+                rescale_intervals=rescale_intervals,
+                rescale_iterations=rescale_iterations,
+                rescale_segsites=rescale_segsites,
+                progress=progress,
+            )
             rescale_timing -= time.time()
-            logger.info(f"Timescale rescaled in {abs(rescale_timing)} seconds")
+            logger.info(f"Timescale rescaled in {abs(rescale_timing):.2f} seconds")
 
     def node_moments(self):
         """
@@ -929,12 +900,15 @@ class ExpectationPropagation:
         return self.mutation_edges, self.mutation_nodes
 
 
+# NB: used for debugging
 # def date(
 #     ts,
 #     *,
 #     mutation_rate,
 #     singletons_phased=True,
 #     max_iterations=10,
+#     rescaling_intervals=1000,
+#     rescaling_iterations=10,
 #     match_segregating_sites=False,
 #     regularise_roots=True,
 #     constr_iterations=0,
@@ -954,6 +928,7 @@ class ExpectationPropagation:
 #         ep_maxitt=max_iterations,
 #         max_shape=max_shape,
 #         rescale_intervals=rescaling_intervals,
+#         rescale_iterations=rescaling_iterations,
 #         regularise=regularise_roots,
 #         rescale_segsites=match_segregating_sites,
 #         progress=progress,
@@ -964,8 +939,8 @@ class ExpectationPropagation:
 #     mutation_edge, mutation_node = posterior.mutation_mapping()
 #
 #     tables = ts.dump_tables()
-#     tables.nodes.time = constrain_ages(
-#       ts, node_mn, constr_iterations=constr_iterations)
+#     tables.nodes.time = \
+#        constrain_ages(ts, node_mn, constr_iterations=constr_iterations)
 #     tables.mutations.node = mutation_node
 #     tables.sort()
 #
