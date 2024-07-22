@@ -640,7 +640,7 @@ def mutations_time(
         plt.hexbin(truth, mean, xscale="log", yscale="log", mincnt=1)
         plt.text(0.01, 0.99, info, ha="left", va="top", transform=plt.gca().transAxes)
         plt.axline(pt1, pt2, linestyle="--", color="firebrick")
-        if what != 0:
+        if what != "midpoint":
             plt.xlabel("True node age")
             plt.ylabel("Estimated node age")
         else:
