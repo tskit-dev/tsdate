@@ -1560,9 +1560,9 @@ def variational_gamma(
     max_iterations=None,
     rescaling_intervals=None,
     rescaling_iterations=None,
+    match_segregating_sites=None,
     # deliberately undocumented parameters below. We may eventually document these
     max_shape=None,
-    match_segregating_sites=None,
     regularise_roots=None,
     singletons_phased=None,
     **kwargs,
@@ -1598,6 +1598,11 @@ def variational_gamma(
     :param float rescaling_iterations: The number of iterations for time rescaling.
         Setting this to zero means that rescaling is not performed. Default
         ``None``, treated as 5.
+    :param bool match_segregating_sites: If ``True``, then time is rescaled
+        such that branch- and site-mode segregating sites are approximately equal.
+        If ``False``, time is rescaled such that branch- and site-mode root-to-leaf
+        length are approximately equal, which gives unbiased estimates when there
+        are polytomies. Default ``False``.
     :param \\**kwargs: Other keyword arguments as described in the :func:`date` wrapper
         function, including ``time_units``, ``progress``, and ``record_provenance``.
         The arguments ``return_posteriors`` and ``return_likelihood`` can be
