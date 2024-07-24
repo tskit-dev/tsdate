@@ -190,7 +190,7 @@ class Likelihoods:
         else:
             fixed_nodes = np.array(list(self.fixednodes))
             keys = np.unique(
-                np.core.records.fromarrays(
+                np.rec.fromarrays(
                     (self.mut_edges, self.ts.edges_right - self.ts.edges_left),
                     names="muts,span",
                 )[np.logical_not(np.isin(self.ts.edges_child, fixed_nodes))]
