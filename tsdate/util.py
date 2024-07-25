@@ -23,25 +23,19 @@
 Utility functions for tsdate. Many of these can be removed when tskit is updated to
 a more recent version which has the functionality built-in
 """
+
 import json
 import logging
 
 import numba
 import numpy as np
 import tskit
-from numba.types import UniTuple as _unituple
+from numba.types import UniTuple as _unituple  # NOQA: N813
 
 import tsdate
-from . import provenance
-from .approx import _b
-from .approx import _b1r
-from .approx import _f
-from .approx import _f1r
-from .approx import _f1w
-from .approx import _i
-from .approx import _i1r
-from .approx import _i1w
 
+from . import provenance
+from .approx import _b, _b1r, _f, _f1r, _f1w, _i, _i1r, _i1w
 
 logger = logging.getLogger(__name__)
 
@@ -150,7 +144,7 @@ def preprocess_ts(
                 delete_intervals.append([0, first_site])
                 logger.info(
                     "REMOVING TELOMERE: Snip topology "
-                    "from 0 to first site at {}.".format(first_site)
+                    f"from 0 to first site at {first_site}."
                 )
             last_site = sites[-1] + 1
             sequence_length = tables.sequence_length
@@ -158,9 +152,7 @@ def preprocess_ts(
                 delete_intervals.append([last_site, sequence_length])
                 logger.info(
                     "REMOVING TELOMERE: Snip topology "
-                    "from {} to end of sequence at {}.".format(
-                        last_site, sequence_length
-                    )
+                    f"from {last_site} to end of sequence at {sequence_length}."
                 )
         gaps = sites[1:] - sites[:-1]
         threshold_gaps = np.where(gaps >= minimum_gap)[0]
@@ -169,15 +161,13 @@ def preprocess_ts(
             gap_end = sites[gap + 1] - 1
             if gap_end > gap_start:
                 logger.info(
-                    "Gap Size is {}. Snip topology "
-                    "from {} to {}.".format(gap_end - gap_start, gap_start, gap_end)
+                    f"Gap Size is {gap_end - gap_start}. Snip topology "
+                    f"from {gap_start} to {gap_end}."
                 )
                 delete_intervals.append([gap_start, gap_end])
         delete_intervals = sorted(delete_intervals, key=lambda x: x[0])
     if len(delete_intervals) > 0:
-        tables.delete_intervals(
-            delete_intervals, simplify=False, record_provenance=False
-        )
+        tables.delete_intervals(delete_intervals, simplify=False, record_provenance=False)
         tables.simplify(
             filter_populations=filter_populations,
             filter_individuals=filter_individuals,
@@ -226,10 +216,10 @@ def nodes_time_unconstrained(tree_sequence):
         if index not in tree_sequence.samples():
             try:
                 nodes_time[index] = json.loads(met.decode())["mn"]
-            except (KeyError, json.decoder.JSONDecodeError):
+            except (KeyError, json.decoder.JSONDecodeError) as err:
                 raise ValueError(
                     "Tree Sequence must be tsdated with the Inside-Outside Method."
-                )
+                ) from err
     return nodes_time
 
 

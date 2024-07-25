@@ -24,6 +24,7 @@
 """
 Test tools for mapping between node sets of different tree sequences
 """
+
 from collections import defaultdict
 from itertools import combinations
 

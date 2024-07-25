@@ -22,11 +22,11 @@
 """
 Tools for comparing node times between tree sequences with different node sets
 """
+
 import copy
 import json
 from collections import defaultdict
-from itertools import groupby
-from itertools import product
+from itertools import groupby, product
 from math import isqrt
 
 import matplotlib.pyplot as plt
@@ -81,7 +81,7 @@ class CladeMap:
             node = self.tree.parent(node)
         return nodes
 
-    def next(self):  # noqa: A003
+    def next(self):
         """
         Advance to the next tree, returning the difference between trees as a
         dictionary of the form `node : (last_clade, next_clade)`
@@ -387,9 +387,9 @@ def unsupported_edges(ts, per_interval=False):
     else:
         keep = ~edges_to_remove
         for p, c in zip(ts.edges_parent[keep], ts.edges_child[keep]):
-            edges_to_remove[
-                np.logical_and(ts.edges_parent == p, ts.edges_child == c)
-            ] = False
+            edges_to_remove[np.logical_and(ts.edges_parent == p, ts.edges_child == c)] = (
+                False
+            )
         return np.where(edges_to_remove)[0]
 
 
@@ -431,9 +431,7 @@ def node_coverage(ts, inferred_ts, alpha):
             upper[i] = scipy.stats.gamma.ppf(1 - alpha / 2, shape, scale=1 / rate)
             lower[i] = scipy.stats.gamma.ppf(alpha / 2, shape, scale=1 / rate)
     true = ts.nodes_time[true_child]
-    is_covered = np.logical_and(
-        true[:, np.newaxis] < upper, true[:, np.newaxis] > lower
-    )
+    is_covered = np.logical_and(true[:, np.newaxis] < upper, true[:, np.newaxis] > lower)
     prop_covered = np.sum(is_covered, axis=0) / is_covered.shape[0]
     # import matplotlib.pyplot as plt
     # plt.axline((0,0), slope=1, linestyle="--", color="black")
@@ -503,9 +501,7 @@ def mutation_coverage(ts, inferred_ts, alpha):
             upper[i] = scipy.stats.gamma.ppf(1 - alpha / 2, shape, scale=1 / rate)
             lower[i] = scipy.stats.gamma.ppf(alpha / 2, shape, scale=1 / rate)
     true = ts.mutations_time[true_mut]
-    is_covered = np.logical_and(
-        true[:, np.newaxis] < upper, true[:, np.newaxis] > lower
-    )
+    is_covered = np.logical_and(true[:, np.newaxis] < upper, true[:, np.newaxis] > lower)
     prop_covered = np.sum(is_covered, axis=0) / is_covered.shape[0]
     # plt.clf()
     # plt.axline((0,0), slope=1, linestyle="--", color="black")

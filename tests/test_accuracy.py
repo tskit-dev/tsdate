@@ -23,6 +23,7 @@
 """
 Test cases for tsdate accuracy.
 """
+
 import json
 import os
 
@@ -40,7 +41,7 @@ class TestAccuracy:
     Test for some of the basic functions used in tsdate
     """
 
-    @pytest.mark.makefiles
+    @pytest.mark.makefiles()
     def test_make_static_files(self, request):
         """
         The function used to create the tree sequences for accuracy testing.
@@ -75,7 +76,13 @@ class TestAccuracy:
             ts.dump(os.path.join(request.fspath.dirname, "data", f"{name}.trees"))
 
     @pytest.mark.parametrize(
-        "ts_name,min_r2_ts,min_r2_unconstrained,min_spear_ts,min_spear_unconstrained",
+        (
+            "ts_name",
+            "min_r2_ts",
+            "min_r2_unconstrained",
+            "min_spear_ts",
+            "min_spear_unconstrained",
+        ),
         [
             ("one_tree", 0.98601, 0.98601, 0.97719, 0.97719),
             ("few_trees", 0.98220, 0.98220, 0.97744, 0.97744),
@@ -91,9 +98,7 @@ class TestAccuracy:
         min_spear_unconstrained,
         request,
     ):
-        ts = tskit.load(
-            os.path.join(request.fspath.dirname, "data", ts_name + ".trees")
-        )
+        ts = tskit.load(os.path.join(request.fspath.dirname, "data", ts_name + ".trees"))
 
         sim_ancestry_parameters = json.loads(ts.provenance(0).record)["parameters"]
         assert sim_ancestry_parameters["command"] == "sim_ancestry"
@@ -144,7 +149,7 @@ class TestAccuracy:
         assert 0.9 < dts.node(dts.first().root).time / (2 * Ne) < 1.1
 
     @pytest.mark.parametrize(
-        "bkwd_rate, trio_tmrca",
+        ("bkwd_rate", "trio_tmrca"),
         [  # calculated from simulations
             (-1.0, 0.76),
             (-0.9, 0.79),

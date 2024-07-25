@@ -23,6 +23,7 @@
 """
 Expectation propagation implementation
 """
+
 import logging
 import time
 
@@ -33,24 +34,14 @@ from numba.types import void as _void
 from tqdm.auto import tqdm
 
 from . import approx
-from .approx import _b
-from .approx import _b1r
-from .approx import _f
-from .approx import _f1r
-from .approx import _f1w
-from .approx import _f2r
-from .approx import _f2w
-from .approx import _f3r
-from .approx import _f3w
-from .approx import _i
-from .approx import _i1r
-from .approx import _i2r
-from .phasing import block_singletons
-from .phasing import reallocate_unphased
-from .rescaling import count_mutations
-from .rescaling import mutational_timescale
-from .rescaling import piecewise_scale_point_estimate
-from .rescaling import piecewise_scale_posterior
+from .approx import _b, _b1r, _f, _f1r, _f1w, _f2r, _f2w, _f3r, _f3w, _i, _i1r, _i2r
+from .phasing import block_singletons, reallocate_unphased
+from .rescaling import (
+    count_mutations,
+    mutational_timescale,
+    piecewise_scale_point_estimate,
+    piecewise_scale_posterior,
+)
 from .util import contains_unary_nodes
 
 logger = logging.getLogger(__name__)
@@ -443,9 +434,7 @@ class ExpectationPropagation:
 
     @staticmethod
     @numba.njit(_void(_b1r, _f2w, _f3w, _f1w, _f, _i, _f))
-    def propagate_prior(
-        free, posterior, factors, scale, max_shape, em_maxitt, em_reltol
-    ):
+    def propagate_prior(free, posterior, factors, scale, max_shape, em_maxitt, em_reltol):
         """
         Update approximating factors for global prior.
 

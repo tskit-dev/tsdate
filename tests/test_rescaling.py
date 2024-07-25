@@ -24,6 +24,7 @@
 """
 Test cases for the gamma-variational approximations in tsdate
 """
+
 from collections import defaultdict
 
 import msprime
@@ -33,8 +34,7 @@ import tsinfer
 import tskit
 
 import tsdate
-from tsdate.rescaling import count_mutations
-from tsdate.rescaling import mutational_area
+from tsdate.rescaling import count_mutations, mutational_area
 
 
 @pytest.fixture(scope="session")

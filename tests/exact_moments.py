@@ -3,6 +3,7 @@
 Moments for EP updates using exact hypergeometric evaluations rather than
 a Laplace approximation; intended for testing and accuracy benchmarking.
 """
+
 from math import exp
 from math import log
 
@@ -181,9 +182,7 @@ def mutation_moments(a_i, b_i, a_j, b_j, y_ij, mu_ij):
     d3 = d2 * (a + 1) / (c + 1)
     mn_m = s1 * exp(f111 - f000) / t / 2 * (1 + z) + b / t / 2
     sq_m = (
-        d1 * exp(f020 - f000) / 3
-        + d2 * exp(f121 - f000) / 3
-        + d3 * exp(f222 - f000) / 3
+        d1 * exp(f020 - f000) / 3 + d2 * exp(f121 - f000) / 3 + d3 * exp(f222 - f000) / 3
     )
     va_m = sq_m - mn_m**2
     return mn_m, va_m
@@ -499,9 +498,7 @@ class TestExactMoments:
             )[0]
             assert np.isclose(logconst, np.log(ck_normconst))
             ck_t_i = scipy.integrate.quad(
-                lambda t_i: t_i
-                * self.pdf_rootward(t_i, t_j, *pars_redux)
-                / ck_normconst,
+                lambda t_i: t_i * self.pdf_rootward(t_i, t_j, *pars_redux) / ck_normconst,
                 t_j,
                 np.inf,
                 epsabs=0,
@@ -752,8 +749,7 @@ class TestExactMoments:
             )[0]
             ck_mn = (
                 scipy.integrate.quad(
-                    lambda t_i: f(t_i, t_j)[0]
-                    * self.pdf_rootward(t_i, t_j, *pars_redux),
+                    lambda t_i: f(t_i, t_j)[0] * self.pdf_rootward(t_i, t_j, *pars_redux),
                     t_j,
                     np.inf,
                 )[0]
@@ -762,8 +758,7 @@ class TestExactMoments:
             assert np.isclose(mn, ck_mn)
             ck_va = (
                 scipy.integrate.quad(
-                    lambda t_i: f(t_i, t_j)[1]
-                    * self.pdf_rootward(t_i, t_j, *pars_redux),
+                    lambda t_i: f(t_i, t_j)[1] * self.pdf_rootward(t_i, t_j, *pars_redux),
                     t_j,
                     np.inf,
                 )[0]
