@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.2.1] - 2024-07-26
+
+**Bugfixes**
+
+- Minor bug fixed with final step of algorithm (path rescaling).
+
+**Features**
+
+- Initial support for dating with unphased (or poorly phased) singleton
+  mutations via `singletons_phased=False` option. The API is preliminary and
+  may change.
+
+
 ## [0.2.0] - 2024-06-10
 
 **Bugfixes**
