@@ -12,6 +12,13 @@
   mutations via `singletons_phased=False` option. The API is preliminary and
   may change.
 
+**Documentation**
+
+- Fixed description of priors for variational gamma method, which were referred
+  to a 'flat' or improper but are actually empirical Bayes priors on root node ages,
+  fit by expectation maximization.
+
+
 
 ## [0.2.0] - 2024-06-10
 

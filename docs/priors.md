@@ -20,8 +20,10 @@ kernelspec:
 
 Note that currently, you only need to set specific priors if you are using the alternative
 `inside_outside` or `maximization` [methods](sec_methods). This page is primarily left in the
-documentation for historical reasons: for most purposes we recommend the default
-`variational_gamma` method, which uses an unparameterized flat (improper) prior.
+documentation for historical reasons. For most purposes we recommend the default
+`variational_gamma` method: this only sets a prior on root ages and not on internal nodes
+(whose priors essentially take a flat value, contrained only by their topological connection
+to the roots, and which are updated via the expectation propagation mechanism).
 
 ## Basic usage
 
@@ -108,7 +110,7 @@ flexibility.)
 
 ## The conditional coalescent
 
-Currently, non-flat priors are based on the
+Currently, informative node-specific priors are based on the
 [conditional coalescent](http://dx.doi.org/10.1006/tpbi.1998.1411).
 Specifically, in a tree sequence of `s` samples, the distribution of times for a node that always
 has `n` descendant samples is taken from the theoretical distribution of times

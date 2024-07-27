@@ -218,7 +218,7 @@ mu_per_bp_per_year = 3.4e-10  # Human generation time ~ 29 years
 ts_years = tsdate.date(ts, mutation_rate=mu_per_bp_per_year, time_units="years")
 ```
 
-However, if you are specifying a non-flat prior, e.g. because you are using a
+However, if you are specifying a node-specific prior, e.g. because you are using a
 discrete-time method, you will also need to change the scale of the prior. In particular,
 if you are setting the prior using the `population_size` argument, you will also need to
 modify that by multiplying it by the generation time. For example:

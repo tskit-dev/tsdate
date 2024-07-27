@@ -145,11 +145,11 @@ TODO: describe the rescaling step in more detail. Could also link to [the popula
 ## Discrete-time
 
 The available discrete-time algorithms are the `inside_outside` and `maximization` methods.
-For historical reasons, these approaches do not use a flat prior,
-but use the [conditional coalescent prior](sec_priors_conditional_coalescent),
+For historical reasons, these approaches use an informative (node-specific) prior,
+the [conditional coalescent prior](sec_priors_conditional_coalescent),
 which means that you either need to provide them with an estimated effective
 population size, or a [priors](sec_priors) object. Future improvements may
-allow flat priors to be set in discrete time methods, and coalescent priors
+allow Empirical Bayes priors to be set in discrete time methods, and coalescent priors
 to be set in continuous time methods.
 
 The _tsdate_ discrete time methods have the following advantages and disadvantages:
