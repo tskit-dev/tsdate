@@ -20,9 +20,10 @@ kernelspec:
 
 Note that currently, you only need to set specific priors if you are using the alternative
 `inside_outside` or `maximization` [methods](sec_methods). This page is primarily left in the
-documentation for historical reasons: for most purposes we recommend the default
-`variational_gamma` method, which uses an Empirical Bayes prior on root ages, fit by
-expectation maximization.
+documentation for historical reasons. For most purposes we recommend the default
+`variational_gamma` method: this only sets a prior on root ages and not on internal nodes
+(whose priors essentially take a flat value, contrained only by their topological connection
+to the roots, and which are updated via the expectation propagation mechanism).
 
 ## Basic usage
 
