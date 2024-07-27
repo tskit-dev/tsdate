@@ -50,7 +50,9 @@ Optionally, a posterior distribution of node times can be generated
 
 Since the method is Bayesian, technically it requires each node to have a
 prior distribution of times. The default `variational_gamma` method currently
-uses an Empirical Bayes prior on root nodes which does not need any user input. However,
+only imposes a prior on internal nodes via their topological connection to the
+root nodes (which are given an exponential prior). This Empirical Bayes procedure
+does not need any user input. However,
 the alternative discrete-time methods currently require
 the prior to be explicitly provided, either via providing an estimated
 effective population size (which is then used in the
