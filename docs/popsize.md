@@ -124,9 +124,10 @@ ax.set_ylabel("Population size", rotation=90);
 ## Misspecified priors
 
 The rescaling method for the default `variational_gamma` [method](sec_methods)
-(based on the rescaling algorithm described by [Deng et al
-2024](https://doi.org/10.1101/2024.03.16.585351)) adapts to deviations from
-neutrality and panmixia. However, alternative approaches such as the
+(inspired by the rescaling algorithm described by [Deng et al
+2024](https://doi.org/10.1101/2024.03.16.585351)), coupled with the absence of a strong
+informative prior on internal nodes, means that we expect this method to be
+robust to deviations from neutrality and panmixia. However, alternative approaches such as the
 `inside_outside` method default to a coalescent prior that assumes a fixed population size.
 Hence these approaches currently perform very poorly on such data:
 
