@@ -1,6 +1,9 @@
 # Changelog
 
-## [0.2.1] - 2024-07-26
+## [0.2.2] - 2024-XX-XX
+
+
+## [0.2.1] - 2024-07-31
 
 **Bugfixes**
 
@@ -17,7 +20,6 @@
 - Fixed description of priors for variational gamma method, which were referred
   to a 'flat' or improper but are actually empirical Bayes priors on root node ages,
   fit by expectation maximization.
-
 
 
 ## [0.2.0] - 2024-06-10
