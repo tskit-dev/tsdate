@@ -24,9 +24,9 @@ jobs:
       - run:
           name: Lint Python
           command: |
-              ruff check --line-length 90 tsdate setup.py tests
+              pre-commit run --all
       - save_cache:
-          key: tsdate-{{ checksum "data/prior_1000df.bak" }} 
+          key: tsdate-{{ checksum "data/prior_1000df.bak" }}
           paths:
             - data/prior_1000df.bak
             - tsdate/prior_1000df.txt
