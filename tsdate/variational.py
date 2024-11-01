@@ -185,7 +185,7 @@ class ExpectationPropagation:
         posterior_check += node_factors[:, CONSTRNT]
         np.testing.assert_allclose(posterior_check, posterior)
 
-    def __init__(self, ts, *, mutation_rate, allow_unary=False, singletons_phased=True, fixed_nodes=None):
+    def __init__(self, ts, *, mutation_rate, allow_unary=False, singletons_phased=True):
         """
         Initialize an expectation propagation algorithm for dating nodes
         in a tree sequence.
@@ -194,10 +194,10 @@ class ExpectationPropagation:
             ordering of nodes.
         :param ~float mutation_rate: the expected per-base mutation rate per
             time unit.
+        :param ~bool allow_unary: if False, then error out if the tree sequence
+            contains non-sample unary nodes.
         :param ~bool singletons_phased: if False, use an algorithm that
             treats singleton phase as unknown.
-        :param ~np.ndarray fixed_nodes: indices of nodes that should have ages
-            kept constant. If None, defaults to sample nodes.
         """
 
         self._check_valid_inputs(ts, mutation_rate, allow_unary)
@@ -205,9 +205,7 @@ class ExpectationPropagation:
         self.edge_children = ts.edges_child
 
         # lower and upper bounds on node ages
-        if fixed_nodes is None:
-            fixed_nodes = np.array(list(ts.samples()))
-        logger.info(f"Keeping ages of {fixed_nodes.size} nodes constant")
+        fixed_nodes = np.array(list(ts.samples()))
         self.node_constraints = np.zeros((ts.num_nodes, 2))
         self.node_constraints[:, 1] = np.inf
         self.node_constraints[fixed_nodes, :] = ts.nodes_time[fixed_nodes, np.newaxis]
@@ -261,7 +259,7 @@ class ExpectationPropagation:
         self.leaves = np.logical_and(~has_child, has_parent)
         if np.any(np.logical_and(~has_child, ~has_parent)):
             raise ValueError("Tree sequence contains disconnected nodes")
-        # TODO: we don't need to store all these
+        # TODO: we don't need to store all these similar vectors
         self.unconstrained_roots = self.roots.copy()
         self.unconstrained_roots[fixed_nodes] = False
 

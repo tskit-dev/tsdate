@@ -384,43 +384,6 @@ def mutational_area(
 #    return origin, adjust
 
 
-@numba.njit(_f1w(_f1r, _f1r, _f1r))
-def _rescale_pinned_intervals(mean, counts, duration):
-    r"""
-    Given an expected count `mean`, observed count `counts`, and scaling vector
-    `duration`, find the values of `x` that maximize `f(x) = counts * log(x *
-    mean) - x * mean` subject to `g(x) = sum(x * duration) - sum(duration) =
-    0`.  This is done via Lagrange multipliers, by solving the dual problem
-    `f'(x) = -u g'(x)` and `g(x) = 0`.
-    """
-    assert np.all(counts > 0), "Zero mutation counts in interval"
-    assert np.all(mean > 0), "Zero edge span in interval"
-    assert np.all(duration > 0), "Zero interval duration"
-    maxitt = 100
-    rtol = 1e-10
-    constraint = np.sum(duration)
-    bound = constraint / np.min(duration)  # upper bound on x
-    rate = mean / duration
-    i = np.argmin(rate)
-    multiplier = rate[i] - counts[i] / duration[i] / bound
-    itt = 0
-    delta = np.inf
-    while abs(delta) > rtol * abs(multiplier):  # Newton iteration
-        resid = multiplier - rate
-        numer = np.sum(counts / resid) + constraint
-        denom = np.sum(counts / np.power(resid, 2))
-        delta = numer / denom
-        multiplier += delta
-        assert itt < maxitt, "Max iterations exceeded"
-        assert np.isfinite(multiplier), "Nonfinite value"
-        itt += 1
-    rescale = counts / (mean - multiplier * duration)
-    print("DEBUG", np.sum(rescale * duration), constraint)
-    assert np.all(rescale > 0)
-    assert np.isclose(np.sum(rescale * duration), constraint)
-    return rescale * duration
-
-
 @numba.njit(_unituple(_f1w, 2)(_f1r, _f2r, _b1r, _i1r, _i1r, _i))
 def mutational_timescale(
     nodes_time,
@@ -451,8 +414,6 @@ def mutational_timescale(
     assert nodes_fixed.size == nodes_time.size
     assert max_intervals > 0
 
-    print("DEBUG0", np.sum(nodes_fixed))
-
     counts, offset, duration, indexes = mutational_area(
         nodes_time,
         likelihoods,
@@ -479,53 +440,6 @@ def mutational_timescale(
         assert n > 0, "Zero edge span in interval"
         adjust[k + 1] = z * y / n
         k += 1
-
-    # figure out which changepoints correspond to fixed nodes
-    # breaks_fixed = np.full(epoch_breaks.size, False)
-    # breaks_fixed[indexes[nodes_fixed]] = True
-    # changepoints_fixed = breaks_fixed[changepoints]
-    # which_fixed = np.flatnonzero(changepoints_fixed)
-    # assert which_fixed.size > 0 and which_fixed[0] == 0
-    #
-    # rescale intervals between two changepoints that are fixed to particular
-    # times, e.g. rescale interval lengths to maximize a Poisson likelihood
-    # while keeping the sum of interval durations unchanged
-    # rescale_pinned = False # DEBUG
-    # for u, v in zip(which_fixed[:-1], which_fixed[1:]):
-    #    assert v > u
-    #    pinned = changepoints[u:v+1]
-    #    n = np.zeros(pinned.size - 1)
-    #    y = np.zeros(pinned.size - 1)
-    #    z = np.zeros(pinned.size - 1)
-    #    k = 0
-    #    for i, j in zip(pinned[:-1], pinned[1:]):
-    #        assert j > i
-    #        n[k] = np.sum(offset[i:j])
-    #        y[k] = np.sum(counts[i:j])
-    #        z[k] = np.sum(duration[i:j])
-    #        k += 1
-    #    if rescale_pinned:
-    #        adjust[u:v] = \
-    #            _rescale_pinned_intervals(offset, counts, duration)
-    #    else:  # don't rescale
-    #        print("DEBUG", u, v, pinned[0], pinned[-1], z.size, z)
-    #        adjust[u:v] = z
-    #
-    # rescale the intervals after the final fixed changepoint
-    # origin = epoch_breaks[changepoints]
-    # adjust = np.append(0, np.diff(origin))
-    # k = which_fixed[-1]
-    # for i, j in zip(changepoints[k:-1], changepoints[k+1:]):
-    #    assert j > i
-    #    n = np.sum(offset[i:j])
-    #    y = np.sum(counts[i:j])
-    #    z = np.sum(duration[i:j])
-    #    assert y > 0, "Zero mutation counts in interval"
-    #    assert n > 0, "Zero edge span in interval"
-    #    assert z > 0, "Zero interval duration"
-    #    adjust[k + 1] = z * y / n
-    #    k += 1
-    # adjust = np.cumsum(adjust)
 
     adjust = np.cumsum(adjust)
     origin = epoch_breaks[changepoints]
