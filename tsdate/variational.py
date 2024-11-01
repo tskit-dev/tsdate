@@ -186,21 +186,19 @@ class ExpectationPropagation:
         posterior_check += node_factors[:, CONSTRNT]
         np.testing.assert_allclose(posterior_check, posterior)
 
-    def __init__(self, ts, *, mutation_rate, singletons_phased=True):
+    def __init__(self, ts, *, mutation_rate, singletons_phased=True, fixed_nodes=None):
         """
         Initialize an expectation propagation algorithm for dating nodes
         in a tree sequence.
-
-        .. note:: Each row of ``likelihoods`` corresponds to an edge in the
-            tree sequence. The entries are the outcome and rate of a Poisson
-            distribution for mutations on the edge. When both entries are zero,
-            this degenerates to an indicator function :math:`I[child_age <
-            parent_age]`.
 
         :param ~tskit.TreeSequence ts: a tree sequence containing the partial
             ordering of nodes.
         :param ~float mutation_rate: the expected per-base mutation rate per
             time unit.
+        :param ~bool singletons_phased: if False, use an algorithm that
+            treats singleton phase as unknown.
+        :param ~np.ndarray fixed_nodes: indices of nodes that should have ages
+            kept constant. If None, defaults to sample nodes.
         """
 
         self._check_valid_inputs(ts, mutation_rate)
@@ -208,10 +206,12 @@ class ExpectationPropagation:
         self.edge_children = ts.edges_child
 
         # lower and upper bounds on node ages
-        samples = list(ts.samples())
+        if fixed_nodes is None:
+            fixed_nodes = np.array(list(ts.samples()))
+        logger.info(f"Keeping ages of {fixed_nodes.size} nodes constant")
         self.node_constraints = np.zeros((ts.num_nodes, 2))
         self.node_constraints[:, 1] = np.inf
-        self.node_constraints[samples, :] = ts.nodes_time[samples, np.newaxis]
+        self.node_constraints[fixed_nodes, :] = ts.nodes_time[fixed_nodes, np.newaxis]
         self._check_valid_constraints(
             self.node_constraints, self.edge_parents, self.edge_children
         )
@@ -262,6 +262,9 @@ class ExpectationPropagation:
         self.leaves = np.logical_and(~has_child, has_parent)
         if np.any(np.logical_and(~has_child, ~has_parent)):
             raise ValueError("Tree sequence contains disconnected nodes")
+        # TODO: we don't need to store all these
+        self.unconstrained_roots = self.roots.copy()
+        self.unconstrained_roots[fixed_nodes] = False
 
         # edge traversal order
         edge_unphased = np.full(ts.num_edges, False)
@@ -689,7 +692,7 @@ class ExpectationPropagation:
         # exponential regularization on roots
         if regularise:
             self.propagate_prior(
-                self.roots,
+                self.unconstrained_roots,
                 self.node_posterior,
                 self.node_factors,
                 self.node_scale,
@@ -738,32 +741,45 @@ class ExpectationPropagation:
             self.mutation_blocks,
             self.block_edges,
         )
+        nodes_fixed = self.node_constraints[:, 0] == self.node_constraints[:, 1]
+        mutations_fixed = np.isnan(self.mutation_posterior[:, 0])
         nodes_time, _ = self.node_moments()
         rescaled_nodes_time = nodes_time.copy()
         for _ in np.arange(rescale_iterations):  # estimate time rescaling
             original_breaks, rescaled_breaks = mutational_timescale(
                 rescaled_nodes_time,
                 likelihoods,
-                self.node_constraints,
+                nodes_fixed,
                 self.edge_parents,
                 self.edge_children,
                 rescale_intervals,
             )
             rescaled_nodes_time = piecewise_scale_point_estimate(
-                rescaled_nodes_time, original_breaks, rescaled_breaks
+                rescaled_nodes_time,
+                nodes_fixed,
+                original_breaks,
+                rescaled_breaks,
             )
-        _, unique = np.unique(rescaled_nodes_time, return_index=True)
-        original_breaks = piecewise_scale_point_estimate(
-            rescaled_breaks, rescaled_nodes_time[unique], nodes_time[unique]
+            assert np.allclose(rescaled_nodes_time[nodes_fixed], nodes_time[nodes_fixed])
+        # TODO: clean up
+        _, unique = np.unique(rescaled_nodes_time[~nodes_fixed], return_index=True)
+        original_breaks = piecewise_scale_point_estimate(  # recover original breakpoints
+            rescaled_breaks,
+            np.full(rescaled_breaks.size, False),
+            np.append(0, rescaled_nodes_time[~nodes_fixed][unique]),
+            np.append(0, nodes_time[~nodes_fixed][unique]),
         )
+        # /TODO
         self.node_posterior[:] = piecewise_scale_posterior(
             self.node_posterior,
+            nodes_fixed,
             original_breaks,
             rescaled_breaks,
             quantile_width,
         )
         self.mutation_posterior[:] = piecewise_scale_posterior(
             self.mutation_posterior,
+            mutations_fixed,
             original_breaks,
             rescaled_breaks,
             quantile_width,
