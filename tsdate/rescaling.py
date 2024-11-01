@@ -247,7 +247,8 @@ def mutational_area(
 ):
     """
     Calculate the total number of mutations and mutational area per inter-node
-    interval.
+    interval. These are infinitesimal; e.g. the actual count in an interval is
+    `returned_count * duration`.
 
     :param np.ndarray nodes_time: point estimates for node ages
     :param np.ndarray likelihoods: edges are rows; mutation
@@ -295,6 +296,7 @@ def mutational_area(
     return counts, offset, duration, nodes_index
 
 
+# --- version before refactor, keeping around for reference ---
 # @numba.njit(_unituple(_f1w, 2)(_f1r, _f2r, _f2r, _i1r, _i1r, _f1r, _i))
 # def mutational_timescale(
 #    nodes_time,
@@ -382,11 +384,48 @@ def mutational_area(
 #    return origin, adjust
 
 
-@numba.njit(_unituple(_f1w, 2)(_f1r, _f2r, _f2r, _i1r, _i1r, _i))
+@numba.njit(_f1w(_f1r, _f1r, _f1r))
+def _rescale_pinned_intervals(mean, counts, duration):
+    r"""
+    Given an expected count `mean`, observed count `counts`, and scaling vector
+    `duration`, find the values of `x` that maximize `f(x) = counts * log(x *
+    mean) - x * mean` subject to `g(x) = sum(x * duration) - sum(duration) =
+    0`.  This is done via Lagrange multipliers, by solving the dual problem
+    `f'(x) = -u g'(x)` and `g(x) = 0`.
+    """
+    assert np.all(counts > 0), "Zero mutation counts in interval"
+    assert np.all(mean > 0), "Zero edge span in interval"
+    assert np.all(duration > 0), "Zero interval duration"
+    maxitt = 100
+    rtol = 1e-10
+    constraint = np.sum(duration)
+    bound = constraint / np.min(duration)  # upper bound on x
+    rate = mean / duration
+    i = np.argmin(rate)
+    multiplier = rate[i] - counts[i] / duration[i] / bound
+    itt = 0
+    delta = np.inf
+    while abs(delta) > rtol * abs(multiplier):  # Newton iteration
+        resid = multiplier - rate
+        numer = np.sum(counts / resid) + constraint
+        denom = np.sum(counts / np.power(resid, 2))
+        delta = numer / denom
+        multiplier += delta
+        assert itt < maxitt, "Max iterations exceeded"
+        assert np.isfinite(multiplier), "Nonfinite value"
+        itt += 1
+    rescale = counts / (mean - multiplier * duration)
+    print("DEBUG", np.sum(rescale * duration), constraint)
+    assert np.all(rescale > 0)
+    assert np.isclose(np.sum(rescale * duration), constraint)
+    return rescale * duration
+
+
+@numba.njit(_unituple(_f1w, 2)(_f1r, _f2r, _b1r, _i1r, _i1r, _i))
 def mutational_timescale(
     nodes_time,
     likelihoods,
-    constraints,
+    nodes_fixed,
     edges_parent,
     edges_child,
     max_intervals,
@@ -409,12 +448,10 @@ def mutational_timescale(
     assert edges_parent.size == edges_child.size
     assert likelihoods.shape[0] == edges_parent.size
     assert likelihoods.shape[1] == 2
-    assert constraints.shape[0] == nodes_time.size
-    assert constraints.shape[1] == 2
+    assert nodes_fixed.size == nodes_time.size
     assert max_intervals > 0
 
-    nodes_fixed = constraints[:, 0] == constraints[:, 1]
-    assert np.all(nodes_time[nodes_fixed] == constraints[nodes_fixed, 0])
+    print("DEBUG0", np.sum(nodes_fixed))
 
     counts, offset, duration, indexes = mutational_area(
         nodes_time,
@@ -427,8 +464,11 @@ def mutational_timescale(
     # TODO: use poisson changepoints to further refine
     epoch_breaks = np.append(0.0, np.cumsum(duration))
     changepoints = _fixed_changepoints(offset * duration, max_intervals)
-    changepoints = np.union1d(changepoints, indexes[nodes_fixed])
+    changepoints = np.unique(changepoints)
+    # changepoints = np.union1d(changepoints, indexes[nodes_fixed])
     adjust = np.zeros(changepoints.size)
+
+    # --- without any internal constraints ---
     k = 0
     for i, j in zip(changepoints[:-1], changepoints[1:]):
         assert j > i
@@ -439,24 +479,75 @@ def mutational_timescale(
         assert n > 0, "Zero edge span in interval"
         adjust[k + 1] = z * y / n
         k += 1
+
+    # figure out which changepoints correspond to fixed nodes
+    # breaks_fixed = np.full(epoch_breaks.size, False)
+    # breaks_fixed[indexes[nodes_fixed]] = True
+    # changepoints_fixed = breaks_fixed[changepoints]
+    # which_fixed = np.flatnonzero(changepoints_fixed)
+    # assert which_fixed.size > 0 and which_fixed[0] == 0
+    #
+    # rescale intervals between two changepoints that are fixed to particular
+    # times, e.g. rescale interval lengths to maximize a Poisson likelihood
+    # while keeping the sum of interval durations unchanged
+    # rescale_pinned = False # DEBUG
+    # for u, v in zip(which_fixed[:-1], which_fixed[1:]):
+    #    assert v > u
+    #    pinned = changepoints[u:v+1]
+    #    n = np.zeros(pinned.size - 1)
+    #    y = np.zeros(pinned.size - 1)
+    #    z = np.zeros(pinned.size - 1)
+    #    k = 0
+    #    for i, j in zip(pinned[:-1], pinned[1:]):
+    #        assert j > i
+    #        n[k] = np.sum(offset[i:j])
+    #        y[k] = np.sum(counts[i:j])
+    #        z[k] = np.sum(duration[i:j])
+    #        k += 1
+    #    if rescale_pinned:
+    #        adjust[u:v] = \
+    #            _rescale_pinned_intervals(offset, counts, duration)
+    #    else:  # don't rescale
+    #        print("DEBUG", u, v, pinned[0], pinned[-1], z.size, z)
+    #        adjust[u:v] = z
+    #
+    # rescale the intervals after the final fixed changepoint
+    # origin = epoch_breaks[changepoints]
+    # adjust = np.append(0, np.diff(origin))
+    # k = which_fixed[-1]
+    # for i, j in zip(changepoints[k:-1], changepoints[k+1:]):
+    #    assert j > i
+    #    n = np.sum(offset[i:j])
+    #    y = np.sum(counts[i:j])
+    #    z = np.sum(duration[i:j])
+    #    assert y > 0, "Zero mutation counts in interval"
+    #    assert n > 0, "Zero edge span in interval"
+    #    assert z > 0, "Zero interval duration"
+    #    adjust[k + 1] = z * y / n
+    #    k += 1
+    # adjust = np.cumsum(adjust)
+
     adjust = np.cumsum(adjust)
     origin = epoch_breaks[changepoints]
 
     return origin, adjust
 
 
-@numba.njit(_f2w(_f2r, _f1r, _f1r, _f))
+@numba.njit(_f2w(_f2r, _b1r, _f1r, _f1r, _f))
 def piecewise_scale_posterior(
     posteriors,
+    posteriors_fixed,
     original_breaks,
     rescaled_breaks,
     quantile_width,
 ):
     """
+    :param np.ndarray posteriors_fixed: if True do not rescale corresponding posterior
     :param float quantile_width: width of interquantile range to use for estimating
         rescaled shape parameter, e.g. 0.5 uses interquartile range
     """
 
+    assert posteriors_fixed.size == posteriors.shape[0]
     assert original_breaks.size == rescaled_breaks.size
     assert 1 > quantile_width > 0
 
@@ -464,8 +555,10 @@ def piecewise_scale_posterior(
     quant_lower = quantile_width / 2
     quant_upper = 1 - quantile_width / 2
 
+    freed = ~posteriors_fixed
+    assert np.all(np.logical_and(posteriors[freed, 0] > -1, posteriors[freed, 1] > 0))
+
     # use posterior mean as a point estimate
-    freed = np.logical_and(posteriors[:, 0] > -1, posteriors[:, 1] > 0)
     lower = np.zeros(dim)
     upper = np.zeros(dim)
     midpt = np.zeros(dim)
@@ -501,9 +594,10 @@ def piecewise_scale_posterior(
     return new_posteriors
 
 
-@numba.njit(_f1w(_f1r, _f1r, _f1r))
+@numba.njit(_f1w(_f1r, _b1r, _f1r, _f1r))
 def piecewise_scale_point_estimate(
     point_estimate,
+    point_fixed,
     original_breaks,
     rescaled_breaks,
 ):
@@ -513,6 +607,7 @@ def piecewise_scale_point_estimate(
     idx = np.searchsorted(original_breaks, point_estimate, "right") - 1
     rescaled_estimate = rescaled_breaks[idx] + \
         scalings[idx] * (point_estimate - original_breaks[idx])  # fmt: skip
+    rescaled_estimate[point_fixed] = point_estimate[point_fixed]
     return rescaled_estimate
 
 
@@ -552,6 +647,7 @@ def rescale_tree_sequence(
         mutations_span, mutations_edge = count_mutations(ts, size_biased=True)
     mutations_span[:, 1] *= mutation_rate
     # rescale node ages
+    fixed_nodes = constraints[:, 0] == constraints[:, 1]
     nodes_time = ts.nodes_time.copy()
     for _ in np.arange(num_iterations):
         original_breaks, rescaled_breaks = mutational_timescale(
@@ -563,8 +659,9 @@ def rescale_tree_sequence(
             num_intervals,
         )
         nodes_time = piecewise_scale_point_estimate(
-            nodes_time, original_breaks, rescaled_breaks
+            nodes_time, fixed_nodes, original_breaks, rescaled_breaks
         )
+        assert np.allclose(nodes_time[fixed_nodes], ts.nodes_time[fixed_nodes])
     # calculate mutation ages
     mutations_parent = ts.edges_parent[mutations_edge]
     mutations_child = ts.edges_child[mutations_edge]
