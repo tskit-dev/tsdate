@@ -140,18 +140,22 @@ def approximate_gamma_mom(mean, variance):
     return shape - 1.0, rate
 
 
-@numba.njit(_unituple(_f, 2)(_f, _f, _f, _f))
-def approximate_gamma_iqr(q1, q2, x1, x2):
+@numba.njit(_unituple(_f, 2)(_f, _f, _f, _f, _f))
+def approximate_gamma_iqr(q1, q2, x1, x2, max_shape):
     """Find gamma natural parameters that match empirical quantiles"""
+
+    def upper_bound(q, x):  # cap shape parameter
+        beta = hypergeo._gammainc_inv(max_shape, q) / x
+        return max_shape - 1, beta
+
+    if x2 == x1:
+        return upper_bound(q1, x1)
     if not (q2 > q1 and x2 > x1):
         raise KLMinimizationFailedError("Quantiles must be sorted")
-    # find starting value from asymptotic solutions
-    # if x2 / x1 < log(1 - q2) / log(1 - q1):
-    #    y1 = hypergeo._erf_inv(2 * q1 - 1) * sqrt(2)
-    #    y2 = hypergeo._erf_inv(2 * q2 - 1) * sqrt(2)
-    #    alpha = (y1 * x2 - y2 * x1) ** 2 / (x1 - x2) ** 2
-    # else:
-    alpha = log(q2 / q1) / log(x2 / x1)
+    alpha = log(q2 / q1) / log(x2 / x1)  # lower bound
+    if alpha > max_shape:
+        return upper_bound(q1, x1)
+
     # refine with newton iteration
     delta = inf
     itt = 0
@@ -172,8 +176,11 @@ def approximate_gamma_iqr(q1, q2, x1, x2):
         delta = -obj / gra
         alpha += delta
         itt += 1
+
     if not alpha > 0:
         raise KLMinimizationFailedError("Negative shape parameter")
+    if alpha > max_shape:
+        return upper_bound(q1, x1)
     beta = hypergeo._gammainc_inv(alpha, q1) / x1
     return alpha - 1, beta
 

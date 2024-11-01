@@ -615,16 +615,26 @@ def _constrain_ages(
             adjustment = nodes_time[c] - nodes_time[p]  # + epsilon
             edges_cavity[e, :] = 0.0
             if adjustment > 0:
-                assert not nodes_fixed[p]  # TODO: no reason not to support this
-                edges_cavity[e, 0] = 0 if nodes_fixed[c] else -adjustment / 2
-                edges_cavity[e, 1] = adjustment if nodes_fixed[c] else adjustment / 2
+                assert not (nodes_fixed[c] and nodes_fixed[p])
+                if not nodes_fixed[c] and not nodes_fixed[p]:
+                    edges_cavity[e, 0] = -adjustment / 2
+                    edges_cavity[e, 1] = adjustment / 2
+                elif nodes_fixed[c] and not nodes_fixed[p]:
+                    edges_cavity[e, 0] = 0
+                    edges_cavity[e, 1] = adjustment
+                elif not nodes_fixed[c] and nodes_fixed[p]:
+                    edges_cavity[e, 0] = -adjustment
+                    edges_cavity[e, 1] = 0
             nodes_time[c] += edges_cavity[e, 0]
             nodes_time[p] += edges_cavity[e, 1]
     # print(
     #   "min length:", np.min(nodes_time[edges_parent] - nodes_time[edges_child])
     # )
-    for e in range(num_edges):  # force constraint
+
+    # force remaining constraint, which can change the ages of fixed nodes
+    for e in range(num_edges):
         p, c = edges_parent[e], edges_child[e]
+        # TODO: even if nodes_fixed[p], this will still change the age
         if nodes_time[c] >= nodes_time[p]:
             nodes_time[p] = nodes_time[c] + epsilon
 
@@ -656,18 +666,17 @@ def constrain_ages(ts, nodes_time, epsilon=1e-6, max_iterations=0):
     assert epsilon >= 0
     assert max_iterations >= 0
 
-    node_is_sample = np.bitwise_and(ts.nodes_flags, tskit.NODE_IS_SAMPLE).astype(bool)
+    nodes_fixed = np.bitwise_and(ts.nodes_flags, tskit.NODE_IS_SAMPLE).astype(bool)
     constrained_nodes_time = _constrain_ages(
         nodes_time,
-        node_is_sample,
+        nodes_fixed,
         ts.edges_parent,
         ts.edges_child,
         epsilon,
         max_iterations,
     )
     modified = np.sum(~np.isclose(nodes_time, constrained_nodes_time))
-    if modified:
-        logging.info(f"Modified ages of {modified} nodes to satisfy constraints")
+    logging.info(f"Modified ages of {modified} nodes to satisfy constraints")
 
     return constrained_nodes_time
 
@@ -704,8 +713,9 @@ def constrain_mutations(ts, nodes_time, mutations_edge):
     return constrained_time
 
 
-@numba_jit(_b(_i1r, _f1r, _f1r, _i1r, _i1r, _f, _i))
+@numba_jit(_b(_b1r, _i1r, _f1r, _f1r, _i1r, _i1r, _f, _i))
 def _contains_unary_nodes(
+    nodes_mask,
     edges_parent,
     edges_left,
     edges_right,
@@ -742,7 +752,7 @@ def _contains_unary_nodes(
             a += 1
 
         for p in check:
-            if nodes_children[p] == 1:
+            if not nodes_mask[p] and nodes_children[p] == 1:
                 return True
 
         right = sequence_length
@@ -755,12 +765,19 @@ def _contains_unary_nodes(
     return False
 
 
-def contains_unary_nodes(ts):
+def contains_unary_nodes(ts, skip_samples=True):
     """
-    Check if any node in the tree sequence is unary over some portion of its span
+    Check if any internal node in the tree sequence is unary over some portion
+    of its span.  If `skip_samples` is `True`, then sample nodes that are unary
+    and internal will be ignored.
     """
 
+    nodes_mask = np.full(ts.num_nodes, False)
+    if skip_samples:
+        nodes_mask[list(ts.samples())] = True
+
     return _contains_unary_nodes(
+        nodes_mask,
         ts.edges_parent,
         ts.edges_left,
         ts.edges_right,
