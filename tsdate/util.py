@@ -615,9 +615,19 @@ def _constrain_ages(
             adjustment = nodes_time[c] - nodes_time[p]  # + epsilon
             edges_cavity[e, :] = 0.0
             if adjustment > 0:
-                assert not nodes_fixed[p]  # TODO: no reason not to support this
-                edges_cavity[e, 0] = 0 if nodes_fixed[c] else -adjustment / 2
-                edges_cavity[e, 1] = adjustment if nodes_fixed[c] else adjustment / 2
+                # assert not nodes_fixed[p]  # TODO: no reason not to support this
+                # edges_cavity[e, 0] = 0 if nodes_fixed[c] else -adjustment / 2
+                # edges_cavity[e, 1] = adjustment if nodes_fixed[c] else adjustment / 2
+                assert not (nodes_fixed[c] and nodes_fixed[p])
+                if not nodes_fixed[c] and not nodes_fixed[p]:
+                    edges_cavity[e, 0] = -adjustment / 2
+                    edges_cavity[e, 1] = adjustment / 2
+                elif nodes_fixed[c] and not nodes_fixed[p]:
+                    edges_cavity[e, 0] = 0
+                    edges_cavity[e, 1] = adjustment
+                elif not nodes_fixed[c] and nodes_fixed[p]:
+                    edges_cavity[e, 0] = -adjustment
+                    edges_cavity[e, 1] = 0
             nodes_time[c] += edges_cavity[e, 0]
             nodes_time[p] += edges_cavity[e, 1]
     # print(
@@ -627,11 +637,21 @@ def _constrain_ages(
         p, c = edges_parent[e], edges_child[e]
         if nodes_time[c] >= nodes_time[p]:
             nodes_time[p] = nodes_time[c] + epsilon
+    # for e in range(num_edges):  # force constraint
+    #    p, c = edges_parent[e], edges_child[e]
+    #    if nodes_time[p] < nodes_time[c] + epsilon:
+    #        if nodes_fixed[p]:
+    #            assert not nodes_fixed[c]
+    #            # TODO: this could result in invalid values if epsilon is too big
+    #            print(nodes_time[c], nodes_time[p] - epsilon)
+    #            nodes_time[c] = nodes_time[p] - epsilon / 2
+    #        else:
+    #            nodes_time[p] = nodes_time[c] + epsilon
 
     return nodes_time
 
 
-def constrain_ages(ts, nodes_time, epsilon=1e-6, max_iterations=0):
+def constrain_ages(ts, nodes_time, epsilon=1e-6, max_iterations=0, fixed_nodes=None):
     """
     Use a hybrid approach to adjust node times such that branch lengths are
     positive. The first pass iteratively solves a constrained least squares
@@ -648,6 +668,8 @@ def constrain_ages(ts, nodes_time, epsilon=1e-6, max_iterations=0):
         positive branch lengths.
     :param int max_iterations: The number of iterations of alternating
         projections before forcing positive branch lengths.
+    :param np.ndarray fixed_nodes: Indices of nodes whose age should should
+        remain unmodified. Sample nodes are always fixed.
 
     :return np.ndarray: Constrained node ages
     """
@@ -656,18 +678,23 @@ def constrain_ages(ts, nodes_time, epsilon=1e-6, max_iterations=0):
     assert epsilon >= 0
     assert max_iterations >= 0
 
-    node_is_sample = np.bitwise_and(ts.nodes_flags, tskit.NODE_IS_SAMPLE).astype(bool)
+    # TODO: always fix samples, or always fix nodes with no children? Probably
+    # the latter?
+    nodes_fixed = np.bitwise_and(ts.nodes_flags, tskit.NODE_IS_SAMPLE).astype(bool)
+    if nodes_fixed is not None:
+        nodes_fixed[fixed_nodes] = True
+
     constrained_nodes_time = _constrain_ages(
         nodes_time,
-        node_is_sample,
+        nodes_fixed,
         ts.edges_parent,
         ts.edges_child,
         epsilon,
         max_iterations,
     )
     modified = np.sum(~np.isclose(nodes_time, constrained_nodes_time))
-    if modified:
-        logging.info(f"Modified ages of {modified} nodes to satisfy constraints")
+    logging.info(f"Fixing {nodes_fixed.sum()} node times for constraint")
+    logging.info(f"Modified ages of {modified} nodes to satisfy constraints")
 
     return constrained_nodes_time
 
