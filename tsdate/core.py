@@ -89,8 +89,6 @@ class EstimationMethod:
         progress=None,
         # deprecated params
         return_posteriors=None,
-        # undocumented
-        fixed_nodes=None,  # if None will default to sample nodes
     ):
         # Set up all the generic params describe in the tsdate.date function, and define
         # priors if not passed-in already
@@ -177,17 +175,9 @@ class EstimationMethod:
                     )
                 self.priors = priors
 
-        # mutation to edge mapping
         # TODO: this isn't needed except for mutations_edge in constrain_mutations
         self.edges_mutations, self.mutations_edge = util.mutation_span_array(ts)
-
-        if fixed_nodes is None:
-            self.fixed_nodes = np.array(list(ts.samples()))
-        else:
-            assert np.logical_and(
-                fixed_nodes.min() >= 0, fixed_nodes.max() < ts.num_nodes
-            )  # TODO: raise error
-            self.fixed_nodes = fixed_nodes
+        self.fixed_nodes = np.array(list(ts.samples()))
 
     def get_modified_ts(self, result, eps):
         # Return a new ts based on the existing one, but with the various
@@ -205,9 +195,7 @@ class EstimationMethod:
 
         # Constrain node ages for positive branch lengths
         constr_timing = time.time()
-        nodes.time = util.constrain_ages(
-            ts, node_mean_t, eps, self.constr_iterations, self.fixed_nodes
-        )
+        nodes.time = util.constrain_ages(ts, node_mean_t, eps, self.constr_iterations)
         mutations.time = util.constrain_mutations(ts, nodes.time, mut_edge)
         mutations.node = mut_node
         mutations.parent = np.full(mutations.num_rows, tskit.NULL, dtype=np.int32)
@@ -468,7 +456,6 @@ class VariationalGammaMethod(EstimationMethod):
             mutation_rate=self.mutation_rate,
             allow_unary=self.allow_unary,
             singletons_phased=singletons_phased,
-            fixed_nodes=self.fixed_nodes,
         )
         fit_obj.infer(
             ep_iterations=max_iterations,
