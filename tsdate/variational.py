@@ -457,6 +457,9 @@ class ExpectationPropagation:
         def posterior_damping(x):
             return _rescale(x, max_shape)
 
+        if not np.any(free):
+            return
+
         # fit an exponential to cavity distributions for unconstrained nodes
         cavity = posterior - factors[:, MIXPRIOR] * scale[:, np.newaxis]
         shape, rate = cavity[free, 0] + 1, cavity[free, 1]
@@ -717,6 +720,7 @@ class ExpectationPropagation:
         rescale_segsites=False,
         rescale_iterations=10,
         quantile_width=0.5,
+        max_shape=1000,
         progress=False,
     ):
         # Normalise posteriors so that empirical mutation rate is constant
@@ -763,6 +767,7 @@ class ExpectationPropagation:
             original_breaks,
             rescaled_breaks,
             quantile_width,
+            max_shape,
         )
         self.mutation_posterior[:] = piecewise_scale_posterior(
             self.mutation_posterior,
@@ -770,6 +775,7 @@ class ExpectationPropagation:
             original_breaks,
             rescaled_breaks,
             quantile_width,
+            max_shape,
         )
 
     def infer(
@@ -860,6 +866,7 @@ class ExpectationPropagation:
                 rescale_intervals=rescale_intervals,
                 rescale_iterations=rescale_iterations,
                 rescale_segsites=rescale_segsites,
+                max_shape=max_shape,
                 progress=progress,
             )
             rescale_timing -= time.time()

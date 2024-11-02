@@ -447,13 +447,14 @@ def mutational_timescale(
     return origin, adjust
 
 
-@numba.njit(_f2w(_f2r, _b1r, _f1r, _f1r, _f))
+@numba.njit(_f2w(_f2r, _b1r, _f1r, _f1r, _f, _f))
 def piecewise_scale_posterior(
     posteriors,
     posteriors_fixed,
     original_breaks,
     rescaled_breaks,
     quantile_width,
+    max_shape,
 ):
     """
     :param np.ndarray posteriors_fixed: if True do not rescale corresponding posterior
@@ -498,10 +499,11 @@ def piecewise_scale_posterior(
     upper = rescale(upper)
 
     # reproject posteriors using inter-quantile range
-    # TODO: catch rare cases where lower/upper quantiles are nearly identical
     new_posteriors = np.full(posteriors.shape, np.nan)
     for i in np.flatnonzero(freed):
-        alpha, beta = approximate_gamma_iqr(quant_lower, quant_upper, lower[i], upper[i])
+        alpha, beta = approximate_gamma_iqr(
+            quant_lower, quant_upper, lower[i], upper[i], max_shape
+        )
         beta = (alpha + 1) / midpt[i]  # choose rate so as to keep mean
         new_posteriors[i] = alpha, beta
 
