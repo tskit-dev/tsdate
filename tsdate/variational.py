@@ -66,6 +66,8 @@ UPPER = 1  # upper bound on node
 USE_EDGE_LIKELIHOOD = False
 USE_BLOCK_LIKELIHOOD = True
 
+TINY = np.sqrt(np.finfo(np.float64).tiny)  # DEBUG
+
 
 @numba.njit(_f(_f1r, _f1r, _f))
 def _damp(x, y, s):
@@ -98,6 +100,8 @@ def _rescale(x, s):
     assert x.size == 2
     if np.all(x == 0.0):
         return 1.0
+    if not 0 < x[1]:
+        print(x, s)  # DEBUG
     assert 0 < x[0] + 1
     assert 0 < x[1]
     if 1 + x[0] > s:
@@ -433,6 +437,21 @@ class ExpectationPropagation:
                     posterior[c] *= child_eta
                     scale[p] *= parent_eta
                     scale[c] *= child_eta
+            # The scale vanishes when there's lots of edges leading into a
+            # single node. We can absorb the scale into the factors at any
+            # point. The issue is that we need to do it for all edges connected
+            # to a node simulatenously, which I was hoping to avoid for speed
+            # reasons.
+            # FIXME: this is a hacky bypass
+            if scale[p] < TINY or scale[c] < TINY:  # DEBUG
+                factors[:, ROOTWARD] *= scale[edges_parent, np.newaxis]
+                factors[:, LEAFWARD] *= scale[edges_child, np.newaxis]
+                scale[:] = 1.0
+        # FIXME: this is a hacky bypass
+        if scale[p] < TINY or scale[c] < TINY:  # DEBUG
+            factors[:, ROOTWARD] *= scale[edges_parent, np.newaxis]
+            factors[:, LEAFWARD] *= scale[edges_child, np.newaxis]
+            scale[:] = 1.0
 
     @staticmethod
     @numba.njit(_void(_b1r, _f2w, _f3w, _f1w, _f, _i, _f))
