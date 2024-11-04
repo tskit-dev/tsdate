@@ -29,7 +29,7 @@ import itertools
 import logging
 import multiprocessing
 import operator
-import time  # DEBUG
+import time
 from collections import defaultdict, namedtuple
 
 import numba
@@ -979,9 +979,9 @@ class EstimationMethod:
                     )
                 self.priors = priors
 
-        # mutation to edge mapping
         # TODO: this isn't needed except for mutations_edge in constrain_mutations
         self.edges_mutations, self.mutations_edge = util.mutation_span_array(ts)
+        self.fixed_nodes = np.array(list(ts.samples()))
 
     def get_modified_ts(self, result, eps):
         # Return a new ts based on the existing one, but with the various
