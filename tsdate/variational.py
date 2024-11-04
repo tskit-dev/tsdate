@@ -447,11 +447,12 @@ class ExpectationPropagation:
                 factors[:, ROOTWARD] *= scale[edges_parent, np.newaxis]
                 factors[:, LEAFWARD] *= scale[edges_child, np.newaxis]
                 scale[:] = 1.0
+            # /FIXME
         # FIXME: this is a hacky bypass
-        if scale[p] < TINY or scale[c] < TINY:  # DEBUG
-            factors[:, ROOTWARD] *= scale[edges_parent, np.newaxis]
-            factors[:, LEAFWARD] *= scale[edges_child, np.newaxis]
-            scale[:] = 1.0
+        factors[:, ROOTWARD] *= scale[edges_parent, np.newaxis]
+        factors[:, LEAFWARD] *= scale[edges_child, np.newaxis]
+        scale[:] = 1.0
+        # /FIXME
 
     @staticmethod
     @numba.njit(_void(_b1r, _f2w, _f3w, _f1w, _f, _i, _f))
