@@ -39,14 +39,9 @@ from utility_functions import constrain_ages_topo
 
 import tsdate
 from tsdate import base
-from tsdate.core import (
-    DiscreteTimeMethod,
-    InOutAlgorithms,
-    InsideOutsideMethod,
-    Likelihoods,
-    LogLikelihoods,
-)
+from tsdate.core import DiscreteTimeMethod, InsideOutsideMethod
 from tsdate.demography import PopulationSizeHistory
+from tsdate.discrete import InOutAlgorithms, Likelihoods, LogLikelihoods
 from tsdate.prior import (
     ConditionalCoalescentTimes,
     MixturePrior,
