@@ -65,11 +65,25 @@ class TestPrebuilt:
             tsdate.inside_outside(ts, mutation_rate=None)
 
     def test_no_mutation(self):
-        ts = utility_functions.two_tree_mutation_ts()
-        with pytest.raises(ValueError, match="method requires mutation rate"):
-            tsdate.date(ts, method="maximization", population_size=1, mutation_rate=None)
-        with pytest.raises(ValueError, match="method requires mutation rate"):
-            tsdate.date(ts, method="variational_gamma", mutation_rate=None)
+        for ts in (
+            utility_functions.two_tree_mutation_ts(),
+            utility_functions.single_tree_ts_mutation_n3(),
+        ):
+            with pytest.raises(ValueError, match="method requires mutation rate"):
+                tsdate.date(
+                    ts, method="maximization", population_size=1, mutation_rate=None
+                )
+            with pytest.raises(ValueError, match="method requires mutation rate"):
+                tsdate.date(ts, method="variational_gamma", mutation_rate=None)
+            if ts.num_trees > 1:
+                with pytest.raises(NotImplementedError, match="more than one tree"):
+                    tsdate.date(
+                        ts, method="inside_outside", population_size=1, mutation_rate=None
+                    )
+            else:
+                tsdate.date(
+                    ts, method="inside_outside", population_size=1, mutation_rate=None
+                )
 
     def test_not_needed_population_size(self):
         ts = utility_functions.two_tree_mutation_ts()
@@ -87,9 +101,9 @@ class TestPrebuilt:
         ts = utility_functions.two_tree_mutation_ts()
         with pytest.raises(ValueError, match="Only provide one of Ne"):
             tsdate.inside_outside(
-                ts, mutation_rate=None, population_size=PopulationSizeHistory(1), Ne=1
+                ts, mutation_rate=1, population_size=PopulationSizeHistory(1), Ne=1
             )
-        tsdate.inside_outside(ts, mutation_rate=None, Ne=PopulationSizeHistory(1))
+        tsdate.inside_outside(ts, mutation_rate=1, Ne=PopulationSizeHistory(1))
 
     def test_inside_outside_dangling_failure(self):
         ts = utility_functions.single_tree_ts_n2_dangling()
@@ -152,7 +166,7 @@ class TestPrebuilt:
     def test_discretised_posteriors(self):
         ts = utility_functions.two_tree_mutation_ts()
         ts, posteriors = tsdate.inside_outside(
-            ts, mutation_rate=None, population_size=1, return_posteriors=True
+            ts, mutation_rate=1, population_size=1, return_posteriors=True
         )
         assert len(posteriors) == ts.num_nodes - ts.num_samples + 1
         assert len(posteriors["time"]) > 0
@@ -180,13 +194,13 @@ class TestPrebuilt:
         ts = utility_functions.two_tree_mutation_ts()
         _, _, marg_lik = tsdate.inside_outside(
             ts,
-            mutation_rate=None,
+            mutation_rate=1,
             population_size=1,
             return_posteriors=True,
             return_likelihood=True,
         )
         _, marg_lik_again = tsdate.inside_outside(
-            ts, mutation_rate=None, population_size=1, return_likelihood=True
+            ts, mutation_rate=1, population_size=1, return_likelihood=True
         )
         assert marg_lik == marg_lik_again
 
@@ -194,20 +208,12 @@ class TestPrebuilt:
         ts = utility_functions.two_tree_ts()
         long_ts = utility_functions.two_tree_ts_extra_length()
         keep_ts = long_ts.keep_intervals([[0.0, 1.0]])
-        delete_ts = long_ts.delete_intervals([[1.0, 1.5]])
-        dated_ts = tsdate.inside_outside(ts, mutation_rate=None, population_size=1)
-        dated_keep_ts = tsdate.inside_outside(
-            keep_ts, mutation_rate=None, population_size=1
-        )
-        dated_deleted_ts = tsdate.inside_outside(
-            delete_ts, mutation_rate=None, population_size=1
-        )
-        assert np.allclose(
-            dated_ts.tables.nodes.time[:], dated_keep_ts.tables.nodes.time[:]
-        )
-        assert np.allclose(
-            dated_ts.tables.nodes.time[:], dated_deleted_ts.tables.nodes.time[:]
-        )
+        del_ts = long_ts.delete_intervals([[1.0, 1.5]])
+        dat_ts = tsdate.inside_outside(ts, mutation_rate=1, population_size=1)
+        dat_keep_ts = tsdate.inside_outside(keep_ts, mutation_rate=1, population_size=1)
+        dat_del_ts = tsdate.inside_outside(del_ts, mutation_rate=1, population_size=1)
+        assert np.allclose(dat_ts.tables.nodes.time[:], dat_keep_ts.tables.nodes.time[:])
+        assert np.allclose(dat_ts.tables.nodes.time[:], dat_del_ts.tables.nodes.time[:])
 
 
 class TestSimulated:

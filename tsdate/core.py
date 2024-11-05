@@ -21,7 +21,7 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 """
-Infer the age of nodes conditional on a tree sequence topology.
+Infer the age of nodes from mutational data, conditional on a tree sequence topology.
 """
 
 import logging
@@ -331,6 +331,15 @@ class InsideOutsideMethod(DiscreteTimeMethod):
         num_threads=None,
         cache_inside=None,
     ):
+        if self.mutation_rate is None and self.recombination_rate is None:
+            if self.ts.num_trees > 1:
+                raise NotImplementedError(
+                    "Specifying no mutation or recombination rate implies dating using "
+                    "the topology-only clock. This produces biased results under "
+                    "recombination (https://github.com/tskit-dev/tsdate/issues/292). "
+                    "The topology-only clock has therefore been deprecated for tree "
+                    "sequences representing more than one tree."
+                )
         if self.provenance_params is not None:
             self.provenance_params.update(
                 {k: v for k, v in locals().items() if k != "self"}
@@ -375,7 +384,7 @@ class MaximizationMethod(DiscreteTimeMethod):
         num_threads=None,
         cache_inside=None,
     ):
-        if self.mutation_rate is None:
+        if self.mutation_rate is None and self.recombination_rate is None:
             raise ValueError("Outside maximization method requires mutation rate")
         if self.provenance_params is not None:
             self.provenance_params.update(
@@ -864,10 +873,9 @@ def date(
     Infer dates for nodes in a genealogical graph (or :ref:`ARG<tutorials:sec_args>`)
     stored in the :ref:`succinct tree sequence<tskit:sec_introduction>` format.
     New times are assigned to nodes using the estimation algorithm specified by
-    ``method`` (see note below). If a ``mutation_rate`` is given,
-    the mutation clock is used. The recombination clock is unsupported at this
-    time.  If neither a ``mutation_rate`` nor a ``recombination_rate`` is given, a
-    topology-only clock is used. Times associated with mutations and times associated
+    ``method`` (see note below). A ``mutation_rate`` must be given (the recombination_rate
+    parameter, implementing a recombination clock, is unsupported at this
+    time). Times associated with mutations and times associated
     with non-fixed (non-sample) nodes are overwritten. For example:
 
     .. code-block:: python

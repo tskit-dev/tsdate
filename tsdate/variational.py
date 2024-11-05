@@ -654,7 +654,7 @@ class ExpectationPropagation:
         regularise=True,
         check_valid=False,  # for debugging
     ):
-        # pass through singleton blocks
+        logger.debug("Passing through singleton blocks")
         self.propagate_likelihood(
             self.block_order,
             self.block_nodes[ROOTWARD],
@@ -670,7 +670,7 @@ class ExpectationPropagation:
             USE_BLOCK_LIKELIHOOD,
         )
 
-        # rootward + leafward pass through edges
+        logger.debug("Rootward + leafward pass through edges")
         self.propagate_likelihood(
             self.edge_order,
             self.edge_parents,
@@ -686,8 +686,8 @@ class ExpectationPropagation:
             USE_EDGE_LIKELIHOOD,
         )
 
-        # exponential regularization on roots
         if regularise:
+            logger.debug("Exponential regularization on roots")
             self.propagate_prior(
                 self.roots,
                 self.node_posterior,
@@ -698,7 +698,7 @@ class ExpectationPropagation:
                 em_reltol,
             )
 
-        # absorb the scaling term into the factors
+        logger.debug("Absorbing scaling term into the factors")
         self.rescale_factors(
             self.edge_parents,
             self.edge_children,
@@ -799,6 +799,7 @@ class ExpectationPropagation:
 
         muts_timing = time.time()
         mutations_phased = self.mutation_blocks == tskit.NULL
+        logger.debug("Passing through unphased singletons")
         self.propagate_mutations(  # unphased singletons
             self.mutation_order[~mutations_phased],
             self.mutation_posterior,
@@ -813,6 +814,7 @@ class ExpectationPropagation:
             self.node_scale,
             USE_BLOCK_LIKELIHOOD,
         )
+        logger.debug("Passing through phased mutations")
         self.propagate_mutations(  # phased mutations
             self.mutation_order[mutations_phased],
             self.mutation_posterior,

@@ -1551,14 +1551,14 @@ class TestDiscretisedMeanVar:
         ts = msprime.simulate(
             10, mutation_rate=1, recombination_rate=1, length=20, random_seed=12
         )
-        algorithm = InsideOutsideMethod(ts, mutation_rate=None, population_size=10000)
+        algorithm = InsideOutsideMethod(ts, mutation_rate=1, population_size=10000)
         mn_post, *_ = algorithm.run(
             eps=1e-6,
             outside_standardize=True,
             ignore_oldest_root=False,
             probability_space=tsdate.base.LOG,
         )
-        dts = tsdate.inside_outside(ts, population_size=10000, mutation_rate=None)
+        dts = tsdate.inside_outside(ts, population_size=10000, mutation_rate=1)
         unconstr_mn = [nd.metadata["mn"] for nd in dts.nodes() if "mn" in nd.metadata]
         assert np.allclose(unconstr_mn, mn_post)
         assert np.all(dts.tables.nodes.time >= mn_post)
@@ -1825,8 +1825,8 @@ class TestSiteTimes:
 
     def test_sites_time_insideoutside(self):
         ts = utility_functions.two_tree_mutation_ts()
-        dated = tsdate.inside_outside(ts, mutation_rate=None, population_size=1)
-        algorithm = InsideOutsideMethod(ts, mutation_rate=None, population_size=1)
+        dated = tsdate.inside_outside(ts, mutation_rate=1, population_size=1)
+        algorithm = InsideOutsideMethod(ts, mutation_rate=1, population_size=1)
         mn_post, *_ = algorithm.run(
             eps=1e-6,
             outside_standardize=True,
@@ -1931,14 +1931,14 @@ class TestSiteTimes:
         ts = msprime.simulate(
             10, mutation_rate=1, recombination_rate=1, length=20, random_seed=12
         )
-        algorithm = InsideOutsideMethod(ts, mutation_rate=None, population_size=10000)
+        algorithm = InsideOutsideMethod(ts, mutation_rate=1, population_size=10000)
         mn_post, *_ = algorithm.run(
             eps=1e-6,
             outside_standardize=True,
             ignore_oldest_root=False,
             probability_space=tsdate.base.LOG,
         )
-        dts = tsdate.inside_outside(ts, mutation_rate=None, population_size=10000)
+        dts = tsdate.inside_outside(ts, mutation_rate=1, population_size=10000)
         assert np.allclose(
             mn_post[ts.tables.mutations.node],
             tsdate.sites_time_from_ts(dts, unconstrained=True, min_time=0),
