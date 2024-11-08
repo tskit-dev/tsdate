@@ -12,7 +12,7 @@ import scipy.stats
 import tskit
 from tqdm.auto import tqdm
 
-from . import base
+from .node_time_class import LIN_GRID, LOG_GRID
 
 
 class Likelihoods:
@@ -25,7 +25,7 @@ class Likelihoods:
     such that their maximum is one (in linear space) or zero (in log space)
     """
 
-    probability_space = base.LIN
+    probability_space = LIN_GRID
     identity_constant = 1.0
     null_constant = 0.0
 
@@ -328,7 +328,7 @@ class Likelihoods:
     def get_inside(self, arr, edge):
         liks = self.identity_constant
         if self.rec_rate is not None:
-            liks = self._recombination_lik(edge)
+            liks *= self._recombination_lik(edge)
         if self.mut_rate is not None:
             liks *= self.get_mut_lik_lower_tri(edge)
         return self.rowsum_lower_tri(arr * liks)
@@ -336,7 +336,7 @@ class Likelihoods:
     def get_outside(self, arr, edge):
         liks = self.identity_constant
         if self.rec_rate is not None:
-            liks = self._recombination_lik(edge)
+            liks *= self._recombination_lik(edge)
         if self.mut_rate is not None:
             liks *= self.get_mut_lik_upper_tri(edge)
         return self.rowsum_upper_tri(arr * liks)
@@ -344,7 +344,7 @@ class Likelihoods:
     def get_fixed(self, arr, edge):
         liks = self.identity_constant
         if self.rec_rate is not None:
-            liks = self._recombination_lik(edge, fixed=True)
+            liks *= self._recombination_lik(edge, fixed=True)
         if self.mut_rate is not None:
             liks *= self.get_mut_lik_fixed_node(edge)
         return arr * liks
@@ -358,7 +358,7 @@ class LogLikelihoods(Likelihoods):
     Identical to the Likelihoods class but stores and returns log likelihoods
     """
 
-    probability_space = base.LOG
+    probability_space = LOG_GRID
     identity_constant = 0.0
     null_constant = -np.inf
 
@@ -464,7 +464,7 @@ class LogLikelihoods(Likelihoods):
     def get_inside(self, arr, edge):
         log_liks = self.identity_constant
         if self.rec_rate is not None:
-            log_liks = self._recombination_loglik(edge)
+            log_liks += self._recombination_loglik(edge)
         if self.mut_rate is not None:
             log_liks += self.get_mut_lik_lower_tri(edge)
         return self.rowsum_lower_tri(arr + log_liks)
@@ -472,7 +472,7 @@ class LogLikelihoods(Likelihoods):
     def get_outside(self, arr, edge):
         log_liks = self.identity_constant
         if self.rec_rate is not None:
-            log_liks = self._recombination_loglik(edge)
+            log_liks += self._recombination_loglik(edge)
         if self.mut_rate is not None:
             log_liks += self.get_mut_lik_upper_tri(edge)
         return self.rowsum_upper_tri(arr + log_liks)
@@ -480,7 +480,7 @@ class LogLikelihoods(Likelihoods):
     def get_fixed(self, arr, edge):
         log_liks = self.identity_constant
         if self.rec_rate is not None:
-            log_liks = self._recombination_loglik(edge, fixed=True)
+            log_liks += self._recombination_loglik(edge, fixed=True)
         if self.mut_rate is not None:
             log_liks += self.get_mut_lik_fixed_node(edge)
         return arr + log_liks
@@ -489,9 +489,9 @@ class LogLikelihoods(Likelihoods):
         return fraction * value
 
 
-class InOutAlgorithms:
+class InOutModel:
     """
-    Contains the inside and outside algorithms
+    The class for discrete-time models, containing the inside and outside algorithms
     """
 
     def __init__(self, priors, lik, *, progress=False):
@@ -534,23 +534,19 @@ class InOutAlgorithms:
     # === Grouped edge iterators ===
 
     def edges_by_parent_asc(self, grouped=True):
-        """
-        Return an itertools.groupby object of edges grouped by parent in ascending order
-        of the time of the parent. Since tree sequence properties guarantee that edges
-        are listed in nondecreasing order of parent time
-        (https://tskit.readthedocs.io/en/latest/data-model.html#edge-requirements)
-        we can simply use the standard edge order
-        """
+        # Return an itertools.groupby object of edges grouped by parent in ascending
+        # order of the time of the parent. As tree sequence properties guarantee that
+        # edges are listed in nondecreasing order of parent time
+        # (https://tskit.readthedocs.io/en/latest/data-model.html#edge-requirements)
+        # we can simply use the standard edge order
         if grouped:
             return itertools.groupby(self.ts.edges(), operator.attrgetter("parent"))
         else:
             return self.ts.edges()
 
     def edges_by_child_desc(self, grouped=True):
-        """
-        Return an itertools.groupby object of edges grouped by child in descending order
-        of the time of the child.
-        """
+        # Return an itertools.groupby object of edges grouped by child in descending
+        # order of the time of the child.
         it = (
             self.ts.edge(u)
             for u in np.lexsort(
@@ -563,10 +559,8 @@ class InOutAlgorithms:
             return it
 
     def edges_by_child_then_parent_desc(self, grouped=True):
-        """
-        Return an itertools.groupby object of edges grouped by child in descending order
-        of the time of the child, then by descending order of age of child
-        """
+        # Return an itertools.groupby object of edges grouped by child in descending
+        # order of the time of the child, then by descending order of age of child
         wtype = np.dtype(
             [
                 ("child_age", self.ts.nodes_time.dtype),
@@ -592,9 +586,7 @@ class InOutAlgorithms:
     # === MAIN ALGORITHMS ===
 
     def inside_pass(self, *, standardize=True, cache_inside=False, progress=None):
-        """
-        Use dynamic programming to find approximate posterior to sample from
-        """
+        # Use dynamic programming to find approximate posterior to sample from
         if progress is None:
             progress = self.progress
         inside = self.priors.clone_with_new_data(  # store inside matrix values
@@ -672,26 +664,21 @@ class InOutAlgorithms:
         ignore_oldest_root=False,
         progress=None,
     ):
-        """
-        Computes the full posterior distribution on nodes, returning the
-        posterior values. These are *not* probabilities, as they do not sum to one:
-        to convert to probabilities, call posterior.to_probabilities()
-
-        Standardizing *during* the outside process may be necessary if there is
-        overflow, but means that we cannot check the total functional value at each node
-
-        Ignoring the oldest root may also be necessary when the oldest root node
-        causes numerical stability issues.
-
-        The rows in the posterior returned correspond to node IDs as given by
-        self.nodes
-        """
+        # Computes the full posterior distribution on nodes, returning the
+        # posterior values. These are *not* probabilities, as they do not sum to one:
+        # to convert to probabilities, call posterior.to_probabilities()
+        #
+        # Standardizing *during* the outside process may be necessary if there is
+        # overflow, but means that we cannot check the total functional value at each node
+        #
+        # Ignoring the oldest root may also be necessary when the oldest root node
+        # causes numerical stability issues.
         if progress is None:
             progress = self.progress
         if not hasattr(self, "inside"):
             raise RuntimeError("You have not yet run the inside algorithm")
 
-        outside = self.inside.clone_with_new_data(grid_data=0, probability_space=base.LIN)
+        outside = self.inside.clone_with_new_data(grid_data=0, probability_space=LIN_GRID)
         for root, span_when_root in self.root_spans.items():
             outside[root] = span_when_root / self.spans[root]
         outside.force_probability_space(self.inside.probability_space)
@@ -745,12 +732,25 @@ class InOutAlgorithms:
             outside[child] = self.lik.ratio(val, self.denominator[child])
             if standardize:
                 outside[child] = self.lik.ratio(val, np.max(val))
-        self.outside = outside
-        posterior = outside.clone_with_new_data(
+        self.outside = outside  # useful to access for testing purposes
+        self.posterior_grid = outside.clone_with_new_data(
             grid_data=self.lik.combine(self.inside.grid_data, outside.grid_data),
             fixed_data=np.nan,
-        )  # We should never use the posterior for a fixed node
-        return posterior
+        )  # NB: we should never use the posterior for a fixed node
+
+    def node_posteriors(self):
+        """
+        Return the distribution of posterior node times as a structured array, with
+        columns as timepoints. Row ``i`` corresponds to the probabilities of
+        node ``i`` lying at each timepoint. Nodes with fixed times are given
+        np.nan for the entire row. The returned value can be e.g. read into
+        ``pandas.DataFrame`` for further analysis. Note that the
+        ``outside_maximization`` method does not provide node time posteriors.
+        """
+        try:
+            return self.posterior_grid.node_probability_array()
+        except AttributeError:
+            return None
 
     def outside_maximization(self, *, eps, progress=None):
         if progress is None:
@@ -760,9 +760,9 @@ class InOutAlgorithms:
 
         maximized_node_times = np.zeros(self.ts.num_nodes, dtype="int")
 
-        if self.lik.probability_space == base.LOG:
+        if self.lik.probability_space == LOG_GRID:
             poisson = scipy.stats.poisson.logpmf
-        elif self.lik.probability_space == base.LIN:
+        elif self.lik.probability_space == LIN_GRID:
             poisson = scipy.stats.poisson.pmf
 
         mut_edges = self.lik.mut_edges
@@ -823,5 +823,8 @@ class InOutAlgorithms:
             maximized_node_times[child] = np.argmax(
                 self.lik.combine(result[: youngest_par_index + 1], inside_val)
             )
-
-        return self.lik.timepoints[np.array(maximized_node_times).astype("int")]
+        # The outside_maximization method does not provide a full posterior but
+        # simply the means of the posterior distributions
+        self.posterior_mean = self.lik.timepoints[
+            np.array(maximized_node_times).astype("int")
+        ]

@@ -26,6 +26,7 @@ Expectation propagation implementation
 
 import logging
 import time
+import types
 
 import numba
 import numpy as np
@@ -107,7 +108,7 @@ def _rescale(x, s):
     return 1.0
 
 
-class ExpectationPropagation:
+class ExpectationPropagationModel:
     r"""
     Expectation propagation (EP) algorithm to infer approximate marginal
     distributions for node ages.
@@ -143,10 +144,8 @@ class ExpectationPropagation:
     @staticmethod
     @numba.njit(_void(_f2r, _i1r, _i1r))
     def _check_valid_constraints(constraints, edges_parent, edges_child):
-        """
-        Check that upper-bound on node age is greater than maximum lower-bound
-        for ages of descendants
-        """
+        # Check that upper-bound on node age is greater than maximum lower-bound
+        # for ages of descendants
         lower_max = constraints[:, LOWER].copy()
         for p, c in zip(edges_parent, edges_child):
             lower_max[p] = max(lower_max[c], lower_max[p])
@@ -173,7 +172,7 @@ class ExpectationPropagation:
         edge_factors,
         block_factors,
     ):
-        """Check that the messages sum to the posterior (debugging only)"""
+        # Check that the messages sum to the posterior (debugging only)
         block_one, block_two = block_nodes
         posterior_check = np.zeros(posterior.shape)
         for i, (p, c) in enumerate(zip(edges_parent, edges_child)):
@@ -223,7 +222,7 @@ class ExpectationPropagation:
         self.sizebiased_likelihoods, _ = count_mutations(ts, size_biased=True)
         self.sizebiased_likelihoods[:, 1] *= mutation_rate
         count_timing -= time.time()
-        logger.info(f"Extracted mutations in {abs(count_timing):.2f} seconds")
+        logger.debug(f"Extracted mutations in {abs(count_timing):.2f} seconds")
 
         # count mutations in singleton blocks
         phase_timing = time.time()
@@ -239,7 +238,7 @@ class ExpectationPropagation:
         phase_timing -= time.time()
         logger.info(f"Found {num_unphased} unphased singleton mutations")
         logger.info(f"Split unphased singleton edges into {num_blocks} blocks")
-        logger.info(f"Phased singletons in {abs(phase_timing):.2f} seconds")
+        logger.debug(f"Phased singletons in {abs(phase_timing):.2f} seconds")
 
         # mutable
         self.node_factors = np.zeros((ts.num_nodes, 2, 2))
@@ -288,30 +287,28 @@ class ExpectationPropagation:
         min_step,
         unphased,
     ):
-        """
-        Update approximating factors for Poisson mutation likelihoods on edges.
-
-        :param ndarray edges_parent: integer array of parent ids per edge
-        :param ndarray edges_child: integer array of child ids per edge
-        :param ndarray likelihoods: array of dimension `[num_edges, 2]`
-            containing mutation count and mutational target size per edge.
-        :param ndarray constraints: array of dimension `[num_nodes, 2]`
-            containing lower and upper bounds for each node.
-        :param ndarray posterior: array of dimension `[num_nodes, 2]`
-            containing natural parameters for each node, updated in-place.
-        :param ndarray factors: array of dimension `[num_edges, 2, 2]`
-            containing parent and child factors (natural parameters) for each
-            edge, updated in-place.
-        :param ndarray lognorm: array of dimension `[num_edges]`
-            containing the approximate normalizing constants per edge,
-            updated in-place.
-        :param ndarray scale: array of dimension `[num_nodes]` containing a
-            scaling factor for the posteriors, updated in-place.
-        :param float max_shape: the maximum allowed shape for node posteriors.
-        :param float min_step: the minimum allowed step size in (0, 1).
-        :param bool unphased: if True, edges are treated as blocks of unphased
-            singletons in contemporary individuals
-        """
+        # Update approximating factors for Poisson mutation likelihoods on edges.
+        #
+        # :param numpy.ndarray edges_parent: integer array of parent ids per edge
+        # :param numpy.ndarray edges_child: integer array of child ids per edge
+        # :param numpy.ndarray likelihoods: array of dimension `[num_edges, 2]`
+        #     containing mutation count and mutational target size per edge.
+        # :param numpy.ndarray constraints: array of dimension `[num_nodes, 2]`
+        #     containing lower and upper bounds for each node.
+        # :param numpy.ndarray posterior: array of dimension `[num_nodes, 2]`
+        #     containing natural parameters for each node, updated in-place.
+        # :param numpy.ndarray factors: array of dimension `[num_edges, 2, 2]`
+        #     containing parent and child factors (natural parameters) for each
+        #     edge, updated in-place.
+        # :param numpy.ndarray lognorm: array of dimension `[num_edges]`
+        #     containing the approximate normalizing constants per edge,
+        #     updated in-place.
+        # :param numpy.ndarray scale: array of dimension `[num_nodes]` containing a
+        #     scaling factor for the posteriors, updated in-place.
+        # :param float max_shape: the maximum allowed shape for node posteriors.
+        # :param float min_step: the minimum allowed step size in (0, 1).
+        # :param bool unphased: if True, edges are treated as blocks of unphased
+        #     singletons in contemporary individuals
 
         assert constraints.shape == posterior.shape
         assert edges_child.size == edges_parent.size
@@ -435,25 +432,21 @@ class ExpectationPropagation:
     @staticmethod
     @numba.njit(_void(_b1r, _f2w, _f3w, _f1w, _f, _i, _f))
     def propagate_prior(free, posterior, factors, scale, max_shape, em_maxitt, em_reltol):
-        """
-        Update approximating factors for global prior.
-
-        :param ndarray free: boolean array indicating if prior should be
-            applied to node
-        :param ndarray penalty: initial value for regularisation penalty
-        :param ndarray posterior: rows are nodes, columns are first and
-            second natural parameters of gamma posteriors. Updated in
-            place.
-        :param ndarray factors: rows are nodes, columns index different
-            types of updates. Updated in place.
-        :param ndarray scale: array of dimension `[num_nodes]` containing a
-            scaling factor for the posteriors, updated in-place.
-        :param float max_shape: the maximum allowed shape for node posteriors.
-        :param int em_maxitt: the maximum number of EM iterations to use when
-            fitting the regularisation.
-        :param int em_reltol: the termination criterion for relative change in
-            log-likelihood.
-        """
+        # Update approximating factors for global prior.
+        #
+        # :param ndarray free: boolean array for if prior should be applied to node
+        # :param ndarray penalty: initial value for regularisation penalty
+        # :param ndarray posterior: rows are nodes, columns are first and
+        #     second natural parameters of gamma posteriors. Updated in place.
+        # :param ndarray factors: rows are nodes, columns index different
+        #     types of updates. Updated in place.
+        # :param ndarray scale: array of dimension `[num_nodes]` containing a
+        #     scaling factor for the posteriors, updated in-place.
+        # :param float max_shape: the maximum allowed shape for node posteriors.
+        # :param int em_maxitt: the maximum number of EM iterations to use when
+        #     fitting the regularisation.
+        # :param int em_reltol: the termination criterion for relative change in
+        #     log-likelihood.
 
         assert free.size == posterior.shape[0]
         assert factors.shape == (free.size, 2, 2)
@@ -503,33 +496,29 @@ class ExpectationPropagation:
         scale,
         unphased,
     ):
-        """
-        Calculate posteriors for mutations.
-
-        :param ndarray mutations_order: integer array giving order in
-            which to traverse mutations
-        :param ndarray mutations_posterior: array of dimension `(num_mutations, 2)`
-            containing natural parameters for each mutation, modified in place
-        :param ndarray mutations_phase: array of dimension `(num_mutations, )`
-            containing mutation phase, modified in place
-        :param ndarray mutations_edge: integer array giving edge for each
-            mutation
-        :param ndarray edges_parent: integer array of parent ids per edge
-        :param ndarray edges_child: integer array of child ids per edge
-        :param ndarray likelihoods: array of dimension `[num_edges, 2]`
-            containing mutation count and mutational target size per edge.
-        :param ndarray constraints: array of dimension `[num_nodes, 2]`
-            containing lower and upper bounds for each node.
-        :param ndarray posterior: array of dimension `[num_nodes, 2]`
-            containing natural parameters for each node
-        :param ndarray factors: array of dimension `[num_edges, 2, 2]`
-            containing parent and child factors (natural parameters) for each
-            edge
-        :param ndarray scale: array of dimension `(num_nodes, )` containing a
-            scaling factor for the posteriors
-        :param bool unphased: if True, edges are treated as blocks of unphased
-            singletons in contemporary individuals
-        """
+        # Calculate posteriors for mutations. (publicly undocumented)
+        #
+        # :param ndarray mutations_order: integer array giving order in
+        #     which to traverse mutations
+        # :param ndarray mutations_posterior: array of dimension `(num_mutations, 2)`
+        #     containing natural parameters for each mutation, modified in place
+        # :param ndarray mutations_phase: array of dimension `(num_mutations, )`
+        #     containing mutation phase, modified in place
+        # :param ndarray mutations_edge: integer array giving edge for each mutation
+        # :param ndarray edges_parent: integer array of parent ids per edge
+        # :param ndarray edges_child: integer array of child ids per edge
+        # :param ndarray likelihoods: array of dimension `[num_edges, 2]`
+        #     containing mutation count and mutational target size per edge.
+        # :param ndarray constraints: array of dimension `[num_nodes, 2]`
+        #     containing lower and upper bounds for each node.
+        # :param ndarray posterior: array of dimension `[num_nodes, 2]`
+        #     containing natural parameters for each node
+        # :param ndarray factors: array of dimension `[num_edges, 2, 2]`
+        #     containing parent and child factors (natural parameters) for each edge
+        # :param ndarray scale: array of dimension `(num_nodes, )` containing a
+        #     scaling factor for the posteriors
+        # :param bool unphased: if True, edges are treated as blocks of unphased
+        #     singletons in contemporary individuals
 
         # TODO: scale should be 1.0, can we delete
         # TODO: we don't seem to need to damp?
@@ -633,7 +622,7 @@ class ExpectationPropagation:
         block_factors,
         scale,
     ):
-        """Incorporate scaling term into factors and reset"""
+        # Incorporate scaling term into factors and reset
         p, c = edges_parent, edges_child
         j, k = block_nodes
         edge_factors[:, ROOTWARD] *= scale[p, np.newaxis]
@@ -729,7 +718,7 @@ class ExpectationPropagation:
         quantile_width=0.5,
         progress=False,
     ):
-        """Normalise posteriors so that empirical mutation rate is constant"""
+        # Normalise posteriors so that empirical mutation rate is constant
         likelihoods = self.edge_likelihoods if rescale_segsites \
             else self.sizebiased_likelihoods  # fmt: skip
         reallocate_unphased(  # correct mutation counts for unphased singletons
@@ -769,7 +758,7 @@ class ExpectationPropagation:
             quantile_width,
         )
 
-    def run(
+    def infer(
         self,
         *,
         ep_iterations=10,
@@ -781,6 +770,9 @@ class ExpectationPropagation:
         regularise=True,
         progress=None,
     ):
+        # Run multiple rounds of expectation propagation, and return stats
+        results = types.SimpleNamespace()
+        results.mutational_likelihoods = []
         nodes_timing = time.time()
         for _ in tqdm(
             np.arange(ep_iterations),
@@ -792,6 +784,7 @@ class ExpectationPropagation:
                 min_step=min_step,
                 regularise=regularise,
             )
+
         nodes_timing -= time.time()
         skipped_edges = np.sum(np.isnan(self.edge_logconst))
         logger.info(f"Skipped {skipped_edges} edges with invalid factors")
@@ -859,9 +852,7 @@ class ExpectationPropagation:
             logger.info(f"Timescale rescaled in {abs(rescale_timing):.2f} seconds")
 
     def node_moments(self):
-        """
-        Posterior mean and variance of node ages
-        """
+        # Posterior mean and variance of node ages (equivalent to node_posteriors)
         alpha, beta = self.node_posterior.T
         nodes_mn = np.ascontiguousarray(self.node_constraints[:, 0])
         nodes_va = np.zeros(nodes_mn.size)
@@ -871,9 +862,7 @@ class ExpectationPropagation:
         return nodes_mn, nodes_va
 
     def mutation_moments(self):
-        """
-        Posterior mean and variance of mutation ages
-        """
+        # Posterior mean and variance of mutation ages
         alpha, beta = self.mutation_posterior.T
         muts_mn = np.full(alpha.size, np.nan)
         muts_va = np.full(alpha.size, np.nan)
@@ -883,12 +872,35 @@ class ExpectationPropagation:
         return muts_mn, muts_va
 
     def mutation_mapping(self):
-        """
-        Map from mutations to edges and subtended node, using estimated singleton
-        phase (if singletons were unphased)
-        """
+        # Map from mutations to edges and subtended node, using estimated singleton
+        # phase (if singletons were unphased)
+
         # TODO: should these be copies? Should members be readonly?
         return self.mutation_edges, self.mutation_nodes
+
+    def marginal_likelihood(self):
+        # Return the marginal likelihood of the data given the model
+
+        # TODO: implement
+        return None
+
+    def node_posteriors(self):
+        """
+        Return parameters specifying the inferred posterior distribution of node
+        times which can be e.g. read into a ``pandas.DataFrame`` for further analysis.
+
+        :return: The distribution of posterior node times as a structured array of
+            mean and variance. Row ``i`` gives the mean and variance of inferred
+            node times for node ``i``.
+        :rtype:  numpy.ndarray
+
+        """
+        node_mn, node_va = self.node_moments()
+        dtype = [("mean", node_mn.dtype), ("variance", node_va.dtype)]
+        data = np.empty(node_mn.size, dtype=dtype)
+        data["mean"] = node_mn
+        data["variance"] = node_va
+        return data
 
 
 # NB: used for debugging
@@ -907,15 +919,15 @@ class ExpectationPropagation:
 # ):
 #     """
 #     Date a tree sequence with expectation propagation. Returns dated tree
-#     sequence and converged ExpectationPropagation object.
+#     sequence and converged ExpectationPropagationModel object.
 #     """
 #
-#     posterior = variational.ExpectationPropagation(
+#     posterior = variational.ExpectationPropagationModel(
 #         ts,
 #         mutation_rate=mutation_rate,
 #         singletons_phased=singletons_phased,
 #     )
-#     posterior.run(
+#     posterior.infer(
 #         ep_maxitt=max_iterations,
 #         max_shape=max_shape,
 #         rescale_intervals=rescaling_intervals,

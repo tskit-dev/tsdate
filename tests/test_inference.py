@@ -34,9 +34,9 @@ import tskit
 import utility_functions
 
 import tsdate
-from tsdate.base import LIN, LOG
 from tsdate.demography import PopulationSizeHistory
 from tsdate.evaluation import remove_edges, unsupported_edges
+from tsdate.node_time_class import LIN_GRID, LOG_GRID
 
 
 class TestConstants:
@@ -129,7 +129,7 @@ class TestPrebuilt:
         with pytest.raises(ValueError, match="unary"):
             tsdate.variational_gamma(ts, mutation_rate=1)
 
-    @pytest.mark.parametrize("probability_space", [LOG, LIN])
+    @pytest.mark.parametrize("probability_space", [LOG_GRID, LIN_GRID])
     @pytest.mark.parametrize("mu", [None, 1])
     def test_fails_with_recombination(self, probability_space, mu):
         ts = utility_functions.two_tree_mutation_ts()
@@ -152,43 +152,52 @@ class TestPrebuilt:
         ts = tsdate.date(ts, mutation_rate=1, time_units="years")
         assert ts.time_units == "years"
 
+    def test_deprecated_return_posteriors(self):
+        ts = utility_functions.two_tree_mutation_ts()
+        with pytest.raises(ValueError, match="deprecated"):
+            tsdate.date(ts, return_posteriors=True, mutation_rate=1)
+
     def test_no_posteriors(self):
         ts = utility_functions.two_tree_mutation_ts()
-        with pytest.raises(ValueError, match="Cannot return posterior"):
-            tsdate.date(
-                ts,
-                population_size=1,
-                return_posteriors=True,
-                method="maximization",
-                mutation_rate=1,
-            )
+        _, model = tsdate.date(
+            ts,
+            population_size=1,
+            return_model=True,
+            method="maximization",
+            mutation_rate=1,
+        )
+        assert model.node_posteriors() is None
 
     def test_discretised_posteriors(self):
         ts = utility_functions.two_tree_mutation_ts()
-        ts, posteriors = tsdate.inside_outside(
-            ts, mutation_rate=1, population_size=1, return_posteriors=True
+        ts, model = tsdate.inside_outside(
+            ts, mutation_rate=1, population_size=1, return_model=True
         )
-        assert len(posteriors) == ts.num_nodes - ts.num_samples + 1
-        assert len(posteriors["time"]) > 0
+        posteriors = model.node_posteriors()
+        assert len(posteriors) == ts.num_nodes
+        assert len(posteriors[0]) > 0
         for node in ts.nodes():
-            if not node.is_sample():
-                assert node.id in posteriors
-                assert len(posteriors[node.id]) == len(posteriors["time"])
-                assert np.isclose(np.sum(posteriors[node.id]), 1)
+            nd_vals = np.array(list(posteriors[node.id]))
+            if node.is_sample():
+                assert np.all(np.isnan(nd_vals))
+            else:
+                assert np.isclose(np.sum(nd_vals), 1)
 
     def test_variational_posteriors(self):
-        """
-        There are no time-gridded posteriors returned by variational gamma,
-        Output is currently None, but see https://github.com/tskit-dev/tsdate/issues/388
-        """
         ts = utility_functions.two_tree_mutation_ts()
-        ts, posteriors = tsdate.date(
+        ts, model = tsdate.date(
             ts,
             mutation_rate=1e-2,
             method="variational_gamma",
-            return_posteriors=True,
+            return_model=True,
         )
-        assert posteriors is None
+        posteriors = model.node_posteriors()
+        for nd in ts.nodes():
+            mn, vr = posteriors[nd.id]
+            assert posteriors["mean"][nd.id] == mn
+            assert posteriors["variance"][nd.id] == vr
+            assert np.isclose(nd.metadata["mn"], mn)
+            assert np.isclose(nd.metadata["vr"], vr)
 
     def test_marginal_likelihood(self):
         ts = utility_functions.two_tree_mutation_ts()
@@ -196,7 +205,7 @@ class TestPrebuilt:
             ts,
             mutation_rate=1,
             population_size=1,
-            return_posteriors=True,
+            return_model=True,
             return_likelihood=True,
         )
         _, marg_lik_again = tsdate.inside_outside(
@@ -290,13 +299,13 @@ class TestSimulated:
             ts, population_size=10000, timepoints=10, approximate_priors=None
         )
         dated_ts = tsdate.inside_outside(
-            ts, mutation_rate=1e-8, priors=priors, probability_space=LIN
+            ts, mutation_rate=1e-8, priors=priors, probability_space=LIN_GRID
         )
         maximized_ts = tsdate.maximization(
             ts,
             mutation_rate=1e-8,
             priors=priors,
-            probability_space=LIN,
+            probability_space=LIN_GRID,
         )
         self.ts_equal_except_times(ts, dated_ts)
         self.ts_equal_except_times(ts, maximized_ts)

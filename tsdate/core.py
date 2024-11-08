@@ -31,7 +31,8 @@ from collections import namedtuple
 import numpy as np
 import tskit
 
-from . import base, demography, discrete, prior, provenance, schemas, util, variational
+from . import demography, discrete, prior, provenance, schemas, util, variational
+from .node_time_class import LIN_GRID, LOG_GRID
 
 logger = logging.getLogger(__name__)
 
@@ -48,12 +49,12 @@ Results = namedtuple(
     [
         "posterior_mean",
         "posterior_var",
-        "posterior_obj",
         "mutation_mean",
         "mutation_var",
         "mutation_lik",
         "mutation_edge",
         "mutation_node",
+        "method_object",
     ],
 )
 
@@ -81,18 +82,27 @@ class EstimationMethod:
         recombination_rate=None,
         time_units=None,
         priors=None,
-        return_posteriors=None,
         return_likelihood=None,
+        return_model=None,
         record_provenance=None,
         constr_iterations=None,
         progress=None,
+        # Deprecated params
+        return_posteriors=None,
     ):
         # Set up all the generic params describe in the tsdate.date function, and define
         # priors if not passed-in already
+        if return_posteriors is not None:
+            raise ValueError(
+                'The "return_posteriors" parameter has been deprecated. Either use the '
+                "posterior values encoded in node metadata or set ``return_model=True`` "
+                "then access `model.node_posteriors()` to obtain a transposed version "
+                "of the matrix previously returned when ``return_posteriors=True.``"
+            )
         self.ts = ts
         self.mutation_rate = mutation_rate
         self.recombination_rate = recombination_rate
-        self.return_posteriors = return_posteriors
+        self.return_model = return_model
         self.return_likelihood = return_likelihood
         self.pbar = progress
         self.time_units = "generations" if time_units is None else time_units
@@ -145,9 +155,7 @@ class EstimationMethod:
                 mk_prior = getattr(prior, self.prior_grid_func_name)
                 # Default to not creating approximate priors unless ts has
                 # greater than DEFAULT_APPROX_PRIOR_SIZE samples
-                approx = (
-                    True if ts.num_samples > base.DEFAULT_APPROX_PRIOR_SIZE else False
-                )
+                approx = ts.num_samples > prior.DEFAULT_APPROX_PRIOR_SIZE
                 self.priors = mk_prior(
                     ts, Ne, approximate_priors=approx, progress=progress
                 )
@@ -242,16 +250,12 @@ class EstimationMethod:
             except tskit.MetadataValidationError as e:
                 logger.warning(f"Could not set time metadata in {table_name}: {e}")
 
-    def parse_result(self, result, epsilon, extra_posterior_cols=None):
+    def parse_result(self, result, epsilon):
         # Construct the tree sequence to return and add other stuff we might want to
         # return. pst_cols is a dict to be appended to the output posterior dict
         ret = [self.get_modified_ts(result, epsilon)]
-        if self.return_posteriors:
-            pst_dict = None
-            if result.posterior_obj is not None:
-                pst_dict = result.posterior_obj.nonfixed_dict()
-                pst_dict.update(extra_posterior_cols or {})
-            ret.append(pst_dict)
+        if self.return_model:
+            ret.append(result.method_object)
         if self.return_likelihood:
             ret.append(result.mutation_lik)
         return tuple(ret) if len(ret) > 1 else ret.pop()
@@ -293,7 +297,7 @@ class DiscreteTimeMethod(EstimationMethod):
 
     def main_algorithm(self, probability_space, epsilon, num_threads):
         # Algorithm class is shared by inside-outside & outside-maximization methods
-        if probability_space != base.LOG:
+        if probability_space == LIN_GRID:
             liklhd = discrete.Likelihoods(
                 self.ts,
                 self.priors.timepoints,
@@ -303,7 +307,7 @@ class DiscreteTimeMethod(EstimationMethod):
                 fixed_node_set=self.get_fixed_nodes_set(),
                 progress=self.pbar,
             )
-        else:
+        elif probability_space == LOG_GRID:
             liklhd = discrete.LogLikelihoods(
                 self.ts,
                 self.priors.timepoints,
@@ -313,10 +317,15 @@ class DiscreteTimeMethod(EstimationMethod):
                 fixed_node_set=self.get_fixed_nodes_set(),
                 progress=self.pbar,
             )
+        else:
+            raise ValueError(
+                f"Invalid discrete probability space: {probability_space}. Must be "
+                f"one of {LIN_GRID} or {LOG_GRID}"
+            )
         if self.mutation_rate is not None:
             liklhd.precalculate_mutation_likelihoods(num_threads=num_threads)
 
-        return discrete.InOutAlgorithms(self.priors, liklhd, progress=self.pbar)
+        return discrete.InOutModel(self.priors, liklhd, progress=self.pbar)
 
 
 class InsideOutsideMethod(DiscreteTimeMethod):
@@ -344,28 +353,28 @@ class InsideOutsideMethod(DiscreteTimeMethod):
             self.provenance_params.update(
                 {k: v for k, v in locals().items() if k != "self"}
             )
-        dynamic_prog = self.main_algorithm(probability_space, eps, num_threads)
-        marginal_likl = dynamic_prog.inside_pass(cache_inside=cache_inside)
-        posterior_obj = dynamic_prog.outside_pass(
+        model = self.main_algorithm(probability_space, eps, num_threads)
+        marginal_likl = model.inside_pass(cache_inside=cache_inside)
+        model.outside_pass(
             standardize=outside_standardize, ignore_oldest_root=ignore_oldest_root
         )
         # Turn the posterior into probabilities
-        posterior_obj.standardize()  # Just to ensure there are no floating point issues
-        posterior_obj.force_probability_space(base.LIN)
-        posterior_obj.to_probabilities()
+        model.posterior_grid.standardize()  # Just to ensure no floating point issues
+        model.posterior_grid.force_probability_space(LIN_GRID)
+        model.posterior_grid.to_probabilities()
 
-        posterior_mean, posterior_var = self.mean_var(self.ts, posterior_obj)
+        posterior_mean, posterior_var = self.mean_var(self.ts, model.posterior_grid)
         mut_edge = np.full(self.ts.num_mutations, tskit.NULL)
         mut_node = self.ts.mutations_node
         return Results(
             posterior_mean,
             posterior_var,
-            posterior_obj,
             None,
             None,
             marginal_likl,
             mut_edge,
             mut_node,
+            model,
         )
 
 
@@ -374,8 +383,6 @@ class MaximizationMethod(DiscreteTimeMethod):
 
     def __init__(self, ts, **kwargs):
         super().__init__(ts, **kwargs)
-        if self.return_posteriors:
-            raise ValueError("Cannot return posterior with maximization method")
 
     def run(
         self,
@@ -390,13 +397,20 @@ class MaximizationMethod(DiscreteTimeMethod):
             self.provenance_params.update(
                 {k: v for k, v in locals().items() if k != "self"}
             )
-        dynamic_prog = self.main_algorithm(probability_space, eps, num_threads)
-        marginal_likl = dynamic_prog.inside_pass(cache_inside=cache_inside)
-        posterior_mean = dynamic_prog.outside_maximization(eps=eps)
+        model = self.main_algorithm(probability_space, eps, num_threads)
+        marginal_likl = model.inside_pass(cache_inside=cache_inside)
+        model.outside_maximization(eps=eps)
         mut_edge = np.full(self.ts.num_mutations, tskit.NULL)
         mut_node = self.ts.mutations_node
         return Results(
-            posterior_mean, None, None, None, None, marginal_likl, mut_edge, mut_node
+            model.posterior_mean,
+            None,
+            None,
+            None,
+            marginal_likl,
+            mut_edge,
+            mut_node,
+            model,
         )
 
 
@@ -427,12 +441,12 @@ class VariationalGammaMethod(EstimationMethod):
         if self.mutation_rate is None:
             raise ValueError("Variational gamma method requires mutation rate")
 
-        posterior = variational.ExpectationPropagation(
+        model = variational.ExpectationPropagationModel(
             self.ts,
             mutation_rate=self.mutation_rate,
             singletons_phased=singletons_phased,
         )
-        posterior.run(
+        model.infer(
             ep_iterations=max_iterations,
             max_shape=max_shape,
             rescale_intervals=rescaling_intervals,
@@ -441,20 +455,20 @@ class VariationalGammaMethod(EstimationMethod):
             rescale_segsites=match_segregating_sites,
             progress=self.pbar,
         )
-
-        node_mn, node_va = posterior.node_moments()
-        mutation_mn, mutation_va = posterior.mutation_moments()
-        mutation_edge, mutation_node = posterior.mutation_mapping()
+        marginal_likl = model.marginal_likelihood()
+        node_mn, node_va = model.node_moments()
+        mutation_mn, mutation_va = model.mutation_moments()
+        mutation_edge, mutation_node = model.mutation_mapping()
 
         return Results(
             node_mn,
             node_va,
-            None,
             mutation_mn,
             mutation_va,
-            None,
+            marginal_likl,
             mutation_edge,
             mutation_node,
+            model,
         )
 
 
@@ -524,10 +538,10 @@ def maximization(
         object. The ``population_size`` parameter is only used when ``priors`` is
         ``None``. Conversely, if ``priors`` is not ``None``, no ``population_size``
         value should be specified.
-    :param tsdate.base.NodeGridValues priors: NodeGridValues object containing the prior
-        parameters for each node-to-be-dated. Note that different estimation methods may
-        require different types of prior, as described in the documentation for each
-        estimation method.
+    :param tsdate.node_time_class.NodeTimeValues priors: NodeTimeValues object containing
+        the prior parameters for each node-to-be-dated. Note that different estimation
+        methods may require different types of prior, as described in the documentation
+        for each estimation method.
     :param float eps: The error factor in time difference calculations, and the
         minimum distance separating parent and child ages in the returned tree sequence.
         Default: None, treated as 1e-6.
@@ -539,9 +553,8 @@ def maximization(
     :param \\**kwargs: Other keyword arguments as described in the :func:`date` wrapper
         function, notably ``mutation_rate``, and ``population_size`` or ``priors``.
         Further arguments include ``time_units``, ``progress``, and
-        ``record_provenance``. The additional ``return_likelihood`` argument can be used
-        to return additional information (see below). Posteriors cannot be returned using
-        this estimation method.
+        ``record_provenance``.  The additional arguments ``return_model`` and
+        ``return_likelihood`` can be used to return additional information (see below).
     :return:
         - **ts** (:class:`~tskit.TreeSequence`) -- a copy of the input tree sequence with
           updated node times based on the posterior mean, corrected where necessary to
@@ -559,7 +572,7 @@ def maximization(
     if eps is None:
         eps = DEFAULT_EPSILON
     if probability_space is None:
-        probability_space = base.LOG
+        probability_space = LOG_GRID
 
     dating_method = MaximizationMethod(
         tree_sequence,
@@ -647,10 +660,10 @@ def inside_outside(
         object. The ``population_size`` parameter is only used when ``priors`` is
         ``None``. Conversely, if ``priors`` is not ``None``, no ``population_size``
         value should be specified.
-    :param tsdate.base.NodeGridValues priors: NodeGridValues object containing the prior
-        parameters for each node-to-be-dated. Note that different estimation methods may
-        require different types of prior, as described in the documentation for each
-        estimation method.
+    :param tsdate.node_time_class.NodeTimeValues priors: NodeTimeValues object containing
+        the prior parameters for each node-to-be-dated. Note that different estimation
+        methods may require different types of prior, as described in the documentation
+        for each estimation method.
     :param float eps: The error factor in time difference calculations, and the
         minimum distance separating parent and child ages in the returned tree sequence.
         Default: None, treated as 1e-6.
@@ -673,22 +686,16 @@ def inside_outside(
     :param \\**kwargs: Other keyword arguments as described in the :func:`date` wrapper
         function, notably ``mutation_rate``, and ``population_size`` or ``priors``.
         Further arguments include ``time_units``, ``progress``, and
-        ``record_provenance``. The additional arguments ``return_posteriors`` and
+        ``record_provenance``. The additional arguments ``return_model`` and
         ``return_likelihood`` can be used to return additional information (see below).
     :return:
         - **ts** (:class:`~tskit.TreeSequence`) -- a copy of the input tree sequence with
           updated node times based on the posterior mean, corrected where necessary to
           ensure that parents are strictly older than all their children by an amount
           given by the ``eps`` parameter.
-        - **posteriors** (:py:class:`dict`) -- (Only returned if ``return_posteriors``
-          is ``True``) A dictionary of posterior probabilities.
-          Each node whose time was inferred corresponds to an item in this dictionary
-          whose key is the node ID and value is an array of probabilities of the node
-          being at a list of timepoints. Timepoint values are provided in the
-          returned dictionary under the key named "time". When read
-          as a pandas ``DataFrame`` object using ``pd.DataFrame(posteriors)``,
-          the rows correspond to labelled timepoints and columns are
-          headed by their respective node ID.
+        - **model** (:class:`~discrete.InOutModel`) -- (Only returned if ``return_model``
+          is ``True``) The underlying object used to run the dating inference. This can
+          then be queried e.g. for :meth:`~discrete.InOutModel.node_posteriors()`
         - **marginal_likelihood** (:py:class:`float`) -- (Only returned if
           ``return_likelihood`` is ``True``) The marginal likelihood of
           the mutation data given the inferred node times.
@@ -701,7 +708,7 @@ def inside_outside(
     if eps is None:
         eps = DEFAULT_EPSILON
     if probability_space is None:
-        probability_space = base.LOG
+        probability_space = LOG_GRID
     if outside_standardize is None:
         outside_standardize = True
     if ignore_oldest_root is None:
@@ -721,9 +728,7 @@ def inside_outside(
         cache_inside=cache_inside,
         probability_space=probability_space,
     )
-    return dating_method.parse_result(
-        result, eps, {"time": result.posterior_obj.timepoints}
-    )
+    return dating_method.parse_result(result, eps)
 
 
 def variational_gamma(
@@ -779,21 +784,17 @@ def variational_gamma(
         are polytomies. Default ``False``.
     :param \\**kwargs: Other keyword arguments as described in the :func:`date` wrapper
         function, including ``time_units``, ``progress``, and ``record_provenance``.
-        The arguments ``return_posteriors`` and ``return_likelihood`` can be
+        The arguments ``return_model`` and ``return_likelihood`` can be
         used to return additional information (see below).
     :return:
         - **ts** (:class:`~tskit.TreeSequence`) -- a copy of the input tree sequence with
           updated node times based on the posterior mean, corrected where necessary to
           ensure that parents are strictly older than all their children by an amount
           given by the ``eps`` parameter.
-        - **posteriors** (:py:class:`dict`) -- (Only returned if ``return_posteriors``
-          is ``True``) A dictionary of posterior probabilities.
-          Each node whose time was inferred corresponds to an item in this dictionary
-          whose key is the node ID and value is an array of the ``[shape, rate]``
-          parameters of the posterior gamma distribution for that node. When read
-          as a pandas ``DataFrame`` object using ``pd.DataFrame(posteriors)``,
-          the first row of the data frame is the shape and the second the rate
-          parameter, each column being headed by the respective node ID.
+        - **model** (:class:`~variational.ExpectationPropagationModel`) -- (Only returned
+          if ``return_model`` is ``True``). The underlying object used to run the dating
+          inference. This can then be queried e.g. for
+          :meth:`~variational.ExpectationPropagationModel.node_posteriors()`
         - **marginal_likelihood** (:py:class:`float`) -- (Only returned if
           ``return_likelihood`` is ``True``) The marginal likelihood of
           the mutation data given the inferred node times. Not currently
@@ -834,7 +835,7 @@ def variational_gamma(
         regularise_roots=regularise_roots,
         singletons_phased=singletons_phased,
     )
-    return dating_method.parse_result(result, eps, {"parameter": ["shape", "rate"]})
+    return dating_method.parse_result(result, eps)
 
 
 estimation_methods = {
