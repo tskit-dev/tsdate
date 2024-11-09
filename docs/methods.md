@@ -24,9 +24,12 @@ Both approaches iteratively propagate information between nodes to
 construct an approximation of the marginal posterior distribution for the
 age of each node, given the mutational information in the tree sequence.
 Discrete-time approaches approximate the posterior across a grid of discrete
-timepoints (e.g. assign a probability to each node being at each timepoint). 
-Continuous-time approaches approximate the posterior by a continuous
-univariate distribution (e.g. a gamma distribution).
+timepoints (e.g. assign a probability to each node being at each timepoint),
+and propagate exact information about the probability of each node being in
+these states ("belief propagation"). Continuous-time approaches approximate
+the posterior by a continuous univariate distribution (e.g. a gamma distribution),
+and propagate summaries of these probabilities between nodes ("expectation
+propagation").
 
 In tests, we find that the continuous-time `variational_gamma` approach is the
 most accurate.  The discrete-time `inside_outside` approach is slightly less
@@ -68,7 +71,12 @@ Pros
 : Old nodes do not suffer from time-discretisation issues caused by forcing
     bounds on the oldest times
 : Iterative updating properly accounts for cycles in the genealogy
-: No need to specify node-specific priors; a mixture "prior" (fit by expectation-maximization) is used to regularise the roots.
+: No need to specify node-specific priors; a mixture "prior" (fit by
+    expectation-maximization) is used to regularise the roots, and the prior
+    on non-root nodes is only informed via their connection to roots. This
+    means that the posterior node dates are not strongly influenced by any
+    prior model such as the coalescent, and should therefore be robust to
+    changes in underlying demography or selection.
 : Can account for variable population sizes using rescaling
 
 Cons
@@ -118,7 +126,7 @@ ts = tsdate.date(input_ts, mutation_rate=1e-8, progress=True)
 (sec_rescaling)=
 #### Rescaling
 
-During each EP step, the `variational_gamma` method implements a further
+The `variational_gamma` method implements a further
 process called *rescaling*, and which can help to deal with the effects of
 variable population size though time. This is based on an algorithm introduced
 by the ARG inference software
@@ -136,8 +144,9 @@ dataset comes from a set of samples with a complex demographic history.
 natural parameters rather than point estimates, and that is not biased by the
 artefactual polytomies introduced by `tsinfer` for the sake of compression.
 
-TODO: describe the rescaling step in more detail. Could also link to [the population size docs](sec_popsize)
-
+:::{todo}
+Describe the rescaling step in more detail. Could also link to [the population size docs](sec_popsize)
+:::
 
 
 (sec_methods_discrete_time)=
@@ -165,15 +174,19 @@ Cons
     precision, but also increases computational cost (quadratic with number of timepoints)
 : In particular, the oldest/youngest nodes can suffer from poor dating, as time into the past
     is an unbounded value, but a single oldest/youngest timepoint must be chosen.
+: Currently, discrete-time methods use a conditional coalescent prior, and so are more
+    inaccurate where data deviates from patterns expected from the neutral coalescent.
+    Moreover, we have found that weighting coalescent priors by node span introduces
+    extra bias in the prior, due to a correlation between span and age.
 
 ### Inside Outside vs Maximization
 
-The `inside_outside` approach has been shown to perform better empirically, but
-in theory the appraoch used does not properly account for cycles in the underlying
-genealogical network when updating posterior probabilities (a potential solution
-would be to implement a "loopy belief propagation" algorithm as in the continuous-time
-[`variational_gamma`](sec_methods_continuous_time_vgamma) method, above).
-Occasionally the `inside_outside` method also
+The `inside_outside` approach has been shown to perform better empirically than the
+`maximization` approach, but in theory it does not properly account for cycles in
+the underlying genealogical network when updating posterior probabilities
+(a potential solution would be to implement a "loopy belief propagation" algorithm
+as in the continuous-time [`variational_gamma`](sec_methods_continuous_time_vgamma)
+method, above). Occasionally the `inside_outside` method also
 has issues with numerical stability, although this is commonly indicative
 of pathological combinations of tree sequence topology and mutation patterns.
 Problems like this are often caused by long regions of the genome that
