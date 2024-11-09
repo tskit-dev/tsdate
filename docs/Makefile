@@ -1,7 +1,7 @@
 # Need to set PYTHONPATH so that we pick up the local tsdate
 PYPATH=$(shell pwd)/../
 TSDATE_VERSION:=$(shell PYTHONPATH=${PYPATH} \
-   python3 -c 'import tsdate; print(tsdate.__version__.split("+")[0])')
+   python -c 'import tsdate; print(tsdate.__version__.split("+")[0])')
 
 BUILDDIR      = _build
 

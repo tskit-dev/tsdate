@@ -32,13 +32,23 @@ This page provides formal documentation for the _tsdate_ Python API.
 .. autofunction:: tsdate.maximization
 ```
 
+## Underlying models
+
+```{eval-rst}
+.. autoclass:: tsdate.discrete.InOutModel
+   :members:
+
+.. autoclass:: tsdate.variational.ExpectationPropagationModel
+   :members:
+```
+
 ## Prior and Time Discretisation Options
 
 ```{eval-rst}
 .. autofunction:: tsdate.build_prior_grid
 .. autofunction:: tsdate.build_parameter_grid
-.. autoclass:: tsdate.base.NodeGridValues
-.. autodata:: tsdate.base.DEFAULT_APPROX_PRIOR_SIZE
+.. autoclass:: tsdate.node_time_class.NodeTimeValues
+.. autodata:: tsdate.prior.DEFAULT_APPROX_PRIOR_SIZE
 ```
 
 ## Variable population sizes
