@@ -10,7 +10,7 @@
 
 - The `return_posteriors` argument has been removed and replaced with `return_fit`.
   An instance of one of two previously internal classes, `ExpectationPropagation`
-  and `InsideOutside`, are now returned when `return_fit=True`, and posteriors can
+  and `BeliefPropagation`, are now returned when `return_fit=True`, and posteriors can
   be obtained using `fit.node_posteriors()`.
 
 - Topology-only dating (setting `mutation_rate=None`) has been removed for tree sequences

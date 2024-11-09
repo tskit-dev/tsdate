@@ -325,7 +325,7 @@ class DiscreteTimeMethod(EstimationMethod):
         if self.mutation_rate is not None:
             liklhd.precalculate_mutation_likelihoods(num_threads=num_threads)
 
-        return discrete.InsideOutside(self.priors, liklhd, progress=self.pbar)
+        return discrete.BeliefPropagation(self.priors, liklhd, progress=self.pbar)
 
 
 class InsideOutsideMethod(DiscreteTimeMethod):
@@ -693,9 +693,10 @@ def inside_outside(
           updated node times based on the posterior mean, corrected where necessary to
           ensure that parents are strictly older than all their children by an amount
           given by the ``eps`` parameter.
-        - **fit** (:class:`~discrete.InsideOutside`) -- (Only returned if ``return_fit``
-          is ``True``) The underlying object used to run the dating inference. This can
-          then be queried e.g. for :meth:`~discrete.InsideOutside.node_posteriors()`
+        - **fit** (:class:`~discrete.BeliefPropagation`) -- (Only returned if
+          ``return_fit`` is ``True``) The underlying object used to run the dating
+          inference. This can then be queried e.g. using
+          :meth:`~discrete.BeliefPropagation.node_posteriors()`
         - **marginal_likelihood** (:py:class:`float`) -- (Only returned if
           ``return_likelihood`` is ``True``) The marginal likelihood of
           the mutation data given the inferred node times.
@@ -793,7 +794,7 @@ def variational_gamma(
           given by the ``eps`` parameter.
         - **fit** (:class:`~variational.ExpectationPropagation`) -- (Only returned
           if ``return_fit`` is ``True``). The underlying object used to run the dating
-          inference. This can then be queried e.g. for
+          inference. This can then be queried e.g. using
           :meth:`~variational.ExpectationPropagation.node_posteriors()`
         - **marginal_likelihood** (:py:class:`float`) -- (Only returned if
           ``return_likelihood`` is ``True``) The marginal likelihood of

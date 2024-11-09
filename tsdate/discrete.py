@@ -489,9 +489,10 @@ class LogLikelihoods(Likelihoods):
         return fraction * value
 
 
-class InsideOutside:
+class BeliefPropagation:
     """
-    The class that encapsulates running the discrete-time inside and outside algorithms.
+    The class that encapsulates running exact belief propagation models,
+    in particular the discrete-time inside and outside algorithms.
     """
 
     def __init__(self, priors, lik, *, progress=False):

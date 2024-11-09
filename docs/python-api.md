@@ -34,15 +34,16 @@ This page provides formal documentation for the _tsdate_ Python API.
 
 ## Underlying fit objects
 
-Instances of these classed below are returned by setting `return_fit=True` when
-dating. The fits can be inspected to obtain more detailed results than
-may be present in the returned tree sequence and its metadata.
+Instances of the classes below are returned by setting `return_fit=True`
+when dating. The fits can be inspected to obtain more detailed results than
+may be present in the returned tree sequence and its metadata. The classes
+are not intended to be instantiated directly.
 
 ```{eval-rst}
-.. autoclass:: tsdate.discrete.InsideOutside
+.. autoclass:: tsdate.discrete.BeliefPropagation()
    :members:
 
-.. autoclass:: tsdate.variational.ExpectationPropagation
+.. autoclass:: tsdate.variational.ExpectationPropagation()
    :members:
 ```
 
