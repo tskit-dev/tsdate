@@ -183,7 +183,7 @@ class TestPrebuilt:
             else:
                 assert np.isclose(np.sum(nd_vals), 1)
 
-    def test_variational_posteriors(self):
+    def test_variational_node_posteriors(self):
         ts = utility_functions.two_tree_mutation_ts()
         ts, model = tsdate.date(
             ts,
@@ -198,6 +198,22 @@ class TestPrebuilt:
             assert posteriors["variance"][nd.id] == vr
             assert np.isclose(nd.metadata["mn"], mn)
             assert np.isclose(nd.metadata["vr"], vr)
+
+    def test_variational_mutation_posteriors(self):
+        ts = utility_functions.two_tree_mutation_ts()
+        ts, model = tsdate.date(
+            ts,
+            mutation_rate=1e-2,
+            method="variational_gamma",
+            return_model=True,
+        )
+        posteriors = model.mutation_posteriors()
+        for mut in ts.mutations():
+            mn, vr = posteriors[mut.id]
+            assert posteriors["mean"][mut.id] == mn
+            assert posteriors["variance"][mut.id] == vr
+            assert np.isclose(mut.metadata["mn"], mn)
+            assert np.isclose(mut.metadata["vr"], vr)
 
     def test_variational_mean_edge_logconst(self):
         # This should give a guide to EP convergence
