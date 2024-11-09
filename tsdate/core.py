@@ -882,8 +882,7 @@ def date(
     .. code-block:: python
 
       mu = 1e-8
-      Ne = ts.diversity()/4/mu  #  In the absence of external info, use ts for prior Ne
-      new_ts = tsdate.date(ts, mutation_rate=mu, population_size=Ne)
+      new_ts = tsdate.date(ts, mutation_rate=mu)
 
     .. note::
         This is a wrapper for the named functions that are listed in
