@@ -906,12 +906,17 @@ class ExpectationPropagation:
 
     def mutation_posteriors(self):
         """
-        Return parameters specifying the inferred posterior distribution of mutation
+        Returns parameters specifying the inferred posterior distribution of mutation
         times which can be e.g. read into a ``pandas.DataFrame`` for further analysis.
         These are calculated as the midpoint distribution of the posterior node time
         distributions of the node above and below the mutation. Note that this means
         it is possible for a mean mutation time not to lie between the mean values of
         its parent and child nodes.
+
+        .. note::
+            For unphased singletons, the posterior mutation time is integrated over
+            the two possible haploid genomes on which the singleton could be placed,
+            accounting for the relative branch lengths above each genome.
 
         :return: The distribution of posterior mutation times as a structured array
             of mean and variance. Row ``i`` gives the mean and variance of inferred
