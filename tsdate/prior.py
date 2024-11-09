@@ -36,7 +36,11 @@ import scipy.stats
 import tskit
 from tqdm.auto import tqdm
 
-from . import base, cache, demography, provenance, util
+from . import cache, demography, node_time_class, provenance, util
+
+#: The default value for `approx_prior_size` (see :func:`~tsdate.build_prior_grid` and
+#: :func:`~tsdate.build_parameter_grid`)
+DEFAULT_APPROX_PRIOR_SIZE = 10000
 
 
 class PriorParams(namedtuple("PriorParamsBase", "alpha, beta, mean, var")):
@@ -191,7 +195,7 @@ class ConditionalCoalescentTimes:
         if approximate is not None:
             self.approximate = approximate
         else:
-            if total_tips >= base.DEFAULT_APPROX_PRIOR_SIZE:
+            if total_tips >= DEFAULT_APPROX_PRIOR_SIZE:
                 self.approximate = True
             else:
                 self.approximate = False
@@ -202,10 +206,10 @@ class ConditionalCoalescentTimes:
                 " the ConditionalCoalescentTimes object with a non-zero number"
             )
 
-        if not self.approximate and total_tips >= base.DEFAULT_APPROX_PRIOR_SIZE:
+        if not self.approximate and total_tips >= DEFAULT_APPROX_PRIOR_SIZE:
             logging.warning(
                 "Calculating exact priors for more than "
-                f"{base.DEFAULT_APPROX_PRIOR_SIZE} tips. Consider "
+                f"{DEFAULT_APPROX_PRIOR_SIZE} tips. Consider "
                 "setting `approximate=True` for a faster calculation."
             )
 
@@ -217,7 +221,9 @@ class ConditionalCoalescentTimes:
         # they are stored separately to obviate need to move between them
         # We should only use prior[2] upwards
         priors = np.full(
-            (total_tips + 1, len(PriorParams._fields)), np.nan, dtype=base.FLOAT_DTYPE
+            (total_tips + 1, len(PriorParams._fields)),
+            np.nan,
+            dtype=node_time_class.FLOAT_DTYPE,
         )
 
         if self.approximate:
@@ -374,7 +380,9 @@ class ConditionalCoalescentTimes:
         seen_mixtures = {}
         # allocate space for params for all nodes, even though we only use nodes_to_date
         num_nodes, num_params = spans_by_samples.ts.num_nodes, len(param_cols)
-        priors = np.full((num_nodes + 1, num_params), np.nan, dtype=base.FLOAT_DTYPE)
+        priors = np.full(
+            (num_nodes + 1, num_params), np.nan, dtype=node_time_class.FLOAT_DTYPE
+        )
         for node in tqdm(
             spans_by_samples.nodes_to_date,
             total=len(spans_by_samples.nodes_to_date),
@@ -467,7 +475,7 @@ class SpansBySamples:
 
         # We will store the spans in here, and normalize them at the end
         self._spans = defaultdict(
-            lambda: defaultdict(lambda: defaultdict(base.FLOAT_DTYPE))
+            lambda: defaultdict(lambda: defaultdict(node_time_class.FLOAT_DTYPE))
         )
 
         if not allow_unary:
@@ -853,7 +861,7 @@ class SpansBySamples:
         spans_dtype = np.dtype(
             {
                 "names": ("descendant_tips", "span"),
-                "formats": (np.uint64, base.FLOAT_DTYPE),
+                "formats": (np.uint64, node_time_class.FLOAT_DTYPE),
             }
         )
 
@@ -995,7 +1003,7 @@ def fill_priors(
     """
     Take the alpha and beta values from the node_parameters array, which contains
     one row for each node in the TS (including fixed nodes)
-    and fill out a NodeGridValues object with the prior values from the
+    and fill out a NodeTimeValues object with the prior values from the
     gamma or lognormal distribution with those parameters.
 
     The `population_size` can be a scalar, or an object with a `.to_natural_timescale`
@@ -1021,7 +1029,7 @@ def fill_priors(
     datable_nodes = np.where(datable_nodes)[0]
 
     # convert timepoints to generational timescale
-    prior_times = base.NodeGridValues(
+    prior_times = node_time_class.NodeTimeValues(
         ts.num_nodes,
         datable_nodes[np.argsort(ts.nodes_time[datable_nodes])].astype(np.int32),
         population_size.to_natural_timescale(timepoints),
@@ -1060,7 +1068,7 @@ class MixturePrior:
     ):
         if approximate_priors:
             if not approx_prior_size:
-                approx_prior_size = base.DEFAULT_APPROX_PRIOR_SIZE
+                approx_prior_size = DEFAULT_APPROX_PRIOR_SIZE
         else:
             if approx_prior_size is not None:
                 raise ValueError(
@@ -1107,7 +1115,9 @@ class MixturePrior:
             timepoints = create_timepoints(self.base_priors, timepoints + 1)
         elif isinstance(timepoints, np.ndarray):
             try:
-                timepoints = np.sort(timepoints.astype(base.FLOAT_DTYPE, casting="safe"))
+                timepoints = np.sort(
+                    timepoints.astype(node_time_class.FLOAT_DTYPE, casting="safe")
+                )
             except TypeError:
                 raise TypeError(
                     "Timepoints array cannot be converted to float dtype"
@@ -1152,12 +1162,12 @@ class MixturePrior:
         datable_nodes[ts.samples()] = False
         datable_nodes = np.where(datable_nodes)[0]
 
-        prior_pars = base.NodeGridValues(
+        prior_pars = node_time_class.NodeTimeValues(
             self.tree_sequence.num_nodes,
             datable_nodes[np.argsort(ts.nodes_time[datable_nodes])].astype(np.int32),
             np.array([0, np.inf]),
         )
-        prior_pars.probability_space = base.GAMMA_PAR
+        prior_pars.probability_space = node_time_class.GAMMA_PAR
 
         shape = self.prior_params[:, PriorParams.field_index("alpha")]
         rate = self.prior_params[:, PriorParams.field_index("beta")]
@@ -1204,7 +1214,8 @@ def prior_grid(
         the result. Default: False
     :param int approx_prior_size: Number of samples above which a precalculated prior is
         used. Only valid if ``approximate_priors`` is True. Default: ``None``, treated as
-        :data:`~tsdate.base.DEFAULT_APPROX_PRIOR_SIZE` if ``approximate_priors`` is True.
+        :data:`~tsdate.prior.DEFAULT_APPROX_PRIOR_SIZE` if
+        ``approximate_priors`` is True.
     :param string prior_distr: What distribution to use to approximate the conditional
         coalescent prior. Can be "lognorm" for the lognormal distribution (generally a
         better fit, but slightly slower to calculate) or "gamma" for the gamma
@@ -1212,7 +1223,7 @@ def prior_grid(
         "lognorm"
     :return: A prior object to pass to :func:`date` and similar functions containing
         prior values for inference and a discretised time grid
-    :rtype:  base.NodeGridValues
+    :rtype:  node_time_class.NodeTimeValues
     """
 
     mixture_prior = MixturePrior(
@@ -1254,8 +1265,8 @@ def parameter_grid(
         the result. Default: False
     :param int approx_prior_size: Number of samples above which a precalculated prior is
         used. Only valid if ``approximate_priors`` is True. Default: ``None``, treated as
-        :data:`~tsdate.base.DEFAULT_APPROX_PRIOR_SIZE` if ``approximate_priors`` is True.
-    :rtype:  base.NodeGridValues
+        :data:`~tsdate.prior.DEFAULT_APPROX_PRIOR_SIZE` if ``approximate_priors`` is True.
+    :rtype:  node_time_class.NodeTimeValues
     """
 
     mixture_prior = MixturePrior(

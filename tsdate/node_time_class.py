@@ -27,26 +27,23 @@ Base classes and internal constants used by tsdate
 import numpy as np
 
 FLOAT_DTYPE = np.float64
-LIN = "linear"
-LOG = "logarithmic"
+LIN_GRID = "linear"
+LOG_GRID = "logarithmic"
 GAMMA_PAR = "gamma_parameter"
 
-#: The default value for `approx_prior_size` (see :func:`~tsdate.build_prior_grid` and
-#: :func:`~tsdate.build_parameter_grid`)
-DEFAULT_APPROX_PRIOR_SIZE = 10000
 
-
-class NodeGridValues:
+class NodeTimeValues:
     """
     A class to store times or discretised distributions of times for node ids. For nodes
     with fixed times, only a single time value needs to be stored. For non-fixed nodes,
-    an array of len(timepoints) probabilies is required.
+    an array of either len(timepoints) probabilties or a set of (gamma) distribution
+    parameters is required.
 
     .. note::
 
         This class is not intended to be used directly by users and may be subject
         to change of name or internal structure in future versions. For details on
-        how to create a ``NodeGridValues`` object to be used as a prior, see
+        how to create a ``NodeTimeValues`` object to be used as a prior, see
         :ref:`sec_priors`.
 
     :ivar num_nodes: The number of nodes that will be stored in this object
@@ -79,7 +76,12 @@ class NodeGridValues:
             raise ValueError(
                 "All non fixed node ids must be between zero and the total node number"
             )
-        grid_size = len(timepoints) if type(timepoints) is np.ndarray else timepoints
+        try:
+            grid_size = len(timepoints)
+            self.probability_space = LIN_GRID
+        except TypeError:
+            grid_size = timepoints
+            self.probability_space = GAMMA_PAR
         self.timepoints = timepoints
         # Make timepoints immutable so no risk of overwritting them with copy
         self.timepoints.setflags(write=False)
@@ -95,7 +97,6 @@ class NodeGridValues:
         self.row_lookup[np.logical_not(np.isin(np.arange(num_nodes), nonfixed_nodes))] = (
             -np.arange(num_nodes - self.num_nonfixed) - 1
         )
-        self.probability_space = LIN
 
     def force_probability_space(self, probability_space):
         """
@@ -108,23 +109,23 @@ class NodeGridValues:
             probability_space,
             "space",
         )
-        if probability_space == LIN:
-            if self.probability_space == LIN:
+        if probability_space == LIN_GRID:
+            if self.probability_space == LIN_GRID:
                 pass
-            elif self.probability_space == LOG:
+            elif self.probability_space == LOG_GRID:
                 self.grid_data = np.exp(self.grid_data)
                 self.fixed_data = np.exp(self.fixed_data)
-                self.probability_space = LIN
+                self.probability_space = LIN_GRID
             else:
                 raise TypeError("Cannot force " + " ".join(descr))
-        elif probability_space == LOG:
-            if self.probability_space == LOG:
+        elif probability_space == LOG_GRID:
+            if self.probability_space == LOG_GRID:
                 pass
-            elif self.probability_space == LIN:
+            elif self.probability_space == LIN_GRID:
                 with np.errstate(divide="ignore", invalid="ignore"):
                     self.grid_data = np.log(self.grid_data)
                     self.fixed_data = np.log(self.fixed_data)
-                self.probability_space = LOG
+                self.probability_space = LOG_GRID
             else:
                 raise TypeError("Cannot force " + " ".join(descr))
         elif probability_space == GAMMA_PAR:
@@ -140,22 +141,22 @@ class NodeGridValues:
         Standardize grid data so the max for each row is one (in linear space) or zero
         (in logarithmic space)
 
-        TODO - is it clear why we omit the first element of the
+        TODO - is it clear why we omit the first element of the grid?
         """
         rowmax = self.grid_data[:, 1:].max(axis=1)
-        if self.probability_space == LIN:
+        if self.probability_space == LIN_GRID:
             self.grid_data = self.grid_data / rowmax[:, np.newaxis]
-        elif self.probability_space == LOG:
+        elif self.probability_space == LOG_GRID:
             self.grid_data = self.grid_data - rowmax[:, np.newaxis]
         else:
-            raise RuntimeError("Probability space is not", LIN, "or", LOG)
+            raise RuntimeError("Probability space is not", LIN_GRID, "or", LOG_GRID)
 
     def to_probabilities(self):
         """
         Change grid data into probabilities (i.e. each row sums to one in linear or zero
         in logarithmic space)
         """
-        if self.probability_space != LIN:
+        if self.probability_space != LIN_GRID:
             raise NotImplementedError("Can only convert to probabilities in linear space")
         assert not np.any(self.grid_data < 0)
         self.grid_data = self.grid_data / self.grid_data.sum(axis=1)[:, np.newaxis]
@@ -178,7 +179,7 @@ class NodeGridValues:
         self, grid_data=np.nan, fixed_data=None, probability_space=None
     ):
         """
-        Take the row indices etc from an existing NodeGridValues object and make a new
+        Take the row indices etc from an existing NodeTimeValues object and make a new
         similar one but with different data. If grid_data is a single number, fill the
         entire data array with that, otherwise assume the data is a numpy array of the
         correct size to fill the gridded data. If grid_data is None, fill with NaN
@@ -200,7 +201,7 @@ class NodeGridValues:
                     orig.fixed_data.shape, fixed_data, dtype=orig.fixed_data.dtype
                 )
 
-        new_obj = NodeGridValues.__new__(NodeGridValues)
+        new_obj = NodeTimeValues.__new__(NodeTimeValues)
         new_obj.num_nodes = self.num_nodes
         new_obj.nonfixed_nodes = self.nonfixed_nodes
         new_obj.num_nonfixed = self.num_nonfixed
@@ -233,8 +234,15 @@ class NodeGridValues:
             new_obj.probability_space = probability_space
         return new_obj
 
-    def nonfixed_dict(self):
+    def node_probability_array(self):
         """
-        Return a dictionary mapping integer node ids to their data.
+        Return a structured array with columns for each timepoint and rows for each node.
+        Fixed nodes have np.nan in all columns, non-fixed nodes have the grid data.
         """
-        return {n: self[n] for n in self.nonfixed_nodes}
+        if self.probability_space != LIN_GRID:
+            raise ValueError("Only valid for linear-space probabilities")
+        dtype = self.grid_data.dtype
+        struct_dtype = [(str(t), self.grid_data.dtype) for t in self.timepoints]
+        result = np.full((self.num_nodes, len(self.timepoints)), np.nan, dtype=dtype)
+        result[self.nonfixed_nodes, :] = self.grid_data[:, :]
+        return result.ravel().view(dtype=struct_dtype)

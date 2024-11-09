@@ -38,15 +38,10 @@ import utility_functions
 from utility_functions import constrain_ages_topo
 
 import tsdate
-from tsdate import base
-from tsdate.core import (
-    DiscreteTimeMethod,
-    InOutAlgorithms,
-    InsideOutsideMethod,
-    Likelihoods,
-    LogLikelihoods,
-)
+from tsdate.core import DiscreteTimeMethod, InsideOutsideMethod
 from tsdate.demography import PopulationSizeHistory
+from tsdate.discrete import BeliefPropagation, Likelihoods, LogLikelihoods
+from tsdate.node_time_class import LIN_GRID, LOG_GRID, NodeTimeValues
 from tsdate.prior import (
     ConditionalCoalescentTimes,
     MixturePrior,
@@ -744,19 +739,19 @@ class TestLikelihoodClass:
                     )
 
 
-class TestNodeGridValuesClass:
+class TestNodeTimeValuesClass:
     def test_init(self):
         num_nodes = 5
         ids = np.array([3, 4])
         timepoints = np.array(range(10))
-        store = base.NodeGridValues(num_nodes, ids, timepoints, fill_value=6)
+        store = NodeTimeValues(num_nodes, ids, timepoints, fill_value=6)
         assert store.grid_data.shape == (len(ids), len(timepoints))
         assert len(store.fixed_data) == (num_nodes - len(ids))
         assert np.all(store.grid_data == 6)
         assert np.all(store.fixed_data == 6)
 
         ids = np.array([3, 4], dtype=np.int32)
-        store = base.NodeGridValues(num_nodes, ids, timepoints, fill_value=5)
+        store = NodeTimeValues(num_nodes, ids, timepoints, fill_value=5)
         assert store.grid_data.shape == (len(ids), len(timepoints))
         assert len(store.fixed_data) == num_nodes - len(ids)
         assert np.all(store.fixed_data == 5)
@@ -767,7 +762,7 @@ class TestNodeGridValuesClass:
         fill = {}
         rng = np.random.default_rng(1)
         for ids in ([3, 4], []):
-            store = base.NodeGridValues(
+            store = NodeTimeValues(
                 num_nodes, np.array(ids, dtype=np.int32), np.array(range(grid_size))
             )
             for i in range(num_nodes):
@@ -781,52 +776,50 @@ class TestNodeGridValuesClass:
     def test_bad_init(self):
         ids = [3, 4]
         with pytest.raises(ValueError):
-            base.NodeGridValues(3, np.array(ids), np.array([0, 1.2, 2]))
+            NodeTimeValues(3, np.array(ids), np.array([0, 1.2, 2]))
         with pytest.raises(AttributeError):
-            base.NodeGridValues(5, np.array(ids), -1)
+            NodeTimeValues(5, np.array(ids), -1)
         with pytest.raises(ValueError):
-            base.NodeGridValues(5, np.array([-1]), np.array([0, 1.2, 2]))
+            NodeTimeValues(5, np.array([-1]), np.array([0, 1.2, 2]))
         with pytest.raises(ValueError, match="must be a 1D numpy array"):
-            base.NodeGridValues(5, np.array([[1, 2], [3, 4]]), np.array([0, 1.2, 2]))
+            NodeTimeValues(5, np.array([[1, 2], [3, 4]]), np.array([0, 1.2, 2]))
 
     def test_clone(self):
         num_nodes = 10
         grid_size = 2
         ids = [3, 4]
-        orig = base.NodeGridValues(num_nodes, np.array(ids), np.array(range(grid_size)))
+        orig = NodeTimeValues(num_nodes, np.array(ids), np.array(range(grid_size)))
         orig[3] = np.array([1, 2])
         orig[4] = np.array([4, 3])
         orig[0] = 1.5
         orig[9] = 2.5
         # test with np.zeros
-        clone = base.NodeGridValues.clone_with_new_data(orig, 0)
+        clone = NodeTimeValues.clone_with_new_data(orig, 0)
         assert clone.grid_data.shape == orig.grid_data.shape
         assert clone.fixed_data.shape == orig.fixed_data.shape
         assert np.all(clone.grid_data == 0)
         assert np.all(clone.fixed_data == 0)
         # test with something else
-        clone = base.NodeGridValues.clone_with_new_data(orig, 5)
+        clone = NodeTimeValues.clone_with_new_data(orig, 5)
         assert clone.grid_data.shape == orig.grid_data.shape
         assert clone.fixed_data.shape == orig.fixed_data.shape
         assert np.all(clone.grid_data == 5)
         assert np.all(clone.fixed_data == 5)
         # test with different
         scalars = np.arange(num_nodes - len(ids))
-        clone = base.NodeGridValues.clone_with_new_data(orig, 0, scalars)
+        clone = NodeTimeValues.clone_with_new_data(orig, 0, scalars)
         assert clone.grid_data.shape == orig.grid_data.shape
         assert clone.fixed_data.shape == orig.fixed_data.shape
         assert np.all(clone.grid_data == 0)
         assert np.all(clone.fixed_data == scalars)
 
-        clone = base.NodeGridValues.clone_with_new_data(orig, np.array([[1, 2], [4, 3]]))
+        clone = NodeTimeValues.clone_with_new_data(orig, np.array([[1, 2], [4, 3]]))
         for i in range(num_nodes):
             if i in ids:
                 assert np.all(clone[i] == orig[i])
             else:
                 assert np.isnan(clone[i])
-        clone = base.NodeGridValues.clone_with_new_data(
-            orig, np.array([[1, 2], [4, 3]]), 0
-        )
+        clone = NodeTimeValues.clone_with_new_data(orig, np.array([[1, 2], [4, 3]]), 0)
         for i in range(num_nodes):
             if i in ids:
                 assert np.all(clone[i] == orig[i])
@@ -836,14 +829,14 @@ class TestNodeGridValuesClass:
     def test_bad_clone(self):
         num_nodes = 10
         ids = [3, 4]
-        orig = base.NodeGridValues(num_nodes, np.array(ids), np.array([0, 1.2]))
+        orig = NodeTimeValues(num_nodes, np.array(ids), np.array([0, 1.2]))
         with pytest.raises(ValueError):
-            base.NodeGridValues.clone_with_new_data(
+            NodeTimeValues.clone_with_new_data(
                 orig,
                 np.array([[1, 2, 3], [4, 5, 6]]),
             )
         with pytest.raises(ValueError):
-            base.NodeGridValues.clone_with_new_data(
+            NodeTimeValues.clone_with_new_data(
                 orig,
                 0,
                 np.array([[1, 2], [4, 5]]),
@@ -853,10 +846,10 @@ class TestNodeGridValuesClass:
         num_nodes = 10
         ids = [3, 4]
         make_nan_row = 4
-        orig = base.NodeGridValues(num_nodes, np.array(ids), np.array([0, 1.2]), 1)
+        orig = NodeTimeValues(num_nodes, np.array(ids), np.array([0, 1.2]), 1)
         orig[make_nan_row][0] = np.nan
         assert np.all(np.isnan(orig[make_nan_row]) == [True, False])
-        orig.force_probability_space(base.LIN)
+        orig.force_probability_space(LIN_GRID)
         orig.to_probabilities()
         for n in orig.nonfixed_nodes:
             if n == make_nan_row:
@@ -871,41 +864,39 @@ class TestNodeGridValuesClass:
         ids = [3, 4]
         timepoints = np.array([0, 1.2])
         fill_val = 0.1
-        orig = base.NodeGridValues(num_nodes, np.array(ids), timepoints, fill_val)
+        orig = NodeTimeValues(num_nodes, np.array(ids), timepoints, fill_val)
         assert np.allclose(orig.grid_data, fill_val)
-        assert orig.probability_space == base.LIN
-        orig.force_probability_space(base.LOG)
-        assert orig.probability_space == base.LOG
-        orig.force_probability_space(base.LOG)  # repeat, to check nothing changes
-        assert orig.probability_space == base.LOG
-        orig.force_probability_space(base.LIN)
-        assert orig.probability_space == base.LIN
-        orig.force_probability_space(base.LIN)  # repeat, to check nothing changes
-        assert orig.probability_space == base.LIN
+        assert orig.probability_space == LIN_GRID
+        orig.force_probability_space(LOG_GRID)
+        assert orig.probability_space == LOG_GRID
+        orig.force_probability_space(LOG_GRID)  # repeat, to check nothing changes
+        assert orig.probability_space == LOG_GRID
+        orig.force_probability_space(LIN_GRID)
+        assert orig.probability_space == LIN_GRID
+        orig.force_probability_space(LIN_GRID)  # repeat, to check nothing changes
+        assert orig.probability_space == LIN_GRID
         assert np.allclose(orig.grid_data, fill_val)
 
     def test_cannot_convert_to_probs(self):
         # No class implemention of logsumexp to convert to probabilities in log space
         num_nodes = 10
         ids = [3, 4]
-        orig = base.NodeGridValues(num_nodes, np.array(ids), np.array([0, 1.2]))
-        orig.force_probability_space(base.LOG)
+        orig = NodeTimeValues(num_nodes, np.array(ids), np.array([0, 1.2]))
+        orig.force_probability_space(LOG_GRID)
         with pytest.raises(NotImplementedError, match="linear space"):
             orig.to_probabilities()
 
     def test_cannot_force_probability_space(self):
         num_nodes = 10
         ids = [3, 4]
-        orig = base.NodeGridValues(num_nodes, np.array(ids), np.array([0, 1.2]))
-        assert orig.probability_space == base.LIN
-        with pytest.raises(TypeError, match="Cannot force linear"):
-            orig.force_probability_space(base.GAMMA_PAR)
+        orig = NodeTimeValues(num_nodes, np.array(ids), np.array([0, 1.2]))
+        assert orig.probability_space == LIN_GRID
 
     def test_bad_probability_space(self):
         num_nodes = 10
         ids = [3, 4]
-        orig = base.NodeGridValues(num_nodes, np.array(ids), np.array([0, 1.2]))
-        assert orig.probability_space == base.LIN
+        orig = NodeTimeValues(num_nodes, np.array(ids), np.array([0, 1.2]))
+        assert orig.probability_space == LIN_GRID
         with pytest.raises(ValueError, match="Bad probability space"):
             orig.force_probability_space("bad_space")
 
@@ -919,7 +910,7 @@ class TestAlgorithmClass:
         priors = tsdate.build_prior_grid(ts, Ne, timepoints1)
         lls = Likelihoods(ts, timepoints2)
         with pytest.raises(ValueError, match="timepoints"):
-            InOutAlgorithms(priors, lls)
+            BeliefPropagation(priors, lls)
 
     def test_nonmatching_prior_vs_lik_fixednodes(self):
         ts1 = utility_functions.single_tree_ts_n3()
@@ -929,7 +920,7 @@ class TestAlgorithmClass:
         priors = tsdate.build_prior_grid(ts1, Ne, timepoints)
         lls = Likelihoods(ts2, priors.timepoints)
         with pytest.raises(ValueError, match="fixed"):
-            InOutAlgorithms(priors, lls)
+            BeliefPropagation(priors, lls)
 
 
 class TestInsideAlgorithm:
@@ -952,7 +943,7 @@ class TestInsideAlgorithm:
         else:
             lls = Likelihoods(ts, priors.timepoints, mut_rate, eps=eps)
         lls.precalculate_mutation_likelihoods()
-        algo = InOutAlgorithms(priors, lls)
+        algo = BeliefPropagation(priors, lls)
         marg_lik = algo.inside_pass(standardize=standardize)
         return algo, priors, marg_lik
 
@@ -1077,17 +1068,15 @@ class TestInsideAlgorithm:
 
     def test_dangling_fails(self):
         ts = utility_functions.single_tree_ts_n2_dangling()
-        # print(ts.draw_text())
-        # print("Samples:", ts.samples())
         Ne = 0.5
         with pytest.raises(ValueError, match="simplified"):
             tsdate.build_prior_grid(ts, Ne, timepoints=np.array([0, 1.2, 2]))
         # mut_rate = 1
         # eps = 1e-6
         # lls = Likelihoods(ts, priors.timepoints, mut_rate, eps)
-        # algo = InOutAlgorithms(priors, lls)
+        # fit = BeliefPropagation(priors, lls)
         # with pytest.raises(ValueError, match="dangling"):
-        #     algo.inside_pass()
+        #     fit.inside_pass()
 
     def test_standardize_marginal_likelihood(self):
         ts = utility_functions.two_tree_mutation_ts()
@@ -1117,7 +1106,7 @@ class TestOutsideAlgorithm:
         eps = 1e-6
         lls = Likelihoods(ts, grid, mut_rate, eps=eps)
         lls.precalculate_mutation_likelihoods()
-        algo = InOutAlgorithms(prior_vals, lls)
+        algo = BeliefPropagation(prior_vals, lls)
         algo.inside_pass()
         algo.outside_pass(standardize=standardize, ignore_oldest_root=ignore_oldest_root)
         return algo
@@ -1159,7 +1148,7 @@ class TestOutsideAlgorithm:
         mut_rate = 1
         lls = Likelihoods(ts, priors.timepoints, mut_rate)
         lls.precalculate_mutation_likelihoods()
-        algo = InOutAlgorithms(priors, lls)
+        algo = BeliefPropagation(priors, lls)
         with pytest.raises(RuntimeError):
             algo.outside_pass()
 
@@ -1217,9 +1206,9 @@ class TestTotalFunctionalValueTree:
         eps = 1e-6
         lls = Likelihoods(ts, grid, mut_rate, eps=eps)
         lls.precalculate_mutation_likelihoods()
-        algo = InOutAlgorithms(prior_vals, lls)
+        algo = BeliefPropagation(prior_vals, lls)
         algo.inside_pass()
-        posterior = algo.outside_pass(standardize=False)
+        algo.outside_pass(standardize=False)
         assert np.array_equal(
             np.sum(algo.inside.grid_data * algo.outside.grid_data, axis=1),
             np.sum(algo.inside.grid_data * algo.outside.grid_data, axis=1),
@@ -1228,38 +1217,38 @@ class TestTotalFunctionalValueTree:
             np.sum(algo.inside.grid_data * algo.outside.grid_data, axis=1),
             np.sum(algo.inside.grid_data[-1]),
         )
-        return posterior, algo
+        return algo
 
     def test_one_tree_n2(self):
         ts = utility_functions.single_tree_ts_n2()
         for distr in ("gamma", "lognorm"):
-            posterior, algo = self.find_posterior(ts, distr)
+            self.find_posterior(ts, distr)
 
     def test_one_tree_n3(self):
         ts = utility_functions.single_tree_ts_n3()
         for distr in ("gamma", "lognorm"):
-            posterior, algo = self.find_posterior(ts, distr)
+            self.find_posterior(ts, distr)
 
     def test_one_tree_n4(self):
         ts = utility_functions.single_tree_ts_n4()
         for distr in ("gamma", "lognorm"):
-            posterior, algo = self.find_posterior(ts, distr)
+            self.find_posterior(ts, distr)
 
     def test_one_tree_n3_mutation(self):
         ts = utility_functions.single_tree_ts_mutation_n3()
         for distr in ("gamma", "lognorm"):
-            posterior, algo = self.find_posterior(ts, distr)
+            self.find_posterior(ts, distr)
 
     def test_polytomy_tree(self):
         ts = utility_functions.polytomy_tree_ts()
         for distr in ("gamma", "lognorm"):
-            posterior, algo = self.find_posterior(ts, distr)
+            self.find_posterior(ts, distr)
 
     def test_tree_with_unary_nodes(self):
         ts = utility_functions.single_tree_ts_with_unary()
         for distr in ("gamma", "lognorm"):
             with pytest.raises(ValueError, match="unary"):
-                posterior, algo = self.find_posterior(ts, distr)
+                self.find_posterior(ts, distr)
 
 
 class TestGilTree:
@@ -1284,7 +1273,7 @@ class TestGilTree:
             eps = 0.01
             lls = Likelihoods(ts, grid, mut_rate, eps=eps, standardize=False)
             lls.precalculate_mutation_likelihoods()
-            algo = InOutAlgorithms(prior_vals, lls)
+            algo = BeliefPropagation(prior_vals, lls)
             algo.inside_pass(standardize=False, cache_inside=cache_inside)
             algo.outside_pass(standardize=False)
             assert np.allclose(
@@ -1316,7 +1305,7 @@ class TestOutsideEdgesOrdering:
             fixed_node_set=fixed_nodes,
             progress=False,
         )
-        dynamic_prog = InOutAlgorithms(priors, liklhd, progress=False)
+        dynamic_prog = BeliefPropagation(priors, liklhd, progress=False)
         if fn == "outside_pass":
             edges_by_child = dynamic_prog.edges_by_child_desc()
             seen_children = list()
@@ -1388,16 +1377,17 @@ class TestMaximization:
         eps = 1e-6
         lls = Likelihoods(ts, priors.timepoints, mut_rate, eps=eps)
         lls.precalculate_mutation_likelihoods()
-        algo = InOutAlgorithms(priors, lls)
+        algo = BeliefPropagation(priors, lls)
         algo.inside_pass()
-        return lls, algo, algo.outside_maximization(eps=eps)
+        algo.outside_maximization(eps=eps)
+        return lls, algo, algo.posterior_mean
 
     def test_outside_maximization_error(self):
         ts = utility_functions.single_tree_ts_n2()
         priors = tsdate.build_prior_grid(ts, 0.5)
         lls = Likelihoods(ts, priors.timepoints, 1)
         lls.precalculate_mutation_likelihoods()
-        algo = InOutAlgorithms(priors, lls)
+        algo = BeliefPropagation(priors, lls)
         with pytest.raises(RuntimeError, match="not yet run"):
             algo.outside_maximization(eps=1e-6)
 
@@ -1541,29 +1531,26 @@ class TestDiscretisedMeanVar:
     def test_discretised_mean_var(self):
         ts = utility_functions.single_tree_ts_n2()
         for distr in ("gamma", "lognorm"):
-            posterior, algo = TestTotalFunctionalValueTree().find_posterior(ts, distr)
-            mn_post, vr_post = DiscreteTimeMethod.mean_var(ts, posterior)
+            algo = TestTotalFunctionalValueTree().find_posterior(ts, distr)
+            p_grid = algo.posterior_grid
+            mn_post, vr_post = DiscreteTimeMethod.mean_var(ts, p_grid)
             assert np.array_equal(
                 mn_post,
-                [
-                    0,
-                    0,
-                    np.sum(posterior.timepoints * posterior[2]) / np.sum(posterior[2]),
-                ],
+                [0, 0, np.sum(p_grid.timepoints * p_grid[2]) / np.sum(p_grid[2])],
             )
 
     def test_node_metadata_inside_outside(self):
         ts = msprime.simulate(
             10, mutation_rate=1, recombination_rate=1, length=20, random_seed=12
         )
-        algorithm = InsideOutsideMethod(ts, mutation_rate=None, population_size=10000)
+        algorithm = InsideOutsideMethod(ts, mutation_rate=1, population_size=10000)
         mn_post, *_ = algorithm.run(
             eps=1e-6,
             outside_standardize=True,
             ignore_oldest_root=False,
-            probability_space=tsdate.base.LOG,
+            probability_space=tsdate.node_time_class.LOG_GRID,
         )
-        dts = tsdate.inside_outside(ts, population_size=10000, mutation_rate=None)
+        dts = tsdate.inside_outside(ts, population_size=10000, mutation_rate=1)
         unconstr_mn = [nd.metadata["mn"] for nd in dts.nodes() if "mn" in nd.metadata]
         assert np.allclose(unconstr_mn, mn_post)
         assert np.all(dts.tables.nodes.time >= mn_post)
@@ -1572,7 +1559,7 @@ class TestDiscretisedMeanVar:
         ts = msprime.simulate(
             10, mutation_rate=1, recombination_rate=1, length=20, random_seed=12
         )
-        dts, _ = tsdate.variational_gamma(ts, mutation_rate=1, return_posteriors=True)
+        dts = tsdate.variational_gamma(ts, mutation_rate=1)
         unconstr_mn = [nd.metadata["mn"] for nd in dts.nodes() if "mn" in nd.metadata]
         # TODO: compare against the returned posterior means too
         # see
@@ -1830,13 +1817,13 @@ class TestSiteTimes:
 
     def test_sites_time_insideoutside(self):
         ts = utility_functions.two_tree_mutation_ts()
-        dated = tsdate.inside_outside(ts, mutation_rate=None, population_size=1)
-        algorithm = InsideOutsideMethod(ts, mutation_rate=None, population_size=1)
+        dated = tsdate.inside_outside(ts, mutation_rate=1, population_size=1)
+        algorithm = InsideOutsideMethod(ts, mutation_rate=1, population_size=1)
         mn_post, *_ = algorithm.run(
             eps=1e-6,
             outside_standardize=True,
             ignore_oldest_root=False,
-            probability_space=tsdate.base.LOG,
+            probability_space=LOG_GRID,
         )
         assert np.array_equal(
             mn_post[ts.tables.mutations.node],
@@ -1936,14 +1923,14 @@ class TestSiteTimes:
         ts = msprime.simulate(
             10, mutation_rate=1, recombination_rate=1, length=20, random_seed=12
         )
-        algorithm = InsideOutsideMethod(ts, mutation_rate=None, population_size=10000)
+        algorithm = InsideOutsideMethod(ts, mutation_rate=1, population_size=10000)
         mn_post, *_ = algorithm.run(
             eps=1e-6,
             outside_standardize=True,
             ignore_oldest_root=False,
-            probability_space=tsdate.base.LOG,
+            probability_space=tsdate.node_time_class.LOG_GRID,
         )
-        dts = tsdate.inside_outside(ts, mutation_rate=None, population_size=10000)
+        dts = tsdate.inside_outside(ts, mutation_rate=1, population_size=10000)
         assert np.allclose(
             mn_post[ts.tables.mutations.node],
             tsdate.sites_time_from_ts(dts, unconstrained=True, min_time=0),
@@ -1958,9 +1945,10 @@ class TestSiteTimes:
         ts = msprime.simulate(
             10, mutation_rate=1, recombination_rate=1, length=20, random_seed=12
         )
-        dts, pst = tsdate.variational_gamma(ts, mutation_rate=1, return_posteriors=True)
+        dts, fit = tsdate.variational_gamma(ts, mutation_rate=1, return_fit=True)
+        posteriors = fit.node_posteriors()
         assert np.allclose(
-            pst[ts.tables.mutations.node],
+            posteriors[ts.tables.mutations.node],
             tsdate.sites_time_from_ts(dts, unconstrained=True, min_time=0),
         )
         assert np.allclose(

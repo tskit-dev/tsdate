@@ -232,10 +232,9 @@ class TestOutput(RunCLI):
 
     @pytest.mark.parametrize(("flag", "log_status"), logging_flags.items())
     def test_verbosity(self, tmp_path, caplog, flag, log_status):
-        popsize = 10000
         ts = msprime.simulate(
             10,
-            Ne=popsize,
+            Ne=10000,
             mutation_rate=1e-8,
             recombination_rate=1e-8,
             length=2e4,
@@ -246,7 +245,9 @@ class TestOutput(RunCLI):
         caplog.set_level(getattr(logging, log_status))
         # either tsdate preprocess or tsdate date (in_out method has debug asserts)
         self.run_tsdate_cli(tmp_path, ts, flag, cmd="preprocess")
-        self.run_tsdate_cli(tmp_path, ts, f"-n 10 --method inside_outside {flag}")
+        self.run_tsdate_cli(
+            tmp_path, ts, f"--mutation-rate 1e-8 --rescaling-intervals 0 {flag}"
+        )
         assert log_status in caplog.text
 
     @pytest.mark.parametrize(

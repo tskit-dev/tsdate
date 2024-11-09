@@ -2,6 +2,20 @@
 
 ## [0.2.2] - 2024-XX-XX
 
+**Documentation**
+
+- Various fixes in documentation, including documenting returned fits.
+
+**Breaking changes**
+
+- The `return_posteriors` argument has been removed and replaced with `return_fit`.
+  An instance of one of two previously internal classes, `ExpectationPropagation`
+  and `BeliefPropagation`, are now returned when `return_fit=True`, and posteriors can
+  be obtained using `fit.node_posteriors()`.
+
+- Topology-only dating (setting `mutation_rate=None`) has been removed for tree sequences
+  of more than one tree, as tests have found that span-weighting the conditional coalescent
+  causes substantial bias.
 
 ## [0.2.1] - 2024-07-31
 

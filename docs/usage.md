@@ -175,23 +175,20 @@ running _tsdate_:
     The metadata values (currently saved as `mn` and `vr`) need not be constrained by
     the topology of the tree sequence, and should be used in preference
     e.g. to `nodes_time` and `mutations_time` when evaluating the accuracy of _tsdate_. 
-2. The `return_posteriors` parameter can be used when calling {func}`tsdate.date`, which
-    then returns both the dated tree sequence and a dictionary specifying the posterior
-    distributions.
-
-<!--
-The returned posterior is a dictionary keyed by integer node ID, with values representing the
-probability distribution of times. This can be read in to a [pandas](https://pandas.pydata.org)
-dataframe:
+2. The `return_fit` parameter can be used when calling {func}`tsdate.date`, which
+    then returns both the dated tree sequence and a fit object. This object can then be
+    queried for the unconstrained posterior distributions using e.g. `.node_posteriors()`
+    which can be read in to a [pandas](https://pandas.pydata.org) dataframe, as below:
 
 ```{code-cell} ipython3
 import pandas as pd
-redated_ts, posteriors = tsdate.date(
-    sim_ts, mutation_rate=1e-6, method="inside_outside", return_posteriors=True)
-posteriors_df = pd.DataFrame(posteriors)
-posteriors_df.head()  # Show the dataframe
+redated_ts, fit = tsdate.date(
+    sim_ts, mutation_rate=1e-6, return_fit=True)
+posteriors_df = pd.DataFrame(fit.node_posteriors())  # mutation_posteriors() also available
+posteriors_df.tail()  # Show the dataframe
 ```
 
+<!--
 Since we are using a {ref}`sec_methods_discrete_time` method, each node
 (numbered column of the dataframe) is associated with a vector of probabilities
 that sum to one: each cell gives the probability that the time of the node

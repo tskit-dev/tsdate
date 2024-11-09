@@ -32,13 +32,28 @@ This page provides formal documentation for the _tsdate_ Python API.
 .. autofunction:: tsdate.maximization
 ```
 
+## Underlying fit objects
+
+Instances of the classes below are returned by setting `return_fit=True`
+when dating. The fits can be inspected to obtain more detailed results than
+may be present in the returned tree sequence and its metadata. The classes
+are not intended to be instantiated directly.
+
+```{eval-rst}
+.. autoclass:: tsdate.discrete.BeliefPropagation()
+   :members:
+
+.. autoclass:: tsdate.variational.ExpectationPropagation()
+   :members:
+```
+
 ## Prior and Time Discretisation Options
 
 ```{eval-rst}
 .. autofunction:: tsdate.build_prior_grid
 .. autofunction:: tsdate.build_parameter_grid
-.. autoclass:: tsdate.base.NodeGridValues
-.. autodata:: tsdate.base.DEFAULT_APPROX_PRIOR_SIZE
+.. autoclass:: tsdate.node_time_class.NodeTimeValues
+.. autodata:: tsdate.prior.DEFAULT_APPROX_PRIOR_SIZE
 ```
 
 ## Variable population sizes

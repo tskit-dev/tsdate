@@ -108,9 +108,7 @@ class TestAccuracy:
         assert sim_mutations_parameters["command"] == "sim_mutations"
         mu = sim_mutations_parameters["rate"]
 
-        dts, posteriors = tsdate.inside_outside(
-            ts, population_size=Ne, mutation_rate=mu, return_posteriors=True
-        )
+        dts = tsdate.inside_outside(ts, population_size=Ne, mutation_rate=mu)
         # make sure we can read node metadata - old tsdate versions didn't set a schema
         if dts.table_metadata_schemas.node.schema is None:
             tables = dts.dump_tables()
