@@ -110,14 +110,15 @@ def _rescale(x, s):
 
 class ExpectationPropagationModel:
     r"""
-    Expectation propagation (EP) algorithm to infer approximate marginal
-    distributions for node ages.
+    The class encapsulating the running of the variational approach to
+    inferring node ages. This contains the Expectation propagation (EP) algorithm
+    to infer approximate marginal distributions for node ages.
 
     The probability model has the form,
 
     .. math::
 
-        \prod_{i \in \mathcal{N} f(t_i | \theta_i)
+        \prod_{i \in \mathcal{N}} f(t_i | \theta_i)
         \prod_{(i,j) \in \mathcal{E}} g(y_ij | t_i - t_j)
 
     where :math:`f(.)` is a prior distribution on node ages with parameters
@@ -126,7 +127,7 @@ class ExpectationPropagationModel:
 
     .. math::
 
-        \prod_{i \in \mathcal{N} q(t_i | \eta_i)
+        \prod_{i \in \mathcal{N}} q(t_i | \eta_i)
         \prod_{(i,j) \in \mathcal{E}} q(t_i | \gamma_{ij}) q(t_j | \kappa_{ij})
 
     where :math:`q(.)` are pseudo-gamma distributions (termed 'factors'), and
@@ -888,18 +889,41 @@ class ExpectationPropagationModel:
         """
         Return parameters specifying the inferred posterior distribution of node
         times which can be e.g. read into a ``pandas.DataFrame`` for further analysis.
+        The mean times are not strictly constrained by topology, so unlike the
+        ``nodes_time`` attribute of a tree sequence, the mean time of a parent node
+        may occasionally be less than that of one of its children.
 
         :return: The distribution of posterior node times as a structured array of
             mean and variance. Row ``i`` gives the mean and variance of inferred
             node times for node ``i``.
-        :rtype:  numpy.ndarray
-
+        :rtype: numpy.ndarray
         """
         node_mn, node_va = self.node_moments()
         dtype = [("mean", node_mn.dtype), ("variance", node_va.dtype)]
         data = np.empty(node_mn.size, dtype=dtype)
         data["mean"] = node_mn
         data["variance"] = node_va
+        return data
+
+    def mutation_posteriors(self):
+        """
+        Return parameters specifying the inferred posterior distribution of mutation
+        times which can be e.g. read into a ``pandas.DataFrame`` for further analysis.
+        These are calculated as the midpoint distribution of the posterior node time
+        distributions of the node above and below the mutation. Note that this means
+        it is possible for a mean mutation time not to lie between the mean values of
+        its parent and child nodes.
+
+        :return: The distribution of posterior mutation times as a structured array
+            of mean and variance. Row ``i`` gives the mean and variance of inferred
+            mutations times for mutation ``i``.
+        :rtype: numpy.ndarray
+        """
+        mut_mn, mut_va = self.mutation_moments()
+        dtype = [("mean", mut_mn.dtype), ("variance", mut_va.dtype)]
+        data = np.empty(mut_mn.size, dtype=dtype)
+        data["mean"] = mut_mn
+        data["variance"] = mut_va
         return data
 
 

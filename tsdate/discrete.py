@@ -491,7 +491,8 @@ class LogLikelihoods(Likelihoods):
 
 class InOutModel:
     """
-    The class for discrete-time models, containing the inside and outside algorithms
+    The class encapsulating the running of discrete-time models, for example
+    containing the inside and outside algorithms.
     """
 
     def __init__(self, priors, lik, *, progress=False):
@@ -740,12 +741,17 @@ class InOutModel:
 
     def node_posteriors(self):
         """
-        Return the distribution of posterior node times as a structured array, with
-        columns as timepoints. Row ``i`` corresponds to the probabilities of
-        node ``i`` lying at each timepoint. Nodes with fixed times are given
-        np.nan for the entire row. The returned value can be e.g. read into
-        ``pandas.DataFrame`` for further analysis. Note that the
-        ``outside_maximization`` method does not provide node time posteriors.
+        Return the distribution of posterior node times as a structured array. The
+        returned value can be e.g. read into ``pandas.DataFrame`` for further analysis.
+
+        .. note::
+            The ``outside_maximization`` method does not provide node time posteriors.
+
+        :return: The distribution of posterior node times as a structured array with
+            columns as timepoints. Row ``i`` corresponds to the probabilities of
+            node ``i`` lying at each timepoint. Nodes with fixed times are set to
+            ``np.nan`` for the entire row.
+        :rtype: numpy.ndarray
         """
         try:
             return self.posterior_grid.node_probability_array()

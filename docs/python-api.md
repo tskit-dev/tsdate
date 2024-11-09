@@ -34,6 +34,10 @@ This page provides formal documentation for the _tsdate_ Python API.
 
 ## Underlying models
 
+Instances of these models are returned by setting `return_model=True` when
+dating. The models can be inspected to obtain more detailed results than
+may be present in the returned tree sequence and its metadata.
+
 ```{eval-rst}
 .. autoclass:: tsdate.discrete.InOutModel
    :members:
