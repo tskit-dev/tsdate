@@ -199,6 +199,23 @@ class TestPrebuilt:
             assert np.isclose(nd.metadata["mn"], mn)
             assert np.isclose(nd.metadata["vr"], vr)
 
+    def test_variational_mean_edge_logconst(self):
+        # This should give a guide to EP convergence
+        ts = utility_functions.two_tree_mutation_ts()
+        ts, model = tsdate.date(
+            ts,
+            mutation_rate=1e-2,
+            method="variational_gamma",
+            return_model=True,
+        )
+        # Should give a guide to EP convergence. Testing on this example gives
+        # [16.082488, 15.586616, 15.589837, 15.589840, 15.589840, ...] (6 d.p.)
+        # check to that DP by multiplying by 1e6 and rounding
+        test_vals = np.array([16082488, 15586616, 15589837, 15589840, 15589840])
+        obs = np.round(np.array(model.mean_edge_logconst) * 1e6)
+        assert np.all(obs[0:5] == test_vals)
+        assert np.all(obs[5:] == test_vals[-1])
+
     def test_marginal_likelihood(self):
         ts = utility_functions.two_tree_mutation_ts()
         _, _, marg_lik = tsdate.inside_outside(

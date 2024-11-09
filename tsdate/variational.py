@@ -26,7 +26,6 @@ Expectation propagation implementation
 
 import logging
 import time
-import types
 
 import numba
 import numpy as np
@@ -772,8 +771,7 @@ class ExpectationPropagationModel:
         progress=None,
     ):
         # Run multiple rounds of expectation propagation, and return stats
-        results = types.SimpleNamespace()
-        results.mutational_likelihoods = []
+        self.mean_edge_logconst = []  # Undocumented: can be used to assess convergence
         nodes_timing = time.time()
         for _ in tqdm(
             np.arange(ep_iterations),
@@ -785,6 +783,7 @@ class ExpectationPropagationModel:
                 min_step=min_step,
                 regularise=regularise,
             )
+            self.mean_edge_logconst.append(np.mean(self.edge_logconst))
 
         nodes_timing -= time.time()
         skipped_edges = np.sum(np.isnan(self.edge_logconst))
