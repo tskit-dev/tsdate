@@ -489,10 +489,9 @@ class LogLikelihoods(Likelihoods):
         return fraction * value
 
 
-class InOutModel:
+class InsideOutside:
     """
-    The class encapsulating the running of discrete-time models, for example
-    containing the inside and outside algorithms.
+    The class that encapsulates running the discrete-time inside and outside algorithms.
     """
 
     def __init__(self, priors, lik, *, progress=False):

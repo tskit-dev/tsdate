@@ -54,7 +54,7 @@ Results = namedtuple(
         "mutation_lik",
         "mutation_edge",
         "mutation_node",
-        "method_object",
+        "fit_object",
     ],
 )
 
@@ -83,7 +83,7 @@ class EstimationMethod:
         time_units=None,
         priors=None,
         return_likelihood=None,
-        return_model=None,
+        return_fit=None,
         record_provenance=None,
         constr_iterations=None,
         progress=None,
@@ -95,14 +95,14 @@ class EstimationMethod:
         if return_posteriors is not None:
             raise ValueError(
                 'The "return_posteriors" parameter has been deprecated. Either use the '
-                "posterior values encoded in node metadata or set ``return_model=True`` "
-                "then access `model.node_posteriors()` to obtain a transposed version "
+                "posterior values encoded in node metadata or set ``return_fit=True`` "
+                "then access `fit.node_posteriors()` to obtain a transposed version "
                 "of the matrix previously returned when ``return_posteriors=True.``"
             )
         self.ts = ts
         self.mutation_rate = mutation_rate
         self.recombination_rate = recombination_rate
-        self.return_model = return_model
+        self.return_fit = return_fit
         self.return_likelihood = return_likelihood
         self.pbar = progress
         self.time_units = "generations" if time_units is None else time_units
@@ -254,8 +254,8 @@ class EstimationMethod:
         # Construct the tree sequence to return and add other stuff we might want to
         # return. pst_cols is a dict to be appended to the output posterior dict
         ret = [self.get_modified_ts(result, epsilon)]
-        if self.return_model:
-            ret.append(result.method_object)
+        if self.return_fit:
+            ret.append(result.fit_object)
         if self.return_likelihood:
             ret.append(result.mutation_lik)
         return tuple(ret) if len(ret) > 1 else ret.pop()
@@ -325,7 +325,7 @@ class DiscreteTimeMethod(EstimationMethod):
         if self.mutation_rate is not None:
             liklhd.precalculate_mutation_likelihoods(num_threads=num_threads)
 
-        return discrete.InOutModel(self.priors, liklhd, progress=self.pbar)
+        return discrete.InsideOutside(self.priors, liklhd, progress=self.pbar)
 
 
 class InsideOutsideMethod(DiscreteTimeMethod):
@@ -353,17 +353,17 @@ class InsideOutsideMethod(DiscreteTimeMethod):
             self.provenance_params.update(
                 {k: v for k, v in locals().items() if k != "self"}
             )
-        model = self.main_algorithm(probability_space, eps, num_threads)
-        marginal_likl = model.inside_pass(cache_inside=cache_inside)
-        model.outside_pass(
+        fit_obj = self.main_algorithm(probability_space, eps, num_threads)
+        marginal_likl = fit_obj.inside_pass(cache_inside=cache_inside)
+        fit_obj.outside_pass(
             standardize=outside_standardize, ignore_oldest_root=ignore_oldest_root
         )
         # Turn the posterior into probabilities
-        model.posterior_grid.standardize()  # Just to ensure no floating point issues
-        model.posterior_grid.force_probability_space(LIN_GRID)
-        model.posterior_grid.to_probabilities()
+        fit_obj.posterior_grid.standardize()  # Just to ensure no floating point issues
+        fit_obj.posterior_grid.force_probability_space(LIN_GRID)
+        fit_obj.posterior_grid.to_probabilities()
 
-        posterior_mean, posterior_var = self.mean_var(self.ts, model.posterior_grid)
+        posterior_mean, posterior_var = self.mean_var(self.ts, fit_obj.posterior_grid)
         mut_edge = np.full(self.ts.num_mutations, tskit.NULL)
         mut_node = self.ts.mutations_node
         return Results(
@@ -374,7 +374,7 @@ class InsideOutsideMethod(DiscreteTimeMethod):
             marginal_likl,
             mut_edge,
             mut_node,
-            model,
+            fit_obj,
         )
 
 
@@ -397,20 +397,20 @@ class MaximizationMethod(DiscreteTimeMethod):
             self.provenance_params.update(
                 {k: v for k, v in locals().items() if k != "self"}
             )
-        model = self.main_algorithm(probability_space, eps, num_threads)
-        marginal_likl = model.inside_pass(cache_inside=cache_inside)
-        model.outside_maximization(eps=eps)
+        fit_obj = self.main_algorithm(probability_space, eps, num_threads)
+        marginal_likl = fit_obj.inside_pass(cache_inside=cache_inside)
+        fit_obj.outside_maximization(eps=eps)
         mut_edge = np.full(self.ts.num_mutations, tskit.NULL)
         mut_node = self.ts.mutations_node
         return Results(
-            model.posterior_mean,
+            fit_obj.posterior_mean,
             None,
             None,
             None,
             marginal_likl,
             mut_edge,
             mut_node,
-            model,
+            fit_obj,
         )
 
 
@@ -441,12 +441,12 @@ class VariationalGammaMethod(EstimationMethod):
         if self.mutation_rate is None:
             raise ValueError("Variational gamma method requires mutation rate")
 
-        model = variational.ExpectationPropagationModel(
+        fit_obj = variational.ExpectationPropagation(
             self.ts,
             mutation_rate=self.mutation_rate,
             singletons_phased=singletons_phased,
         )
-        model.infer(
+        fit_obj.infer(
             ep_iterations=max_iterations,
             max_shape=max_shape,
             rescale_intervals=rescaling_intervals,
@@ -455,10 +455,10 @@ class VariationalGammaMethod(EstimationMethod):
             rescale_segsites=match_segregating_sites,
             progress=self.pbar,
         )
-        marginal_likl = model.marginal_likelihood()
-        node_mn, node_va = model.node_moments()
-        mutation_mn, mutation_va = model.mutation_moments()
-        mutation_edge, mutation_node = model.mutation_mapping()
+        marginal_likl = fit_obj.marginal_likelihood()
+        node_mn, node_va = fit_obj.node_moments()
+        mutation_mn, mutation_va = fit_obj.mutation_moments()
+        mutation_edge, mutation_node = fit_obj.mutation_mapping()
 
         return Results(
             node_mn,
@@ -468,7 +468,7 @@ class VariationalGammaMethod(EstimationMethod):
             marginal_likl,
             mutation_edge,
             mutation_node,
-            model,
+            fit_obj,
         )
 
 
@@ -553,7 +553,7 @@ def maximization(
     :param \\**kwargs: Other keyword arguments as described in the :func:`date` wrapper
         function, notably ``mutation_rate``, and ``population_size`` or ``priors``.
         Further arguments include ``time_units``, ``progress``, and
-        ``record_provenance``.  The additional arguments ``return_model`` and
+        ``record_provenance``.  The additional arguments ``return_fit`` and
         ``return_likelihood`` can be used to return additional information (see below).
     :return:
         - **ts** (:class:`~tskit.TreeSequence`) -- a copy of the input tree sequence with
@@ -686,16 +686,16 @@ def inside_outside(
     :param \\**kwargs: Other keyword arguments as described in the :func:`date` wrapper
         function, notably ``mutation_rate``, and ``population_size`` or ``priors``.
         Further arguments include ``time_units``, ``progress``, and
-        ``record_provenance``. The additional arguments ``return_model`` and
+        ``record_provenance``. The additional arguments ``return_fit`` and
         ``return_likelihood`` can be used to return additional information (see below).
     :return:
         - **ts** (:class:`~tskit.TreeSequence`) -- a copy of the input tree sequence with
           updated node times based on the posterior mean, corrected where necessary to
           ensure that parents are strictly older than all their children by an amount
           given by the ``eps`` parameter.
-        - **model** (:class:`~discrete.InOutModel`) -- (Only returned if ``return_model``
+        - **fit** (:class:`~discrete.InsideOutside`) -- (Only returned if ``return_fit``
           is ``True``) The underlying object used to run the dating inference. This can
-          then be queried e.g. for :meth:`~discrete.InOutModel.node_posteriors()`
+          then be queried e.g. for :meth:`~discrete.InsideOutside.node_posteriors()`
         - **marginal_likelihood** (:py:class:`float`) -- (Only returned if
           ``return_likelihood`` is ``True``) The marginal likelihood of
           the mutation data given the inferred node times.
@@ -784,17 +784,17 @@ def variational_gamma(
         are polytomies. Default ``False``.
     :param \\**kwargs: Other keyword arguments as described in the :func:`date` wrapper
         function, including ``time_units``, ``progress``, and ``record_provenance``.
-        The arguments ``return_model`` and ``return_likelihood`` can be
+        The arguments ``return_fit`` and ``return_likelihood`` can be
         used to return additional information (see below).
     :return:
         - **ts** (:class:`~tskit.TreeSequence`) -- a copy of the input tree sequence with
           updated node times based on the posterior mean, corrected where necessary to
           ensure that parents are strictly older than all their children by an amount
           given by the ``eps`` parameter.
-        - **model** (:class:`~variational.ExpectationPropagationModel`) -- (Only returned
-          if ``return_model`` is ``True``). The underlying object used to run the dating
+        - **fit** (:class:`~variational.ExpectationPropagation`) -- (Only returned
+          if ``return_fit`` is ``True``). The underlying object used to run the dating
           inference. This can then be queried e.g. for
-          :meth:`~variational.ExpectationPropagationModel.node_posteriors()`
+          :meth:`~variational.ExpectationPropagation.node_posteriors()`
         - **marginal_likelihood** (:py:class:`float`) -- (Only returned if
           ``return_likelihood`` is ``True``) The marginal likelihood of
           the mutation data given the inferred node times. Not currently
@@ -863,7 +863,7 @@ def date(
     time_units=None,
     method=None,
     constr_iterations=None,
-    return_model=None,
+    return_fit=None,
     return_likelihood=None,
     progress=None,
     record_provenance=True,
@@ -908,15 +908,15 @@ def date(
     :param string method: What estimation method to use. See
         :data:`~tsdate.core.estimation_methods` for possible values.
         If ``None`` (default) the "variational_gamma" method is currently chosen.
-    :param bool return_model: If ``True``, instead of returning just a dated tree
-        sequence, return a tuple of ``(dated_ts, model)``.
+    :param bool return_fit: If ``True``, instead of returning just a dated tree
+        sequence, return a tuple of ``(dated_ts, fit)``.
         Default: None, treated as False.
     :param int constr_iterations: The maximum number of constrained least
         squares iterations to use prior to forcing positive branch lengths.
         Default: None, treated as 0.
     :param bool return_likelihood: If ``True``, return the log marginal likelihood
         from the inside algorithm in addition to the dated tree sequence. If
-        ``return_model`` is also ``True``, then the marginal likelihood
+        ``return_fit`` is also ``True``, then the marginal likelihood
         will be the last element of the tuple. Default: None, treated as False.
     :param bool progress: Show a progress bar. Default: None, treated as False.
     :param bool record_provenance: Should the tsdate command be appended to the
@@ -927,8 +927,8 @@ def date(
         documented in those specific functions.
     :return:
         A copy of the input tree sequence but with updated node times, or (if
-        ``return_model`` or ``return_likelihood`` is True) a tuple of that
-        tree sequence plus a model object and/or the
+        ``return_fit`` or ``return_likelihood`` is True) a tuple of that
+        tree sequence plus a fit object and/or the
         marginal likelihood given the mutations on the tree sequence.
     """
     # Only the .date() wrapper needs to consider the deprecated "Ne" param
@@ -944,7 +944,7 @@ def date(
         time_units=time_units,
         progress=progress,
         constr_iterations=constr_iterations,
-        return_model=return_model,
+        return_fit=return_fit,
         return_likelihood=return_likelihood,
         record_provenance=record_provenance,
         **kwargs,

@@ -175,16 +175,16 @@ running _tsdate_:
     The metadata values (currently saved as `mn` and `vr`) need not be constrained by
     the topology of the tree sequence, and should be used in preference
     e.g. to `nodes_time` and `mutations_time` when evaluating the accuracy of _tsdate_. 
-2. The `return_model` parameter can be used when calling {func}`tsdate.date`, which
-    then returns both the dated tree sequence and a model. This model can then be queried
-    for the posterior distributions using e.g. `.node_posteriors()` which can be read in
-    to a [pandas](https://pandas.pydata.org) dataframe, as below:
+2. The `return_fit` parameter can be used when calling {func}`tsdate.date`, which
+    then returns both the dated tree sequence and a fit object. This object can then be
+    queried for the unconstrained posterior distributions using e.g. `.node_posteriors()`
+    which can be read in to a [pandas](https://pandas.pydata.org) dataframe, as below:
 
 ```{code-cell} ipython3
 import pandas as pd
-redated_ts, model = tsdate.date(
-    sim_ts, mutation_rate=1e-6, return_model=True)
-posteriors_df = pd.DataFrame(model.node_posteriors())
+redated_ts, fit = tsdate.date(
+    sim_ts, mutation_rate=1e-6, return_fit=True)
+posteriors_df = pd.DataFrame(fit.node_posteriors())  # mutation_posteriors() also available
 posteriors_df.tail()  # Show the dataframe
 ```
 

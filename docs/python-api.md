@@ -32,17 +32,17 @@ This page provides formal documentation for the _tsdate_ Python API.
 .. autofunction:: tsdate.maximization
 ```
 
-## Underlying models
+## Underlying fit objects
 
-Instances of these models are returned by setting `return_model=True` when
-dating. The models can be inspected to obtain more detailed results than
+Instances of these classed below are returned by setting `return_fit=True` when
+dating. The fits can be inspected to obtain more detailed results than
 may be present in the returned tree sequence and its metadata.
 
 ```{eval-rst}
-.. autoclass:: tsdate.discrete.InOutModel
+.. autoclass:: tsdate.discrete.InsideOutside
    :members:
 
-.. autoclass:: tsdate.variational.ExpectationPropagationModel
+.. autoclass:: tsdate.variational.ExpectationPropagation
    :members:
 ```
 

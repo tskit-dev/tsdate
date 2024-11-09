@@ -157,29 +157,29 @@ class TestPrebuilt:
         with pytest.raises(ValueError, match="deprecated"):
             tsdate.date(ts, return_posteriors=True, mutation_rate=1)
 
-    def test_return_model(self):
+    def test_return_fit(self):
         ts = utility_functions.two_tree_mutation_ts()
-        _, model = tsdate.date(ts, return_model=True, mutation_rate=1)
-        assert hasattr(model, "node_posteriors")
+        _, fit = tsdate.date(ts, return_fit=True, mutation_rate=1)
+        assert hasattr(fit, "node_posteriors")
 
     def test_no_maximization_posteriors(self):
         ts = utility_functions.two_tree_mutation_ts()
-        _, model = tsdate.date(
+        _, fit = tsdate.date(
             ts,
             population_size=1,
-            return_model=True,
+            return_fit=True,
             method="maximization",
             mutation_rate=1,
         )
         with pytest.raises(ValueError, match="outside"):
-            model.node_posteriors()
+            fit.node_posteriors()
 
     def test_discretised_posteriors(self):
         ts = utility_functions.two_tree_mutation_ts()
-        ts, model = tsdate.inside_outside(
-            ts, mutation_rate=1, population_size=1, return_model=True
+        ts, fit = tsdate.inside_outside(
+            ts, mutation_rate=1, population_size=1, return_fit=True
         )
-        posteriors = model.node_posteriors()
+        posteriors = fit.node_posteriors()
         assert len(posteriors) == ts.num_nodes
         assert len(posteriors[0]) > 0
         for node in ts.nodes():
@@ -191,13 +191,13 @@ class TestPrebuilt:
 
     def test_variational_node_posteriors(self):
         ts = utility_functions.two_tree_mutation_ts()
-        ts, model = tsdate.date(
+        ts, fit = tsdate.date(
             ts,
             mutation_rate=1e-2,
             method="variational_gamma",
-            return_model=True,
+            return_fit=True,
         )
-        posteriors = model.node_posteriors()
+        posteriors = fit.node_posteriors()
         for nd in ts.nodes():
             mn, vr = posteriors[nd.id]
             assert posteriors["mean"][nd.id] == mn
@@ -207,13 +207,13 @@ class TestPrebuilt:
 
     def test_variational_mutation_posteriors(self):
         ts = utility_functions.two_tree_mutation_ts()
-        ts, model = tsdate.date(
+        ts, fit = tsdate.date(
             ts,
             mutation_rate=1e-2,
             method="variational_gamma",
-            return_model=True,
+            return_fit=True,
         )
-        posteriors = model.mutation_posteriors()
+        posteriors = fit.mutation_posteriors()
         for mut in ts.mutations():
             mn, vr = posteriors[mut.id]
             assert posteriors["mean"][mut.id] == mn
@@ -224,17 +224,17 @@ class TestPrebuilt:
     def test_variational_mean_edge_logconst(self):
         # This should give a guide to EP convergence
         ts = utility_functions.two_tree_mutation_ts()
-        ts, model = tsdate.date(
+        ts, fit = tsdate.date(
             ts,
             mutation_rate=1e-2,
             method="variational_gamma",
-            return_model=True,
+            return_fit=True,
         )
         # Should give a guide to EP convergence. Testing on this example gives
         # [16.082488, 15.586616, 15.589837, 15.589840, 15.589840, ...] (6 d.p.)
         # check to that DP by multiplying by 1e6 and rounding
         test_vals = np.array([16082488, 15586616, 15589837, 15589840, 15589840])
-        obs = np.round(np.array(model.mean_edge_logconst) * 1e6)
+        obs = np.round(np.array(fit.mean_edge_logconst) * 1e6)
         assert np.all(obs[0:5] == test_vals)
         assert np.all(obs[5:] == test_vals[-1])
 
@@ -244,7 +244,7 @@ class TestPrebuilt:
             ts,
             mutation_rate=1,
             population_size=1,
-            return_model=True,
+            return_fit=True,
             return_likelihood=True,
         )
         _, marg_lik_again = tsdate.inside_outside(

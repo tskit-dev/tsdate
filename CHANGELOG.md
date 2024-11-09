@@ -4,14 +4,14 @@
 
 **Documentation**
 
-- Various fixes in documentation, including documenting returned models.
+- Various fixes in documentation, including documenting returned fits.
 
 **Breaking changes**
 
-- The `return_posteriors` argument has been removed and replaced with `return_model`.
-  An instance of one of two previously internal classes, `ExpectationPropagationModel`
-  and `InOutModel`, are now returned when `return_model=True`, and posteriors can
-  be obtained using `model.node_posteriors()`.
+- The `return_posteriors` argument has been removed and replaced with `return_fit`.
+  An instance of one of two previously internal classes, `ExpectationPropagation`
+  and `InsideOutside`, are now returned when `return_fit=True`, and posteriors can
+  be obtained using `fit.node_posteriors()`.
 
 - Topology-only dating (setting `mutation_rate=None`) has been removed for tree sequences
   of more than one tree, as tests have found that span-weighting the conditional coalescent

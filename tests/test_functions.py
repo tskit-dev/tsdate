@@ -40,7 +40,7 @@ from utility_functions import constrain_ages_topo
 import tsdate
 from tsdate.core import DiscreteTimeMethod, InsideOutsideMethod
 from tsdate.demography import PopulationSizeHistory
-from tsdate.discrete import InOutModel, Likelihoods, LogLikelihoods
+from tsdate.discrete import InsideOutside, Likelihoods, LogLikelihoods
 from tsdate.node_time_class import LIN_GRID, LOG_GRID, NodeTimeValues
 from tsdate.prior import (
     ConditionalCoalescentTimes,
@@ -910,7 +910,7 @@ class TestAlgorithmClass:
         priors = tsdate.build_prior_grid(ts, Ne, timepoints1)
         lls = Likelihoods(ts, timepoints2)
         with pytest.raises(ValueError, match="timepoints"):
-            InOutModel(priors, lls)
+            InsideOutside(priors, lls)
 
     def test_nonmatching_prior_vs_lik_fixednodes(self):
         ts1 = utility_functions.single_tree_ts_n3()
@@ -920,7 +920,7 @@ class TestAlgorithmClass:
         priors = tsdate.build_prior_grid(ts1, Ne, timepoints)
         lls = Likelihoods(ts2, priors.timepoints)
         with pytest.raises(ValueError, match="fixed"):
-            InOutModel(priors, lls)
+            InsideOutside(priors, lls)
 
 
 class TestInsideAlgorithm:
@@ -943,7 +943,7 @@ class TestInsideAlgorithm:
         else:
             lls = Likelihoods(ts, priors.timepoints, mut_rate, eps=eps)
         lls.precalculate_mutation_likelihoods()
-        algo = InOutModel(priors, lls)
+        algo = InsideOutside(priors, lls)
         marg_lik = algo.inside_pass(standardize=standardize)
         return algo, priors, marg_lik
 
@@ -1074,9 +1074,9 @@ class TestInsideAlgorithm:
         # mut_rate = 1
         # eps = 1e-6
         # lls = Likelihoods(ts, priors.timepoints, mut_rate, eps)
-        # model = InOutModel(priors, lls)
+        # fit = InsideOutside(priors, lls)
         # with pytest.raises(ValueError, match="dangling"):
-        #     model.inside_pass()
+        #     fit.inside_pass()
 
     def test_standardize_marginal_likelihood(self):
         ts = utility_functions.two_tree_mutation_ts()
@@ -1106,7 +1106,7 @@ class TestOutsideAlgorithm:
         eps = 1e-6
         lls = Likelihoods(ts, grid, mut_rate, eps=eps)
         lls.precalculate_mutation_likelihoods()
-        algo = InOutModel(prior_vals, lls)
+        algo = InsideOutside(prior_vals, lls)
         algo.inside_pass()
         algo.outside_pass(standardize=standardize, ignore_oldest_root=ignore_oldest_root)
         return algo
@@ -1148,7 +1148,7 @@ class TestOutsideAlgorithm:
         mut_rate = 1
         lls = Likelihoods(ts, priors.timepoints, mut_rate)
         lls.precalculate_mutation_likelihoods()
-        algo = InOutModel(priors, lls)
+        algo = InsideOutside(priors, lls)
         with pytest.raises(RuntimeError):
             algo.outside_pass()
 
@@ -1206,7 +1206,7 @@ class TestTotalFunctionalValueTree:
         eps = 1e-6
         lls = Likelihoods(ts, grid, mut_rate, eps=eps)
         lls.precalculate_mutation_likelihoods()
-        algo = InOutModel(prior_vals, lls)
+        algo = InsideOutside(prior_vals, lls)
         algo.inside_pass()
         algo.outside_pass(standardize=False)
         assert np.array_equal(
@@ -1273,7 +1273,7 @@ class TestGilTree:
             eps = 0.01
             lls = Likelihoods(ts, grid, mut_rate, eps=eps, standardize=False)
             lls.precalculate_mutation_likelihoods()
-            algo = InOutModel(prior_vals, lls)
+            algo = InsideOutside(prior_vals, lls)
             algo.inside_pass(standardize=False, cache_inside=cache_inside)
             algo.outside_pass(standardize=False)
             assert np.allclose(
@@ -1305,7 +1305,7 @@ class TestOutsideEdgesOrdering:
             fixed_node_set=fixed_nodes,
             progress=False,
         )
-        dynamic_prog = InOutModel(priors, liklhd, progress=False)
+        dynamic_prog = InsideOutside(priors, liklhd, progress=False)
         if fn == "outside_pass":
             edges_by_child = dynamic_prog.edges_by_child_desc()
             seen_children = list()
@@ -1377,7 +1377,7 @@ class TestMaximization:
         eps = 1e-6
         lls = Likelihoods(ts, priors.timepoints, mut_rate, eps=eps)
         lls.precalculate_mutation_likelihoods()
-        algo = InOutModel(priors, lls)
+        algo = InsideOutside(priors, lls)
         algo.inside_pass()
         algo.outside_maximization(eps=eps)
         return lls, algo, algo.posterior_mean
@@ -1387,7 +1387,7 @@ class TestMaximization:
         priors = tsdate.build_prior_grid(ts, 0.5)
         lls = Likelihoods(ts, priors.timepoints, 1)
         lls.precalculate_mutation_likelihoods()
-        algo = InOutModel(priors, lls)
+        algo = InsideOutside(priors, lls)
         with pytest.raises(RuntimeError, match="not yet run"):
             algo.outside_maximization(eps=1e-6)
 
@@ -1945,8 +1945,8 @@ class TestSiteTimes:
         ts = msprime.simulate(
             10, mutation_rate=1, recombination_rate=1, length=20, random_seed=12
         )
-        dts, model = tsdate.variational_gamma(ts, mutation_rate=1, return_model=True)
-        posteriors = model.node_posteriors()
+        dts, fit = tsdate.variational_gamma(ts, mutation_rate=1, return_fit=True)
+        posteriors = fit.node_posteriors()
         assert np.allclose(
             posteriors[ts.tables.mutations.node],
             tsdate.sites_time_from_ts(dts, unconstrained=True, min_time=0),

@@ -107,10 +107,10 @@ def _rescale(x, s):
     return 1.0
 
 
-class ExpectationPropagationModel:
+class ExpectationPropagation:
     r"""
-    The class encapsulating the running of the variational approach to
-    inferring node ages. This contains the Expectation propagation (EP) algorithm
+    The class that encapsulates running the variational gamma approach to
+    tsdate fitting. This contains the Expectation propagation (EP) algorithm
     to infer approximate marginal distributions for node ages.
 
     The probability model has the form,
@@ -942,10 +942,10 @@ class ExpectationPropagationModel:
 # ):
 #     """
 #     Date a tree sequence with expectation propagation. Returns dated tree
-#     sequence and converged ExpectationPropagationModel object.
+#     sequence and converged ExpectationPropagation object.
 #     """
 #
-#     posterior = variational.ExpectationPropagationModel(
+#     posterior = variational.ExpectationPropagation(
 #         ts,
 #         mutation_rate=mutation_rate,
 #         singletons_phased=singletons_phased,
