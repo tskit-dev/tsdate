@@ -756,7 +756,9 @@ class InOutModel:
         try:
             return self.posterior_grid.node_probability_array()
         except AttributeError:
-            return None
+            raise ValueError(
+                "Cannot get posteriors without running the outside algorithm"
+            ) from None
 
     def outside_maximization(self, *, eps, progress=None):
         if progress is None:

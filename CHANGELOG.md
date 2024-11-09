@@ -2,6 +2,20 @@
 
 ## [0.2.2] - 2024-XX-XX
 
+**Documentation**
+
+- Various fixes in documentation, including documenting returned models.
+
+**Breaking changes**
+
+- The `return_posteriors` argument has been removed and replaced with `return_model`.
+  An instance of one of two previously internal classes, `ExpectationPropagationModel`
+  and `InOutModel`, are now returned when `return_model=True`, and posteriors can
+  be obtained using `model.node_posteriors()`.
+
+- Topology-only dating (setting `mutation_rate=None`) has been removed for tree sequences
+  of more than one tree, as tests have found that span-weighting the conditional coalescent
+  causes substantial bias.
 
 ## [0.2.1] - 2024-07-31
 

@@ -863,7 +863,7 @@ def date(
     time_units=None,
     method=None,
     constr_iterations=None,
-    return_posteriors=None,
+    return_model=None,
     return_likelihood=None,
     progress=None,
     record_provenance=True,
@@ -908,15 +908,15 @@ def date(
     :param string method: What estimation method to use. See
         :data:`~tsdate.core.estimation_methods` for possible values.
         If ``None`` (default) the "variational_gamma" method is currently chosen.
-    :param bool return_posteriors: If ``True``, instead of returning just a dated tree
-        sequence, return a tuple of ``(dated_ts, posteriors)``.
+    :param bool return_model: If ``True``, instead of returning just a dated tree
+        sequence, return a tuple of ``(dated_ts, model)``.
         Default: None, treated as False.
     :param int constr_iterations: The maximum number of constrained least
         squares iterations to use prior to forcing positive branch lengths.
         Default: None, treated as 0.
     :param bool return_likelihood: If ``True``, return the log marginal likelihood
         from the inside algorithm in addition to the dated tree sequence. If
-        ``return_posteriors`` is also ``True``, then the marginal likelihood
+        ``return_model`` is also ``True``, then the marginal likelihood
         will be the last element of the tuple. Default: None, treated as False.
     :param bool progress: Show a progress bar. Default: None, treated as False.
     :param bool record_provenance: Should the tsdate command be appended to the
@@ -927,8 +927,8 @@ def date(
         documented in those specific functions.
     :return:
         A copy of the input tree sequence but with updated node times, or (if
-        ``return_posteriors`` or ``return_likelihood`` is True) a tuple of that
-        tree sequence plus a dictionary of posterior probabilities and/or the
+        ``return_model`` or ``return_likelihood`` is True) a tuple of that
+        tree sequence plus a model object and/or the
         marginal likelihood given the mutations on the tree sequence.
     """
     # Only the .date() wrapper needs to consider the deprecated "Ne" param
@@ -944,7 +944,7 @@ def date(
         time_units=time_units,
         progress=progress,
         constr_iterations=constr_iterations,
-        return_posteriors=return_posteriors,
+        return_model=return_model,
         return_likelihood=return_likelihood,
         record_provenance=record_provenance,
         **kwargs,

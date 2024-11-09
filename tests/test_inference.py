@@ -157,7 +157,12 @@ class TestPrebuilt:
         with pytest.raises(ValueError, match="deprecated"):
             tsdate.date(ts, return_posteriors=True, mutation_rate=1)
 
-    def test_no_posteriors(self):
+    def test_return_model(self):
+        ts = utility_functions.two_tree_mutation_ts()
+        _, model = tsdate.date(ts, return_model=True, mutation_rate=1)
+        assert hasattr(model, "node_posteriors")
+
+    def test_no_maximization_posteriors(self):
         ts = utility_functions.two_tree_mutation_ts()
         _, model = tsdate.date(
             ts,
@@ -166,7 +171,8 @@ class TestPrebuilt:
             method="maximization",
             mutation_rate=1,
         )
-        assert model.node_posteriors() is None
+        with pytest.raises(ValueError, match="outside"):
+            model.node_posteriors()
 
     def test_discretised_posteriors(self):
         ts = utility_functions.two_tree_mutation_ts()
