@@ -319,7 +319,7 @@ command-line interface. See {ref}`sec_cli` for more details.
 
 ### Numerical stability and preprocessing
 
-Numerical stability issues witll manifest themselves by raising an error when dating.
+Numerical stability issues will manifest themselves by raising an error when dating.
 They are usually caused by "bad" tree sequences (i.e.
 pathological combinations of topologies and mutations). These can be caused,
 for example, by long deep branches with very few mutations, such as samples attaching directly
