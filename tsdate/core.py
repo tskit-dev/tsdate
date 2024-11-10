@@ -84,6 +84,7 @@ class EstimationMethod:
         priors=None,
         return_likelihood=None,
         return_fit=None,
+        allow_unary=None,
         record_provenance=None,
         constr_iterations=None,
         progress=None,
@@ -140,6 +141,8 @@ class EstimationMethod:
                 )
             self.constr_iterations = constr_iterations
 
+        self.allow_unary = False if allow_unary is None else allow_unary
+
         if self.prior_grid_func_name is None:
             if priors is not None:
                 raise ValueError(f"Priors are not used for method {self.name}")
@@ -157,7 +160,11 @@ class EstimationMethod:
                 # greater than DEFAULT_APPROX_PRIOR_SIZE samples
                 approx = ts.num_samples > prior.DEFAULT_APPROX_PRIOR_SIZE
                 self.priors = mk_prior(
-                    ts, Ne, approximate_priors=approx, progress=progress
+                    ts,
+                    Ne,
+                    approximate_priors=approx,
+                    allow_unary=self.allow_unary,
+                    progress=progress,
                 )
             else:
                 logger.info("Using user-specified priors")
@@ -444,6 +451,7 @@ class VariationalGammaMethod(EstimationMethod):
         fit_obj = variational.ExpectationPropagation(
             self.ts,
             mutation_rate=self.mutation_rate,
+            allow_unary=self.allow_unary,
             singletons_phased=singletons_phased,
         )
         fit_obj.infer(
@@ -552,7 +560,7 @@ def maximization(
         "linear" space (fast, may overflow). Default: None treated as"logarithmic"
     :param \\**kwargs: Other keyword arguments as described in the :func:`date` wrapper
         function, notably ``mutation_rate``, and ``population_size`` or ``priors``.
-        Further arguments include ``time_units``, ``progress``, and
+        Further arguments include ``time_units``, ``progress``, ``allow_unary`` and
         ``record_provenance``.  The additional arguments ``return_fit`` and
         ``return_likelihood`` can be used to return additional information (see below).
     :return:
@@ -685,7 +693,7 @@ def inside_outside(
         "linear" space (fast, may overflow). Default: "logarithmic"
     :param \\**kwargs: Other keyword arguments as described in the :func:`date` wrapper
         function, notably ``mutation_rate``, and ``population_size`` or ``priors``.
-        Further arguments include ``time_units``, ``progress``, and
+        Further arguments include ``time_units``, ``progress``, ``allow_unary`` and
         ``record_provenance``. The additional arguments ``return_fit`` and
         ``return_likelihood`` can be used to return additional information (see below).
     :return:
@@ -784,9 +792,9 @@ def variational_gamma(
         length are approximately equal, which gives unbiased estimates when there
         are polytomies. Default ``False``.
     :param \\**kwargs: Other keyword arguments as described in the :func:`date` wrapper
-        function, including ``time_units``, ``progress``, and ``record_provenance``.
-        The arguments ``return_fit`` and ``return_likelihood`` can be
-        used to return additional information (see below).
+        function, including ``time_units``, ``progress``, ``allow_unary`` and
+        ``record_provenance``. The arguments ``return_fit`` and ``return_likelihood``
+        can be used to return additional information (see below).
     :return:
         - **ts** (:class:`~tskit.TreeSequence`) -- a copy of the input tree sequence with
           updated node times based on the posterior mean, corrected where necessary to
@@ -866,6 +874,7 @@ def date(
     constr_iterations=None,
     return_fit=None,
     return_likelihood=None,
+    allow_unary=None,
     progress=None,
     record_provenance=True,
     # Other kwargs documented in the functions for each specific estimation-method
@@ -919,6 +928,8 @@ def date(
         from the inside algorithm in addition to the dated tree sequence. If
         ``return_fit`` is also ``True``, then the marginal likelihood
         will be the last element of the tuple. Default: None, treated as False.
+    :param bool allow_unary: Allow nodes that are "locally unary" (i.e. have only
+        one child in one or more local trees). Default: None, treated as False.
     :param bool progress: Show a progress bar. Default: None, treated as False.
     :param bool record_provenance: Should the tsdate command be appended to the
         provenence information in the returned tree sequence?
@@ -947,6 +958,7 @@ def date(
         constr_iterations=constr_iterations,
         return_fit=return_fit,
         return_likelihood=return_likelihood,
+        allow_unary=allow_unary,
         record_provenance=record_provenance,
         **kwargs,
     )

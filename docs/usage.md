@@ -319,7 +319,7 @@ command-line interface. See {ref}`sec_cli` for more details.
 
 ### Numerical stability and preprocessing
 
-Numerical stability issues witll manifest themselves by raising an error when dating.
+Numerical stability issues will manifest themselves by raising an error when dating.
 They are usually caused by "bad" tree sequences (i.e.
 pathological combinations of topologies and mutations). These can be caused,
 for example, by long deep branches with very few mutations, such as samples attaching directly
@@ -343,7 +343,5 @@ increase or decrease its stringency.
 
 :::{note}
 If unary regions are *correctly* estimated, they can help improve dating slightly.
-There is therefore a specific route to date a tree sequence containing locally unary
-nodes. For example, for discrete time methods, you can use the `allow_unary` option
-when {ref}`building a prior<sec_priors>`.
+You can set the `allow_unary=True` option to run tsdate on such tree sequences.
 :::
