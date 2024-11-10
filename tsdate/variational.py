@@ -156,10 +156,10 @@ class ExpectationPropagation:
             )
 
     @staticmethod
-    def _check_valid_inputs(ts, mutation_rate):
+    def _check_valid_inputs(ts, mutation_rate, allow_unary):
         if not mutation_rate > 0.0:
             raise ValueError("Mutation rate must be positive")
-        if contains_unary_nodes(ts):
+        if not allow_unary and contains_unary_nodes(ts):
             raise ValueError("Tree sequence contains unary nodes, simplify first")
 
     @staticmethod
@@ -185,7 +185,7 @@ class ExpectationPropagation:
         posterior_check += node_factors[:, CONSTRNT]
         np.testing.assert_allclose(posterior_check, posterior)
 
-    def __init__(self, ts, *, mutation_rate, singletons_phased=True):
+    def __init__(self, ts, *, mutation_rate, allow_unary=None, singletons_phased=True):
         """
         Initialize an expectation propagation algorithm for dating nodes
         in a tree sequence.
@@ -202,7 +202,7 @@ class ExpectationPropagation:
             time unit.
         """
 
-        self._check_valid_inputs(ts, mutation_rate)
+        self._check_valid_inputs(ts, mutation_rate, allow_unary)
         self.edge_parents = ts.edges_parent
         self.edge_children = ts.edges_child
 

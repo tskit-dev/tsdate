@@ -343,7 +343,5 @@ increase or decrease its stringency.
 
 :::{note}
 If unary regions are *correctly* estimated, they can help improve dating slightly.
-There is therefore a specific route to date a tree sequence containing locally unary
-nodes. For example, for discrete time methods, you can use the `allow_unary` option
-when {ref}`building a prior<sec_priors>`.
+You can set the `allow_unary=True` option to run tsdate on such tree sequences.
 :::
