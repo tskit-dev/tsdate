@@ -2,6 +2,10 @@
 
 ## [0.2.2] - 2024-XX-XX
 
+**Features**
+
+- An `allow_unary` flag (``False by default``) has been added to all methods.
+
 **Documentation**
 
 - Various fixes in documentation, including documenting returned fits.
