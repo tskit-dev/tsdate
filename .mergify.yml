@@ -1,13 +1,6 @@
 queue_rules:
   - name: default
-    conditions:
-      - "#approved-reviews-by>=1"
-      - "#changes-requested-reviews-by=0"
-      - "status-success=ci/circleci: build"
-      - status-success=Docs
-pull_request_rules:
-  - name: Automatic rebase, CI and merge
-    conditions:
+    queue_conditions:
       - "-merged"
       - "#approved-reviews-by>=1"
       - "#changes-requested-reviews-by=0"
@@ -15,12 +8,15 @@ pull_request_rules:
       - label=AUTOMERGE-REQUESTED
       - "status-success=ci/circleci: build"
       - status-success=Docs
-    actions:
-      queue:
-        name: default
-        method: rebase
-        update_method: rebase
+    merge_conditions:
+      - "#approved-reviews-by>=1"
+      - "#changes-requested-reviews-by=0"
+      - "status-success=ci/circleci: build"
+      - status-success=Docs
+    merge_method: rebase
+    update_method: rebase
 
+pull_request_rules:
   - name: Remove label after merge
     conditions:
       - merged
@@ -29,3 +25,7 @@ pull_request_rules:
       label:
         remove:
           - AUTOMERGE-REQUESTED
+  - name: refactored queue action rule
+    conditions: []
+    actions:
+      queue:
