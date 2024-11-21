@@ -936,8 +936,10 @@ def create_timepoints(base_priors, n_points=21):
     # missing samples, otherwise we only have one set of priors anyway
     prior_params = base_priors.prior_with_max_total_tips()
     # Percentages - current day samples should be at time 0, so we omit this
-    # We can't include the top end point, as this leads to NaNs
-    percentiles = np.linspace(0, 1, n_points + 1)[1:-1]
+    # We can't include 1 at the top end as it will be at infinite time
+    # so we take the upper time point to be a fraction lower than 1 (as if we divided
+    # the last timeslice into n_points evenly picked quantiles and removed the last one)
+    percentiles = np.linspace(0, 1 - 1 / (n_points**2), n_points)[1:]
     # percentiles = np.append(percentiles, 0.999999)
     param_cols = np.where([f not in ("mean", "var") for f in PriorParams._fields])[0]
     """
