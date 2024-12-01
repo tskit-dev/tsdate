@@ -31,6 +31,8 @@ import numba
 import numpy as np
 from numba.extending import get_cython_function_address
 
+from .accelerate import numba_jit
+
 _HYP2F1_TOL = 1e-10
 _HYP2F1_MAXTERM = int(1e6)
 
@@ -43,15 +45,7 @@ class Invalid2F1(Exception):  # noqa N818
 
 _dbl = ctypes.c_double
 
-# gammaln
-_gammaln_addr = get_cython_function_address("scipy.special.cython_special", "gammaln")
-_gammaln_functype = ctypes.CFUNCTYPE(_dbl, _dbl)
-_gammaln_f8 = _gammaln_functype(_gammaln_addr)
-
-# gammainc
-_gammainc_addr = get_cython_function_address("scipy.special.cython_special", "gammainc")
-_gammainc_functype = ctypes.CFUNCTYPE(_dbl, _dbl, _dbl)
-_gammainc_f8 = _gammainc_functype(_gammainc_addr)
+# for caching reasons, we use math.lgamma rather than scipy.special.cython_special.gammaln
 
 # gammaincinv
 _gammaincinv_addr = get_cython_function_address(
@@ -60,25 +54,6 @@ _gammaincinv_addr = get_cython_function_address(
 _gammaincinv_functype = ctypes.CFUNCTYPE(_dbl, _dbl, _dbl)
 _gammaincinv_f8 = _gammaincinv_functype(_gammaincinv_addr)
 
-# erfinv
-_erfinv_addr = get_cython_function_address(
-    "scipy.special.cython_special", "__pyx_fuse_0erfinv"
-)
-_erfinv_functype = ctypes.CFUNCTYPE(_dbl, _dbl)
-_erfinv_f8 = _erfinv_functype(_erfinv_addr)
-
-
-@numba.cfunc("f8(f8)")
-def _gammaln(x):
-    """scipy.special.cython_special.gammaln"""
-    return _gammaln_f8(x)
-
-
-@numba.cfunc("f8(f8, f8)")
-def _gammainc(a, x):
-    """scipy.special.cython_special.gammainc"""
-    return _gammainc_f8(a, x)
-
 
 @numba.cfunc("f8(f8, f8)")
 def _gammainc_inv(a, x):
@@ -86,13 +61,7 @@ def _gammainc_inv(a, x):
     return _gammaincinv_f8(a, x)
 
 
-@numba.cfunc("f8(f8)")
-def _erf_inv(x):
-    """scipy.special.cython_special.erfinv"""
-    return _erfinv_f8(x)
-
-
-@numba.njit("f8(f8)")
+@numba_jit("f8(f8)")
 def _digamma(x):
     """
     Digamma (psi) function, from asymptotic series expansion.
@@ -116,7 +85,7 @@ def _digamma(x):
     )
 
 
-@numba.njit("f8(f8)")
+@numba_jit("f8(f8)")
 def _trigamma(x):
     """
     Trigamma function, from asymptotic series expansion
@@ -142,12 +111,12 @@ def _trigamma(x):
     )
 
 
-@numba.njit("f8(f8, f8)")
+@numba_jit("f8(f8, f8)")
 def _betaln(p, q):
-    return _gammaln(p) + _gammaln(q) - _gammaln(p + q)
+    return lgamma(p) + lgamma(q) - lgamma(p + q)
 
 
-@numba.njit("UniTuple(f8, 2)(f8, f8, f8)")
+@numba_jit("UniTuple(f8, 2)(f8, f8, f8)")
 def _hyperu_laplace(a, b, x):
     """
     Approximate Tricomi's confluent hypergeometric function with real
@@ -175,7 +144,7 @@ def _hyperu_laplace(a, b, x):
     return g - log(r) / 2, (dg - dr) * du - u
 
 
-@numba.njit("f8(f8, f8, f8)")
+@numba_jit("f8(f8, f8, f8)")
 def _hyp1f1_laplace(a, b, x):
     """
     Approximate Kummer's confluent hypergeometric function with real arguments,
@@ -204,33 +173,7 @@ def _hyp1f1_laplace(a, b, x):
     return g - log(r) / 2
 
 
-@numba.njit("f8(f8, f8, f8, f8)")
-def _hyp2f1_unity(a, b, c, x):
-    """
-    Gauss hypergeometric function when `x` is near unity
-
-    See limits in DLMF 15.4.
-
-    TODO: this works in practice, but when (c - a - b) is close to zero the
-    limits don't converge. A good reference is Buhring 2003 "Partial sums of
-    hypergeometric series of unit argument"
-    """
-    assert np.isclose(x, 1.0)
-    assert x < 1.0
-
-    g = c - a - b
-
-    if g < 0.0:
-        return _gammaln(c) + _gammaln(-g) - _gammaln(a) - _gammaln(b) + g * log(1 - x)
-    elif g > 0.0:
-        # will only occur when a_i + a_j < 1
-        return _gammaln(c) + _gammaln(g) - _gammaln(c - a) - _gammaln(c - b)
-    else:
-        # will only occur when a_i + a_j == 1
-        return log(-log(1 - x)) + _gammaln(a + b) - _gammaln(a) - _gammaln(b)
-
-
-@numba.njit("f8(f8, f8, f8, f8)")
+@numba_jit("f8(f8, f8, f8, f8)")
 def _hyp2f1_laplace(a, b, c, x):
     r"""
     Approximate a Gaussian hypergeometric function with real arguments,
@@ -238,6 +181,30 @@ def _hyp2f1_laplace(a, b, c, x):
 
     TODO: details
     """
+
+    def _hyp2f1_unity(a, b, c, x):
+        """
+        Gauss hypergeometric function when `x` is near unity
+
+        See limits in DLMF 15.4.
+
+        TODO: this works in practice, but when (c - a - b) is close to zero the
+        limits don't converge. A good reference is Buhring 2003 "Partial sums of
+        hypergeometric series of unit argument"
+        """
+        assert np.isclose(x, 1.0)
+        assert x < 1.0
+
+        g = c - a - b
+
+        if g < 0.0:
+            return lgamma(c) + lgamma(-g) - lgamma(a) - lgamma(b) + g * log(1 - x)
+        elif g > 0.0:
+            # will only occur when a_i + a_j < 1
+            return lgamma(c) + lgamma(g) - lgamma(c - a) - lgamma(c - b)
+        else:
+            # will only occur when a_i + a_j == 1
+            return log(-log(1 - x)) + lgamma(a + b) - lgamma(a) - lgamma(b)
 
     # TODO: simplify, we can safely assume a,b > 0?
     assert c > 0.0
@@ -278,7 +245,7 @@ def _hyp2f1_laplace(a, b, c, x):
     return f - log(r) / 2 + s
 
 
-@numba.njit("f8(f8, f8)")
+@numba_jit("f8(f8, f8)")
 def _gammainc_der(p, x):
     """
     Derivative of lower incomplete gamma function with regards to `p`.

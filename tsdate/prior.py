@@ -28,7 +28,6 @@ import logging
 import os
 from collections import defaultdict, namedtuple
 
-import numba
 import numpy as np
 import scipy.cluster
 import scipy.special
@@ -37,6 +36,7 @@ import tskit
 from tqdm.auto import tqdm
 
 from . import cache, demography, node_time_class, provenance, util
+from .accelerate import numba_jit
 
 #: The default value for `approx_prior_size` (see :func:`~tsdate.build_prior_grid` and
 #: :func:`~tsdate.build_parameter_grid`)
@@ -67,7 +67,7 @@ def gamma_approx(mean, variance):
     return (mean**2) / variance, mean / variance
 
 
-@numba.njit("float64[:, :](float64[:, :])")
+@numba_jit("float64[:, :](float64[:, :])")
 def _marginalize_over_ancestors(val):
     """
     Integrate an expectation over counts of extant ancestors. In a tree with
@@ -91,7 +91,7 @@ def _marginalize_over_ancestors(val):
     return out
 
 
-@numba.njit("float64[:](uint64)")
+@numba_jit("float64[:](uint64)")
 def conditional_coalescent_variance(num_tips):
     """
     Variance of node age conditional on the number of descendant leaves, under

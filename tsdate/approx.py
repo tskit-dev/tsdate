@@ -30,6 +30,7 @@ import numba
 import numpy as np
 
 from . import hypergeo
+from .accelerate import numba_jit
 
 # TODO: these are reasonable defaults but could
 # be set via a control dict
@@ -70,7 +71,7 @@ class KLMinimizationFailedError(Exception):
     pass
 
 
-@numba.njit(_unituple(_f, 3)(_f, _f))
+@numba_jit(_unituple(_f, 3)(_f, _f))
 def approximate_log_moments(mean, variance):
     """
     Approximate log moments via a second-order Taylor series expansion around
@@ -88,7 +89,7 @@ def approximate_log_moments(mean, variance):
     return logx, xlogx, logx2
 
 
-@numba.njit(_unituple(_f, 2)(_f, _f))
+@numba_jit(_unituple(_f, 2)(_f, _f))
 def approximate_gamma_kl(x, logx):
     """
     Use Newton root finding to get gamma natural parameters matching the sufficient
@@ -126,7 +127,7 @@ def approximate_gamma_kl(x, logx):
     return alpha - 1.0, alpha / x
 
 
-@numba.njit(_unituple(_f, 2)(_f, _f))
+@numba_jit(_unituple(_f, 2)(_f, _f))
 def approximate_gamma_mom(mean, variance):
     """
     Use the method of moments to approximate a distribution with a gamma of the
@@ -177,7 +178,7 @@ def approximate_gamma_iqr(q1, q2, x1, x2):
     return alpha - 1, beta
 
 
-@numba.njit(_unituple(_f, 2)(_f1r, _f1r))
+@numba_jit(_unituple(_f, 2)(_f1r, _f1r))
 def average_gammas(alpha, beta):
     """
     Given natural parameters for a set of gammas, average sufficient
@@ -195,7 +196,7 @@ def average_gammas(alpha, beta):
     return approximate_gamma_kl(avg_x, avg_logx)
 
 
-@numba.njit(_b(_f, _f))
+@numba_jit(_b(_f, _f))
 def _valid_moments(mn, va):
     if not (np.isfinite(mn) and np.isfinite(va)):
         return False
@@ -204,7 +205,7 @@ def _valid_moments(mn, va):
     return True
 
 
-@numba.njit(_b(_f, _f))
+@numba_jit(_b(_f, _f))
 def _valid_gamma(s, r):
     if not (np.isfinite(s) and np.isfinite(r)):
         return False
@@ -213,7 +214,7 @@ def _valid_gamma(s, r):
     return True
 
 
-@numba.njit(_b(_f, _f, _f))
+@numba_jit(_b(_f, _f, _f))
 def _valid_hyp1f1(a, b, z):
     if not (np.isfinite(a) and np.isfinite(b) and np.isfinite(z)):
         return False
@@ -222,7 +223,7 @@ def _valid_hyp1f1(a, b, z):
     return True
 
 
-@numba.njit(_b(_f, _f, _f))
+@numba_jit(_b(_f, _f, _f))
 def _valid_hyperu(a, b, z):
     if not (np.isfinite(a) and np.isfinite(b) and np.isfinite(z)):
         return False
@@ -233,7 +234,7 @@ def _valid_hyperu(a, b, z):
     return True
 
 
-@numba.njit(_b(_f, _f, _f, _f))
+@numba_jit(_b(_f, _f, _f, _f))
 def _valid_hyp2f1(a, b, c, z):
     if not (np.isfinite(a) and np.isfinite(b) and np.isfinite(c)):
         return False
@@ -247,7 +248,7 @@ def _valid_hyp2f1(a, b, c, z):
 # --- various EP updates --- #
 
 
-@numba.njit(_unituple(_f, 5)(_f, _f, _f, _f, _f, _f))
+@numba_jit(_unituple(_f, 5)(_f, _f, _f, _f, _f, _f))
 def moments(a_i, b_i, a_j, b_j, y_ij, mu_ij):
     r"""
     log p(t_i, t_j) := \
@@ -276,7 +277,7 @@ def moments(a_i, b_i, a_j, b_j, y_ij, mu_ij):
     d1 = s1 * exp(f1 - f0)
     d2 = s2 * exp(f2 - f0)
 
-    logl = f0 + hypergeo._betaln(y_ij + 1, a) + hypergeo._gammaln(b) - b * log(t)
+    logl = f0 + hypergeo._betaln(y_ij + 1, a) + lgamma(b) - b * log(t)
 
     mn_j = d1 / t
     sq_j = d2 / t**2
@@ -289,7 +290,7 @@ def moments(a_i, b_i, a_j, b_j, y_ij, mu_ij):
     return logl, mn_i, va_i, mn_j, va_j
 
 
-@numba.njit(_unituple(_f, 3)(_f, _f, _f, _f, _f))
+@numba_jit(_unituple(_f, 3)(_f, _f, _f, _f, _f))
 def rootward_moments(t_j, a_i, b_i, y_ij, mu_ij):
     r"""
     log p(t_i) := \
@@ -308,7 +309,7 @@ def rootward_moments(t_j, a_i, b_i, y_ij, mu_ij):
         return nan, nan, nan
 
     if t_j == 0.0:
-        logl = hypergeo._gammaln(s) - s * log(r)
+        logl = lgamma(s) - s * log(r)
         mn_i = s / r
         va_i = s / r**2
         return logl, mn_i, va_i
@@ -324,14 +325,14 @@ def rootward_moments(t_j, a_i, b_i, y_ij, mu_ij):
     f0, d0 = hyperu(a + 0, b + 0, z)
     f1, d1 = hyperu(a + 1, b + 1, z)
 
-    logl = f0 - b_i * t_j + (b - 1) * log(t_j) + hypergeo._gammaln(a)
+    logl = f0 - b_i * t_j + (b - 1) * log(t_j) + lgamma(a)
     mn_i = t_j * (1 - d0)
     va_i = t_j**2 * d0 * (d1 - d0)
 
     return logl, mn_i, va_i
 
 
-@numba.njit(_unituple(_f, 3)(_f, _f, _f, _f, _f))
+@numba_jit(_unituple(_f, 3)(_f, _f, _f, _f, _f))
 def leafward_moments(t_i, a_j, b_j, y_ij, mu_ij):
     r"""
     log p(t_j) := \
@@ -365,7 +366,7 @@ def leafward_moments(t_i, a_j, b_j, y_ij, mu_ij):
     return logl, mn_j, va_j
 
 
-@numba.njit(_unituple(_f, 5)(_f, _f, _f, _f, _f, _f))
+@numba_jit(_unituple(_f, 5)(_f, _f, _f, _f, _f, _f))
 def unphased_moments(a_i, b_i, a_j, b_j, y_ij, mu_ij):
     r"""
     log p(t_i, t_j) := \
@@ -394,7 +395,7 @@ def unphased_moments(a_i, b_i, a_j, b_j, y_ij, mu_ij):
     d1 = s1 * exp(f1 - f0)
     d2 = s2 * exp(f2 - f0)
 
-    logl = f0 + hypergeo._betaln(a_j, a_i) + hypergeo._gammaln(b) - b * log(t)
+    logl = f0 + hypergeo._betaln(a_j, a_i) + lgamma(b) - b * log(t)
 
     mn_j = d1 / t
     sq_j = d2 / t**2
@@ -407,7 +408,7 @@ def unphased_moments(a_i, b_i, a_j, b_j, y_ij, mu_ij):
     return logl, mn_i, va_i, mn_j, va_j
 
 
-@numba.njit(_unituple(_f, 3)(_f, _f, _f, _f))
+@numba_jit(_unituple(_f, 3)(_f, _f, _f, _f))
 def twin_moments(a_i, b_i, y_ij, mu_ij):
     r"""
     log p(t_i) := \
@@ -418,13 +419,13 @@ def twin_moments(a_i, b_i, y_ij, mu_ij):
     """
     s = a_i + y_ij
     r = b_i + 2 * mu_ij
-    logl = log(2) * y_ij + hypergeo._gammaln(s) - log(r) * s
+    logl = log(2) * y_ij + lgamma(s) - log(r) * s
     mn_i = s / r
     va_i = s / r**2
     return logl, mn_i, va_i
 
 
-@numba.njit(_unituple(_f, 3)(_f, _f, _f, _f, _f))
+@numba_jit(_unituple(_f, 3)(_f, _f, _f, _f, _f))
 def sideways_moments(t_i, a_j, b_j, y_ij, mu_ij):
     r"""
     log p(t_j) := \
@@ -447,14 +448,14 @@ def sideways_moments(t_i, a_j, b_j, y_ij, mu_ij):
     f0, d0 = hyperu(a + 0, b + 0, z)
     f1, d1 = hyperu(a + 1, b + 1, z)
 
-    logl = f0 - mu_ij * t_i + (b - 1) * log(t_i) + hypergeo._gammaln(a)
+    logl = f0 - mu_ij * t_i + (b - 1) * log(t_i) + lgamma(a)
     mn_j = -t_i * d0
     va_j = t_i**2 * d0 * (d1 - d0)
 
     return logl, mn_j, va_j
 
 
-@numba.njit(_unituple(_f, 2)(_f, _f, _f, _f, _f, _f))
+@numba_jit(_unituple(_f, 2)(_f, _f, _f, _f, _f, _f))
 def mutation_moments(a_i, b_i, a_j, b_j, y_ij, mu_ij):
     r"""
     log p(t_m, t_i, t_j) = \
@@ -496,7 +497,7 @@ def mutation_moments(a_i, b_i, a_j, b_j, y_ij, mu_ij):
     return mn_m, va_m
 
 
-@numba.njit(_unituple(_f, 2)(_f, _f, _f, _f, _f))
+@numba_jit(_unituple(_f, 2)(_f, _f, _f, _f, _f))
 def mutation_rootward_moments(t_j, a_i, b_i, y_ij, mu_ij):
     r"""
     log p(t_m, t_i) := \
@@ -515,7 +516,7 @@ def mutation_rootward_moments(t_j, a_i, b_i, y_ij, mu_ij):
     return mn_m, va_m
 
 
-@numba.njit(_unituple(_f, 2)(_f, _f, _f, _f, _f))
+@numba_jit(_unituple(_f, 2)(_f, _f, _f, _f, _f))
 def mutation_leafward_moments(t_i, a_j, b_j, y_ij, mu_ij):
     r"""
     log p(t_m, t_j) := \
@@ -534,7 +535,7 @@ def mutation_leafward_moments(t_i, a_j, b_j, y_ij, mu_ij):
     return mn_m, va_m
 
 
-@numba.njit(_unituple(_f, 3)(_f, _f, _f, _f, _f, _f))
+@numba_jit(_unituple(_f, 3)(_f, _f, _f, _f, _f, _f))
 def mutation_unphased_moments(a_i, b_i, a_j, b_j, y_ij, mu_ij):
     r"""
     log p(t_m, t_i, t_j) := \
@@ -587,7 +588,7 @@ def mutation_unphased_moments(a_i, b_i, a_j, b_j, y_ij, mu_ij):
     return pr_m, mn_m, va_m
 
 
-@numba.njit(_unituple(_f, 3)(_f, _f, _f, _f))
+@numba_jit(_unituple(_f, 3)(_f, _f, _f, _f))
 def mutation_twin_moments(a_i, b_i, y_ij, mu_ij):
     r"""
     log p(t_m, t_i) := \
@@ -606,7 +607,7 @@ def mutation_twin_moments(a_i, b_i, y_ij, mu_ij):
     return pr_m, mn_m, va_m
 
 
-@numba.njit(_unituple(_f, 3)(_f, _f, _f, _f, _f))
+@numba_jit(_unituple(_f, 3)(_f, _f, _f, _f, _f))
 def mutation_sideways_moments(t_i, a_j, b_j, y_ij, mu_ij):
     r"""
     log p(t_m, t_j) := \
@@ -655,7 +656,7 @@ def mutation_sideways_moments(t_i, a_j, b_j, y_ij, mu_ij):
     return pr_m, mn_m, va_m
 
 
-@numba.njit(_unituple(_f, 2)(_f, _f))
+@numba_jit(_unituple(_f, 2)(_f, _f))
 def mutation_edge_moments(t_i, t_j):
     r"""
     log p(t_m) := \
@@ -670,7 +671,7 @@ def mutation_edge_moments(t_i, t_j):
     return mn_m, va_m
 
 
-@numba.njit(_unituple(_f, 3)(_f, _f))
+@numba_jit(_unituple(_f, 3)(_f, _f))
 def mutation_block_moments(t_i, t_j):
     r"""
     log p(t_m) := \
@@ -694,7 +695,7 @@ def mutation_block_moments(t_i, t_j):
 # --- wrappers around updates --- #
 
 
-@numba.njit(_tuple((_f, _f1r, _f1r))(_f1r, _f1r, _f1r))
+@numba_jit(_tuple((_f, _f1r, _f1r))(_f1r, _f1r, _f1r))
 def gamma_projection(pars_i, pars_j, pars_ij):
     r"""
     log p(t_i, t_j) := \
@@ -721,7 +722,7 @@ def gamma_projection(pars_i, pars_j, pars_ij):
     return logl, np.array(proj_i), np.array(proj_j)
 
 
-@numba.njit(_tuple((_f, _f1r))(_f, _f1r, _f1r))
+@numba_jit(_tuple((_f, _f1r))(_f, _f1r, _f1r))
 def leafward_projection(t_i, pars_j, pars_ij):
     r"""
     log p(t_j) := \
@@ -744,7 +745,7 @@ def leafward_projection(t_i, pars_j, pars_ij):
     return logl, np.array(proj_j)
 
 
-@numba.njit(_tuple((_f, _f1r))(_f, _f1r, _f1r))
+@numba_jit(_tuple((_f, _f1r))(_f, _f1r, _f1r))
 def rootward_projection(t_j, pars_i, pars_ij):
     r"""
     log p(t_i) := \
@@ -767,7 +768,7 @@ def rootward_projection(t_j, pars_i, pars_ij):
     return logl, np.array(proj_i)
 
 
-@numba.njit(_tuple((_f, _f1r, _f1r))(_f1r, _f1r, _f1r))
+@numba_jit(_tuple((_f, _f1r, _f1r))(_f1r, _f1r, _f1r))
 def unphased_projection(pars_i, pars_j, pars_ij):
     r"""
     log p(t_i, t_j) := \
@@ -794,7 +795,7 @@ def unphased_projection(pars_i, pars_j, pars_ij):
     return logl, np.array(proj_i), np.array(proj_j)
 
 
-@numba.njit(_tuple((_f, _f1r))(_f1r, _f1r))
+@numba_jit(_tuple((_f, _f1r))(_f1r, _f1r))
 def twin_projection(pars_i, pars_ij):
     r"""
     log p(t_i) := \
@@ -817,7 +818,7 @@ def twin_projection(pars_i, pars_ij):
     return logl, np.array(proj_i)
 
 
-@numba.njit(_tuple((_f, _f1r))(_f, _f1r, _f1r))
+@numba_jit(_tuple((_f, _f1r))(_f, _f1r, _f1r))
 def sideways_projection(t_i, pars_j, pars_ij):
     r"""
     log p(t_j) := \
@@ -840,7 +841,7 @@ def sideways_projection(t_i, pars_j, pars_ij):
     return logl, np.array(proj_j)
 
 
-@numba.njit(_tuple((_f, _f1r))(_f1r, _f1r, _f1r))
+@numba_jit(_tuple((_f, _f1r))(_f1r, _f1r, _f1r))
 def mutation_gamma_projection(pars_i, pars_j, pars_ij):
     r"""
     log p(t_m, t_i, t_j) = \
@@ -867,7 +868,7 @@ def mutation_gamma_projection(pars_i, pars_j, pars_ij):
     return 1.0, np.array(proj_m)
 
 
-@numba.njit(_tuple((_f, _f1r))(_f, _f1r, _f1r))
+@numba_jit(_tuple((_f, _f1r))(_f, _f1r, _f1r))
 def mutation_leafward_projection(t_i, pars_j, pars_ij):
     r"""
     log p(t_m, t_j) := \
@@ -891,7 +892,7 @@ def mutation_leafward_projection(t_i, pars_j, pars_ij):
     return 1.0, np.array(proj_m)
 
 
-@numba.njit(_tuple((_f, _f1r))(_f, _f1r, _f1r))
+@numba_jit(_tuple((_f, _f1r))(_f, _f1r, _f1r))
 def mutation_rootward_projection(t_j, pars_i, pars_ij):
     r"""
     log p(t_m, t_i) := \
@@ -915,7 +916,7 @@ def mutation_rootward_projection(t_j, pars_i, pars_ij):
     return 1.0, np.array(proj_m)
 
 
-@numba.njit(_tuple((_f, _f1r))(_f, _f))
+@numba_jit(_tuple((_f, _f1r))(_f, _f))
 def mutation_edge_projection(t_i, t_j):
     r"""
     log p(t_m) := \
@@ -933,7 +934,7 @@ def mutation_edge_projection(t_i, t_j):
     return 1.0, np.array(proj_m)
 
 
-@numba.njit(_tuple((_f, _f1r))(_f1r, _f1r, _f1r))
+@numba_jit(_tuple((_f, _f1r))(_f1r, _f1r, _f1r))
 def mutation_unphased_projection(pars_i, pars_j, pars_ij):
     r"""
     log p(t_m, t_i, t_j) := \
@@ -961,7 +962,7 @@ def mutation_unphased_projection(pars_i, pars_j, pars_ij):
     return pr_m, np.array(proj_m)
 
 
-@numba.njit(_tuple((_f, _f1r))(_f1r, _f1r))
+@numba_jit(_tuple((_f, _f1r))(_f1r, _f1r))
 def mutation_twin_projection(pars_i, pars_ij):
     r"""
     log p(t_m, t_i) := \
@@ -985,7 +986,7 @@ def mutation_twin_projection(pars_i, pars_ij):
     return pr_m, np.array(proj_m)
 
 
-@numba.njit(_tuple((_f, _f1r))(_f, _f1r, _f1r))
+@numba_jit(_tuple((_f, _f1r))(_f, _f1r, _f1r))
 def mutation_sideways_projection(t_i, pars_j, pars_ij):
     r"""
     log p(t_m, t_j) := \
@@ -1010,7 +1011,7 @@ def mutation_sideways_projection(t_i, pars_j, pars_ij):
     return pr_m, np.array(proj_m)
 
 
-@numba.njit(_tuple((_f, _f1r))(_f, _f))
+@numba_jit(_tuple((_f, _f1r))(_f, _f))
 def mutation_block_projection(t_i, t_j):
     r"""
     log p(t_m) := \

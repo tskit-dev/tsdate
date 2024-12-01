@@ -27,13 +27,13 @@ Expectation propagation implementation
 import logging
 import time
 
-import numba
 import numpy as np
 import tskit
 from numba.types import void as _void
 from tqdm.auto import tqdm
 
 from . import approx
+from .accelerate import numba_jit
 from .approx import _b, _b1r, _f, _f1r, _f1w, _f2r, _f2w, _f3r, _f3w, _i, _i1r, _i2r
 from .phasing import block_singletons, reallocate_unphased
 from .rescaling import (
@@ -67,7 +67,7 @@ USE_EDGE_LIKELIHOOD = False
 USE_BLOCK_LIKELIHOOD = True
 
 
-@numba.njit(_f(_f1r, _f1r, _f))
+@numba_jit(_f(_f1r, _f1r, _f))
 def _damp(x, y, s):
     """
     If `x - y` is too small, find `d` so that `x - d*y` is large enough:
@@ -90,7 +90,7 @@ def _damp(x, y, s):
     return d
 
 
-@numba.njit(_f(_f1r, _f))
+@numba_jit(_f(_f1r, _f))
 def _rescale(x, s):
     """
     Find `d` so that `d*x[0] + 1 <= s[0]` or `d*x[0] + 1 >= 1/s[0]`
@@ -142,7 +142,7 @@ class ExpectationPropagation:
     """
 
     @staticmethod
-    @numba.njit(_void(_f2r, _i1r, _i1r))
+    @numba_jit(_void(_f2r, _i1r, _i1r))
     def _check_valid_constraints(constraints, edges_parent, edges_child):
         # Check that upper-bound on node age is greater than maximum lower-bound
         # for ages of descendants
@@ -272,7 +272,7 @@ class ExpectationPropagation:
         self.mutation_order = np.arange(ts.num_mutations, dtype=np.int32)
 
     @staticmethod
-    @numba.njit(_void(_i1r, _i1r, _i1r, _f2r, _f2r, _f2w, _f3w, _f1w, _f1w, _f, _f, _b))
+    @numba_jit(_void(_i1r, _i1r, _i1r, _f2r, _f2r, _f2w, _f3w, _f1w, _f1w, _f, _f, _b))
     def propagate_likelihood(
         edge_order,
         edges_parent,
@@ -430,7 +430,7 @@ class ExpectationPropagation:
                     scale[c] *= child_eta
 
     @staticmethod
-    @numba.njit(_void(_b1r, _f2w, _f3w, _f1w, _f, _i, _f))
+    @numba_jit(_void(_b1r, _f2w, _f3w, _f1w, _f, _i, _f))
     def propagate_prior(free, posterior, factors, scale, max_shape, em_maxitt, em_reltol):
         # Update approximating factors for global prior.
         #
@@ -479,7 +479,7 @@ class ExpectationPropagation:
             scale[i] *= eta
 
     @staticmethod
-    @numba.njit(
+    @numba_jit(
         _void(_i1r, _f2w, _f1w, _i1r, _i1r, _i1r, _f2r, _f2r, _f2r, _f3r, _f1r, _b)
     )
     def propagate_mutations(
@@ -612,7 +612,7 @@ class ExpectationPropagation:
                     )
 
     @staticmethod
-    @numba.njit(_void(_i1r, _i1r, _i2r, _f3w, _f3w, _f3w, _f1w))
+    @numba_jit(_void(_i1r, _i1r, _i2r, _f3w, _f3w, _f3w, _f1w))
     def rescale_factors(
         edges_parent,
         edges_child,
