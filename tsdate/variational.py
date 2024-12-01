@@ -27,6 +27,7 @@ Expectation propagation implementation
 import logging
 import time
 
+import numba
 import numpy as np
 import tskit
 from numba.types import void as _void
@@ -272,7 +273,7 @@ class ExpectationPropagation:
         self.mutation_order = np.arange(ts.num_mutations, dtype=np.int32)
 
     @staticmethod
-    @numba_jit(_void(_i1r, _i1r, _i1r, _f2r, _f2r, _f2w, _f3w, _f1w, _f1w, _f, _f, _b))
+    @numba.njit(_void(_i1r, _i1r, _i1r, _f2r, _f2r, _f2w, _f3w, _f1w, _f1w, _f, _f, _b))
     def propagate_likelihood(
         edge_order,
         edges_parent,
@@ -479,7 +480,7 @@ class ExpectationPropagation:
             scale[i] *= eta
 
     @staticmethod
-    @numba_jit(
+    @numba.njit(
         _void(_i1r, _f2w, _f1w, _i1r, _i1r, _i1r, _f2r, _f2r, _f2r, _f3r, _f1r, _b)
     )
     def propagate_mutations(

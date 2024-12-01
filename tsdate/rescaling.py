@@ -25,6 +25,7 @@ Utilities for rescaling time according to a mutational clock
 
 from math import inf, log
 
+import numba
 import numpy as np
 import tskit
 
@@ -445,7 +446,7 @@ def mutational_timescale(
     return origin, adjust
 
 
-@numba_jit(_f2w(_f2r, _f1r, _f1r, _f))
+@numba.njit(_f2w(_f2r, _f1r, _f1r, _f))
 def piecewise_scale_posterior(
     posteriors,
     original_breaks,

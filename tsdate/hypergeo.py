@@ -144,7 +144,7 @@ def _trigamma(x):
     )
 
 
-@numba_jit("f8(f8, f8)")
+@numba.njit("f8(f8, f8)")
 def _betaln(p, q):
     return _gammaln(p) + _gammaln(q) - _gammaln(p + q)
 
@@ -206,7 +206,7 @@ def _hyp1f1_laplace(a, b, x):
     return g - log(r) / 2
 
 
-@numba_jit("f8(f8, f8, f8, f8)")
+@numba.njit("f8(f8, f8, f8, f8)")
 def _hyp2f1_unity(a, b, c, x):
     """
     Gauss hypergeometric function when `x` is near unity
@@ -232,7 +232,7 @@ def _hyp2f1_unity(a, b, c, x):
         return log(-log(1 - x)) + _gammaln(a + b) - _gammaln(a) - _gammaln(b)
 
 
-@numba_jit("f8(f8, f8, f8, f8)")
+@numba.njit("f8(f8, f8, f8, f8)")
 def _hyp2f1_laplace(a, b, c, x):
     r"""
     Approximate a Gaussian hypergeometric function with real arguments,
