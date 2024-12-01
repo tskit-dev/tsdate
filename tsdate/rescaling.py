@@ -25,10 +25,10 @@ Utilities for rescaling time according to a mutational clock
 
 from math import inf, log
 
-import numba
 import numpy as np
 import tskit
 
+from .accelerate import numba_jit
 from .approx import (
     _b,
     _b1r,
@@ -48,7 +48,7 @@ from .hypergeo import _gammainc_inv as gammainc_inv
 from .util import mutation_span_array  # NOQA: F401
 
 
-@numba.njit(_i1w(_f1r, _i))
+@numba_jit(_i1w(_f1r, _i))
 def _fixed_changepoints(counts, epochs):
     """
     Find breakpoints such that `counts` is divided roughly equally across `epochs`
@@ -65,7 +65,7 @@ def _fixed_changepoints(counts, epochs):
     return e.astype(np.int32)
 
 
-@numba.njit(_i1w(_f1r, _f1r, _f, _f, _f))
+@numba_jit(_i1w(_f1r, _f1r, _f, _f, _f))
 def _poisson_changepoints(counts, offset, penalty, min_counts, min_offset):
     """
     Given Poisson counts and offsets for a sequence of observations, find the set
@@ -113,7 +113,7 @@ def _poisson_changepoints(counts, offset, penalty, min_counts, min_offset):
     return breaks
 
 
-@numba.njit(
+@numba_jit(
     _tuple((_f2w, _i1w))(_b1r, _i1r, _f1r, _i1r, _i1r, _f1r, _f1r, _i1r, _i1r, _f, _b)
 )
 def _count_mutations(
@@ -238,7 +238,7 @@ def count_mutations(ts, node_is_sample=None, size_biased=False):
     )
 
 
-@numba.njit(_tuple((_f1w, _f1w, _f1w, _i1w))(_f1r, _f2r, _i1r, _i1r))
+@numba_jit(_tuple((_f1w, _f1w, _f1w, _i1w))(_f1r, _f2r, _i1r, _i1r))
 def mutational_area(
     nodes_time,
     likelihoods,
@@ -295,7 +295,7 @@ def mutational_area(
     return counts, offset, duration, nodes_index
 
 
-# @numba.njit(_unituple(_f1w, 2)(_f1r, _f2r, _f2r, _i1r, _i1r, _f1r, _i))
+# @numba_jit(_unituple(_f1w, 2)(_f1r, _f2r, _f2r, _i1r, _i1r, _f1r, _i))
 # def mutational_timescale(
 #    nodes_time,
 #    likelihoods,
@@ -382,7 +382,7 @@ def mutational_area(
 #    return origin, adjust
 
 
-@numba.njit(_unituple(_f1w, 2)(_f1r, _f2r, _f2r, _i1r, _i1r, _i))
+@numba_jit(_unituple(_f1w, 2)(_f1r, _f2r, _f2r, _i1r, _i1r, _i))
 def mutational_timescale(
     nodes_time,
     likelihoods,
@@ -445,7 +445,7 @@ def mutational_timescale(
     return origin, adjust
 
 
-@numba.njit(_f2w(_f2r, _f1r, _f1r, _f))
+@numba_jit(_f2w(_f2r, _f1r, _f1r, _f))
 def piecewise_scale_posterior(
     posteriors,
     original_breaks,
@@ -501,7 +501,7 @@ def piecewise_scale_posterior(
     return new_posteriors
 
 
-@numba.njit(_f1w(_f1r, _f1r, _f1r))
+@numba_jit(_f1w(_f1r, _f1r, _f1r))
 def piecewise_scale_point_estimate(
     point_estimate,
     original_breaks,
