@@ -66,6 +66,8 @@ UPPER = 1  # upper bound on node
 USE_EDGE_LIKELIHOOD = False
 USE_BLOCK_LIKELIHOOD = True
 
+TINY = np.sqrt(np.finfo(np.float64).tiny)  # DEBUG
+
 
 @numba.njit(_f(_f1r, _f1r, _f))
 def _damp(x, y, s):
@@ -98,6 +100,8 @@ def _rescale(x, s):
     assert x.size == 2
     if np.all(x == 0.0):
         return 1.0
+    if not 0 < x[1]:
+        print(x, s)  # DEBUG
     assert 0 < x[0] + 1
     assert 0 < x[1]
     if 1 + x[0] > s:
@@ -185,21 +189,19 @@ class ExpectationPropagation:
         posterior_check += node_factors[:, CONSTRNT]
         np.testing.assert_allclose(posterior_check, posterior)
 
-    def __init__(self, ts, *, mutation_rate, allow_unary=None, singletons_phased=True):
+    def __init__(self, ts, *, mutation_rate, allow_unary=False, singletons_phased=True):
         """
         Initialize an expectation propagation algorithm for dating nodes
         in a tree sequence.
-
-        .. note:: Each row of ``likelihoods`` corresponds to an edge in the
-            tree sequence. The entries are the outcome and rate of a Poisson
-            distribution for mutations on the edge. When both entries are zero,
-            this degenerates to an indicator function :math:`I[child_age <
-            parent_age]`.
 
         :param ~tskit.TreeSequence ts: a tree sequence containing the partial
             ordering of nodes.
         :param ~float mutation_rate: the expected per-base mutation rate per
             time unit.
+        :param ~bool allow_unary: if False, then error out if the tree sequence
+            contains non-sample unary nodes.
+        :param ~bool singletons_phased: if False, use an algorithm that
+            treats singleton phase as unknown.
         """
 
         self._check_valid_inputs(ts, mutation_rate, allow_unary)
@@ -207,10 +209,10 @@ class ExpectationPropagation:
         self.edge_children = ts.edges_child
 
         # lower and upper bounds on node ages
-        samples = list(ts.samples())
+        fixed_nodes = np.array(list(ts.samples()))
         self.node_constraints = np.zeros((ts.num_nodes, 2))
         self.node_constraints[:, 1] = np.inf
-        self.node_constraints[samples, :] = ts.nodes_time[samples, np.newaxis]
+        self.node_constraints[fixed_nodes, :] = ts.nodes_time[fixed_nodes, np.newaxis]
         self._check_valid_constraints(
             self.node_constraints, self.edge_parents, self.edge_children
         )
@@ -261,6 +263,9 @@ class ExpectationPropagation:
         self.leaves = np.logical_and(~has_child, has_parent)
         if np.any(np.logical_and(~has_child, ~has_parent)):
             raise ValueError("Tree sequence contains disconnected nodes")
+        # TODO: we don't need to store all these similar vectors
+        self.unconstrained_roots = self.roots.copy()
+        self.unconstrained_roots[fixed_nodes] = False
 
         # edge traversal order
         edge_unphased = np.full(ts.num_edges, False)
@@ -428,6 +433,22 @@ class ExpectationPropagation:
                     posterior[c] *= child_eta
                     scale[p] *= parent_eta
                     scale[c] *= child_eta
+            # The scale vanishes when there's lots of edges leading into a
+            # single node. We can absorb the scale into the factors at any
+            # point. The issue is that we need to do it for all edges connected
+            # to a node simulatenously, which I was hoping to avoid for speed
+            # reasons.
+            # FIXME: this is a hacky bypass
+            if scale[p] < TINY or scale[c] < TINY:  # DEBUG
+                factors[:, ROOTWARD] *= scale[edges_parent, np.newaxis]
+                factors[:, LEAFWARD] *= scale[edges_child, np.newaxis]
+                scale[:] = 1.0
+            # /FIXME
+        # FIXME: this is a hacky bypass
+        factors[:, ROOTWARD] *= scale[edges_parent, np.newaxis]
+        factors[:, LEAFWARD] *= scale[edges_child, np.newaxis]
+        scale[:] = 1.0
+        # /FIXME
 
     @staticmethod
     @numba.njit(_void(_b1r, _f2w, _f3w, _f1w, _f, _i, _f))
@@ -455,6 +476,9 @@ class ExpectationPropagation:
 
         def posterior_damping(x):
             return _rescale(x, max_shape)
+
+        if not np.any(free):
+            return
 
         # fit an exponential to cavity distributions for unconstrained nodes
         cavity = posterior - factors[:, MIXPRIOR] * scale[:, np.newaxis]
@@ -678,7 +702,7 @@ class ExpectationPropagation:
         if regularise:
             logger.debug("Exponential regularization on roots")
             self.propagate_prior(
-                self.roots,
+                self.unconstrained_roots,
                 self.node_posterior,
                 self.node_factors,
                 self.node_scale,
@@ -716,6 +740,7 @@ class ExpectationPropagation:
         rescale_segsites=False,
         rescale_iterations=10,
         quantile_width=0.5,
+        max_shape=1000,
         progress=False,
     ):
         # Normalise posteriors so that empirical mutation rate is constant
@@ -727,35 +752,50 @@ class ExpectationPropagation:
             self.mutation_blocks,
             self.block_edges,
         )
+        nodes_fixed = self.node_constraints[:, 0] == self.node_constraints[:, 1]
+        mutations_fixed = np.isnan(self.mutation_posterior[:, 0])
         nodes_time, _ = self.node_moments()
         rescaled_nodes_time = nodes_time.copy()
         for _ in np.arange(rescale_iterations):  # estimate time rescaling
             original_breaks, rescaled_breaks = mutational_timescale(
                 rescaled_nodes_time,
                 likelihoods,
-                self.node_constraints,
+                nodes_fixed,
                 self.edge_parents,
                 self.edge_children,
                 rescale_intervals,
             )
             rescaled_nodes_time = piecewise_scale_point_estimate(
-                rescaled_nodes_time, original_breaks, rescaled_breaks
+                rescaled_nodes_time,
+                nodes_fixed,
+                original_breaks,
+                rescaled_breaks,
             )
-        _, unique = np.unique(rescaled_nodes_time, return_index=True)
-        original_breaks = piecewise_scale_point_estimate(
-            rescaled_breaks, rescaled_nodes_time[unique], nodes_time[unique]
+            assert np.allclose(rescaled_nodes_time[nodes_fixed], nodes_time[nodes_fixed])
+        # TODO: clean up
+        _, unique = np.unique(rescaled_nodes_time[~nodes_fixed], return_index=True)
+        original_breaks = piecewise_scale_point_estimate(  # recover original breakpoints
+            rescaled_breaks,
+            np.full(rescaled_breaks.size, False),
+            np.append(0, rescaled_nodes_time[~nodes_fixed][unique]),
+            np.append(0, nodes_time[~nodes_fixed][unique]),
         )
+        # /TODO
         self.node_posterior[:] = piecewise_scale_posterior(
             self.node_posterior,
+            nodes_fixed,
             original_breaks,
             rescaled_breaks,
             quantile_width,
+            max_shape,
         )
         self.mutation_posterior[:] = piecewise_scale_posterior(
             self.mutation_posterior,
+            mutations_fixed,
             original_breaks,
             rescaled_breaks,
             quantile_width,
+            max_shape,
         )
 
     def infer(
@@ -846,6 +886,7 @@ class ExpectationPropagation:
                 rescale_intervals=rescale_intervals,
                 rescale_iterations=rescale_iterations,
                 rescale_segsites=rescale_segsites,
+                max_shape=max_shape,
                 progress=progress,
             )
             rescale_timing -= time.time()
