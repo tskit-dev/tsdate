@@ -61,6 +61,19 @@ class TestProvenance:
         assert np.isclose(rec["parameters"]["population_size"], Ne)
         assert rec["parameters"]["command"] == "maximization"
 
+    def test_date_time_recorded(self):
+        ts = utility_functions.single_tree_ts_n2()
+        mu = 0.123
+        Ne = 9
+        dated_ts = tsdate.date(
+            ts, population_size=Ne, mutation_rate=mu, method="maximization"
+        )
+        rec = json.loads(dated_ts.provenance(-1).record)
+        assert "resources" in rec
+        assert rec["resources"]["elapsed_time"] >= 0
+        assert rec["resources"]["user_time"] >= 0
+        assert rec["resources"]["sys_time"] >= 0
+
     @pytest.mark.parametrize(
         "popdict",
         [
@@ -118,6 +131,15 @@ class TestProvenance:
         assert deleted_intervals[0][0] < deleted_intervals[0][1]
         assert 40 < deleted_intervals[0][0] < 60
         assert 40 < deleted_intervals[0][1] < 60
+
+    def test_preprocess_time_recorded(self):
+        ts = utility_functions.ts_w_data_desert(40, 60, 100)
+        preprocessed_ts = tsdate.preprocess_ts(ts, minimum_gap=20)
+        rec = json.loads(preprocessed_ts.provenance(-1).record)
+        assert "resources" in rec
+        assert rec["resources"]["elapsed_time"] >= 0
+        assert rec["resources"]["user_time"] >= 0
+        assert rec["resources"]["sys_time"] >= 0
 
     @pytest.mark.parametrize("method", tsdate.core.estimation_methods.keys())
     def test_named_methods(self, method):

@@ -64,7 +64,7 @@ def get_environment():
     return env
 
 
-def get_provenance_dict(command, **kwargs):
+def get_provenance_dict(command, start_time=None, **kwargs):
     """
     Returns a dictionary encoding an execution of tsdate conforming to the
     tskit provenance schema.
@@ -78,14 +78,15 @@ def get_provenance_dict(command, **kwargs):
         "software": {"name": "tsdate", "version": __version__},
         "parameters": parameters,
         "environment": get_environment(),
+        "resources": tskit.provenance.get_resources(start_time),
     }
     return document
 
 
-def record_provenance(tables, command=None, **kwargs):
+def record_provenance(tables, command=None, start_time=None, **kwargs):
     """
     Adds provenance information to this table collection using the
     tskit provenances schema.
     """
-    record = get_provenance_dict(command=command, **kwargs)
+    record = get_provenance_dict(command=command, start_time=start_time, **kwargs)
     tables.provenances.add_row(record=json.dumps(record))

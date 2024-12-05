@@ -26,6 +26,7 @@ a more recent version which has the functionality built-in
 
 import json
 import logging
+import time
 
 import numba
 import numpy as np
@@ -115,6 +116,7 @@ def preprocess_ts(
     """
 
     logger.info("Beginning preprocessing")
+    start_time = time.time()
     logger.info(f"Minimum_gap: {minimum_gap} and remove_telomeres: {remove_telomeres}")
     if split_disjoint is None:
         split_disjoint = True
@@ -184,10 +186,14 @@ def preprocess_ts(
             record_provenance=False,
             **kwargs,
         )
+    if split_disjoint:
+        ts = split_disjoint_nodes(tables.tree_sequence(), record_provenance=False)
+        tables = ts.dump_tables()
     if record_provenance:
         provenance.record_provenance(
             tables,
             "preprocess_ts",
+            start_time=start_time,
             minimum_gap=minimum_gap,
             remove_telomeres=remove_telomeres,
             split_disjoint=split_disjoint,
@@ -196,10 +202,7 @@ def preprocess_ts(
             filter_sites=filter_sites,
             delete_intervals=delete_intervals,
         )
-    ts = tables.tree_sequence()
-    if split_disjoint:
-        ts = split_disjoint_nodes(ts, record_provenance=False)
-    return ts
+    return tables.tree_sequence()
 
 
 def nodes_time_unconstrained(tree_sequence):
@@ -526,6 +529,7 @@ def split_disjoint_nodes(ts, *, record_provenance=None):
         as ``True``).
     """
     metadata_key = "unsplit_node_id"
+    start_time = time.time()
     if record_provenance is None:
         record_provenance = True
     node_is_sample = np.bitwise_and(ts.nodes_flags, tskit.NODE_IS_SAMPLE).astype(bool)
@@ -578,6 +582,7 @@ def split_disjoint_nodes(ts, *, record_provenance=None):
         provenance.record_provenance(
             tables,
             "split_disjoint_nodes",
+            start_time=start_time,
         )
     return tables.tree_sequence()
 

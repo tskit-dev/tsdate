@@ -100,6 +100,7 @@ class EstimationMethod:
                 "then access `fit.node_posteriors()` to obtain a transposed version "
                 "of the matrix previously returned when ``return_posteriors=True.``"
             )
+        self.start_time = time.time()
         self.ts = ts
         self.mutation_rate = mutation_rate
         self.recombination_rate = recombination_rate
@@ -193,8 +194,6 @@ class EstimationMethod:
         nodes = tables.nodes
         mutations = tables.mutations
 
-        if self.provenance_params is not None:
-            provenance.record_provenance(tables, self.name, **self.provenance_params)
         # Constrain node ages for positive branch lengths
         constr_timing = time.time()
         nodes.time = util.constrain_ages(ts, node_mean_t, eps, self.constr_iterations)
@@ -220,6 +219,11 @@ class EstimationMethod:
         tables.compute_mutation_parents()
         sort_timing -= time.time()
         logger.info(f"Sorted tree sequence in {abs(sort_timing):.2f} seconds")
+        if self.provenance_params is not None:
+            # Note that the time recorded in provenance excludes numba compilation time
+            provenance.record_provenance(
+                tables, self.name, self.start_time, **self.provenance_params
+            )
         return tables.tree_sequence()
 
     def set_time_metadata(self, table, mean, var, default_schema, overwrite=False):
