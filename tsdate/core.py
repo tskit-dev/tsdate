@@ -27,6 +27,7 @@ Infer the age of nodes from mutational data, conditional on a tree sequence topo
 import logging
 import time  # DEBUG
 from collections import namedtuple
+
 import numpy as np
 import tskit
 
