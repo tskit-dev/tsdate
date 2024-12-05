@@ -28,7 +28,6 @@ import json
 import logging
 import time
 
-import numba
 import numpy as np
 import tskit
 from numba.types import UniTuple as _unituple  # NOQA: N813
@@ -36,6 +35,7 @@ from numba.types import UniTuple as _unituple  # NOQA: N813
 import tsdate
 
 from . import provenance
+from .accelerate import numba_jit
 from .approx import _b, _b1r, _f, _f1r, _f1w, _i, _i1r, _i1w
 
 logger = logging.getLogger(__name__)
@@ -393,7 +393,7 @@ def _reorder_nodes(node_table, order, extra_md_dict):
     )
 
 
-@numba.njit(_unituple(_i1w, 4)(_i1r, _i1r, _f1r, _f1r, _b1r))
+@numba_jit(_unituple(_i1w, 4)(_i1r, _i1r, _f1r, _f1r, _b1r))
 def _split_disjoint_nodes(
     edges_parent, edges_child, edges_left, edges_right, node_excluded
 ):
@@ -452,7 +452,7 @@ def _split_disjoint_nodes(
     return edges_parent, edges_child, nodes_order, split_nodes
 
 
-@numba.njit(_i1w(_i1r, _f1r, _i1r, _i1r, _i1r, _f1r, _f1r, _i1r, _i1r))
+@numba_jit(_i1w(_i1r, _f1r, _i1r, _i1r, _i1r, _f1r, _f1r, _i1r, _i1r))
 def _relabel_mutations_node(
     mutations_node,
     mutations_position,
@@ -587,7 +587,7 @@ def split_disjoint_nodes(ts, *, record_provenance=None):
     return tables.tree_sequence()
 
 
-@numba.njit(_f1w(_f1r, _b1r, _i1r, _i1r, _f, _i))
+@numba_jit(_f1w(_f1r, _b1r, _i1r, _i1r, _f, _i))
 def _constrain_ages(
     nodes_time, nodes_fixed, edges_parent, edges_child, epsilon, max_iterations
 ):
@@ -704,7 +704,7 @@ def constrain_mutations(ts, nodes_time, mutations_edge):
     return constrained_time
 
 
-@numba.njit(_b(_i1r, _f1r, _f1r, _i1r, _i1r, _f, _i))
+@numba_jit(_b(_i1r, _f1r, _f1r, _i1r, _i1r, _f, _i))
 def _contains_unary_nodes(
     edges_parent,
     edges_left,
