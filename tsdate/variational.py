@@ -761,13 +761,13 @@ class ExpectationPropagation:
     def infer(
         self,
         *,
-        ep_iterations=10,
-        max_shape=1000,
+        ep_iterations,
+        max_shape,
+        rescale_intervals,
+        rescale_iterations,
+        regularise,
+        rescale_segsites,
         min_step=0.1,
-        rescale_intervals=1000,
-        rescale_segsites=False,
-        rescale_iterations=10,
-        regularise=True,
         progress=None,
     ):
         # Run multiple rounds of expectation propagation, and return stats
