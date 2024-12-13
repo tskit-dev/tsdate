@@ -39,7 +39,7 @@ logger = logging.getLogger(__name__)
 FORMAT_NAME = "tsdate"
 DEFAULT_RESCALING_INTERVALS = 1000
 DEFAULT_RESCALING_ITERATIONS = 5
-DEFAULT_MAX_ITERATIONS = 10
+DEFAULT_MAX_ITERATIONS = 25
 DEFAULT_EPSILON = 1e-6
 
 
@@ -783,7 +783,7 @@ def variational_gamma(
     :param float eps: The minimum distance separating parent and child ages in
         the returned tree sequence. Default: None, treated as 1e-6
     :param int max_iterations: The number of iterations used in the expectation
-        propagation algorithm. Default: None, treated as 10.
+        propagation algorithm. Default: None, treated as 25.
     :param float rescaling_intervals: For time rescaling, the number of time
         intervals within which to estimate a rescaling parameter. Setting this to zero
         means that rescaling is not performed. Default ``None``, treated as 1000.
