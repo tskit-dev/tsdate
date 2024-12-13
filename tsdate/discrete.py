@@ -6,12 +6,12 @@ import multiprocessing
 import operator
 from collections import defaultdict
 
-import numba
 import numpy as np
 import scipy.stats
 import tskit
 from tqdm.auto import tqdm
 
+from .accelerate import numba_jit
 from .node_time_class import LIN_GRID, LOG_GRID
 
 
@@ -368,7 +368,7 @@ class LogLikelihoods(Likelihoods):
     """
 
     @staticmethod
-    @numba.jit(nopython=True)
+    @numba_jit
     def logsumexp(X):
         alpha = -np.inf
         r = 0.0
