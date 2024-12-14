@@ -478,6 +478,13 @@ class TestVariational:
         with pytest.raises(ValueError, match="Maximum number of EP iterations"):
             tsdate.variational_gamma(self.ts, mutation_rate=5, max_iterations=-1)
 
+    def test_no_set_metadata(self):
+        assert len(self.ts.tables.mutations.metadata) == 0
+        assert len(self.ts.tables.nodes.metadata) == 0
+        ts = tsdate.variational_gamma(self.ts, mutation_rate=1e-8, set_metadata=False)
+        assert len(ts.tables.mutations.metadata) == 0
+        assert len(ts.tables.nodes.metadata) == 0
+
     def test_no_existing_mutation_metadata(self):
         # Currently only the variational_gamma method embeds mutation metadata
         ts = tsdate.variational_gamma(self.ts, mutation_rate=1e-8)
@@ -565,3 +572,7 @@ class TestVariational:
             dts = tsdate.variational_gamma(ts, mutation_rate=1e-8)
             assert "Could not set" in caplog.text
         assert len(dts.tables.mutations.metadata) == 0
+        assert len(dts.tables.nodes.metadata) > 0
+        dts = tsdate.variational_gamma(ts, mutation_rate=1e-8, set_metadata=True)
+        assert len(dts.tables.mutations.metadata) > 0
+        assert len(dts.tables.nodes.metadata) > 0
