@@ -109,11 +109,6 @@ class TestAccuracy:
         mu = sim_mutations_parameters["rate"]
 
         dts = tsdate.inside_outside(ts, population_size=Ne, mutation_rate=mu)
-        # make sure we can read node metadata - old tsdate versions didn't set a schema
-        if dts.table_metadata_schemas.node.schema is None:
-            tables = dts.dump_tables()
-            tables.nodes.metadata_schema = tskit.MetadataSchema.permissive_json()
-            dts = tables.tree_sequence()
 
         # Only test nonsample node times
         nonsamples = np.ones(ts.num_nodes, dtype=bool)
