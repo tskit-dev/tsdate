@@ -5,6 +5,8 @@
 **Features**
 
 - An `allow_unary` flag (``False by default``) has been added to all methods.
+- A `set_metadata` flag has been added so that node and mutation metadata can be
+  omitted, saved (default), or overwritten even if this requires changing the schema.
 
 **Documentation**
 
