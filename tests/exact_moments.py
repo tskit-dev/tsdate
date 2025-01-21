@@ -11,7 +11,7 @@ import mpmath
 import numpy as np
 import scipy
 from scipy.special import betaln
-from scipy.special import gammaln
+from math import lgamma
 
 
 def moments(a_i, b_i, a_j, b_j, y_ij, mu_ij):
@@ -33,7 +33,7 @@ def moments(a_i, b_i, a_j, b_j, y_ij, mu_ij):
     s2 = s1 * (a + 1) * (b + 1) / (c + 1)
     d1 = s1 * exp(f1 - f0)
     d2 = s2 * exp(f2 - f0)
-    logl = f0 + betaln(y_ij + 1, a) + gammaln(b) - b * log(t)
+    logl = f0 + betaln(y_ij + 1, a) + lgamma(b) - b * log(t)
     mn_j = d1 / t
     sq_j = d2 / t**2
     va_j = sq_j - mn_j**2
@@ -56,7 +56,7 @@ def rootward_moments(t_j, a_i, b_i, y_ij, mu_ij):
     b = s + 1
     z = t_j * r
     if t_j == 0.0:
-        logl = gammaln(s) - s * log(r)
+        logl = lgamma(s) - s * log(r)
         mn_i = s / r
         va_i = s / r**2
         return logl, mn_i, va_i
@@ -65,7 +65,7 @@ def rootward_moments(t_j, a_i, b_i, y_ij, mu_ij):
     f2 = float(mpmath.log(mpmath.hyperu(a + 2, b + 2, z)))
     d0 = -a * exp(f1 - f0)
     d1 = -(a + 1) * exp(f2 - f1)
-    logl = f0 - b_i * t_j + (b - 1) * log(t_j) + gammaln(a)
+    logl = f0 - b_i * t_j + (b - 1) * log(t_j) + lgamma(a)
     mn_i = t_j * (1 - d0)
     va_i = t_j**2 * d0 * (d1 - d0)
     return logl, mn_i, va_i
@@ -112,7 +112,7 @@ def unphased_moments(a_i, b_i, a_j, b_j, y_ij, mu_ij):
     s2 = s1 * (a + 1) * (b + 1) / (c + 1)
     d1 = s1 * exp(f1 - f0)
     d2 = s2 * exp(f2 - f0)
-    logl = f0 + betaln(a_j, a_i) + gammaln(b) - b * log(t)
+    logl = f0 + betaln(a_j, a_i) + lgamma(b) - b * log(t)
     mn_j = d1 / t
     sq_j = d2 / t**2
     va_j = sq_j - mn_j**2
@@ -130,7 +130,7 @@ def twin_moments(a_i, b_i, y_ij, mu_ij):
     """
     s = a_i + y_ij
     r = b_i + 2 * mu_ij
-    logl = log(2) * y_ij + gammaln(s) - log(r) * s
+    logl = log(2) * y_ij + lgamma(s) - log(r) * s
     mn_i = s / r
     va_i = s / r**2
     return logl, mn_i, va_i
@@ -151,7 +151,7 @@ def sideways_moments(t_i, a_j, b_j, y_ij, mu_ij):
     f2 = float(mpmath.log(mpmath.hyperu(a + 2, b + 2, z)))
     d0 = -a * exp(f1 - f0)
     d1 = -(a + 1) * exp(f2 - f1)
-    logl = f0 - mu_ij * t_i + (b - 1) * log(t_i) + gammaln(a)
+    logl = f0 - mu_ij * t_i + (b - 1) * log(t_i) + lgamma(a)
     mn_j = -t_i * d0
     va_j = t_i**2 * d0 * (d1 - d0)
     return logl, mn_j, va_j

@@ -23,16 +23,16 @@
 Tools for phasing singleton mutations
 """
 
-import numba
 import numpy as np
 import tskit
 
+from .accelerate import numba_jit
 from .approx import _b1r, _b2r, _f, _f1r, _f2w, _i1r, _i1w, _i2r, _i2w, _tuple, _void
 
 # --- machinery used by ExpectationPropagation class --- #
 
 
-@numba.njit(_void(_f2w, _f1r, _i1r, _i2r))
+@numba_jit(_void(_f2w, _f1r, _i1r, _i2r))
 def reallocate_unphased(edges_likelihood, mutations_phase, mutations_block, blocks_edges):
     """
     Add a proportion of each unphased singleton mutation to one of the two
@@ -64,7 +64,7 @@ def reallocate_unphased(edges_likelihood, mutations_phase, mutations_block, bloc
     assert np.isclose(num_unphased, np.sum(edges_likelihood[edges_unphased, 0]))
 
 
-@numba.njit(
+@numba_jit(
     _tuple((_f2w, _i2w, _i1w))(
         _b1r, _i1r, _i1r, _f1r, _i1r, _i1r, _f1r, _f1r, _i1r, _i1r, _f
     )
@@ -205,7 +205,7 @@ def block_singletons(ts, individuals_unphased):
     )
 
 
-@numba.njit(_i2w(_b2r, _i1r, _f1r, _i1r, _i1r, _f1r, _f1r, _i1r, _i1r, _f))
+@numba_jit(_i2w(_b2r, _i1r, _f1r, _i1r, _i1r, _f1r, _f1r, _i1r, _i1r, _f))
 def _mutation_frequency(
     nodes_sample,
     mutations_node,
