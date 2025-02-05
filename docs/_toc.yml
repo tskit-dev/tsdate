@@ -6,6 +6,7 @@ chapters:
 - file: usage
   sections:
   - file: methods
+  - file: real-data
   - file: popsize
   - file: historical_samples
   - file: priors

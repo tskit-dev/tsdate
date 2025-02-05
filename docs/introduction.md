@@ -20,7 +20,7 @@ kernelspec:
 
 The _tsdate_ program {cite}`wohns2022unified` infers dates for nodes in a
 genetic genealogy, sometimes loosely known as an ancestral recombination graph
-or ARG {cite}`wong2023general`. More precisely, it takes a genealogy in 
+or ARG {cite}`wong2024general`. More precisely, it takes a genealogy in 
 [tree sequence](https://tskit.dev/tutorials/what_is.html) format as an input
 and returns a copy of that tree sequence with altered node and mutation times. These
 times have been estimated on the basis of the number of mutations
@@ -33,7 +33,7 @@ Bayesian network approach is used to update the probability distribution
 of times for each node, given the time distribution on connected nodes and
 the mutations on connected edges. This results in a posterior distribution of
 times (which can be {ref}`output separately<sec_usage_posterior>`). This
-{ref}`scales well<sec_usage_real_data_scaling>` to large genetic genealogies.
+{ref}`scales well<sec_usage_memory_time>` to large genetic genealogies.
 The input tree sequence can come from any source: e.g. from simulation or from
 a variety of inference programs, such as [tsinfer](https://tskit.dev/).
 
@@ -41,8 +41,8 @@ a variety of inference programs, such as [tsinfer](https://tskit.dev/).
 and updating information through the genealogy. These include continuous-time
 (default) and discrete-time methods, see {ref}`sec_methods` for more details.
 
-The output of _tsdate_ is a new tree sequence with altered
-{attr}`node<tskit:tskit.TreeSequence.nodes_time>`and
+The output of _tsdate_ is a new tree sequence with altered 
+{attr}`node<tskit:tskit.TreeSequence.nodes_time>` and
 {attr}`mutation<tskit:tskit.TreeSequence.mutations_time>` times,
 as well as extra node and mutation {ref}`sec_metadata`.
 Optionally, a posterior distribution of node times can be generated

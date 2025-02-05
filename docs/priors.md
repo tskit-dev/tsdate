@@ -30,7 +30,7 @@ to the roots, and which are updated via the expectation propagation mechanism).
 The {func}`build_prior_grid` and {func}`build_parameter_grid` functions allow you to create a bespoke prior
 for the {ref}`sec_methods_discrete_time`.
 This can be passed in to {func}`date` using the `priors` argument. It provides
-a tuneable alternative to passing the {ref}`population size<sec_popsize>`
+a tuneable alternative to passing the `population size`
 directly to the {func}`date` function.
 
 Along with adjusting the {ref}`method<sec_methods>`,
@@ -95,16 +95,6 @@ print(
 print(prior.timepoints)
 ```
 
-<!--
-**We no longer do this**
-
-For {ref}`sec_methods_continuous_time` methods, a grid of variational parameters is
-created (e.g. shape and rate parameters of gamma distributions for each node), which
-may be modified manually. 
-Currently, node-specific priors are combined to generate a global i.i.d. prior
-(although this behaviour will be changed in future releases to provide more
-flexibility.)
--->
 
 (sec_priors_conditional_coalescent)=
 

@@ -31,8 +31,10 @@ tree sequence is uncalibrated, so it is unclear where in time to
 place any historical samples.
 
 :::{note}
-We are currently working on methods to make dating historical samples
-much more convenient.
+This documentation is somewhat out of date, as the `variational_gamma` method
+can now incorporate historical samples. However, the combination of this
+functionality with topologies inferred from `tsinfer` has not been extensively
+tested, and may lead to dating and stabilty issues.
 :::
 
 ## The 2 step approach
@@ -47,14 +49,6 @@ with a few lines of Python. The only requirement is a tsinfer.SampleData file wi
 modern and historical samples (the latter are specified using the
 `individuals_time` array in a tsinfer.SampleData file).
 
-:::{note}
-While `tsinfer` does not make assumptions about the
-time of sample nodes, _tsdate_ requires a [prior](sec_priors)
-which is calculated from the conditional coalescent on the assumption that all
-samples are at time 0. Although this is not the case if there are historical samples,
-testing shows that it is still a close enough approximation for the method to
-work well. 
-:::
 
 ```{code-cell} ipython3
 import logging
