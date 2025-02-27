@@ -248,7 +248,8 @@ def mutational_area(
 ):
     """
     Calculate the total number of mutations and mutational area per inter-node
-    interval.
+    interval. These are infinitesimal; e.g. the actual count in an interval is
+    `returned_count * duration`.
 
     :param np.ndarray nodes_time: point estimates for node ages
     :param np.ndarray likelihoods: edges are rows; mutation
@@ -296,6 +297,7 @@ def mutational_area(
     return counts, offset, duration, nodes_index
 
 
+# --- version before refactor, keeping around for reference ---
 # @numba_jit(_unituple(_f1w, 2)(_f1r, _f2r, _f2r, _i1r, _i1r, _f1r, _i))
 # def mutational_timescale(
 #    nodes_time,
@@ -383,11 +385,11 @@ def mutational_area(
 #    return origin, adjust
 
 
-@numba_jit(_unituple(_f1w, 2)(_f1r, _f2r, _f2r, _i1r, _i1r, _i))
+@numba_jit(_unituple(_f1w, 2)(_f1r, _f2r, _b1r, _i1r, _i1r, _i))
 def mutational_timescale(
     nodes_time,
     likelihoods,
-    constraints,
+    nodes_fixed,
     edges_parent,
     edges_child,
     max_intervals,
@@ -410,12 +412,8 @@ def mutational_timescale(
     assert edges_parent.size == edges_child.size
     assert likelihoods.shape[0] == edges_parent.size
     assert likelihoods.shape[1] == 2
-    assert constraints.shape[0] == nodes_time.size
-    assert constraints.shape[1] == 2
+    assert nodes_fixed.size == nodes_time.size
     assert max_intervals > 0
-
-    nodes_fixed = constraints[:, 0] == constraints[:, 1]
-    assert np.all(nodes_time[nodes_fixed] == constraints[nodes_fixed, 0])
 
     counts, offset, duration, indexes = mutational_area(
         nodes_time,
@@ -428,8 +426,11 @@ def mutational_timescale(
     # TODO: use poisson changepoints to further refine
     epoch_breaks = np.append(0.0, np.cumsum(duration))
     changepoints = _fixed_changepoints(offset * duration, max_intervals)
-    changepoints = np.union1d(changepoints, indexes[nodes_fixed])
+    changepoints = np.unique(changepoints)
+    # changepoints = np.union1d(changepoints, indexes[nodes_fixed])
     adjust = np.zeros(changepoints.size)
+
+    # --- without any internal constraints ---
     k = 0
     for i, j in zip(changepoints[:-1], changepoints[1:]):
         assert j > i
@@ -440,24 +441,29 @@ def mutational_timescale(
         assert n > 0, "Zero edge span in interval"
         adjust[k + 1] = z * y / n
         k += 1
+
     adjust = np.cumsum(adjust)
     origin = epoch_breaks[changepoints]
 
     return origin, adjust
 
 
-@numba.njit(_f2w(_f2r, _f1r, _f1r, _f))
+@numba.njit(_f2w(_f2r, _b1r, _f1r, _f1r, _f, _f))
 def piecewise_scale_posterior(
     posteriors,
+    posteriors_fixed,
     original_breaks,
     rescaled_breaks,
     quantile_width,
+    max_shape,
 ):
     """
+    :param np.ndarray posteriors_fixed: if True do not rescale corresponding posterior
     :param float quantile_width: width of interquantile range to use for estimating
         rescaled shape parameter, e.g. 0.5 uses interquartile range
     """
 
+    assert posteriors_fixed.size == posteriors.shape[0]
     assert original_breaks.size == rescaled_breaks.size
     assert 1 > quantile_width > 0
 
@@ -465,8 +471,10 @@ def piecewise_scale_posterior(
     quant_lower = quantile_width / 2
     quant_upper = 1 - quantile_width / 2
 
+    freed = ~posteriors_fixed
+    assert np.all(np.logical_and(posteriors[freed, 0] > -1, posteriors[freed, 1] > 0))
+
     # use posterior mean as a point estimate
-    freed = np.logical_and(posteriors[:, 0] > -1, posteriors[:, 1] > 0)
     lower = np.zeros(dim)
     upper = np.zeros(dim)
     midpt = np.zeros(dim)
@@ -492,19 +500,21 @@ def piecewise_scale_posterior(
     upper = rescale(upper)
 
     # reproject posteriors using inter-quantile range
-    # TODO: catch rare cases where lower/upper quantiles are nearly identical
     new_posteriors = np.full(posteriors.shape, np.nan)
     for i in np.flatnonzero(freed):
-        alpha, beta = approximate_gamma_iqr(quant_lower, quant_upper, lower[i], upper[i])
+        alpha, beta = approximate_gamma_iqr(
+            quant_lower, quant_upper, lower[i], upper[i], max_shape
+        )
         beta = (alpha + 1) / midpt[i]  # choose rate so as to keep mean
         new_posteriors[i] = alpha, beta
 
     return new_posteriors
 
 
-@numba_jit(_f1w(_f1r, _f1r, _f1r))
+@numba_jit(_f1w(_f1r, _b1r, _f1r, _f1r))
 def piecewise_scale_point_estimate(
     point_estimate,
+    point_fixed,
     original_breaks,
     rescaled_breaks,
 ):
@@ -514,6 +524,7 @@ def piecewise_scale_point_estimate(
     idx = np.searchsorted(original_breaks, point_estimate, "right") - 1
     rescaled_estimate = rescaled_breaks[idx] + \
         scalings[idx] * (point_estimate - original_breaks[idx])  # fmt: skip
+    rescaled_estimate[point_fixed] = point_estimate[point_fixed]
     return rescaled_estimate
 
 
@@ -553,6 +564,7 @@ def rescale_tree_sequence(
         mutations_span, mutations_edge = count_mutations(ts, size_biased=True)
     mutations_span[:, 1] *= mutation_rate
     # rescale node ages
+    fixed_nodes = constraints[:, 0] == constraints[:, 1]
     nodes_time = ts.nodes_time.copy()
     for _ in np.arange(num_iterations):
         original_breaks, rescaled_breaks = mutational_timescale(
@@ -564,8 +576,9 @@ def rescale_tree_sequence(
             num_intervals,
         )
         nodes_time = piecewise_scale_point_estimate(
-            nodes_time, original_breaks, rescaled_breaks
+            nodes_time, fixed_nodes, original_breaks, rescaled_breaks
         )
+        assert np.allclose(nodes_time[fixed_nodes], ts.nodes_time[fixed_nodes])
     # calculate mutation ages
     mutations_parent = ts.edges_parent[mutations_edge]
     mutations_child = ts.edges_child[mutations_edge]

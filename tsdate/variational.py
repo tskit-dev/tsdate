@@ -27,6 +27,7 @@ Expectation propagation implementation
 import logging
 import time
 
+import numba
 import numpy as np
 import tskit
 from numba.types import void as _void
@@ -34,7 +35,7 @@ from tqdm.auto import tqdm
 
 from . import approx
 from .accelerate import numba_jit
-from .approx import _b, _b1r, _f, _f1r, _f1w, _f2r, _f2w, _f3r, _f3w, _i, _i1r, _i2r
+from .approx import _b, _b1r, _f, _f1r, _f1w, _f2r, _f2w, _f3w, _i, _i1r
 from .phasing import block_singletons, reallocate_unphased
 from .rescaling import (
     count_mutations,
@@ -65,6 +66,93 @@ UPPER = 1  # upper bound on node
 # named flags for unphased updates
 USE_EDGE_LIKELIHOOD = False
 USE_BLOCK_LIKELIHOOD = True
+
+TINY = np.sqrt(np.finfo(np.float64).tiny)  # DEBUG
+
+# dataclass for factors
+_EPFactors = [
+    ("node", _f3w),
+    ("edge", _f3w),
+    ("block", _f3w),
+    ("scale", _f1w),
+    ("_p", _i1r),
+    ("_c", _i1r),
+    ("_j", _i1r),
+    ("_k", _i1r),
+]
+
+
+@numba.experimental.jitclass(_EPFactors)
+class EPFactors:
+    """
+    Mutable state of the EP algorithm, that is the factors associated
+    with each edge likelihood / block likelihood / prior factor, that
+    together form the posterior.
+
+    Because of constraints on numba's AOT compilation of jitclass,
+    this is a dataclass (no intrinsic methods).
+    """
+
+    def __init__(
+        self,
+        node_constraints,
+        edge_parents,
+        edge_children,
+        block_left,
+        block_right,
+    ):
+        assert edge_parents.size == edge_children.size
+        assert block_left.size == block_right.size
+        num_nodes = node_constraints.shape[0]
+        num_edges = edge_parents.size
+        num_blocks = block_left.size
+        self.node = np.zeros((num_nodes, 2, 2))
+        self.edge = np.zeros((num_edges, 2, 2))
+        self.block = np.zeros((num_blocks, 2, 2))
+        self.scale = np.ones(num_nodes)
+        self._p, self._c = edge_parents, edge_children
+        self._j, self._k = block_left, block_right
+
+
+# bypass bug in https://github.com/numba/numba/issues/7808
+_fac = numba.deferred_type() if numba.config.DISABLE_JIT \
+    else EPFactors.class_type.instance_type  # fmt: skip
+
+
+# helper functions for numerical stability
+@numba_jit(_void(_fac))
+def _rescale_factors(factors):
+    """
+    At each update, all factors associated with a node need to be rescaled.
+    This is expensive, so we keep track of the scaling in a separate vector.
+    As updates progress, the factors will drift upward in magnitude while
+    the scaling drifts downward. To avoid underflow, we may need to
+    cancel out the scaling.
+    """
+    factors.edge[:, ROOTWARD] *= factors.scale[factors._p, np.newaxis]
+    factors.edge[:, LEAFWARD] *= factors.scale[factors._c, np.newaxis]
+    factors.block[:, ROOTWARD] *= factors.scale[factors._j, np.newaxis]
+    factors.block[:, LEAFWARD] *= factors.scale[factors._k, np.newaxis]
+    factors.node[:, MIXPRIOR] *= factors.scale[:, np.newaxis]
+    factors.node[:, CONSTRNT] *= factors.scale[:, np.newaxis]
+    factors.scale[:] = 1.0
+
+
+@numba_jit(_f2w(_fac))
+def _assemble_factors(factors):
+    """
+    Transform factors into posteriors, intended for debugging purposes only.
+    """
+    posterior = np.zeros((factors.scale.size, 2))
+    for i, (p, c) in enumerate(zip(factors._p, factors._c)):
+        posterior[p] += factors.edge[i, ROOTWARD]
+        posterior[c] += factors.edge[i, LEAFWARD]
+    for i, (j, k) in enumerate(zip(factors._j, factors._k)):
+        posterior[j] += factors.block[i, ROOTWARD]
+        posterior[k] += factors.block[i, LEAFWARD]
+    posterior += factors.node[:, MIXPRIOR]
+    posterior += factors.node[:, CONSTRNT]
+    return posterior
 
 
 @numba_jit(_f(_f1r, _f1r, _f))
@@ -107,6 +195,7 @@ def _rescale(x, s):
     return 1.0
 
 
+# main algorithm
 class ExpectationPropagation:
     r"""
     The class that encapsulates running the variational gamma approach to
@@ -164,42 +253,26 @@ class ExpectationPropagation:
 
     @staticmethod
     def _check_valid_state(
-        edges_parent,
-        edges_child,
-        block_nodes,
         posterior,
-        node_factors,
-        edge_factors,
-        block_factors,
+        factors,
     ):
         # Check that the messages sum to the posterior (debugging only)
-        block_one, block_two = block_nodes
-        posterior_check = np.zeros(posterior.shape)
-        for i, (p, c) in enumerate(zip(edges_parent, edges_child)):
-            posterior_check[p] += edge_factors[i, ROOTWARD]
-            posterior_check[c] += edge_factors[i, LEAFWARD]
-        for i, (j, k) in enumerate(zip(block_one, block_two)):
-            posterior_check[j] += block_factors[i, ROOTWARD]
-            posterior_check[k] += block_factors[i, LEAFWARD]
-        posterior_check += node_factors[:, MIXPRIOR]
-        posterior_check += node_factors[:, CONSTRNT]
+        posterior_check = _assemble_factors(factors)
         np.testing.assert_allclose(posterior_check, posterior)
 
-    def __init__(self, ts, *, mutation_rate, allow_unary=None, singletons_phased=True):
+    def __init__(self, ts, *, mutation_rate, allow_unary=False, singletons_phased=True):
         """
         Initialize an expectation propagation algorithm for dating nodes
         in a tree sequence.
-
-        .. note:: Each row of ``likelihoods`` corresponds to an edge in the
-            tree sequence. The entries are the outcome and rate of a Poisson
-            distribution for mutations on the edge. When both entries are zero,
-            this degenerates to an indicator function :math:`I[child_age <
-            parent_age]`.
 
         :param ~tskit.TreeSequence ts: a tree sequence containing the partial
             ordering of nodes.
         :param ~float mutation_rate: the expected per-base mutation rate per
             time unit.
+        :param ~bool allow_unary: if False, then error out if the tree sequence
+            contains non-sample unary nodes.
+        :param ~bool singletons_phased: if False, use an algorithm that
+            treats singleton phase as unknown.
         """
 
         self._check_valid_inputs(ts, mutation_rate, allow_unary)
@@ -207,10 +280,10 @@ class ExpectationPropagation:
         self.edge_children = ts.edges_child
 
         # lower and upper bounds on node ages
-        samples = list(ts.samples())
+        fixed_nodes = np.array(list(ts.samples()))
         self.node_constraints = np.zeros((ts.num_nodes, 2))
         self.node_constraints[:, 1] = np.inf
-        self.node_constraints[samples, :] = ts.nodes_time[samples, np.newaxis]
+        self.node_constraints[fixed_nodes, :] = ts.nodes_time[fixed_nodes, np.newaxis]
         self._check_valid_constraints(
             self.node_constraints, self.edge_parents, self.edge_children
         )
@@ -241,16 +314,19 @@ class ExpectationPropagation:
         logger.debug(f"Phased singletons in {abs(phase_timing):.2f} seconds")
 
         # mutable
-        self.node_factors = np.zeros((ts.num_nodes, 2, 2))
-        self.edge_factors = np.zeros((ts.num_edges, 2, 2))
-        self.block_factors = np.zeros((num_blocks, 2, 2))
+        self.factors = EPFactors(
+            self.node_constraints,
+            self.edge_parents,
+            self.edge_children,
+            self.block_nodes[0],
+            self.block_nodes[1],
+        )
         self.node_posterior = np.zeros((ts.num_nodes, 2))
         self.mutation_posterior = np.full((ts.num_mutations, 2), np.nan)
         self.mutation_phase = np.ones(ts.num_mutations)
         self.mutation_nodes = ts.mutations_node.copy()
         self.edge_logconst = np.zeros(ts.num_edges)
         self.block_logconst = np.zeros(num_blocks)
-        self.node_scale = np.ones(ts.num_nodes)
 
         # terminal nodes
         has_parent = np.full(ts.num_nodes, False)
@@ -261,6 +337,9 @@ class ExpectationPropagation:
         self.leaves = np.logical_and(~has_child, has_parent)
         if np.any(np.logical_and(~has_child, ~has_parent)):
             raise ValueError("Tree sequence contains disconnected nodes")
+        # TODO: we don't need to store all these similar vectors
+        self.unconstrained_roots = self.roots.copy()
+        self.unconstrained_roots[fixed_nodes] = False
 
         # edge traversal order
         edge_unphased = np.full(ts.num_edges, False)
@@ -272,7 +351,7 @@ class ExpectationPropagation:
         self.mutation_order = np.arange(ts.num_mutations, dtype=np.int32)
 
     @staticmethod
-    @numba_jit(_void(_i1r, _i1r, _i1r, _f2r, _f2r, _f2w, _f3w, _f1w, _f1w, _f, _f, _b))
+    @numba_jit(_void(_i1r, _i1r, _i1r, _f2r, _f2r, _f2w, _fac, _f1w, _f, _f, _b))
     def propagate_likelihood(
         edge_order,
         edges_parent,
@@ -282,7 +361,6 @@ class ExpectationPropagation:
         posterior,
         factors,
         lognorm,
-        scale,
         max_shape,
         min_step,
         unphased,
@@ -297,14 +375,11 @@ class ExpectationPropagation:
         #     containing lower and upper bounds for each node.
         # :param numpy.ndarray posterior: array of dimension `[num_nodes, 2]`
         #     containing natural parameters for each node, updated in-place.
-        # :param numpy.ndarray factors: array of dimension `[num_edges, 2, 2]`
-        #     containing parent and child factors (natural parameters) for each
-        #     edge, updated in-place.
+        # :param EPFactors factors: object containing parent and child factors
+        #     (natural parameters) for each edge, updated in-place.
         # :param numpy.ndarray lognorm: array of dimension `[num_edges]`
         #     containing the approximate normalizing constants per edge,
         #     updated in-place.
-        # :param numpy.ndarray scale: array of dimension `[num_nodes]` containing a
-        #     scaling factor for the posteriors, updated in-place.
         # :param float max_shape: the maximum allowed shape for node posteriors.
         # :param float min_step: the minimum allowed step size in (0, 1).
         # :param bool unphased: if True, edges are treated as blocks of unphased
@@ -312,7 +387,6 @@ class ExpectationPropagation:
 
         assert constraints.shape == posterior.shape
         assert edges_child.size == edges_parent.size
-        assert factors.shape == (edges_parent.size, 2, 2)
         assert likelihoods.shape == (edges_parent.size, 2)
         assert max_shape >= 1.0
         assert 0.0 < min_step < 1.0
@@ -344,14 +418,21 @@ class ExpectationPropagation:
 
         fixed = constraints[:, LOWER] == constraints[:, UPPER]
 
+        scale = factors.scale
+        factor = factors.block if unphased else factors.edge
+        assert factor.shape == (edges_parent.size, 2, 2)
+
         for i in edge_order:
             p, c = edges_parent[i], edges_child[i]
+            if scale[p] < TINY or scale[c] < TINY:
+                # modifies `scale` and `factor` by reference
+                _rescale_factors(factors)
             if fixed[p] and fixed[c]:
                 continue
             elif fixed[p] and not fixed[c]:
                 # in practice this should only occur if a sample is the
                 # ancestor of another sample
-                child_message = factors[i, LEAFWARD] * scale[c]
+                child_message = factor[i, LEAFWARD] * scale[c]
                 child_delta = cavity_damping(posterior[c], child_message)
                 child_cavity = posterior[c] - child_delta * child_message
                 edge_likelihood = child_delta * likelihoods[i]
@@ -361,15 +442,15 @@ class ExpectationPropagation:
                     child_cavity,
                     edge_likelihood,
                 )
-                factors[i, LEAFWARD] *= 1.0 - child_delta
-                factors[i, LEAFWARD] += (posterior[c] - child_cavity) / scale[c]
+                factor[i, LEAFWARD] *= 1.0 - child_delta
+                factor[i, LEAFWARD] += (posterior[c] - child_cavity) / scale[c]
                 child_eta = posterior_damping(posterior[c])
                 posterior[c] *= child_eta
                 scale[c] *= child_eta
             elif fixed[c] and not fixed[p]:
                 # in practice this should only occur if a sample has age
                 # greater than zero
-                parent_message = factors[i, ROOTWARD] * scale[p]
+                parent_message = factor[i, ROOTWARD] * scale[p]
                 parent_delta = cavity_damping(posterior[p], parent_message)
                 parent_cavity = posterior[p] - parent_delta * parent_message
                 edge_likelihood = parent_delta * likelihoods[i]
@@ -379,29 +460,29 @@ class ExpectationPropagation:
                     parent_cavity,
                     edge_likelihood,
                 )
-                factors[i, ROOTWARD] *= 1.0 - parent_delta
-                factors[i, ROOTWARD] += (posterior[p] - parent_cavity) / scale[p]
+                factor[i, ROOTWARD] *= 1.0 - parent_delta
+                factor[i, ROOTWARD] += (posterior[p] - parent_cavity) / scale[p]
                 parent_eta = posterior_damping(posterior[p])
                 posterior[p] *= parent_eta
                 scale[p] *= parent_eta
             else:
                 if p == c:  # singleton block with single parent
-                    parent_message = factors[i, ROOTWARD] * scale[p]
+                    parent_message = factor[i, ROOTWARD] * scale[p]
                     parent_delta = cavity_damping(posterior[p], parent_message)
                     parent_cavity = posterior[p] - parent_delta * parent_message
                     edge_likelihood = parent_delta * likelihoods[i]
                     child_age = constraints[c, LOWER]
                     lognorm[i], posterior[p] = \
                         twin_projection(parent_cavity, edge_likelihood)  # fmt: skip
-                    factors[i, ROOTWARD] *= 1.0 - parent_delta
-                    factors[i, ROOTWARD] += (posterior[p] - parent_cavity) / scale[p]
+                    factor[i, ROOTWARD] *= 1.0 - parent_delta
+                    factor[i, ROOTWARD] += (posterior[p] - parent_cavity) / scale[p]
                     parent_eta = posterior_damping(posterior[p])
                     posterior[p] *= parent_eta
                     scale[p] *= parent_eta
                 else:
                     # lower-bound cavity
-                    parent_message = factors[i, ROOTWARD] * scale[p]
-                    child_message = factors[i, LEAFWARD] * scale[c]
+                    parent_message = factor[i, ROOTWARD] * scale[p]
+                    child_message = factor[i, LEAFWARD] * scale[c]
                     parent_delta = cavity_damping(posterior[p], parent_message)
                     child_delta = cavity_damping(posterior[c], child_message)
                     delta = min(parent_delta, child_delta)
@@ -416,10 +497,10 @@ class ExpectationPropagation:
                         child_cavity,
                         edge_likelihood,
                     )
-                    factors[i, ROOTWARD] *= 1.0 - delta
-                    factors[i, ROOTWARD] += (posterior[p] - parent_cavity) / scale[p]
-                    factors[i, LEAFWARD] *= 1.0 - delta
-                    factors[i, LEAFWARD] += (posterior[c] - child_cavity) / scale[c]
+                    factor[i, ROOTWARD] *= 1.0 - delta
+                    factor[i, ROOTWARD] += (posterior[p] - parent_cavity) / scale[p]
+                    factor[i, LEAFWARD] *= 1.0 - delta
+                    factor[i, LEAFWARD] += (posterior[c] - child_cavity) / scale[c]
 
                     # upper-bound posterior
                     parent_eta = posterior_damping(posterior[p])
@@ -430,18 +511,16 @@ class ExpectationPropagation:
                     scale[c] *= child_eta
 
     @staticmethod
-    @numba_jit(_void(_b1r, _f2w, _f3w, _f1w, _f, _i, _f))
-    def propagate_prior(free, posterior, factors, scale, max_shape, em_maxitt, em_reltol):
+    @numba_jit(_void(_b1r, _f2w, _fac, _f, _i, _f))
+    def propagate_prior(free, posterior, factors, max_shape, em_maxitt, em_reltol):
         # Update approximating factors for global prior.
         #
         # :param ndarray free: boolean array for if prior should be applied to node
         # :param ndarray penalty: initial value for regularisation penalty
         # :param ndarray posterior: rows are nodes, columns are first and
         #     second natural parameters of gamma posteriors. Updated in place.
-        # :param ndarray factors: rows are nodes, columns index different
-        #     types of updates. Updated in place.
-        # :param ndarray scale: array of dimension `[num_nodes]` containing a
-        #     scaling factor for the posteriors, updated in-place.
+        # :param EPFactors factors: object containing EP messages for nodes.
+        #     Updated in place.
         # :param float max_shape: the maximum allowed shape for node posteriors.
         # :param int em_maxitt: the maximum number of EM iterations to use when
         #     fitting the regularisation.
@@ -449,15 +528,21 @@ class ExpectationPropagation:
         #     log-likelihood.
 
         assert free.size == posterior.shape[0]
-        assert factors.shape == (free.size, 2, 2)
-        assert scale.size == free.size
         assert max_shape >= 1.0
 
         def posterior_damping(x):
             return _rescale(x, max_shape)
 
+        if not np.any(free):
+            return
+
+        factor = factors.node
+        scale = factors.scale
+        assert factor.shape == (free.size, 2, 2)
+        assert scale.size == free.size
+
         # fit an exponential to cavity distributions for unconstrained nodes
-        cavity = posterior - factors[:, MIXPRIOR] * scale[:, np.newaxis]
+        cavity = posterior - factor[:, MIXPRIOR] * scale[:, np.newaxis]
         shape, rate = cavity[free, 0] + 1, cavity[free, 1]
         penalty = 1 / np.mean(shape / rate)
         itt, delta = 0, np.inf
@@ -471,7 +556,7 @@ class ExpectationPropagation:
 
         # update posteriors and rescale to keep shape bounded
         posterior[free, 1] = cavity[free, 1] + penalty
-        factors[free, MIXPRIOR] = \
+        factor[free, MIXPRIOR] = \
             (posterior[free] - cavity[free]) / scale[free, np.newaxis]  # fmt: skip
         for i in np.flatnonzero(free):
             eta = posterior_damping(posterior[i])
@@ -479,9 +564,7 @@ class ExpectationPropagation:
             scale[i] *= eta
 
     @staticmethod
-    @numba_jit(
-        _void(_i1r, _f2w, _f1w, _i1r, _i1r, _i1r, _f2r, _f2r, _f2r, _f3r, _f1r, _b)
-    )
+    @numba_jit(_void(_i1r, _f2w, _f1w, _i1r, _i1r, _i1r, _f2r, _f2r, _f2r, _fac, _b))
     def propagate_mutations(
         mutations_order,
         mutations_posterior,
@@ -493,7 +576,6 @@ class ExpectationPropagation:
         constraints,
         posterior,
         factors,
-        scale,
         unphased,
     ):
         # Calculate posteriors for mutations. (publicly undocumented)
@@ -513,10 +595,8 @@ class ExpectationPropagation:
         #     containing lower and upper bounds for each node.
         # :param ndarray posterior: array of dimension `[num_nodes, 2]`
         #     containing natural parameters for each node
-        # :param ndarray factors: array of dimension `[num_edges, 2, 2]`
+        # :param EPFactors factors: object containing
         #     containing parent and child factors (natural parameters) for each edge
-        # :param ndarray scale: array of dimension `(num_nodes, )` containing a
-        #     scaling factor for the posteriors
         # :param bool unphased: if True, edges are treated as blocks of unphased
         #     singletons in contemporary individuals
 
@@ -528,7 +608,6 @@ class ExpectationPropagation:
         assert mutations_posterior.shape == (mutations_phase.size, 2)
         assert constraints.shape == posterior.shape
         assert edges_child.size == edges_parent.size
-        assert factors.shape == (edges_parent.size, 2, 2)
         assert likelihoods.shape == (edges_parent.size, 2)
 
         def leafward_projection(x, y, z):
@@ -555,6 +634,10 @@ class ExpectationPropagation:
 
         fixed = constraints[:, LOWER] == constraints[:, UPPER]
 
+        scale = factors.scale
+        factor = factors.block if unphased else factors.edge
+        assert factor.shape == (edges_parent.size, 2, 2)
+
         for m in mutations_order:
             i = mutations_edge[m]
             if i == tskit.NULL:  # skip mutations above root
@@ -566,7 +649,7 @@ class ExpectationPropagation:
                 mutations_phase[m], mutations_posterior[m] = \
                     fixed_projection(parent_age, child_age)  # fmt: skip
             elif fixed[p] and not fixed[c]:
-                child_message = factors[i, LEAFWARD] * scale[c]
+                child_message = factor[i, LEAFWARD] * scale[c]
                 child_delta = 1.0  # hopefully we don't need to damp
                 child_cavity = posterior[c] - child_delta * child_message
                 edge_likelihood = child_delta * likelihoods[i]
@@ -577,7 +660,7 @@ class ExpectationPropagation:
                     edge_likelihood,
                 )
             elif fixed[c] and not fixed[p]:
-                parent_message = factors[i, ROOTWARD] * scale[p]
+                parent_message = factor[i, ROOTWARD] * scale[p]
                 parent_delta = 1.0  # hopefully we don't need to damp
                 parent_cavity = posterior[p] - parent_delta * parent_message
                 edge_likelihood = parent_delta * likelihoods[i]
@@ -589,7 +672,7 @@ class ExpectationPropagation:
                 )
             else:
                 if p == c:  # singleton block with single parent
-                    parent_message = factors[i, ROOTWARD] * scale[p]
+                    parent_message = factor[i, ROOTWARD] * scale[p]
                     parent_delta = 1.0  # hopefully we don't need to damp
                     parent_cavity = posterior[p] - parent_delta * parent_message
                     edge_likelihood = parent_delta * likelihoods[i]
@@ -597,8 +680,8 @@ class ExpectationPropagation:
                     mutations_phase[m], mutations_posterior[m] = \
                         twin_projection(parent_cavity, edge_likelihood)  # fmt: skip
                 else:
-                    parent_message = factors[i, ROOTWARD] * scale[p]
-                    child_message = factors[i, LEAFWARD] * scale[c]
+                    parent_message = factor[i, ROOTWARD] * scale[p]
+                    child_message = factor[i, LEAFWARD] * scale[c]
                     parent_delta = 1.0  # hopefully we don't need to damp
                     child_delta = 1.0  # hopefully we don't need to damp
                     delta = min(parent_delta, child_delta)
@@ -610,28 +693,6 @@ class ExpectationPropagation:
                         child_cavity,
                         edge_likelihood,
                     )
-
-    @staticmethod
-    @numba_jit(_void(_i1r, _i1r, _i2r, _f3w, _f3w, _f3w, _f1w))
-    def rescale_factors(
-        edges_parent,
-        edges_child,
-        block_nodes,
-        node_factors,
-        edge_factors,
-        block_factors,
-        scale,
-    ):
-        # Incorporate scaling term into factors and reset
-        p, c = edges_parent, edges_child
-        j, k = block_nodes
-        edge_factors[:, ROOTWARD] *= scale[p, np.newaxis]
-        edge_factors[:, LEAFWARD] *= scale[c, np.newaxis]
-        block_factors[:, ROOTWARD] *= scale[j, np.newaxis]
-        block_factors[:, LEAFWARD] *= scale[k, np.newaxis]
-        node_factors[:, MIXPRIOR] *= scale[:, np.newaxis]
-        node_factors[:, CONSTRNT] *= scale[:, np.newaxis]
-        scale[:] = 1.0
 
     def iterate(
         self,
@@ -651,9 +712,8 @@ class ExpectationPropagation:
             self.block_likelihoods,
             self.node_constraints,
             self.node_posterior,
-            self.block_factors,
+            self.factors,
             self.block_logconst,
-            self.node_scale,
             max_shape,
             min_step,
             USE_BLOCK_LIKELIHOOD,
@@ -667,9 +727,8 @@ class ExpectationPropagation:
             self.edge_likelihoods,
             self.node_constraints,
             self.node_posterior,
-            self.edge_factors,
+            self.factors,
             self.edge_logconst,
-            self.node_scale,
             max_shape,
             min_step,
             USE_EDGE_LIKELIHOOD,
@@ -678,36 +737,19 @@ class ExpectationPropagation:
         if regularise:
             logger.debug("Exponential regularization on roots")
             self.propagate_prior(
-                self.roots,
+                self.unconstrained_roots,
                 self.node_posterior,
-                self.node_factors,
-                self.node_scale,
+                self.factors,
                 max_shape,
                 em_maxitt,
                 em_reltol,
             )
 
         logger.debug("Absorbing scaling term into the factors")
-        self.rescale_factors(
-            self.edge_parents,
-            self.edge_children,
-            self.block_nodes,
-            self.node_factors,
-            self.edge_factors,
-            self.block_factors,
-            self.node_scale,
-        )
+        _rescale_factors(self.factors)
 
         if check_valid:  # for debugging
-            self._check_valid_state(
-                self.edge_parents,
-                self.edge_children,
-                self.block_nodes,
-                self.node_posterior,
-                self.node_factors,
-                self.edge_factors,
-                self.block_factors,
-            )
+            self._check_valid_state(self.node_posterior, self.factors)
 
     def rescale(
         self,
@@ -716,6 +758,7 @@ class ExpectationPropagation:
         rescale_segsites=False,
         rescale_iterations=10,
         quantile_width=0.5,
+        max_shape=1000,
         progress=False,
     ):
         # Normalise posteriors so that empirical mutation rate is constant
@@ -727,37 +770,53 @@ class ExpectationPropagation:
             self.mutation_blocks,
             self.block_edges,
         )
+        nodes_fixed = self.node_constraints[:, 0] == self.node_constraints[:, 1]
+        mutations_fixed = np.isnan(self.mutation_posterior[:, 0])
         nodes_time, _ = self.node_moments()
         rescaled_nodes_time = nodes_time.copy()
         for _ in np.arange(rescale_iterations):  # estimate time rescaling
             original_breaks, rescaled_breaks = mutational_timescale(
                 rescaled_nodes_time,
                 likelihoods,
-                self.node_constraints,
+                nodes_fixed,
                 self.edge_parents,
                 self.edge_children,
                 rescale_intervals,
             )
             rescaled_nodes_time = piecewise_scale_point_estimate(
-                rescaled_nodes_time, original_breaks, rescaled_breaks
+                rescaled_nodes_time,
+                nodes_fixed,
+                original_breaks,
+                rescaled_breaks,
             )
-        _, unique = np.unique(rescaled_nodes_time, return_index=True)
-        original_breaks = piecewise_scale_point_estimate(
-            rescaled_breaks, rescaled_nodes_time[unique], nodes_time[unique]
+            assert np.allclose(rescaled_nodes_time[nodes_fixed], nodes_time[nodes_fixed])
+        # TODO: clean up
+        _, unique = np.unique(rescaled_nodes_time[~nodes_fixed], return_index=True)
+        original_breaks = piecewise_scale_point_estimate(  # recover original breakpoints
+            rescaled_breaks,
+            np.full(rescaled_breaks.size, False),
+            np.append(0, rescaled_nodes_time[~nodes_fixed][unique]),
+            np.append(0, nodes_time[~nodes_fixed][unique]),
         )
+        # /TODO
         self.node_posterior[:] = piecewise_scale_posterior(
             self.node_posterior,
+            nodes_fixed,
             original_breaks,
             rescaled_breaks,
             quantile_width,
+            max_shape,
         )
         self.mutation_posterior[:] = piecewise_scale_posterior(
             self.mutation_posterior,
+            mutations_fixed,
             original_breaks,
             rescaled_breaks,
             quantile_width,
+            max_shape,
         )
 
+    # TODO change to `date`
     def infer(
         self,
         *,
@@ -803,8 +862,7 @@ class ExpectationPropagation:
             self.block_likelihoods,
             self.node_constraints,
             self.node_posterior,
-            self.block_factors,
-            self.node_scale,
+            self.factors,
             USE_BLOCK_LIKELIHOOD,
         )
         logger.debug("Passing through phased mutations")
@@ -818,8 +876,7 @@ class ExpectationPropagation:
             self.edge_likelihoods,
             self.node_constraints,
             self.node_posterior,
-            self.edge_factors,
-            self.node_scale,
+            self.factors,
             USE_EDGE_LIKELIHOOD,
         )
         muts_timing -= time.time()
@@ -846,6 +903,7 @@ class ExpectationPropagation:
                 rescale_intervals=rescale_intervals,
                 rescale_iterations=rescale_iterations,
                 rescale_segsites=rescale_segsites,
+                max_shape=max_shape,
                 progress=progress,
             )
             rescale_timing -= time.time()

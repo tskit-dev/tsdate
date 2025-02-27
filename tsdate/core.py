@@ -37,6 +37,7 @@ from .node_time_class import LIN_GRID, LOG_GRID
 logger = logging.getLogger(__name__)
 
 FORMAT_NAME = "tsdate"
+DEFAULT_CONSTRAINT_ITERATIONS = 100  # only used with internal samples
 DEFAULT_RESCALING_INTERVALS = 1000
 DEFAULT_RESCALING_ITERATIONS = 5
 DEFAULT_MAX_ITERATIONS = 25
@@ -89,7 +90,7 @@ class EstimationMethod:
         constr_iterations=None,
         set_metadata=None,
         progress=None,
-        # Deprecated params
+        # deprecated params
         return_posteriors=None,
     ):
         # Set up all the generic params described in the tsdate.date function, and define
@@ -135,7 +136,13 @@ class EstimationMethod:
             )
 
         if constr_iterations is None:
-            self.constr_iterations = 0
+            unique_sample_ages = np.unique(ts.nodes_time[list(ts.samples())])
+            if unique_sample_ages.size > 1:
+                # if there are internal samples, then using least squares
+                # before forcing the constraint will reduce error
+                self.constr_iterations = DEFAULT_CONSTRAINT_ITERATIONS
+            else:
+                self.constr_iterations = 0
         else:
             if not (isinstance(constr_iterations, int) and constr_iterations >= 0):
                 raise ValueError(
@@ -178,9 +185,9 @@ class EstimationMethod:
                     )
                 self.priors = priors
 
-        # mutation to edge mapping
         # TODO: this isn't needed except for mutations_edge in constrain_mutations
         self.edges_mutations, self.mutations_edge = util.mutation_span_array(ts)
+        self.fixed_nodes = np.array(list(ts.samples()))
 
     def get_modified_ts(self, result, eps):
         # Return a new ts based on the existing one, but with the various
