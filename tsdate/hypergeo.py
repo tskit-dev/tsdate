@@ -25,7 +25,7 @@ Numerically stable implementations of the Gauss hypergeometric function with num
 """
 
 import ctypes
-from math import erf, exp, lgamma, log, pi, pow, sqrt
+from math import erf, exp, lgamma, log, pi, pow, sqrt  # noqa: A004
 
 import numba
 import numpy as np

@@ -72,8 +72,7 @@ def tsdate_cli_parser():
     parser = subparsers.add_parser(
         "date",
         help=(
-            "Takes an inferred tree sequence topology and "
-            "returns a dated tree sequence."
+            "Takes an inferred tree sequence topology and returns a dated tree sequence."
         ),
     )
 
@@ -87,8 +86,7 @@ def tsdate_cli_parser():
     parser.add_argument(
         "output",
         help=(
-            "The path and name of output file where the dated tree "
-            "sequence will saved."
+            "The path and name of output file where the dated tree sequence will saved."
         ),
     )
     parser.add_argument(

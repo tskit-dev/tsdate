@@ -207,12 +207,12 @@ class Likelihoods:
         that are equal to or older than the child age. This is not cached, as it is
         likely to be unique for each edge
         """
-        assert (
-            edge.child in self.fixednodes
-        ), "Wrongly called fixed node function on non-fixed node"
-        assert (
-            self.mut_rate is not None
-        ), "Cannot calculate mutation likelihoods with no mutation_rate set"
+        assert edge.child in self.fixednodes, (
+            "Wrongly called fixed node function on non-fixed node"
+        )
+        assert self.mut_rate is not None, (
+            "Cannot calculate mutation likelihoods with no mutation_rate set"
+        )
 
         mutations_on_edge = self.mut_edges[edge.id]
         child_time = self.ts.node(edge.child).time
@@ -235,12 +235,12 @@ class Likelihoods:
 
         """
         # Debugging asserts - should probably remove eventually
-        assert (
-            edge.child not in self.fixednodes
-        ), "Wrongly called lower_tri function on fixed node"
-        assert hasattr(
-            self, "unfixed_likelihood_cache"
-        ), "Must call `precalculate_mutation_likelihoods()` before getting likelihoods"
+        assert edge.child not in self.fixednodes, (
+            "Wrongly called lower_tri function on fixed node"
+        )
+        assert hasattr(self, "unfixed_likelihood_cache"), (
+            "Must call `precalculate_mutation_likelihoods()` before getting likelihoods"
+        )
 
         mutations_on_edge = self.mut_edges[edge.id]
         return self.unfixed_likelihood_cache[mutations_on_edge, edge.span]
@@ -598,9 +598,9 @@ class BeliefPropagation:
                 (self.ts.num_edges, self.lik.grid_size), self.lik.identity_constant
             )
         denominator = np.full(self.ts.num_nodes, np.nan)
-        assert (
-            self.lik.standardize is False
-        ), "Marginal likelihood requires unstandardized mutation likelihoods"
+        assert self.lik.standardize is False, (
+            "Marginal likelihood requires unstandardized mutation likelihoods"
+        )
         marginal_lik = self.lik.identity_constant
         # Iterate through the nodes via groupby on parent node
         for parent, edges in tqdm(
