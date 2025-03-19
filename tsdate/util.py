@@ -325,12 +325,11 @@ def add_sampledata_times(samples, sites_time):
     Ensures that each site's time is at least as old as the oldest historic sample
     carrying a derived allele at that site.
 
-    :param tsinfer.formats.SampleData samples: A tsinfer SampleData object to
+    :param samples: A tsinfer SampleData object to
         add site times to. Any historic individuals in this SampleData file are used to
         constrain site times.
 
-    :return: A tsinfer.SampleData file
-    :rtype: tsinfer.SampleData
+    :return: A copy of the input sample data with site times added
     """
     if samples.num_sites != len(sites_time):
         raise ValueError(
