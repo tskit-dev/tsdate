@@ -41,7 +41,7 @@ class TestAccuracy:
     Test for some of the basic functions used in tsdate
     """
 
-    @pytest.mark.makefiles()
+    @pytest.mark.makefiles
     def test_make_static_files(self, request):
         """
         The function used to create the tree sequences for accuracy testing.

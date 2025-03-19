@@ -726,7 +726,7 @@ def allele_frequency_spectra(
             ax.text(
                 0.02,
                 0.98,
-                f"{i+1}:{j+1}",
+                f"{i + 1}:{j + 1}",
                 ha="left",
                 va="top",
                 transform=ax.transAxes,

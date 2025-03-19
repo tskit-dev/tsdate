@@ -101,7 +101,7 @@ class TestNodeTipWeights(unittest.TestCase):
         span_data = self.verify_spans(ts)
         # with a single tree there should only be one span
         for node in span_data.nodes_to_date:
-            assert len(span_data.get_spans(node)), 1
+            assert len(span_data.get_spans(node)) == 1
         assert 2 in span_data.get_spans(2)[ts.num_samples]["descendant_tips"]
 
     def test_one_tree_n3(self):
@@ -110,7 +110,7 @@ class TestNodeTipWeights(unittest.TestCase):
         span_data = self.verify_spans(ts)
         # with a single tree there should only be one span
         for node in span_data.nodes_to_date:
-            assert len(span_data.get_spans(node)), 1
+            assert len(span_data.get_spans(node)) == 1
         for nd, expd_tips in [
             (4, 3),  # Node 4 (root) expected to have 3 descendant tips
             (3, 2),
@@ -123,7 +123,7 @@ class TestNodeTipWeights(unittest.TestCase):
         span_data = self.verify_spans(ts)
         # with a single tree there should only be one span
         for node in span_data.nodes_to_date:
-            assert len(span_data.get_spans(node)), 1
+            assert len(span_data.get_spans(node)) == 1
         for nd, expd_tips in [
             (6, 4),  # Node 6 (root) expected to have 4 descendant tips
             (5, 3),  # Node 5 (1st internal node) expected to have 3 descendant tips

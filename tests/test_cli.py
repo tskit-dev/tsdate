@@ -389,8 +389,7 @@ class TestEndToEnd(RunCLI):
         params = f"-n {self.popsize} --probability-space linear --method inside_outside"
         self.verify(tmp_path, input_ts, params)
         params = (
-            f"-n {self.popsize} --probability-space logarithmic "
-            "--method inside_outside"
+            f"-n {self.popsize} --probability-space logarithmic --method inside_outside"
         )
         self.verify(tmp_path, input_ts, params)
 

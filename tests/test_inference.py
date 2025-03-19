@@ -453,7 +453,7 @@ class TestVariational:
     """
 
     @pytest.fixture(autouse=True)
-    def ts(self):  # noqa PT004
+    def ts(self):
         ts = msprime.sim_ancestry(
             samples=10,
             recombination_rate=1e-8,
