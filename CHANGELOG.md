@@ -12,6 +12,8 @@
 - An environment variable `TSDATE_ENABLE_NUMBA_CACHE` can be set to cache JIT
   compiled code, speeding up loading time (useful when testing).
 
+- The time taken for running _tsdate_ is now recorded in the provenance data
+
 **Documentation**
 
 - Various fixes in documentation, including documenting returned fits.
@@ -26,6 +28,10 @@
 - Topology-only dating (setting `mutation_rate=None`) has been removed for tree sequences
   of more than one tree, as tests have found that span-weighting the conditional coalescent
   causes substantial bias.
+
+- The `trim_telomeres` parameter in the `tsdate.preprocess_ts()` function has been renamed
+  to `erase_flanks`, to match `tinfer.preprocess()`. The previous name is kept as a
+  deprecated alias.
 
 ## [0.2.1] - 2024-07-31
 

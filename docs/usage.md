@@ -133,7 +133,7 @@ print(
 ```
 :::{note}
 In simulated data you may not have missing data regions, and you may be able to
-pass `remove_telomeres=False` to the `preprocess_ts` function.
+pass `erase_flanks=False` to the `preprocess_ts` function.
 :::
 
 The inference in this case is much more noisy (as illustrated using the original
