@@ -774,7 +774,8 @@ def variational_gamma(
 ):
     """
     variational_gamma(tree_sequence, *, mutation_rate, eps=None, max_iterations=None,\
-            rescaling_intervals=None, **kwargs)
+            rescaling_intervals=None, rescaling_iterations=None,\
+            match_segregating_sites=None, **kwargs)
 
     Infer dates for nodes in a tree sequence using expectation propagation,
     which approximates the marginal posterior distribution of a given node's
