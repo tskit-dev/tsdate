@@ -1,6 +1,9 @@
 # Changelog
 
-## [0.2.2] - 2024-XX-XX
+## [0.2.3] - 2025-XX-XX
+
+
+## [0.2.2] - 2025-03-30
 
 **Features**
 
@@ -13,6 +16,9 @@
   compiled code, speeding up loading time (useful when testing).
 
 - The time taken for running _tsdate_ is now recorded in the provenance data
+
+- Historical samples (sample nodes with time > 0) are now allowed in the
+  tree sequence.
 
 **Documentation**
 
