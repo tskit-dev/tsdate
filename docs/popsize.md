@@ -16,16 +16,17 @@ kernelspec:
 
 (sec_popsize)=
 
-# Population sizes and priors
+# Population size
 
-:::{note}
-Functionality described on this page is preliminary and subject to change in the future. For this reason,
-classes and methods may not form part of the publicly available API and may not be fully documented yet.
-:::
-
-The rate of coalescence events over time is determined by demographics, population structure, and
-selection. The [rescaling](sec_rescaling) step of _tsdate_ attempts to distribute coalescences so that
-the mutation rate over time is reasonably constant. Assuming this is a good approximation, the inverse coalescence rate in a dated tree sequence can be used to infer historical processes.
+The rate of coalescence events over time is determined by demographics,
+population structure, and selection. In the {func}`tsdate.variational_gamma` method 
+with `match_segregating_sites=True`, the  {ref}`rescaling<sec_real_data_rescaling>`
+step attempts to distribute coalescences so that the mutation rate over time is
+reasonably constant. Assuming this is a good approximation, and coupled with
+the absence of a strong informative prior on internal nodes, results from _tsdate_
+should be robust to deviations from neutrality and panmixia. This means that,
+for example, the inverse coalescence rate in a dated tree sequence should
+reflect historical processes.
 
 To illustrate this, we will generate data from a population that was large
 in recent history, but had a small bottleneck of only 100 individuals
@@ -62,7 +63,7 @@ which replaces the true node and mutation times with estimates from the dating a
 
 ```{code-cell} ipython3
 import tsdate
-redated_ts = tsdate.date(ts, mutation_rate=mutation_rate)
+redated_ts = tsdate.date(ts, mutation_rate=mutation_rate, match_segregating_sites=True)
 ```
 
 If we plot true node time against tsdate-estimated node time for
@@ -99,17 +100,25 @@ plot_real_vs_tsdate_times(
   axes[1], ts.nodes_time, unconstr_times2, ts, redated_ts, alpha=0.1, title="Without rescaling")
 ```
 
-The plot on the right is from running _tsdate_ without the [rescaling](sec_rescaling) step.
-It is clear that for populations with variable sizes over time, rescaling can help considerably
-in obtaining correct date estimations.
-
+The plot on the right is from running _tsdate_ without the
+{ref}`rescaling<sec_real_data_rescaling>` step. It is clear that for populations with
+variable sizes over time, rescaling can help considerably in obtaining correct date
+estimations.
 
 <!--
-Since each node in this simulation corresponds to a coalescence, the node times can also
-be used to calculate the rate of coalescence over time, or its inverse (which
-in a panmictic population is a measure of effective population size). We can compare
+
+While not as rigorous as statistical approaches such as SINGER, we can also
+look at the rate of coalescence over time in our dated tree sequence. Note, however, that
+this does not account either for the concetration of coalescences caused by polytomies,
+or the _variation_ in coalescence times {ref}`estimated by _tsdate_<sec_usage_posterior>`.
+Both of these are major contributors to coalescence rate variation, and accounting for
+them is needed if some measure of confidence in rate is required.
+The inverse of the instantaeous coalescence rate (IICR) in a panmictic population is
+a measure of effective population size. We can compare
 this to the actual population size in the simulation, to see how well we can infer
-historical population sizes:
+historical population sizes. Note that for small sample sizes, there are very few
+coalescence points in recent time, meaning that the estimates of IICR in recent time
+are likely to be highly variable.
 
 ```{code-cell} ipython3
 fig, ax = plt.subplots(1, 1, figsize=(15, 3))
@@ -123,13 +132,16 @@ ax.set_ylabel("Population size", rotation=90);
 
 ## Misspecified priors
 
-The rescaling method for the default `variational_gamma` [method](sec_methods)
-(inspired by the rescaling algorithm described by [Deng et al
-2024](https://doi.org/10.1101/2024.03.16.585351)), coupled with the absence of a strong
-informative prior on internal nodes, means that we expect this method to be
-robust to deviations from neutrality and panmixia. However, alternative approaches such as the
-`inside_outside` method default to a coalescent prior that assumes a fixed population size.
-Hence these approaches currently perform very poorly on such data:
+:::{note}
+Functionality described below applies only to the non-default,
+{ref}`sec_methods_discrete_time` methods, and is preliminary and subject to
+change in the future. For this reason, classes and methods may not form part
+of the publicly available API and may not be fully documented yet.
+:::
+
+Approaches such as the `inside_outside` method that use a coalescent prior
+based on a fixed population size. perform very poorly on data where
+demography has been variable over time.
 
 ```{code-cell} ipython3
 import tsdate
@@ -149,7 +161,7 @@ over a number of contiguous time intervals. Functions of this sort are captured 
 {class}`~demography.PopulationSizeHistory` class: see the {ref}`sec_popsize` page
 for its use and interpretation.
 
-### Estimating Ne from data
+### Estimating Ne for parameter specification
 
 In the example above, in the absence of an expected effective population size for use in the
 `inside_outside` method, we used a value approximated from the data. The standard way to do so

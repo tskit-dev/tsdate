@@ -18,8 +18,8 @@ kernelspec:
 
 # Methods
 
-The methods available for _tsdate_ inference can be divided into  *continuous-time*
-and *discrete-time*  approaches. 
+The methods available for _tsdate_ inference can be divided into
+*continuous-time* and *discrete-time*  approaches. 
 Both approaches iteratively propagate information between nodes to
 construct an approximation of the marginal posterior distribution for the
 age of each node, given the mutational information in the tree sequence.
@@ -31,11 +31,11 @@ the posterior by a continuous univariate distribution (e.g. a gamma distribution
 and propagate summaries of these probabilities between nodes ("expectation
 propagation").
 
-In tests, we find that the continuous-time `variational_gamma` approach is the
-most accurate.  The discrete-time `inside_outside` approach is slightly less
-accurate, especially for older times, but is slightly more numerically robust
+In tests, we find that the continuous-time {func}`~tsdate.variational_gamma` approach is the
+most accurate.  The discrete-time {func}`~tsdate.inside_outside` approach is slightly less
+accurate, especially for older times, but can be more numerically robust
 and also allows each node to have an arbitrary (discretised) probability distribution.
-The discrete-time `maximization` approach is always stable but is the least
+The discrete-time {func}`~tsdate.maximization` approach is always stable but is the least
 accurate.
 
 Changing the method is very simple:
@@ -61,8 +61,8 @@ The available method names and functions are also available via the
 
 ## Continuous-time
 
-The only continuous-time algorithm currently implemented is the `variational_gamma`
-method.
+The only continuous-time algorithm currently implemented is
+{func}`~tsdate.variational_gamma`.
 
 Pros
 : Time estimates are precise, and not affected by choice of timepoints.
@@ -91,15 +91,17 @@ Cons
 
 ### The variational gamma method
 
-The `variational_gamma` method approximates times by fitting separate gamma
+The {func}`~tsdate.variational_gamma` method approximates times by fitting separate gamma
 distributions for each node, in a similar spirit to {cite:t}`schweiger2023ultra`.
 The directed graph that represents the genealogy can (in its undirected form) contain
-cycles, so a technique called "expectation propagation" (EP) is used, in which
-local estimates to each gamma distribution are iteratively refined until
-they converge to a stable solution.  This comes under a class of approaches
-sometimes known as "loopy belief propagation".
+cycles, so a technique called
+[expectation propagation](https://en.wikipedia.org/wiki/Expectation_propagation)
+(EP) is used, in which local estimates to each gamma distribution are iteratively
+refined until they converge to a stable solution.  This comes under a class of
+approaches sometimes known as "loopy belief propagation".
 
 (sec_methods_expectation_propagation)=
+
 #### Expectation propagation
 
 We are in the process of writing a formal description of the algorithm, but in
@@ -123,37 +125,24 @@ Progress through iterations can be output using the progress bar:
 ts = tsdate.date(input_ts, mutation_rate=1e-8, progress=True)
 ```
 
-(sec_rescaling)=
 #### Rescaling
 
-The `variational_gamma` method implements a further
-process called *rescaling*, and which can help to deal with the effects of
-variable population size though time. This is based on an algorithm introduced
-by the ARG inference software
-[SINGER](https://doi.org/10.1101/2024.03.16.585351) (Deng et al 2024) that
-rescales node ages by matching observed and expected segregating sites within
-time windows.
+By default, the {func}`~tsdate.variational_gamma` method adds an extra *rescaling*
+step at the end of all rounds of expectation propagation. This is based on an
+algorithm introduced by the ARG inference software
+[SINGER](https://github.com/popgenmethods/SINGER) {cite}`deng2024robust`.
 Basically, time is broken up into a number of intervals, and times within
-intervals are simultaneously scaled such that the expected density of mutations
-along each path from a sample to the root best matches the mutational density
-predicted from the user-provided mutation rate. The number of intervals can be
-specified using the `rescaling_intervals` parameter. If set to 0, no rescaling
-is performed; this means that dates may be inaccurately estimated if the
-dataset comes from a set of samples with a complex demographic history.
-`tsdate` uses a modified version of Deng et al's algorithm that works on gamma
-natural parameters rather than point estimates, and that is not biased by the
-artefactual polytomies introduced by `tsinfer` for the sake of compression.
-
-:::{todo}
-Describe the rescaling step in more detail. Could also link to [the population size docs](sec_popsize)
-:::
-
+intervals are simultaneously scaled to improve the fit of the dates to
+the specified mutation rate. Rescaling can help account for variable population
+sizes over time, and can be tuned by adjusting a number of parameters: see
+{ref}`sec_real_data_rescaling` for more information.
 
 (sec_methods_discrete_time)=
 
 ## Discrete-time
 
-The available discrete-time algorithms are the `inside_outside` and `maximization` methods.
+The two available discrete-time algorithms are the {func}`~tsdate.inside_outside`
+and {func}`~tsdate.maximization` methods.
 For historical reasons, these approaches use an informative (node-specific) prior,
 the [conditional coalescent prior](sec_priors_conditional_coalescent),
 which means that you either need to provide them with an estimated effective
@@ -181,8 +170,8 @@ Cons
 
 ### Inside Outside vs Maximization
 
-The `inside_outside` approach has been shown to perform better empirically than the
-`maximization` approach, but in theory it does not properly account for cycles in
+The `inside_outside` approach has been shown to perform better empirically
+than the `maximization` approach, but in theory it does not properly account for cycles in
 the underlying genealogical network when updating posterior probabilities
 (a potential solution would be to implement a "loopy belief propagation" algorithm
 as in the continuous-time [`variational_gamma`](sec_methods_continuous_time_vgamma)
@@ -191,7 +180,7 @@ has issues with numerical stability, although this is commonly indicative
 of pathological combinations of tree sequence topology and mutation patterns.
 Problems like this are often caused by long regions of the genome that
 have no mapped mutations (e.g. in the centromere), which can be removed by
-{ref}`preprocessing<sec_usage_real_data_stability>`.
+{ref}`preprocessing<sec_real_data_preprocessing>`.
 
 The `maximization` approach is slightly less accurate empirically,
 and will not return true posteriors, but is theoretically robust and
