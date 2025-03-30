@@ -14,6 +14,9 @@
 
 - The time taken for running _tsdate_ is now recorded in the provenance data
 
+- Historical samples (sample nodes with time > 0) are now allowed in the
+  tree sequence.
+
 **Documentation**
 
 - Various fixes in documentation, including documenting returned fits.
