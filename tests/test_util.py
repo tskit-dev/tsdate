@@ -31,6 +31,7 @@ import numpy as np
 import pytest
 import tsinfer
 import tskit
+import utility_functions
 
 import tsdate
 
@@ -203,6 +204,85 @@ class TestSplitDisjointNodes:
 
 
 class TestPreprocessTs:
+    def verify(self, ts, caplog, minimum_gap=None, erase_flanks=None, **kwargs):
+        with caplog.at_level(logging.INFO):
+            if minimum_gap is not None and erase_flanks is not None:
+                ts = tsdate.preprocess_ts(
+                    ts, minimum_gap=minimum_gap, erase_flanks=erase_flanks
+                )
+            elif minimum_gap is not None and erase_flanks is None:
+                ts = tsdate.preprocess_ts(ts, minimum_gap=minimum_gap)
+            elif erase_flanks is not None and minimum_gap is None:
+                ts = tsdate.preprocess_ts(ts, erase_flanks=erase_flanks)
+            else:
+                ts = tsdate.preprocess_ts(ts, **kwargs)
+
+            assert "Beginning preprocessing" in caplog.text
+        return ts
+
+    def test_invariant_sites(self, caplog):
+        # Test that invariant sites are not removed by default
+        # (and simularly for unused individuals & populations)
+        ts = utility_functions.site_no_mutations()
+        assert ts.num_sites != 0
+        assert ts.num_individuals != 0
+        assert ts.num_populations != 0
+        removed = self.verify(ts, caplog)
+        assert removed.num_sites == ts.num_sites
+        assert removed.num_individuals == ts.num_individuals
+        assert removed.num_populations == ts.num_populations
+        assert tsdate.preprocess_ts(ts, **{"filter_sites": True}).num_sites == 0
+        assert (
+            tsdate.preprocess_ts(ts, **{"filter_populations": True}).num_populations == 0
+        )
+        assert (
+            tsdate.preprocess_ts(ts, **{"filter_individuals": True}).num_individuals == 0
+        )
+
+    def test_no_intervals(self, caplog):
+        ts = utility_functions.two_tree_mutation_ts()
+        assert ts.tables.edges == self.verify(ts, caplog, erase_flanks=False).tables.edges
+        assert ts.tables.edges == self.verify(ts, caplog, minimum_gap=0.05).tables.edges
+
+    def test_passed_intervals(self):
+        # Mostly we would not pass in user-defined intervals: this is mainly for testing
+        ts = utility_functions.single_tree_ts_n3()  # No sites!
+        ts = tsdate.preprocess_ts(
+            ts, delete_intervals=[(0, 0.1), (0.5, ts.sequence_length)]
+        )
+        assert ts.num_edges > 1
+        assert np.allclose(ts.edges_left, 0.1)
+        assert np.allclose(ts.edges_right, 0.5)
+
+    def test_bad_delete_intervals(self):
+        ts = utility_functions.two_tree_mutation_ts()
+        with pytest.raises(ValueError, match="specify both"):
+            tsdate.preprocess_ts(ts, delete_intervals=[(0, 0.1)], minimum_gap=0.05)
+        with pytest.raises(ValueError, match="specify both"):
+            tsdate.preprocess_ts(ts, delete_intervals=[(0, 0.1)], erase_flanks=True)
+
+    def test_delete_interval(self, caplog):
+        ts = utility_functions.ts_w_data_desert(40, 60, 100)
+        trimmed = self.verify(ts, caplog, minimum_gap=20, erase_flanks=False)
+        lefts = trimmed.edges_left
+        rights = trimmed.edges_right
+        assert not np.any(np.logical_and(lefts > 41, lefts < 59))
+        assert not np.any(np.logical_and(rights > 41, rights < 59))
+
+    def test_erase_flanks(self, caplog):
+        ts = utility_functions.ts_w_data_desert(0, 5, 100)
+        removed = self.verify(ts, caplog, minimum_gap=ts.get_sequence_length())
+        lefts = removed.tables.edges.left
+        rights = removed.tables.edges.right
+        assert not np.any(np.logical_and(lefts > 0, lefts < 4))
+        assert not np.any(np.logical_and(rights > 0, rights < 4))
+        ts = utility_functions.ts_w_data_desert(95, 100, 100)
+        removed = self.verify(ts, caplog, minimum_gap=ts.get_sequence_length())
+        lefts = removed.tables.edges.left
+        rights = removed.tables.edges.right
+        assert not np.any(np.logical_and(lefts > 96, lefts < 100))
+        assert not np.any(np.logical_and(rights > 96, rights < 100))
+
     def test_no_sites(self):
         ts = tskit.Tree.generate_comb(3).tree_sequence
         with pytest.raises(ValueError, match="no sites"):
@@ -273,19 +353,25 @@ class TestPreprocessTs:
         ts = tsdate.preprocess_ts(ts, record_provenance=False)
         assert ts.num_provenances == num_provenances + 1
 
-    def test_trim_flanks(self):
+    def test_no_erase_flanks(self):
         tables = tskit.Tree.generate_comb(3, span=100).tree_sequence.dump_tables()
         tables.sites.add_row(10, "A")
         tables.sites.add_row(90, "A")
         ts = tables.tree_sequence()
         assert ts.sequence_length == 100
         assert ts.num_trees == 1
-        ts = tsdate.preprocess_ts(ts)
-        assert ts.num_trees == 3
-        assert ts.first().num_edges == 0
-        assert ts.first().interval.right == 10 - 1
-        assert ts.last().num_edges == 0
-        assert ts.last().interval.left == 90 + 1
+        for param_name in ("erase_flanks", "remove_telomeres"):
+            params = {param_name: False}
+            new_ts = tsdate.preprocess_ts(ts, **params)
+            assert new_ts.num_trees == 1
+            assert new_ts.sequence_length == 100
+
+    @pytest.mark.parametrize("bool1", [True, False])
+    @pytest.mark.parametrize("bool2", [True, False])
+    def test_erase_flanks_telomeres_combo(self, bool1, bool2):
+        ts = tskit.Tree.generate_comb(3, span=100).tree_sequence
+        with pytest.raises(ValueError, match="specify both"):
+            tsdate.preprocess_ts(ts, erase_flanks=bool1, remove_telomeres=bool2)
 
     def test_sim_example(self):
         # Test a larger example
@@ -309,8 +395,6 @@ class TestPreprocessTs:
         last_empty = int(ts.last().num_edges == 0)
         # Next assumes no breakpoints before first site or after last
         assert ts.num_trees == num_trees + first_empty + last_empty
-
-    # TODO - test minimum_gap param
 
 
 class TestUnaryNodeCheck:

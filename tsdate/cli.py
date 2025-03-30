@@ -225,7 +225,8 @@ def tsdate_cli_parser():
         default=1000000,
     )
     parser.add_argument(
-        "--trim-telomeres",
+        "--erase-flanks",
+        "--trim_telomeres",
         type=bool,
         help=(
             "Should all material before the first site and after the "
@@ -313,7 +314,7 @@ def run_preprocess(args):
     except tskit.FileFormatError as ffe:
         error_exit(f"FileFormatError loading '{args.tree_sequence}: {ffe}")
     snipped_ts = tsdate.preprocess_ts(
-        ts, minimum_gap=args.minimum_gap, remove_telomeres=args.trim_telomeres
+        ts, minimum_gap=args.minimum_gap, erase_flanks=args.erase_flanks
     )
     snipped_ts.dump(args.output)
 

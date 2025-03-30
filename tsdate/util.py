@@ -62,13 +62,15 @@ def preprocess_ts(
     tree_sequence,
     *,
     minimum_gap=None,
-    remove_telomeres=None,
+    erase_flanks=None,
     delete_intervals=None,
     split_disjoint=None,
     filter_populations=False,
     filter_individuals=False,
     filter_sites=False,
     record_provenance=None,
+    # deprecated arguments
+    remove_telomeres=None,
     **kwargs,
 ):
     """
@@ -82,12 +84,12 @@ def preprocess_ts(
     :param float minimum_gap: The minimum gap between sites to remove from the tree
         sequence. Default: ``None`` treated as ``1000000``. Removed regions are recorded
         in the provenance of the resulting tree sequence.
-    :param bool remove_telomeres: Should all material before the first site and after the
+    :param bool erase_flanks: Should all material before the first site and after the
         last site be removed, regardless of the length. Default: ``None`` treated as
         ``True``
     :param array_like delete_intervals: A list (start, end) pairs describing the
         genomic intervals (gaps) to delete. This is usually left as ``None``
-        (the default) in which case ``minimum_gap`` and ``remove_telomeres`` are used
+        (the default) in which case ``minimum_gap`` and ``erase_flanks`` are used
         to determine the gaps to remove, and the calculated intervals are recorded in
         the provenance of the resulting tree sequence.
     :param bool split_disjoint: Run the {func}`split_disjoint_nodes` function
@@ -108,6 +110,7 @@ def preprocess_ts(
     :param bool record_provenance: If ``True``, record details of this call to
         simplify in the returned tree sequence's provenance information
         (Default: ``None`` treated as ``True``).
+    :param bool remove_telomeres: Deprecated alias for ``erase_flanks``.
     :param \\**kwargs: All further keyword arguments are passed to the
         {meth}`tskit.TreeSequence.simplify` command.
 
@@ -117,16 +120,21 @@ def preprocess_ts(
 
     logger.info("Beginning preprocessing")
     start_time = time.time()
-    logger.info(f"Minimum_gap: {minimum_gap} and remove_telomeres: {remove_telomeres}")
     if split_disjoint is None:
         split_disjoint = True
     if record_provenance is None:
         record_provenance = True
+    if remove_telomeres is not None:
+        if erase_flanks is None:
+            erase_flanks = remove_telomeres
+        else:
+            raise ValueError("Cannot specify both remove_telomeres and erase_flanks")
+    logger.info(f"Minimum_gap: {minimum_gap} and erase_flanks: {erase_flanks}")
     if delete_intervals is not None and (
-        minimum_gap is not None or remove_telomeres is not None
+        minimum_gap is not None or erase_flanks is not None
     ):
         raise ValueError(
-            "Cannot specify both delete_intervals and minimum_gap/remove_telomeres"
+            "Cannot specify both delete_intervals and minimum_gap/erase_flanks"
         )
 
     tables = tree_sequence.dump_tables()
@@ -134,13 +142,13 @@ def preprocess_ts(
     if delete_intervals is None:
         if minimum_gap is None:
             minimum_gap = 1000000
-        if remove_telomeres is None:
-            remove_telomeres = True
+        if erase_flanks is None:
+            erase_flanks = True
 
         if tree_sequence.num_sites < 1:
             raise ValueError("Invalid tree sequence: no sites present")
         delete_intervals = []
-        if remove_telomeres:
+        if erase_flanks:
             first_site = sites[0] - 1
             if first_site > 0:
                 delete_intervals.append([0, first_site])
@@ -195,7 +203,7 @@ def preprocess_ts(
             "preprocess_ts",
             start_time=start_time,
             minimum_gap=minimum_gap,
-            remove_telomeres=remove_telomeres,
+            erase_flanks=erase_flanks,
             split_disjoint=split_disjoint,
             filter_populations=filter_populations,
             filter_individuals=filter_individuals,

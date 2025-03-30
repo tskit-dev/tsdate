@@ -146,7 +146,7 @@ class TestTsdateArgParser:
         assert args.tree_sequence == self.infile
         assert args.output == self.output
         assert args.minimum_gap == 1000000
-        assert args.trim_telomeres
+        assert args.erase_flanks
         assert args.split_disjoint
 
 

@@ -113,7 +113,7 @@ class TestProvenance:
         preprocessed_ts = tsdate.preprocess_ts(ts)
         assert preprocessed_ts.num_provenances == num_provenances + 1
         rec = json.loads(preprocessed_ts.provenance(-1).record)
-        assert rec["parameters"]["remove_telomeres"]
+        assert rec["parameters"]["erase_flanks"]
         assert rec["parameters"]["minimum_gap"] == 1000000
         assert rec["parameters"]["delete_intervals"] == []
 
@@ -124,8 +124,8 @@ class TestProvenance:
         assert preprocessed_ts.num_provenances == num_provenances + 1
         rec = json.loads(preprocessed_ts.provenance(-1).record)
         assert rec["parameters"]["minimum_gap"] == 20
-        assert rec["parameters"]["remove_telomeres"] is not None
-        assert not rec["parameters"]["remove_telomeres"]
+        assert rec["parameters"]["erase_flanks"] is not None
+        assert not rec["parameters"]["erase_flanks"]
         deleted_intervals = rec["parameters"]["delete_intervals"]
         assert len(deleted_intervals) == 1
         assert deleted_intervals[0][0] < deleted_intervals[0][1]
