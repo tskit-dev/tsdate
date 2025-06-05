@@ -198,7 +198,6 @@ class EstimationMethod:
         mut_mean_t = result.mutation_mean
         mut_var_t = result.mutation_var
         mut_edge = result.mutation_edge
-        mut_node = result.mutation_node
         tables = ts.dump_tables()
         nodes = tables.nodes
         mutations = tables.mutations
@@ -206,10 +205,15 @@ class EstimationMethod:
         # Constrain node ages for positive branch lengths
         constr_timing = time.time()
         nodes.time = util.constrain_ages(ts, node_mean_t, eps, self.constr_iterations)
-        mutations.time = util.constrain_mutations(ts, nodes.time, mut_edge)
-        mutations.node = mut_node
-        mutations.parent = np.full(mutations.num_rows, tskit.NULL, dtype=np.int32)
+        mutations.time = np.full_like(mutations.time, tskit.UNKNOWN_TIME)
         tables.time_units = self.time_units
+        tables.sort(site_start=ts.num_sites, mutation_start=ts.num_mutations)
+        tables.build_index()
+        tables.compute_mutation_times()
+        num_root_muts = np.sum(mut_edge == tskit.NULL)
+        logging.info(
+            f"Set ages of {num_root_muts} nonsegregating mutations to root times."
+        )
         constr_timing -= time.time()
         logger.info(f"Constrained node ages in {abs(constr_timing):.2f} seconds")
         # Add posterior mean and variance to node/mutation metadata
@@ -223,9 +227,7 @@ class EstimationMethod:
         meta_timing -= time.time()
         logger.info(f"Inserted node and mutation metadata in {abs(meta_timing)} seconds")
         sort_timing = time.time()
-        tables.sort()
-        tables.build_index()
-        tables.compute_mutation_parents()
+        tables.sort()  # ensure sites and mutations are sorted too (probably not needed)
         sort_timing -= time.time()
         logger.info(f"Sorted tree sequence in {abs(sort_timing):.2f} seconds")
         if self.provenance_params is not None:

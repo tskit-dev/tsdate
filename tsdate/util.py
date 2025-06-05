@@ -688,38 +688,6 @@ def constrain_ages(ts, nodes_time, epsilon=1e-6, max_iterations=0):
     return constrained_nodes_time
 
 
-def constrain_mutations(ts, nodes_time, mutations_edge):
-    """
-    If the mutation is above a root, its age set to the age of the root. If
-    the mutation is between two internal nodes, the edge midpoint is used.
-
-    :param tskit.TreeSequence ts: The input tree sequence, with arbitrary node
-        times.
-    :param np.ndarray nodes_time: Constrained node ages.
-    :param np.ndarray mutations_edge: The edge that each mutation falls on.
-
-    :return np.ndarray: Constrained mutation ages
-    """
-
-    parent = ts.edges_parent[mutations_edge]
-    child = ts.edges_child[mutations_edge]
-    parent_time = nodes_time[parent]
-    child_time = nodes_time[child]
-    assert np.all(parent_time > child_time), "Negative branch lengths"
-
-    mutations_time = (child_time + parent_time) / 2
-    internal = mutations_edge != tskit.NULL
-    constrained_time = np.full(mutations_time.size, tskit.UNKNOWN_TIME)
-    constrained_time[internal] = mutations_time[internal]
-    constrained_time[~internal] = nodes_time[ts.mutations_node[~internal]]
-
-    external = np.sum(~internal)
-    if external:
-        logging.info(f"Set ages of {external} nonsegregating mutations to root times.")
-
-    return constrained_time
-
-
 @numba_jit(_b(_b1r, _i1r, _f1r, _f1r, _i1r, _i1r, _f, _i))
 def _contains_unary_nodes(
     nodes_mask,
