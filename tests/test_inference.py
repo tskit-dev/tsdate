@@ -408,7 +408,21 @@ class TestSimulated:
         dated = tsdate.date(ts, mutation_rate=1)
         assert np.all(~np.isnan(dated.tables.mutations.time))
 
-    @pytest.mark.skip("YAN to fix")
+    def test_multiple_mutations_same_node_and_pos(self):
+        tables = tskit.Tree.generate_comb(4).tree_sequence.dump_tables()
+        s = tables.sites.add_row(position=0, ancestral_state="anc")
+        tables.mutations.add_row(site=s, node=5, derived_state="0", time=2)
+        tables.mutations.add_row(site=s, node=1, derived_state="1", time=1.5)
+        tables.mutations.add_row(site=s, node=1, derived_state="2", time=1)
+        tables.mutations.add_row(site=s, node=1, derived_state="3", time=0.5)
+        ts = tsdate.date(tables.tree_sequence(), mutation_rate=1)
+        assert np.all(np.diff(ts.mutations_time) < 0)
+        for m in ts.mutations():
+            assert m.derived_state == str(m.id), (
+                m.derived_state,
+                str(m.id),
+            )
+
     def test_truncated_ts(self):
         Ne = 1e2
         mu = 2e-4
@@ -421,11 +435,14 @@ class TestSimulated:
             random_seed=12,
         )
         truncated_ts = util.truncate_ts_samples(ts, average_span=200, random_seed=123)
-        dated_ts = tsdate.date(truncated_ts, population_size=Ne, mutation_rate=mu)
-        # We should ideally test whether *haplotypes* are the same here
-        # in case allele encoding has changed. But haplotypes() doesn't currently
-        # deal with missing data
+        dated_ts = tsdate.date(truncated_ts, mutation_rate=mu, allow_unary=True)
         self.ts_equal_except_times(truncated_ts, dated_ts)
+        has_missing = False
+        for s1, s2 in zip(truncated_ts.haplotypes(), dated_ts.haplotypes()):
+            if "N" in s1:
+                has_missing = True
+            assert s1 == s2
+        assert has_missing
 
 
 class TestInferred:
