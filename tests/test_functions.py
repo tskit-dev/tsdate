@@ -34,6 +34,7 @@ import numpy as np
 import pytest
 import scipy.integrate
 import tsinfer
+import tskit
 import utility_functions
 from utility_functions import constrain_ages_topo
 
@@ -936,7 +937,7 @@ class TestInsideAlgorithm:
             prior_distribution=prior_distr,
             **kwargs,
         )
-        eps = 1e-6
+        eps = 1e-10
         mut_rate = 0.5
         if logspace:
             lls = LogLikelihoods(ts, priors.timepoints, mut_rate, eps=eps)
@@ -1170,7 +1171,7 @@ class TestOutsideAlgorithm:
         ts = utility_functions.single_tree_ts_mutation_n3()
         ignore_oldest = self.run_outside_algorithm(ts, ignore_oldest_root=True)
         use_oldest = self.run_outside_algorithm(ts, ignore_oldest_root=False)
-        assert ~np.array_equal(ignore_oldest.outside[3], use_oldest.outside[3])
+        assert not np.array_equal(ignore_oldest.outside[3], use_oldest.outside[3])
         # When node is not used in outside algorithm, all values should be equal
         assert np.all(ignore_oldest.outside[3] == ignore_oldest.outside[3][0])
         assert np.all(use_oldest.outside[4] == use_oldest.outside[4][0])
@@ -1184,7 +1185,7 @@ class TestOutsideAlgorithm:
         # In this example, if the outside algorithm was *not* used, nodes 4 and 5 should
         # have same outside values. If it is used, node 5 should seem younger than 4
         assert np.array_equal(ignore_oldest.outside[4], ignore_oldest.outside[5])
-        assert ~np.array_equal(use_oldest.outside[4], use_oldest.outside[5])
+        assert not np.array_equal(use_oldest.outside[4], use_oldest.outside[5])
 
 
 class TestTotalFunctionalValueTree:
@@ -1545,7 +1546,7 @@ class TestDiscretisedMeanVar:
         )
         algorithm = InsideOutsideMethod(ts, mutation_rate=1, population_size=10000)
         mn_post, *_ = algorithm.run(
-            eps=1e-6,
+            eps=1e-10,
             outside_standardize=True,
             ignore_oldest_root=False,
             probability_space=tsdate.node_time_class.LOG_GRID,
@@ -1566,12 +1567,12 @@ class TestDiscretisedMeanVar:
         assert np.all(dts.tables.nodes.time >= unconstr_mn)
 
 
-class TestConstrainAgesTopo:
+class TestConstrainAges:
     """
-    Test constrain_ages_topo works as expected
+    Test constrain_ages works as expected
     """
 
-    def test_constrain_ages_topo(self):
+    def test_constrain_ages(self):
         """
         Set node 3 to be older than node 4 in two_tree_ts
         """
@@ -1583,9 +1584,9 @@ class TestConstrainAgesTopo:
             np.array([0.0, 0.0, 0.0, 2.0, 2.000001, 3.0]), constrained_ages
         )
 
-    def test_constrain_ages_topo_node_order_bug(self):
+    def test_constrain_ages_node_order_bug(self):
         """
-        Previous version of constrain_ages_topo had a bug where it was
+        Previous version of constrain_ages had a bug where it was
         assumed that node IDs were in time order, although this is not
         guaranteed by tskit.
         """
@@ -1598,7 +1599,7 @@ class TestConstrainAgesTopo:
         tables.nodes.time = constrained_ages
         tables.sort()
 
-    def test_constrain_ages_topo_unary_nodes_unordered(self):
+    def test_constrain_ages_unary_nodes_unordered(self):
         ts = utility_functions.single_tree_ts_with_unary()
         post_mn = np.array([0.0, 0.0, 0.0, 2.0, 1.0, 0.5, 5.0, 1.0])
         eps = 1e-6
@@ -1608,7 +1609,7 @@ class TestConstrainAgesTopo:
             constrained_ages,
         )
 
-    def test_constrain_ages_topo_part_dangling(self):
+    def test_constrain_ages_part_dangling(self):
         ts = utility_functions.two_tree_ts_n2_part_dangling()
         post_mn = np.array([1.0, 0.0, 0.0, 0.1, 0.05])
         eps = 1e-6
@@ -1617,7 +1618,7 @@ class TestConstrainAgesTopo:
             np.array([1.0, 0.0, 0.0, 1.000001, 1.000002]), constrained_ages
         )
 
-    def test_constrain_ages_topo_sample_as_parent(self):
+    def test_constrain_ages_sample_as_parent(self):
         ts = utility_functions.single_tree_ts_n3_sample_as_parent()
         post_mn = np.array([0.0, 0.0, 0.0, 3.0, 1.0])
         eps = 1e-6
@@ -1690,6 +1691,18 @@ class TestConstrainAgesTopo:
         r2_2 = np.corrcoef(constr_2, nodes_time).flatten()[1] ** 2
         assert r2_2 > r2_1
 
+    @pytest.mark.parametrize("leastsquares", [0, 10])
+    def test_constrain_within_epsilon(self, leastsquares):
+        ts = tskit.Tree.generate_comb(3).tree_sequence
+        eps = 1e-6
+        post_mn = np.array([0.0, 0.0, 0.0, eps / 2, eps])
+        constrained_ages = constrain_ages(ts, post_mn, eps, leastsquares)
+        assert constrained_ages[0] == 0.0
+        assert constrained_ages[1] == 0.0
+        assert constrained_ages[2] == 0.0
+        assert constrained_ages[3] == eps
+        assert np.allclose(constrained_ages[4], 2 * eps)
+
 
 class TestNodeTimes:
     """
@@ -1730,7 +1743,7 @@ class TestSiteTimes:
         dated = tsdate.inside_outside(ts, mutation_rate=1, population_size=1)
         algorithm = InsideOutsideMethod(ts, mutation_rate=1, population_size=1)
         mn_post, *_ = algorithm.run(
-            eps=1e-6,
+            eps=1e-10,
             outside_standardize=True,
             ignore_oldest_root=False,
             probability_space=LOG_GRID,
@@ -1835,7 +1848,7 @@ class TestSiteTimes:
         )
         algorithm = InsideOutsideMethod(ts, mutation_rate=1, population_size=10000)
         mn_post, *_ = algorithm.run(
-            eps=1e-6,
+            eps=1e-10,
             outside_standardize=True,
             ignore_oldest_root=False,
             probability_space=tsdate.node_time_class.LOG_GRID,

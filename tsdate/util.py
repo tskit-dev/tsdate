@@ -613,7 +613,7 @@ def _constrain_ages(
     nodes_time = nodes_time.copy()
     edges_cavity = np.zeros((num_edges, 2))
     for _ in range(max_iterations):  # method of alternating projections
-        if np.all(nodes_time[edges_parent] - nodes_time[edges_child] > 0):
+        if np.all(nodes_time[edges_parent] - nodes_time[edges_child] > epsilon):
             return nodes_time
         for e in range(num_edges):
             p, c = edges_parent[e], edges_child[e]
@@ -642,7 +642,7 @@ def _constrain_ages(
     for e in range(num_edges):
         p, c = edges_parent[e], edges_child[e]
         # TODO: even if nodes_fixed[p], this will still change the age
-        if nodes_time[c] >= nodes_time[p]:
+        if nodes_time[c] + epsilon >= nodes_time[p]:
             nodes_time[p] = nodes_time[c] + epsilon
 
     return nodes_time

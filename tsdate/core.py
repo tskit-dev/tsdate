@@ -41,7 +41,7 @@ DEFAULT_CONSTRAINT_ITERATIONS = 100  # only used with internal samples
 DEFAULT_RESCALING_INTERVALS = 1000
 DEFAULT_RESCALING_ITERATIONS = 5
 DEFAULT_MAX_ITERATIONS = 25
-DEFAULT_EPSILON = 1e-6
+DEFAULT_EPSILON = 1e-10
 
 
 # Classes for each method
@@ -53,7 +53,6 @@ Results = namedtuple(
         "mutation_mean",
         "mutation_var",
         "mutation_lik",
-        "mutation_edge",
         "mutation_node",
         "fit_object",
     ],
@@ -197,25 +196,11 @@ class EstimationMethod:
         node_var_t = result.posterior_var
         mut_mean_t = result.mutation_mean
         mut_var_t = result.mutation_var
-        mut_edge = result.mutation_edge
+        mut_node = result.mutation_node
         tables = ts.dump_tables()
         nodes = tables.nodes
         mutations = tables.mutations
 
-        # Constrain node ages for positive branch lengths
-        constr_timing = time.time()
-        nodes.time = util.constrain_ages(ts, node_mean_t, eps, self.constr_iterations)
-        mutations.time = np.full_like(mutations.time, tskit.UNKNOWN_TIME)
-        tables.time_units = self.time_units
-        tables.sort(site_start=ts.num_sites, mutation_start=ts.num_mutations)
-        tables.build_index()
-        tables.compute_mutation_times()
-        num_root_muts = np.sum(mut_edge == tskit.NULL)
-        logging.info(
-            f"Set ages of {num_root_muts} nonsegregating mutations to root times."
-        )
-        constr_timing -= time.time()
-        logger.info(f"Constrained node ages in {abs(constr_timing):.2f} seconds")
         # Add posterior mean and variance to node/mutation metadata
         meta_timing = time.time()
         self.set_time_metadata(
@@ -226,10 +211,33 @@ class EstimationMethod:
         )
         meta_timing -= time.time()
         logger.info(f"Inserted node and mutation metadata in {abs(meta_timing)} seconds")
-        sort_timing = time.time()
-        tables.sort()  # ensure sites and mutations are sorted too (probably not needed)
-        sort_timing -= time.time()
-        logger.info(f"Sorted tree sequence in {abs(sort_timing):.2f} seconds")
+
+        # Constrain node ages for positive branch lengths
+        constr_timing = time.time()
+        nodes.time = util.constrain_ages(ts, node_mean_t, eps, self.constr_iterations)
+        # Possibly change mutation nodes if phasing singletons
+        mutations.node = mut_node
+        # Deal with mutations. These may have had nodes switched by singleton phasing
+        # We zap both time and parents, which means any mutations on the same edge
+        # at the same site will be ordered using the original mutation order (which
+        # we assume to be correct, as we have just dumped the tables from a valid TS)
+        mutations.time = np.full_like(mutations.time, tskit.UNKNOWN_TIME)
+        mutations.parent = np.full_like(mutations.parent, tskit.NULL)
+
+        tables.sort()  # need to sort before computing parents and times
+        tables.build_index()
+        # If mutation nodes have been switched, we may need to recalculate parents
+        # As we have zapped the time, mutations on the same edge at the same site
+        # will ordered using the original mutation order
+        tables.compute_mutation_parents()
+        tables.compute_mutation_times()
+        num_root_muts = np.sum(mutations.time == nodes.time[mutations.node])
+        logging.info(
+            f"Set ages of {num_root_muts} nonsegregating mutations to root times."
+        )
+        tables.time_units = self.time_units
+        constr_timing -= time.time()
+        logger.info(f"Constrained node ages in {abs(constr_timing):.2f} seconds")
         if self.provenance_params is not None:
             # Note that the time recorded in provenance excludes numba compilation time
             provenance.record_provenance(
@@ -390,7 +398,6 @@ class InsideOutsideMethod(DiscreteTimeMethod):
         fit_obj.posterior_grid.to_probabilities()
 
         posterior_mean, posterior_var = self.mean_var(self.ts, fit_obj.posterior_grid)
-        mut_edge = np.full(self.ts.num_mutations, tskit.NULL)
         mut_node = self.ts.mutations_node
         return Results(
             posterior_mean,
@@ -398,7 +405,6 @@ class InsideOutsideMethod(DiscreteTimeMethod):
             None,
             None,
             marginal_likl,
-            mut_edge,
             mut_node,
             fit_obj,
         )
@@ -426,7 +432,6 @@ class MaximizationMethod(DiscreteTimeMethod):
         fit_obj = self.main_algorithm(probability_space, eps, num_threads)
         marginal_likl = fit_obj.inside_pass(cache_inside=cache_inside)
         fit_obj.outside_maximization(eps=eps)
-        mut_edge = np.full(self.ts.num_mutations, tskit.NULL)
         mut_node = self.ts.mutations_node
         return Results(
             fit_obj.posterior_mean,
@@ -434,7 +439,6 @@ class MaximizationMethod(DiscreteTimeMethod):
             None,
             None,
             marginal_likl,
-            mut_edge,
             mut_node,
             fit_obj,
         )
@@ -485,7 +489,7 @@ class VariationalGammaMethod(EstimationMethod):
         marginal_likl = fit_obj.marginal_likelihood()
         node_mn, node_va = fit_obj.node_moments()
         mutation_mn, mutation_va = fit_obj.mutation_moments()
-        mutation_edge, mutation_node = fit_obj.mutation_mapping()
+        mutation_node = fit_obj.mutation_mapping()
 
         return Results(
             node_mn,
@@ -493,7 +497,6 @@ class VariationalGammaMethod(EstimationMethod):
             mutation_mn,
             mutation_va,
             marginal_likl,
-            mutation_edge,
             mutation_node,
             fit_obj,
         )
@@ -571,7 +574,7 @@ def maximization(
         for each estimation method.
     :param float eps: The error factor in time difference calculations, and the
         minimum distance separating parent and child ages in the returned tree sequence.
-        Default: None, treated as 1e-6.
+        Default: None, treated as 1e-10.
     :param int num_threads: The number of threads to use when precalculating likelihoods.
         A simpler unthreaded algorithm is used unless this is >= 1. Default: None
     :param string probability_space: Should the internal algorithm save
@@ -693,7 +696,7 @@ def inside_outside(
         for each estimation method.
     :param float eps: The error factor in time difference calculations, and the
         minimum distance separating parent and child ages in the returned tree sequence.
-        Default: None, treated as 1e-6.
+        Default: None, treated as 1e-10.
     :param int num_threads: The number of threads to use when precalculating likelihoods.
         A simpler unthreaded algorithm is used unless this is >= 1. Default: None
     :param bool outside_standardize: Should the likelihoods be standardized during the
@@ -797,7 +800,7 @@ def variational_gamma(
     :param float mutation_rate: The estimated mutation rate per unit of genome per
         unit time.
     :param float eps: The minimum distance separating parent and child ages in
-        the returned tree sequence. Default: None, treated as 1e-6
+        the returned tree sequence. Default: None, treated as 1e-10
     :param int max_iterations: The number of iterations used in the expectation
         propagation algorithm. Default: None, treated as 25.
     :param float rescaling_intervals: For time rescaling, the number of time

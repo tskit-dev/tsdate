@@ -57,7 +57,7 @@ class TestTsdateArgParser:
         assert args.population_size is None
         assert args.mutation_rate is None
         assert args.recombination_rate is None
-        assert args.epsilon == 1e-6
+        assert args.epsilon == 1e-10
         assert args.num_threads is None
         assert args.probability_space is None  # Use the defaults
         assert args.method == "variational_gamma"
