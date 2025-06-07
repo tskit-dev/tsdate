@@ -200,6 +200,7 @@ class EstimationMethod:
         tables = ts.dump_tables()
         nodes = tables.nodes
         mutations = tables.mutations
+        tables.time_units = self.time_units
 
         # Add posterior mean and variance to node/mutation metadata
         meta_timing = time.time()
@@ -215,6 +216,8 @@ class EstimationMethod:
         # Constrain node ages for positive branch lengths
         constr_timing = time.time()
         nodes.time = util.constrain_ages(ts, node_mean_t, eps, self.constr_iterations)
+        constr_timing -= time.time()
+        logger.info(f"Constrained node ages in {abs(constr_timing):.2f} seconds")
         # Possibly change mutation nodes if phasing singletons
         mutations.node = mut_node
         # Deal with mutations. These may have had nodes switched by singleton phasing
@@ -227,17 +230,12 @@ class EstimationMethod:
         tables.sort()  # need to sort before computing parents and times
         tables.build_index()
         # If mutation nodes have been switched, we may need to recalculate parents
-        # As we have zapped the time, mutations on the same edge at the same site
-        # will ordered using the original mutation order
         tables.compute_mutation_parents()
         tables.compute_mutation_times()
         num_root_muts = np.sum(mutations.time == nodes.time[mutations.node])
         logging.info(
             f"Set ages of {num_root_muts} nonsegregating mutations to root times."
         )
-        tables.time_units = self.time_units
-        constr_timing -= time.time()
-        logger.info(f"Constrained node ages in {abs(constr_timing):.2f} seconds")
         if self.provenance_params is not None:
             # Note that the time recorded in provenance excludes numba compilation time
             provenance.record_provenance(
