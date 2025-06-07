@@ -2,6 +2,16 @@
 
 ## [0.2.3] - 2025-XX-XX
 
+**Breaking changes**
+
+- All returned nodes are now forced to be at least epsilon apart, rather than
+  allowing some to be the next allowable floating point number. This allows room
+  for mutations. Epsilon has been changed to 1e-10 from 1e-6, to minimise the
+  impact, as this has the potential to (marginally) change the dates of internal
+  (fixed) sample nodes.
+
+- Multiple mutations at the same site above the same node are now spaced out evenly
+  in time, rather than placed at identical times.
 
 ## [0.2.2] - 2025-03-30
 

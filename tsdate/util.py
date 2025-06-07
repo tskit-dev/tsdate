@@ -613,7 +613,7 @@ def _constrain_ages(
     nodes_time = nodes_time.copy()
     edges_cavity = np.zeros((num_edges, 2))
     for _ in range(max_iterations):  # method of alternating projections
-        if np.all(nodes_time[edges_parent] - nodes_time[edges_child] > 0):
+        if np.all(nodes_time[edges_parent] - nodes_time[edges_child] > epsilon):
             return nodes_time
         for e in range(num_edges):
             p, c = edges_parent[e], edges_child[e]
@@ -642,7 +642,7 @@ def _constrain_ages(
     for e in range(num_edges):
         p, c = edges_parent[e], edges_child[e]
         # TODO: even if nodes_fixed[p], this will still change the age
-        if nodes_time[c] >= nodes_time[p]:
+        if nodes_time[c] + epsilon >= nodes_time[p]:
             nodes_time[p] = nodes_time[c] + epsilon
 
     return nodes_time
@@ -686,38 +686,6 @@ def constrain_ages(ts, nodes_time, epsilon=1e-6, max_iterations=0):
     logging.info(f"Modified ages of {modified} nodes to satisfy constraints")
 
     return constrained_nodes_time
-
-
-def constrain_mutations(ts, nodes_time, mutations_edge):
-    """
-    If the mutation is above a root, its age set to the age of the root. If
-    the mutation is between two internal nodes, the edge midpoint is used.
-
-    :param tskit.TreeSequence ts: The input tree sequence, with arbitrary node
-        times.
-    :param np.ndarray nodes_time: Constrained node ages.
-    :param np.ndarray mutations_edge: The edge that each mutation falls on.
-
-    :return np.ndarray: Constrained mutation ages
-    """
-
-    parent = ts.edges_parent[mutations_edge]
-    child = ts.edges_child[mutations_edge]
-    parent_time = nodes_time[parent]
-    child_time = nodes_time[child]
-    assert np.all(parent_time > child_time), "Negative branch lengths"
-
-    mutations_time = (child_time + parent_time) / 2
-    internal = mutations_edge != tskit.NULL
-    constrained_time = np.full(mutations_time.size, tskit.UNKNOWN_TIME)
-    constrained_time[internal] = mutations_time[internal]
-    constrained_time[~internal] = nodes_time[ts.mutations_node[~internal]]
-
-    external = np.sum(~internal)
-    if external:
-        logging.info(f"Set ages of {external} nonsegregating mutations to root times.")
-
-    return constrained_time
 
 
 @numba_jit(_b(_b1r, _i1r, _f1r, _f1r, _i1r, _i1r, _f, _i))

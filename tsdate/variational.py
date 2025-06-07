@@ -934,7 +934,7 @@ class ExpectationPropagation:
         # phase (if singletons were unphased)
 
         # TODO: should these be copies? Should members be readonly?
-        return self.mutation_edges, self.mutation_nodes
+        return self.mutation_nodes
 
     def marginal_likelihood(self):
         # Return the marginal likelihood of the data given the model
