@@ -14,5 +14,6 @@ chapters:
   sections:
   - file: python-api
   - file: cli
+- file: citation
 - file: bibliography
 - file: CHANGELOG
