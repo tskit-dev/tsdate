@@ -15,33 +15,58 @@ dynamic = [
 authors = [
     { name = "tsdate Developers", email = "admin@tskit.dev" },
 ]
-description = "Infer tree sequence node times"
-readme = "README.md"
-requires-python = ">=3.8"
+description = "Infer node ages from a tree sequence topology."
+readme = {file = "README.md", content-type = "text/markdown"}
+requires-python = ">=3.10"
+keywords = [
+    "population genetics",
+    "tree sequence", 
+    "ancestral recombination graph",
+    "evolutionary tree",
+    "inference",
+    "dating",
+    "tsdate",
+]
 classifiers = [
-    "Development Status :: 4 - Beta",
-    "Intended Audience :: Developers",
+    "Development Status :: 3 - Alpha",
+    "Environment :: Other Environment",
+    "Intended Audience :: Science/Research",
     "License :: OSI Approved :: MIT License",
+    "Operating System :: POSIX",
+    "Operating System :: MacOS :: MacOS X",
+    "Operating System :: Microsoft :: Windows",
+    "Programming Language :: Python",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3 :: Only",
+    "Topic :: Scientific/Engineering",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
 ]
 dependencies = [
-    "tskit>=0.6.0",
-    "tsinfer>=0.3.0",
+    "tskit>=0.5.8",
     "numpy",
-    "tqdm",
-    "daiquiri",
     "scipy>=1.13.0",
     "numba>=0.58.1",
+    "mpmath",
+    "tqdm",
     "appdirs",
-    "setuptools>=45",
 ]
 
 [project.license]
 text = "MIT"
+
+[project.urls]
+Homepage = "http://pypi.python.org/pypi/tsdate"
+Documentation = "https://tskit.dev/tsdate/docs/"
+Changelog = "https://github.com/tskit-dev/tsdate/blob/main/CHANGELOG.rst"
+"Bug Tracker" = "https://github.com/tskit-dev/tsdate/issues"
+GitHub = "https://github.com/tskit-dev/tsdate"
+
+[project.scripts]
+tsdate = "tsdate.__main__:main"
 
 [project.optional-dependencies]
 test = [
@@ -50,11 +75,14 @@ test = [
     "pytest-xdist==3.8.0",
     "pytest-cov==6.3.0",
     "msprime==1.3.4",
+    "tsinfer==0.4.1",
     "mpmath==1.3.0",
     "numdifftools==0.9.41",
     "matplotlib==3.10.6",
+    "build==1.3.0",
 ]
 docs = [
+    "numcodecs>=0.6,<0.15.1", #Pinned due to https://github.com/zarr-developers/numcodecs/issues/733
     "demesdraw==0.4.0",
     "attrs==25.3.0",
     "matplotlib==3.10.6",
@@ -98,5 +126,12 @@ dev = [
     "sphinx-book-theme",
 ]
 
+[tool.setuptools]
+packages = ["tsdate"]
+include-package-data = true
+
 [tool.setuptools_scm]
 write_to = "tsdate/_version.py"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
