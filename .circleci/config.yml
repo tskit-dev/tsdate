@@ -20,7 +20,11 @@ jobs:
       - run:
           name: install dependencies
           command: |
-              pip install -r requirements.txt --user
+              # Install uv for dependency management
+              pip install --user uv
+              # Install dependencies from pyproject.toml
+              uv pip install --system -r pyproject.toml --extra test --extra dev
+              pyenv rehash
       - run:
           name: Lint Python
           command: |
