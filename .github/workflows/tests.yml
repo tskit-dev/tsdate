@@ -1,0 +1,70 @@
+name: Tests
+
+on:
+  pull_request:
+  merge_group:
+  push:
+    branches: [main, test]
+
+jobs:
+  pre-commit:
+    name: Lint
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Cancel Previous Runs
+        uses: styfle/cancel-workflow-action@0.12.1
+        with:
+          access_token: ${{ github.token }}
+      - uses: actions/checkout@v4.2.2
+      - uses: actions/setup-python@v5.4.0
+        with:
+          python-version: '3.12'
+      - uses: pre-commit/action@v3.0.1
+
+  test:
+    name: Python
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        python: [ "3.10", 3.13 ]
+        os:  [ macos-latest, ubuntu-24.04, windows-latest ]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Cancel Previous Runs
+        uses: styfle/cancel-workflow-action@0.12.1
+        with:
+          access_token: ${{ github.token }}
+
+      - name: Checkout
+        uses: actions/checkout@v4.2.2
+
+      - name: Install uv and set the python version
+        uses: astral-sh/setup-uv@v6
+        with:
+          python-version: ${{ matrix.python }}
+          version: "0.8.15"
+      
+      - name: Install dependencies
+        run: |
+          uv venv
+          uv pip install -r pyproject.toml --extra test
+
+      - name: Run tests
+        run: |
+          NUMBA_DISABLE_JIT=1 uv run --no-sync python -m pytest -vv --cov=tsdate --cov-report=xml --cov-branch -n0 tests
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v5.4.0
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: false
+          flags: python-tests
+          name: codecov-umbrella
+          verbose: true
+
+      - name: Build distribution
+        run: |
+          uv run --no-sync python -m build

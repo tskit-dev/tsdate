@@ -19,7 +19,7 @@ jobs:
         with:
             submodules: true
 
-      - name: Set up Python 3.10
+      - name: Set up Python
         uses: actions/setup-python@v5.4.0
         with:
           python-version: "3.10"
@@ -42,7 +42,7 @@ jobs:
     runs-on: macos-13
     strategy:
       matrix:
-        python: [3.8, 3.8, 3.9, "3.10", 3.11]
+        python: ["3.10", 3.13]
     steps:
       - name: Download wheels
         uses: actions/download-artifact@v4.2.0
@@ -67,7 +67,7 @@ jobs:
     runs-on: windows-latest
     strategy:
       matrix:
-        python: [3.8, 3.9, "3.10", 3.11]
+        python: ["3.10", 3.13]
         wordsize: [64]
     steps:
       - name: Download wheels
@@ -93,7 +93,7 @@ jobs:
     needs: ['manylinux']
     strategy:
       matrix:
-        python: [3.8, 3.9, "3.10", 3.11]
+        python: ["3.10", 3.13]
     steps:
       - name: Download wheels
         uses: actions/download-artifact@v4.2.0

@@ -23,11 +23,10 @@ classifiers = [
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.8",
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
 ]
 dependencies = [
     "tskit>=0.6.0",
@@ -46,6 +45,7 @@ text = "MIT"
 
 [project.optional-dependencies]
 test = [
+    "numcodecs>=0.6,<0.15.1", #Pinned due to https://github.com/zarr-developers/numcodecs/issues/733
     "pytest==8.4.2",
     "pytest-xdist==3.8.0",
     "pytest-cov==6.3.0",
