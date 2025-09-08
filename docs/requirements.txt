@@ -20,3 +20,4 @@ daiquiri
 msprime==1.3.3
 ipywidgets==8.1.5
 sphinx-book-theme #Unpinned to allow easy updating.
+numcodecs>=0.6,<0.15.1 #Pinned due to https://github.com/zarr-developers/numcodecs/issues/733
