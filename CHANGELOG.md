@@ -1,5 +1,9 @@
 # Changelog
 
+## [Unreleased]
+
+- Add support for Python 3.14.
+
 ## [0.2.4] - 2025-09-18
 
 - Add support for Python 3.13, minimum version is now 3.10.
@@ -255,5 +259,4 @@
 Early Alpha release made available via PyPI for community testing and evaluation.
 
 Please don't use this version in published works.
-
 
