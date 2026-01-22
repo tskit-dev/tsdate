@@ -463,4 +463,6 @@ def rephase_singletons(ts, use_node_times=True, random_seed=None):
     tables.mutations.node = mutations_node
     tables.mutations.time = mutations_time
     tables.sort()
+    tables.build_index()
+    tables.compute_mutation_parents()
     return tables.tree_sequence()
