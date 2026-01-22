@@ -46,7 +46,7 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Bio-Informatics",
 ]
 dependencies = [
-    "tskit>=0.5.8",
+    "tskit>=1.0.0",
     "numpy",
     "scipy>=1.13.0",
     "numba>=0.58.1",
@@ -91,7 +91,7 @@ docs = [
     "pandas==2.3.2",
     "stdpopsim==0.3.0",
     "tsinfer==0.4.1",
-    "tskit==0.6.4",
+    "tskit==1.0.0",
     "jupyter-book==1.0.4.post1",
     "sphinx-issues==5.0.1",
     "sphinx-argparse==0.5.2",

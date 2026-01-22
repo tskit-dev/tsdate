@@ -4,6 +4,8 @@
 
 - Add support for Python 3.13, minimum version is now 3.10.
 
+- Make tsdate compatible with tskit 1.0.0.
+
 ## [0.2.3] - 2025-06-07
 
 **Breaking changes**

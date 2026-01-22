@@ -580,6 +580,8 @@ def split_disjoint_nodes(ts, *, record_provenance=None):
     # Update the mutations table
     tables.mutations.node = mutations_node
     tables.sort()
+    tables.build_index()
+    tables.compute_mutation_parents()
 
     assert np.array_equal(
         tables.nodes.time[tables.mutations.node], ts.nodes_time[ts.mutations_node]

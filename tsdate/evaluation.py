@@ -144,6 +144,8 @@ def remove_edges(ts, edge_id_remove_list):
                     tables.edges.append(e)
     assert len(new_edges) == 0
     tables.sort()
+    tables.build_index()
+    tables.compute_mutation_parents()
     return tables.tree_sequence()
 
 
