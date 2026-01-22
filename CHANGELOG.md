@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.2.5] - XXXXXXXXXX
+
+- The `eps` parameter was previously used for two things: the minimum time interval in
+  likelihood calculations for the discrete-time algorithms, and the minimum allowed branch length
+  when forcing positive branch lengths. The latter is now a separate parameter called
+  `min_branch_length` for all algorithms, while the `eps` parameter is only used for the
+  discrete time algorithms.
+
+- The default `min_branch_length` and `eps` have been set to 1e-8 rather than 1e-10, to avoid
+  occasional issues with floating point error.
+
 ## [0.2.4] - 2025-09-18
 
 - Add support for Python 3.13, minimum version is now 3.10.
