@@ -42,7 +42,7 @@ jobs:
     runs-on: macos-13
     strategy:
       matrix:
-        python: ["3.10", 3.13]
+        python: ["3.10", 3.14]
     steps:
       - name: Download wheels
         uses: actions/download-artifact@v4.2.0
@@ -67,7 +67,7 @@ jobs:
     runs-on: windows-latest
     strategy:
       matrix:
-        python: ["3.10", 3.13]
+        python: ["3.10", 3.14]
         wordsize: [64]
     steps:
       - name: Download wheels
@@ -93,7 +93,7 @@ jobs:
     needs: ['manylinux']
     strategy:
       matrix:
-        python: ["3.10", 3.13]
+        python: ["3.10", 3.14]
     steps:
       - name: Download wheels
         uses: actions/download-artifact@v4.2.0
@@ -135,4 +135,3 @@ jobs:
       - name: Publish distribution to PRODUCTION PyPI
         if: github.event_name == 'release'
         uses: pypa/gh-action-pypi-publish@v1.13.0
-
