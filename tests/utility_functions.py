@@ -979,9 +979,9 @@ def single_tree_ts_2mutations_n3():
     )
     mutations = io.StringIO(
         """\
-    site    node    derived_state
-    0       3       1
-    0       1       0
+    site    node    derived_state parent
+    0       3       1             -1
+    0       1       0             0
     """
     )
     return tskit.load_text(
