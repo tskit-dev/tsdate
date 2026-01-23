@@ -415,6 +415,9 @@ class TestSimulated:
         tables.mutations.add_row(site=s, node=1, derived_state="1", time=1.5)
         tables.mutations.add_row(site=s, node=1, derived_state="2", time=1)
         tables.mutations.add_row(site=s, node=1, derived_state="3", time=0.5)
+        tables.sort()
+        tables.build_index()
+        tables.compute_mutation_parents()
         ts = tsdate.date(tables.tree_sequence(), mutation_rate=1)
         assert np.all(np.diff(ts.mutations_time) < 0)
         for m in ts.mutations():
