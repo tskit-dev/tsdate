@@ -39,7 +39,7 @@ jobs:
 
   OSX-test:
     needs: ['manylinux']
-    runs-on: macos-13
+    runs-on: macos-15
     strategy:
       matrix:
         python: ["3.10", 3.13]
