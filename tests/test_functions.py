@@ -1546,7 +1546,7 @@ class TestDiscretisedMeanVar:
         )
         algorithm = InsideOutsideMethod(ts, mutation_rate=1, population_size=10000)
         mn_post, *_ = algorithm.run(
-            eps=1e-10,
+            eps=1e-8,
             outside_standardize=True,
             ignore_oldest_root=False,
             probability_space=tsdate.node_time_class.LOG_GRID,
@@ -1743,7 +1743,7 @@ class TestSiteTimes:
         dated = tsdate.inside_outside(ts, mutation_rate=1, population_size=1)
         algorithm = InsideOutsideMethod(ts, mutation_rate=1, population_size=1)
         mn_post, *_ = algorithm.run(
-            eps=1e-10,
+            eps=1e-8,
             outside_standardize=True,
             ignore_oldest_root=False,
             probability_space=LOG_GRID,

@@ -124,9 +124,18 @@ def tsdate_cli_parser():
         type=float,
         default=core.DEFAULT_EPSILON,
         help=(
-            "Specify minimum distance separating time points. Also "
-            "specifies the error factor in time difference calculations. "
+            "Specify the error factor in time difference calculations. "
             f"Default: {core.DEFAULT_EPSILON}"
+        ),
+    )
+    parser.add_argument(
+        "-b",
+        "--min-branch-length",
+        type=float,
+        default=core.DEFAULT_MIN_BRANCH_LENGTH,
+        help=(
+            "Specify the minimum difference in age between parent and child nodes. "
+            f"Default: {core.DEFAULT_MIN_BRANCH_LENGTH}"
         ),
     )
     parser.add_argument(
@@ -169,7 +178,7 @@ def tsdate_cli_parser():
         ),
         default=None,
     )
-    # TODO array specification from file?
+    # arguments for discrete time methods
     parser.add_argument(
         "-n",
         "--population_size",
@@ -283,7 +292,7 @@ def run_date(args):
         params = dict(
             recombination_rate=args.recombination_rate,
             method=args.method,
-            eps=args.epsilon,
+            min_branch_length=args.min_branch_length,
             progress=args.progress,
             max_iterations=args.max_iterations,
             rescaling_intervals=args.rescaling_intervals,
@@ -299,6 +308,7 @@ def run_date(args):
             population_size=args.population_size,
             recombination_rate=args.recombination_rate,
             method=args.method,
+            min_branch_length=args.min_branch_length,
             eps=args.epsilon,
             progress=args.progress,
             probability_space=args.probability_space,
