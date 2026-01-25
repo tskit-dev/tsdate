@@ -763,3 +763,28 @@ def contains_unary_nodes(ts, skip_samples=True):
         ts.sequence_length,
         ts.num_nodes,
     )
+
+
+def transform_coordinates_by_ratemap(
+    ts: tskit.TreeSequence,
+    ratemap: tskit.RateMap,
+) -> tskit.TreeSequence:
+    # Return a copy of the tree sequence in the coordinate system created by `y =
+    # ratemap.get_cumulative_mass(x)`. Zero-length edges in the new coordinate
+    # system are removed, as are any sites and mutations that fall within
+    # intervals with zero or NaN rates. All nodes are retained, even if they are
+    # disconnected in the transformed tree sequence.
+    assert ratemap.sequence_length == ts.sequence_length, "Ratemap has the wrong length"
+
+    tab = ts.dump_tables()
+    tab.sequence_length = ratemap.get_cumulative_mass(ts.sequence_length)
+    tab.edges.left = ratemap.get_cumulative_mass(tab.edges.left)
+    tab.edges.right = ratemap.get_cumulative_mass(tab.edges.right)
+    tab.edges.keep_rows(tab.edges.right > tab.edges.left)
+
+    site_map = tab.sites.keep_rows(ratemap.get_rate(tab.sites.position) > 0.0)
+    tab.sites.position = ratemap.get_cumulative_mass(tab.sites.position)
+    tab.mutations.site = site_map[tab.mutations.site]
+    tab.mutations.keep_rows(tab.mutations.site != tskit.NULL)  # updates parent column
+
+    return tab.tree_sequence()
