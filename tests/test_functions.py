@@ -2064,13 +2064,13 @@ class TestPopulationSizeHistory:
         beta = 1.7
         demography = PopulationSizeHistory([1000, 2000, 3000], [500, 2500])
         numer_mn, _ = scipy.integrate.quad(
-            lambda t: demography.to_natural_timescale(np.array([t]))
+            lambda t: demography.to_natural_timescale(np.array([t])).item()
             * scipy.stats.gamma.pdf(t, alpha, scale=1 / beta),
             0,
             np.inf,
         )
         numer_va, _ = scipy.integrate.quad(
-            lambda t: demography.to_natural_timescale(np.array([t])) ** 2
+            lambda t: demography.to_natural_timescale(np.array([t])).item() ** 2
             * scipy.stats.gamma.pdf(t, alpha, scale=1 / beta),
             0,
             np.inf,
