@@ -15,7 +15,11 @@ Please refer to the documentation ([stable](https://tskit.dev/tsdate/docs/stable
 python -m pip install tsdate
 ```
 
-The algorithms for the original `inside_outside` and `maximization` [methods](https://tskit.dev/tsdate/docs/stable/methods.html) are described [in this Science paper](https://www.science.org/doi/10.1126/science.abi8264) (citation below, preprint [here](https://www.biorxiv.org/content/10.1101/2021.02.16.431497v2), evaluations in [another repository](https://github.com/awohns/unified_genealogy_paper)). The new `variational_gamma` method, the default from version 0.2 onwards, has not yet been described in print. For the moment, please cite this github repository if you need a citable reference.
+If using the `variational_gamma` algorithm (the default from version 0.2 onwards), please cite the [preprint](https://www.biorxiv.org/content/10.64898/2026.01.07.698223v1):
+
+> Nathaniel S. Pope, Sam Tallman, Ben Jeffery, Duncan Robertson, Yan Wong, Savita Karthikeyan, Peter L. Ralph, and Jerome Kelleher (2026) _Tracing the evolutionary histories of ultra-rare variants using variational dating of large ancestral recombination graphs_. bioRxiv: 2026.01.07.698223; doi: https://doi.org/10.64898/2026.01.07.698223
+
+The algorithms for the original `inside_outside` and `maximization` [methods](https://tskit.dev/tsdate/docs/stable/methods.html) (the default prior to version 0.2) are described [in this Science paper](https://www.science.org/doi/10.1126/science.abi8264) (citation below, preprint [here](https://www.biorxiv.org/content/10.1101/2021.02.16.431497v2), evaluations in [another repository](https://github.com/awohns/unified_genealogy_paper)). 
 
 The citation to use for the original tsdate algorithms is:
 
