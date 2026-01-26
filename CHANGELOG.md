@@ -11,11 +11,11 @@
 - The default `min_branch_length` and `eps` have been set to 1e-8 rather than 1e-10, to avoid
   occasional issues with floating point error.
 
+- Make tsdate compatible with tskit 1.0.0.
+
 ## [0.2.4] - 2025-09-18
 
 - Add support for Python 3.13, minimum version is now 3.10.
-
-- Make tsdate compatible with tskit 1.0.0.
 
 ## [0.2.3] - 2025-06-07
 
