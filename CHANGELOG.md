@@ -1,6 +1,9 @@
 # Changelog
 
-## [0.2.5] - XXXXXXXXXX
+## [0.2.6] - XXXXXXXXXX
+
+
+## [0.2.5] - 2026-02-03
 
 - The `eps` parameter was previously used for two things: the minimum time interval in
   likelihood calculations for the discrete-time algorithms, and the minimum allowed branch length
