@@ -1,11 +1,11 @@
-name: Build Docs
+name: Docs
+
 on:
   pull_request:
   push:
     branches: [main]
-    tags:
-      - '*'
   merge_group:
+
 jobs:
   Docs:
-    uses: tskit-dev/.github/.github/workflows/docs-build-template.yml@v1
+    uses: tskit-dev/.github/.github/workflows/docs.yml@main
