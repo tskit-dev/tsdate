@@ -4,8 +4,10 @@ on:
   pull_request:
   push:
     branches: [main]
+    tags:
+      - '*'
   merge_group:
 
 jobs:
   Docs:
-    uses: tskit-dev/.github/.github/workflows/docs.yml@main
+    uses: tskit-dev/.github/.github/workflows/docs.yml@v12
