@@ -48,7 +48,7 @@ sphinx:
         pygments_dark_style: monokai
         navigation_with_keys: false
         logo:
-          text: "Version __TSDATE_VERSION__"
+          text: "Version __PKG_VERSION__"
       pygments_style: monokai
       bibtex_reference_style: author_year
       myst_enable_extensions:
