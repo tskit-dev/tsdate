@@ -506,9 +506,9 @@ class TestExactMoments:
             assert np.isclose(t_i, ck_t_i)
             ck_var_t_i = (
                 scipy.integrate.quad(
-                    lambda t_i: t_i**2
-                    * self.pdf_rootward(t_i, t_j, *pars_redux)
-                    / ck_normconst,
+                    lambda t_i: (
+                        t_i**2 * self.pdf_rootward(t_i, t_j, *pars_redux) / ck_normconst
+                    ),
                     t_j,
                     np.inf,
                     epsabs=0,
@@ -541,9 +541,9 @@ class TestExactMoments:
         assert np.isclose(t_j, ck_t_j)
         ck_var_t_j = (
             scipy.integrate.quad(
-                lambda t_j: t_j**2
-                * self.pdf_leafward(t_i, t_j, *pars_redux)
-                / ck_normconst,
+                lambda t_j: (
+                    t_j**2 * self.pdf_leafward(t_i, t_j, *pars_redux) / ck_normconst
+                ),
                 0,
                 t_i,
                 epsabs=0,
@@ -586,9 +586,9 @@ class TestExactMoments:
         assert np.isclose(t_j, ck_t_j)
         ck_var_t_i = (
             scipy.integrate.dblquad(
-                lambda t_i, t_j: t_i**2
-                * self.pdf_unphased(t_i, t_j, *pars)
-                / ck_normconst,
+                lambda t_i, t_j: (
+                    t_i**2 * self.pdf_unphased(t_i, t_j, *pars) / ck_normconst
+                ),
                 0,
                 np.inf,
                 0,
@@ -600,9 +600,9 @@ class TestExactMoments:
         assert np.isclose(var_t_i, ck_var_t_i)
         ck_var_t_j = (
             scipy.integrate.dblquad(
-                lambda t_i, t_j: t_j**2
-                * self.pdf_unphased(t_i, t_j, *pars)
-                / ck_normconst,
+                lambda t_i, t_j: (
+                    t_j**2 * self.pdf_unphased(t_i, t_j, *pars) / ck_normconst
+                ),
                 0,
                 np.inf,
                 0,
