@@ -68,36 +68,33 @@ tsdate = "tsdate.__main__:main"
 
 [dependency-groups]
 test = [
-    "numcodecs>=0.6,<0.15.1",
-    "pytest==8.4.2",
-    "pytest-xdist==3.8.0",
-    "pytest-cov==7.0.0",
-    "msprime==1.3.4",
-    "tsinfer==0.4.1",
-    "mpmath==1.3.0",
-    "numdifftools==0.9.41",
-    "matplotlib==3.10.6",
+    "pytest",
+    "pytest-xdist",
+    "pytest-cov",
+    "msprime",
+    "tsinfer",
+    "mpmath",
+    "numdifftools",
+    "matplotlib",
 ]
 
 docs = [
-    "numcodecs>=0.6,<0.15.1",
-    "demesdraw==0.4.0",
-    "attrs==25.3.0",
-    "matplotlib==3.10.6",
-    "mpmath==1.3.0",
-    "numba==0.61.2",
-    "pandas==2.3.2",
-    "stdpopsim==0.3.0",
-    "tsinfer==0.4.1",
-    "tskit==1.0.0",
-    "jupyter-book==1.0.4.post1",
-    "sphinx-issues==5.0.1",
-    "sphinx-argparse==0.5.2",
-    "sphinxcontrib-bibtex==2.6.5",
-    "humanize==4.13.0",
-    "msprime==1.3.4",
-    "ipywidgets==8.1.7",
-    "sphinx-book-theme==1.1.4",
+    "demesdraw",
+    "matplotlib",
+    "mpmath",
+    "numba",
+    "pandas",
+    "stdpopsim",
+    "tsinfer",
+    "tskit",
+    "jupyter-book",
+    "sphinx-issues",
+    "sphinx-argparse",
+    "sphinxcontrib-bibtex",
+    "humanize",
+    "msprime",
+    "ipywidgets",
+    "sphinx-book-theme",
 ]
 
 lint = [
@@ -129,7 +126,27 @@ testpaths = ["tests"]
 
 [tool.ruff]
 target-version = "py311"
-line-length = 89
+line-length = 90
 
 [tool.ruff.lint]
 select = ["E", "F", "B", "W", "I", "N", "UP", "A", "PT"]
+
+ignore = [
+    "A001", "A002", "RUF",
+    "B905", #Don't add strict=False to zips (B905)
+    "N806", "N802", "N803", # Various nags about uppercase vars
+    "PT011", # `pytest.raises(ValueError)` is too broad, set the `match`
+]
+
+fixable = ["ALL"]
+unfixable = []
+
+[tool.ruff.lint.isort]
+known-first-party = ["tsbrowse"]
+known-third-party = [
+  "msprime",
+  "tskit",
+  "numpy",
+  "pytest",
+]
+

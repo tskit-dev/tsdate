@@ -78,7 +78,10 @@ class TestPrebuilt:
             if ts.num_trees > 1:
                 with pytest.raises(NotImplementedError, match="more than one tree"):
                     tsdate.date(
-                        ts, method="inside_outside", population_size=1, mutation_rate=None
+                        ts,
+                        method="inside_outside",
+                        population_size=1,
+                        mutation_rate=None,
                     )
             else:
                 tsdate.date(
