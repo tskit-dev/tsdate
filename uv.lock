@@ -3051,13 +3051,10 @@ dependencies = [
 [package.dev-dependencies]
 dev = [
     { name = "demesdraw" },
-    { name = "humanize" },
     { name = "ipywidgets" },
     { name = "jupyter-book" },
     { name = "matplotlib" },
-    { name = "mpmath" },
     { name = "msprime" },
-    { name = "numba" },
     { name = "numdifftools" },
     { name = "pandas" },
     { name = "prek" },
@@ -3071,19 +3068,15 @@ dev = [
     { name = "sphinxcontrib-bibtex" },
     { name = "stdpopsim" },
     { name = "tsinfer" },
-    { name = "tskit" },
     { name = "twine" },
     { name = "validate-pyproject", extra = ["all"] },
 ]
 docs = [
     { name = "demesdraw" },
-    { name = "humanize" },
     { name = "ipywidgets" },
     { name = "jupyter-book" },
     { name = "matplotlib" },
-    { name = "mpmath" },
     { name = "msprime" },
-    { name = "numba" },
     { name = "pandas" },
     { name = "sphinx-argparse" },
     { name = "sphinx-book-theme" },
@@ -3091,7 +3084,6 @@ docs = [
     { name = "sphinxcontrib-bibtex" },
     { name = "stdpopsim" },
     { name = "tsinfer" },
-    { name = "tskit" },
 ]
 lint = [
     { name = "prek" },
@@ -3103,7 +3095,6 @@ packaging = [
 ]
 test = [
     { name = "matplotlib" },
-    { name = "mpmath" },
     { name = "msprime" },
     { name = "numdifftools" },
     { name = "pytest" },
@@ -3126,13 +3117,10 @@ requires-dist = [
 [package.metadata.requires-dev]
 dev = [
     { name = "demesdraw" },
-    { name = "humanize" },
     { name = "ipywidgets" },
-    { name = "jupyter-book" },
+    { name = "jupyter-book", specifier = "<2" },
     { name = "matplotlib" },
-    { name = "mpmath" },
     { name = "msprime" },
-    { name = "numba" },
     { name = "numdifftools" },
     { name = "pandas" },
     { name = "prek", specifier = "==0.3.3" },
@@ -3146,19 +3134,15 @@ dev = [
     { name = "sphinxcontrib-bibtex" },
     { name = "stdpopsim" },
     { name = "tsinfer" },
-    { name = "tskit" },
     { name = "twine" },
     { name = "validate-pyproject", extras = ["all"] },
 ]
 docs = [
     { name = "demesdraw" },
-    { name = "humanize" },
     { name = "ipywidgets" },
-    { name = "jupyter-book" },
+    { name = "jupyter-book", specifier = "<2" },
     { name = "matplotlib" },
-    { name = "mpmath" },
     { name = "msprime" },
-    { name = "numba" },
     { name = "pandas" },
     { name = "sphinx-argparse" },
     { name = "sphinx-book-theme" },
@@ -3166,7 +3150,6 @@ docs = [
     { name = "sphinxcontrib-bibtex" },
     { name = "stdpopsim" },
     { name = "tsinfer" },
-    { name = "tskit" },
 ]
 lint = [
     { name = "prek", specifier = "==0.3.3" },
@@ -3178,7 +3161,6 @@ packaging = [
 ]
 test = [
     { name = "matplotlib" },
-    { name = "mpmath" },
     { name = "msprime" },
     { name = "numdifftools" },
     { name = "pytest" },

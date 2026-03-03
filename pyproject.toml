@@ -73,7 +73,6 @@ test = [
     "pytest-cov",
     "msprime",
     "tsinfer",
-    "mpmath",
     "numdifftools",
     "matplotlib",
 ]
@@ -81,17 +80,13 @@ test = [
 docs = [
     "demesdraw",
     "matplotlib",
-    "mpmath",
-    "numba",
     "pandas",
     "stdpopsim",
     "tsinfer",
-    "tskit",
-    "jupyter-book",
+    "jupyter-book<2",
     "sphinx-issues",
     "sphinx-argparse",
     "sphinxcontrib-bibtex",
-    "humanize",
     "msprime",
     "ipywidgets",
     "sphinx-book-theme",
@@ -142,7 +137,7 @@ fixable = ["ALL"]
 unfixable = []
 
 [tool.ruff.lint.isort]
-known-first-party = ["tsbrowse"]
+known-first-party = ["tsdate"]
 known-third-party = [
   "msprime",
   "tskit",
