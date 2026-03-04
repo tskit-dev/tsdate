@@ -10,4 +10,4 @@ on:
 
 jobs:
   Docs:
-    uses: tskit-dev/.github/.github/workflows/docs.yml@v13
+    uses: tskit-dev/.github/.github/workflows/docs.yml@v14
