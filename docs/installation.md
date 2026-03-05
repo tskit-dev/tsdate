@@ -20,10 +20,7 @@ kernelspec:
 
 To install `tsdate` simply run:
 
-    $ python3 -m pip install tsdate --user
-
-Python 3.8, or a more recent version, is required. The software has been tested
-on MacOSX and Linux.
+    $ python -m pip install tsdate
 
 Once installed, `tsdate`'s {ref}`Command Line Interface (CLI) <sec_cli>` can be accessed via:
 
