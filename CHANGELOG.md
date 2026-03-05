@@ -1,6 +1,10 @@
 # Changelog
 
-## [0.2.6] - XXXXXXXXXX
+## [0.2.6] - 2026-03-06
+
+Maintenance release.
+
+- Python >= 3.11 is required.
 
 
 ## [0.2.5] - 2026-02-03
@@ -221,7 +225,7 @@
 - The algorithm now operates completely in unscaled time (in units of generations) under
   the hood, which means that `tsdate.build_prior_grid` now requires the parameter
   `Ne`.
-- Users now have access to the marginal posterior distributions on node age by running 
+- Users now have access to the marginal posterior distributions on node age by running
   `tsdate.get_dates`, though this is undocumented for now.
 
 **Bugfixes**
@@ -234,14 +238,14 @@
 
 **Features**
 
-- Two new methods, `tsdate.sites_time_from_ts` and `tsdate.add_sampledata_times`, 
+- Two new methods, `tsdate.sites_time_from_ts` and `tsdate.add_sampledata_times`,
   support inference of tree sequences from non-contemporaneous samples.
-- New tutorial on inferring tree sequences from modern and historic/ancient samples 
+- New tutorial on inferring tree sequences from modern and historic/ancient samples
   explains how to use these functions in conjunction with `tsinfer`.
-- `tsdate.preprocess_ts` supports dating inferred tree sequences which include large, 
-  uninformative stretches (i.e. centromeres and telomeres). Simply run this function 
+- `tsdate.preprocess_ts` supports dating inferred tree sequences which include large,
+  uninformative stretches (i.e. centromeres and telomeres). Simply run this function
   on the tree sequence before dating it.
-- `ignore_outside` is a new parameter in the outside pass which tells `tsdate` to 
+- `ignore_outside` is a new parameter in the outside pass which tells `tsdate` to
   ignore edges from oldest root (these edges are often of low quality in `tsinfer`
   inferred tree sequences)
 - Development environment is now equivalent to other `tskit-dev` projects
@@ -251,7 +255,7 @@
 
 - Improve user experience with more progress bars and logging.
 - Slightly change traversal method in outside and outside maximization algorithms,
-  this should only affect inference on inferred tree sequences with large numbers 
+  this should only affect inference on inferred tree sequences with large numbers
   of nodes at the same frequency.
 - Improve reporting of current project version
 - Use appdirs for default caching location
