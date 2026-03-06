@@ -24,7 +24,7 @@ To install `tsdate` simply run:
 
 Once installed, `tsdate`'s {ref}`Command Line Interface (CLI) <sec_cli>` can be accessed via:
 
-    $ python3 -m tsdate
+    $ python -m tsdate
 
 or
 
@@ -35,13 +35,13 @@ of the inference process.
 
 (sec_installation_testing)=
 
-## Testing
+## Development
 
-Unit tests can be run from a clone of the
-[Github repository](https://github.com/tskit-dev/tsdate) by running pytest
-at the top level of the repository
+See the [tskit developer documentation](https://tskit.dev/tskit/docs/stable/development.html)
+for the general development workflow (git, prek, testing, documentation).
+Install development dependencies with `uv sync` and run the tests with:
 
-    $python -m pytest
+    $ uv run pytest
 
 _Tsdate_ makes extensive use of [numba](https://numba.pydata.org)'s
 "just in time" (jit) compilation to speed up time-consuming numerical functions.
