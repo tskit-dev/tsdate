@@ -114,7 +114,7 @@ def preprocess_ts(
     :param \\**kwargs: All further keyword arguments are passed to the
         {meth}`tskit.TreeSequence.simplify` command.
 
-    :return: A tree sequence with gaps removed.
+    :return: A tree sequence with gaps removed and disjoint node segments split.
     :rtype: tskit.TreeSequence
     """
 
@@ -194,8 +194,13 @@ def preprocess_ts(
             record_provenance=False,
             **kwargs,
         )
+    tables.sort()
     if split_disjoint:
         ts = split_disjoint_nodes(tables.tree_sequence(), record_provenance=False)
+        logger.info(
+            f"Split disjoint node segments from {tables.nodes.num_rows} "
+            f"nodes into {ts.num_nodes} nodes"
+        )
         tables = ts.dump_tables()
     if record_provenance:
         provenance.record_provenance(
@@ -582,11 +587,6 @@ def split_disjoint_nodes(ts, *, record_provenance=None):
     tables.sort()
     tables.build_index()
     tables.compute_mutation_parents()
-
-    assert np.array_equal(
-        tables.nodes.time[tables.mutations.node], ts.nodes_time[ts.mutations_node]
-    )
-
     if record_provenance:
         provenance.record_provenance(
             tables,

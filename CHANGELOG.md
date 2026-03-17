@@ -4,6 +4,14 @@
 
 In development
 
+- `preprocess_ts` now always sorts the tree sequence, which may change the order
+  of mutations
+
+**Bugfixes**
+
+- Removed an assertion in `split_disjoint_nodes` that is not guarenteed
+  to hold since table sorting changes the order of mutations in tskit 1.0.0 onwards
+
 ## [0.2.6] - 2026-03-06
 
 Maintenance release.
