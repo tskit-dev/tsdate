@@ -10,4 +10,6 @@ on:
 
 jobs:
   Docs:
+    permissions:
+      contents: read
     uses: tskit-dev/.github/.github/workflows/docs.yml@v17

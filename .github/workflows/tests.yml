@@ -9,18 +9,25 @@ on:
 jobs:
   packaging:
     name: Python packaging
+    permissions:
+      contents: read
     uses: tskit-dev/.github/.github/workflows/python-packaging.yml@v17
     with:
       cli-test-cmd: tsdate --help
 
   test:
     name: Python
+    permissions:
+      contents: read
     uses: tskit-dev/.github/.github/workflows/python-tests.yml@v17
     with:
       os: ${{ matrix.os }}
       python-version: ${{ matrix.python }}
       coverage-directory: tsdate
-    secrets: inherit
+    # tskit-dev/* reusable workflows are first-party and trusted (see
+    # .github/zizmor.yml); the called workflow needs CODECOV_TOKEN to upload
+    # coverage, so inheriting secrets is intentional here.
+    secrets: inherit  # zizmor: ignore[secrets-inherit]
     strategy:
       matrix:
         python: ["3.11", "3.13"]
