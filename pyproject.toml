@@ -85,7 +85,8 @@ docs = [
     "tsinfer",
     "jupyter-book<2",
     "sphinx-issues",
-    "sphinx-argparse",
+    # https://github.com/sphinx-doc/sphinx-argparse/issues/97
+    "sphinx-argparse<0.6",
     "sphinxcontrib-bibtex",
     "msprime",
     "ipywidgets",
