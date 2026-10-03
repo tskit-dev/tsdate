@@ -1,5 +1,8 @@
 cff-version: 1.2.0
-message: "If you use tsdate in your work, please cite it as below."
+message: >-
+  If you use tsdate in your work, please cite it as below. If you use the
+  original inside_outside or maximization methods (the default prior to
+  version 0.2), please also cite Wohns et al. (2022), listed under references.
 authors:
 - given-names: Anthony Wilder
   family-names: Wohns
@@ -10,13 +13,46 @@ authors:
 - given-names: Ben
   family-names: Jeffery
   orcid: "https://orcid.org/0000-0002-1982-6801"
+- given-names: Nathaniel
+  family-names: Pope
+  orcid: "https://orcid.org/0000-0001-8409-7812"
 title: "Tsdate"
-version: 0.1.4
-date-released: 2021-06-30
 url: "https://github.com/tskit-dev/tsdate"
 license: MIT
 preferred-citation:
   type: article
+  authors:
+  - given-names: Nathaniel S.
+    family-names: Pope
+    orcid: "https://orcid.org/0000-0001-8409-7812"
+  - given-names: Sam
+    family-names: Tallman
+    orcid: "https://orcid.org/0000-0001-7183-6276"
+  - given-names: Ben
+    family-names: Jeffery
+    orcid: "https://orcid.org/0000-0002-1982-6801"
+  - given-names: Duncan
+    family-names: Robertson
+    orcid: "https://orcid.org/0000-0002-1660-2415"
+  - given-names: Yan
+    family-names: Wong
+    orcid: "https://orcid.org/0000-0002-3536-6411"
+  - given-names: Savita
+    family-names: Karthikeyan
+    orcid: "https://orcid.org/0000-0002-4798-5746"
+  - given-names: Peter L.
+    family-names: Ralph
+    orcid: "https://orcid.org/0000-0002-9459-6866"
+  - given-names: Jerome
+    family-names: Kelleher
+    orcid: "https://orcid.org/0000-0002-7894-5253"
+  doi: "10.64898/2026.01.07.698223"
+  journal: "bioRxiv"
+  title: "Tracing the evolutionary histories of ultra-rare variants using variational dating of large ancestral recombination graphs"
+  url: "https://www.biorxiv.org/content/10.64898/2026.01.07.698223v1"
+  year: 2026
+references:
+- type: article
   authors:
   - given-names: Anthony Wilder
     family-names: Wohns
