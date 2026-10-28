@@ -1464,11 +1464,14 @@ class TestDate:
         with pytest.raises(NotImplementedError):
             tsdate.inside_outside(ts, mutation_rate=None, population_size=1)
 
-    @pytest.mark.skip(reason="TODO: https://github.com/tskit-dev/tsdate/issues/394")
-    def test_variational_gamma_sample_as_parent_fails(self):
+    def test_variational_gamma_sample_as_parent(self):
         ts = utility_functions.single_tree_ts_n3_sample_as_parent()
-        with pytest.raises(NotImplementedError):
-            tsdate.variational_gamma(ts, mutation_rate=1)
+        tables = ts.dump_tables()
+        tables.sites.add_row(position=0.5, ancestral_state="0")
+        tables.mutations.add_row(site=0, node=0, derived_state="1")
+        ts = tables.tree_sequence()
+        dts = tsdate.variational_gamma(ts, mutation_rate=1, rescaling_intervals=1)
+        assert np.allclose(dts.nodes_time[ts.samples()], ts.nodes_time[ts.samples()])
 
     def test_recombination_not_implemented(self):
         ts = utility_functions.two_tree_mutation_ts()
