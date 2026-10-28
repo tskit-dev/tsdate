@@ -11,3 +11,6 @@ data/prior_1000df.txt
 .ipynb*
 build/
 .*.swp
+
+evaluation/cache/
+evaluation/results/

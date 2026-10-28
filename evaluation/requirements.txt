@@ -1,0 +1,8 @@
+# Extra requirements for the by-hand evaluation scripts (not needed by tsdate itself)
+msprime
+tsinfer
+tscompare
+matplotlib
+pandas
+psutil
+scipy
