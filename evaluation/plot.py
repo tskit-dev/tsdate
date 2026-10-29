@@ -331,8 +331,8 @@ def plot_performance(path):
     fig, axes = plt.subplots(1, 2, figsize=(9, 3.6))
     for length, s in g.groupby("length"):
         axes[0].plot(s.sample_size, s.time_s, "o-", label=f"L={length:g}")
-        axes[1].plot(s.sample_size, s.peak_rss_mb, "o-", label=f"L={length:g}")
-    for ax, t in zip(axes, ["Time (s)", "Peak RSS (MB)"]):
+        axes[1].plot(s.sample_size, s.extra_rss_mb, "o-", label=f"L={length:g}")
+    for ax, t in zip(axes, ["Time (s)", "Memory increase during dating (MB)"]):
         ax.set(xscale="log", yscale="log", xlabel="sample size (diploids)", title=t)
         ax.legend()
     fig.suptitle(title_of(df, path))
