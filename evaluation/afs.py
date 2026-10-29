@@ -1,10 +1,11 @@
 """
-Compute site and branch allele frequency spectra for a simulated tree sequence and
-for its tsdate-dated version. Within each genomic window, the expected number of
-sites at each frequency (branch AFS x mutation rate) should match the observed
-number; a mismatch indicates bias in the dated branch lengths. Frequencies are
-pooled into bins. Writes results/afs_<sample_size>.csv with one row per window and
-bin; use plot.py to make figures.
+Compute site and branch allele frequency spectra for a simulated tree sequence, for
+the true topology dated by tsdate, and for a tsinfer topology dated by tsdate.
+Within each genomic window, the expected number of sites at each frequency (branch
+AFS x mutation rate) should match the observed number; a mismatch indicates bias in
+the dated branch lengths. Frequencies are pooled into bins. Writes
+results/afs_<sample_size>.csv with one row per window and bin; use plot.py to make
+figures.
 
 Example:
   python evaluation/afs.py --sample-size 100 --length 1e7
@@ -86,9 +87,17 @@ def main():
     p.add_argument("--seed", type=int, default=1)
     args = p.parse_args()
     ts = common.simulate(args.sample_size, args.length, args.mutation_rate, args.seed)
-    dated = tsdate.date(
-        ts, method=METHOD, mutation_rate=args.mutation_rate, progress=False
-    )
+
+    def date(t):
+        return tsdate.date(
+            t, method=METHOD, mutation_rate=args.mutation_rate, progress=False
+        )
+
+    cases = [
+        ("true", ts),
+        ("tsdate", date(ts)),
+        ("tsinfer+tsdate", date(common.infer_topology(ts))),
+    ]
     prov = common.provenance()
     frames = [
         allele_frequency_spectra(t, args.mutation_rate).assign(
@@ -100,7 +109,7 @@ def main():
             seed=args.seed,
             **prov,
         )
-        for name, t in (("true", ts), ("tsdate", dated))
+        for name, t in cases
     ]
     common.RESULTS.mkdir(exist_ok=True)
     out = common.RESULTS / f"afs_{args.sample_size}.csv"
