@@ -93,6 +93,11 @@ def main():
     p.add_argument("--mutation-rate", type=float, default=1e-8)
     p.add_argument("--repeats", type=int, default=3)
     p.add_argument("--inferred", action="store_true", help="Use a tsinfer topology")
+    p.add_argument(
+        "--output",
+        help="Output CSV name in results/ (default performance.csv); give each "
+        "commit its own name so runs can be compared with compare.py",
+    )
     p.add_argument("--quick", action="store_true", help="Tiny smoke-test sizes")
     args = p.parse_args()
     if args.quick:
@@ -135,7 +140,7 @@ def main():
     progress.close()
     common.RESULTS.mkdir(exist_ok=True)
     suffix = "_quick" if args.quick else ""
-    out = common.RESULTS / f"performance{suffix}.csv"
+    out = common.RESULTS / (args.output or f"performance{suffix}.csv")
     pd.DataFrame(rows).to_csv(out, index=False)
     print("wrote", out)
 

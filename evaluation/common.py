@@ -24,6 +24,12 @@ def provenance():
         sha = subprocess.check_output(
             ["git", "rev-parse", "--short", "HEAD"], cwd=HERE, text=True
         ).strip()
+        dirty = subprocess.check_output(
+            ["git", "status", "--porcelain", "--untracked-files=no", str(HERE.parent)],
+            cwd=HERE,
+            text=True,
+        ).strip()
+        sha += "-dirty" if dirty else ""
     except Exception:
         sha = ""
     return {
