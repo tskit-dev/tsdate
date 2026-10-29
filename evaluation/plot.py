@@ -328,7 +328,12 @@ def plot_calibration(path, mut_path=None):
 def plot_afs(path):
     """Observed vs expected number of sites per window, in bins of allele frequency."""
     df = pd.read_csv(path)
-    times = [t for t in ("true", "tsdate") if t in set(df["times"])]
+    names = {
+        "true": "true times",
+        "tsdate": "tsdate times\n(true topology)",
+        "tsinfer+tsdate": "tsdate times\n(tsinferred topology)",
+    }
+    times = [t for t in names if t in set(df["times"])]
     nbins = df["bin"].nunique()
     dim = int(np.ceil(np.sqrt(nbins)))
     fig, axes = plt.subplots(
@@ -360,9 +365,8 @@ def plot_afs(path):
             ax.set_yticks(np.linspace(d.observed.min(), d.observed.max(), 3))
             ax.tick_params(labelsize=6)
             ax.ticklabel_format(style="sci", scilimits=(0, 0))
-        row[0].set_ylabel(f"{t} times\nobserved # sites", fontsize=8)
-    for ax in axes[-1]:
-        ax.set_xlabel("expected # sites", fontsize=8)
+        row[0].set_ylabel(f"{names[t]}\nobserved # sites", fontsize=8)
+    fig.supxlabel("expected # sites in window (from branch lengths)", fontsize=9)
     fig.suptitle(
         f"Site AFS per window, observed vs expected from branch lengths "
         f"(sample size {df.sample_size.iloc[0]}); {title_of(df, path)}",
