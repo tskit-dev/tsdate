@@ -21,7 +21,7 @@ Each CSV row records the tsdate version, git SHA and timestamp.
 
 ```
 python evaluation/accuracy.py --sweep sample_size --modes true inferred --seeds 3 --max-seeds 250 --cores 8
-python evaluation/performance.py --sizes 100 500 1000
+python evaluation/performance.py
 python evaluation/plot.py
 ```
 Add `--quick` to `accuracy.py` / `performance.py` for a fast smoke test. Quick runs write

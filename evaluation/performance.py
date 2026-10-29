@@ -4,7 +4,7 @@ Time and peak memory of tsdate.variational_gamma. Each case runs in a fresh
 results/performance.csv; use plot.py to make figures.
 
 Example:
-  python evaluation/performance.py --sizes 100 500 1000 --lengths 1e6 --repeats 3
+  python evaluation/performance.py --sizes 10 50 100 500 1000 --lengths 1e6 1e7
 """
 
 import argparse
@@ -62,8 +62,8 @@ def run_case(**kwargs):
 
 def main():
     p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    p.add_argument("--sizes", nargs="+", type=int, default=[100, 500, 1000])
-    p.add_argument("--lengths", nargs="+", type=float, default=[1e6])
+    p.add_argument("--sizes", nargs="+", type=int, default=[10, 50, 100, 500, 1000])
+    p.add_argument("--lengths", nargs="+", type=float, default=[1e6, 1e7])
     p.add_argument("--mutation-rate", type=float, default=1e-8)
     p.add_argument("--repeats", type=int, default=3)
     p.add_argument("--inferred", action="store_true", help="Use a tsinfer topology")
