@@ -22,22 +22,32 @@ LEVELS = (0.5, 0.8, 0.9, 0.95)
 MODE_LABELS = {"true": "true topology", "inferred": "tsinferred topology"}
 
 
-MUTATION_TRUTH = "midpoint"
+# "auto" scores point estimates (scatter, RMSE, bias) against the edge midpoint, the
+# best any method can do, but scores the posterior (PIT, interval coverage) against
+# the exact simulated time, since the posterior is for the realised mutation time.
+MUTATION_TRUTH = "auto"
 
 
-def read_results(path):
+def mutation_truth(purpose):
+    """Truth used for mutations: 'midpoint' or 'exact'; purpose is 'error' or 'pit'."""
+    if MUTATION_TRUTH == "auto":
+        return "exact" if purpose == "pit" else "midpoint"
+    return MUTATION_TRUTH
+
+
+def read_results(path, purpose="error"):
     """Read a results CSV; for mutations, optionally use the exact simulated time."""
     df = pd.read_csv(path, dtype={"mode": str})
-    if MUTATION_TRUTH == "exact" and "true_time_exact" in df:
+    if mutation_truth(purpose) == "exact" and "true_time_exact" in df:
         df["true_time"] = df["true_time_exact"]
     return df
 
 
-def true_time_name(noun):
+def true_time_name(noun, purpose="error"):
     """e.g. 'true node time' or 'true mutation time (midpoint)'."""
     if noun == "node":
         return "true node time"
-    return f"true mutation time ({MUTATION_TRUTH})"
+    return f"true mutation time ({mutation_truth(purpose)})"
 
 
 def label(mode):
@@ -135,13 +145,15 @@ def plot_summary(path, mut_path=None):
     for row, (p, noun) in zip(axes, inputs):
         df = read_results(p)
         summ = age_band_summary(df)
+        cov_summ = age_band_summary(read_results(p, "pit"))
         values = sorted(df["value"].unique())
         sweep = df.sweep.iloc[0]
         xlabel = "n (diploid samples)" if sweep == "sample_size" else sweep
         for mode in [m for m in ("true", "inferred") if m in set(df["mode"])]:
             for colour, band in zip(band_shades(mode), AGE_LABELS):
-                s = summ[(summ["mode"] == mode) & (summ.band == band)]
                 for ax, col in zip(row, ["rmse_log", "bias_log", "cov_0.9"]):
+                    src = cov_summ if col == "cov_0.9" else summ
+                    s = src[(src["mode"] == mode) & (src.band == band)]
                     ax.plot(
                         s.value,
                         s[col],
@@ -152,15 +164,14 @@ def plot_summary(path, mut_path=None):
                     )
         row[1].axhline(0, color="grey", ls=":")
         row[2].axhline(0.9, color="grey", ls=":")
-        truth = (
-            "true node time" if noun == "node" else f"true {MUTATION_TRUTH} mutation time"
-        )
+        truth = true_time_name(noun)
+        cov_truth = true_time_name(noun, "pit")
         for ax, t in zip(
             row,
             [
                 f"RMSE (log time: tsdate vs {truth})",
                 f"Bias (log tsdate - log {truth})",
-                f"90% {noun}-time interval coverage",
+                f"90% interval coverage (vs {cov_truth})",
             ],
         ):
             ax.set(xlabel=xlabel, title=t)
@@ -282,7 +293,7 @@ def plot_calibration(path, mut_path=None):
     inputs = [(path, "node")]
     if mut_path is not None and mut_path.exists():
         inputs.insert(0, (mut_path, "mutation"))
-    frames = [(read_results(p), noun) for p, noun in inputs]
+    frames = [(read_results(p, "pit"), noun) for p, noun in inputs]
     modes = [m for m in ("true", "inferred") if m in set(frames[0][0]["mode"])]
     fig, axes = plt.subplots(
         len(frames),
@@ -298,10 +309,10 @@ def plot_calibration(path, mut_path=None):
             ax.axhline(1, color="k", ls="--", lw=0.8)
             row_title = f"Tsdate {noun} times"
             if noun == "mutation":
-                row_title += f" ({MUTATION_TRUTH} truth)"
+                row_title += f" ({mutation_truth('pit')} truth)"
             ax.set(
                 title=f"{row_title}\n({label(mode)})",
-                xlabel=f"posterior CDF at {true_time_name(noun)} (PIT)\n"
+                xlabel=f"posterior CDF at {true_time_name(noun, 'pit')} (PIT)\n"
                 "0 = truth younger than posterior, 1 = truth older",
                 ylabel=f"density of {noun}s",
             )
@@ -335,10 +346,11 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument(
         "--mutation-truth",
-        choices=["midpoint", "exact"],
-        default="midpoint",
-        help="true mutation time: midpoint of the true edge (default), or the "
-        "exact simulated time",
+        choices=["auto", "midpoint", "exact"],
+        default="auto",
+        help="true mutation time: midpoint of the true edge, or the exact simulated "
+        "time. 'auto' (default) uses the midpoint for scatter, RMSE and bias, and "
+        "the exact time for PIT and interval coverage",
     )
     MUTATION_TRUTH = parser.parse_args().mutation_truth
     for path in sorted(common.RESULTS.glob("accuracy_*.csv")):
@@ -350,10 +362,16 @@ def main():
         plot_calibration(path, mut)
         for p in (path, mut):
             if p.exists():
-                df = read_results(p)
-                age_band_summary(df).to_csv(
-                    common.RESULTS / f"{p.stem}_metrics.csv", index=False
+                summ = age_band_summary(read_results(p))
+                # coverage is scored against the truth appropriate for the posterior
+                cov = age_band_summary(read_results(p, "pit"))
+                cov_cols = [c for c in cov if c.startswith("cov_")]
+                summ = summ.drop(columns=cov_cols).merge(
+                    cov[["mode", "band", "value", *cov_cols]],
+                    on=["mode", "band", "value"],
+                    how="left",
                 )
+                summ.to_csv(common.RESULTS / f"{p.stem}_metrics.csv", index=False)
         print("plotted", path)
     for perf in sorted(common.RESULTS.glob("performance*.csv")):
         plot_performance(perf)
