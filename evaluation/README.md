@@ -12,7 +12,7 @@ standard coalescent.
 
 | Script | Purpose |
 |---|---|
-| `accuracy.py` | Sweep a parameter (`sample_size`, `length`, `mutation_rate`, `max_iterations`) for `variational_gamma`, comparing estimated to true node times. `--modes true` dates the true topology; `inferred` dates a tsinfer topology and compares to best-matching true nodes via [tscompare](https://github.com/tskit-dev/tscompare) (see issue #301). Writes one row per node (`accuracy_*.csv`). It also compares mutation times (`mutations_*.csv`): sites with a single mutation are matched by position, and tsdate's posterior mean mutation time is compared with the midpoint of the true edge the mutation sits on (the best any method can do; the exact simulated time is also saved as `true_time_exact`, and `plot.py --mutation-truth exact` plots against it), so no node matching is needed in either mode. |
+| `accuracy.py` | Sweep a parameter (`sample_size`, `length`, `mutation_rate`, `max_iterations`) for `variational_gamma`, comparing estimated to true node times. `--modes true` dates the true topology; `inferred` dates a tsinfer topology and compares to best-matching true nodes via [tscompare](https://github.com/tskit-dev/tscompare) (see issue #301). Writes one row per node (`accuracy_*.csv`). It also compares mutation times (`mutations_*.csv`): sites with a single mutation are matched by position, and tsdate's posterior mean mutation time is compared with the midpoint of the true edge the mutation sits on (the best any method can do; the exact simulated time is also saved as `true_time_exact`). `plot.py` scores scatter, RMSE and bias against the midpoint but PIT and interval coverage against the exact time, since the posterior is for the realised mutation time; `--mutation-truth midpoint` or `exact` forces one truth everywhere, so no node matching is needed in either mode. |
 | `performance.py` | Wall time and peak RSS, each case in a fresh process. |
 | `plot.py` | Reads `results/*.csv` and writes PNGs: error/bias/interval coverage vs parameter (`accuracy_*_summary.png`: top row node times, bottom row mutation times), estimated-vs-true scatter (`accuracy_*_scatter.png`: columns are swept values, rows are node/mutation times for true/tsinferred topology), PIT calibration histograms (`accuracy_*_calibration.png`: node row, mutation row), time and memory scaling. |
 | `validation.py` | Stub: numerical checks too slow for the unit tests (issue #384). |
@@ -20,7 +20,7 @@ standard coalescent.
 Each CSV row records the tsdate version, git SHA and timestamp.
 
 ```
-python evaluation/accuracy.py --sweep sample_size --modes true inferred --seeds 3--max-seeds 250 --cores 8
+python evaluation/accuracy.py --sweep sample_size --modes true inferred --seeds 3 --max-seeds 250 --cores 8
 python evaluation/performance.py --sizes 100 500 1000
 python evaluation/plot.py
 ```
