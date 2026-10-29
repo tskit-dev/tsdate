@@ -16,6 +16,7 @@ import matplotlib.colors
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import scipy.special
 import scipy.stats
 
 LEVELS = (0.5, 0.8, 0.9, 0.95)
@@ -357,6 +358,21 @@ def plot_afs(path):
                 transform=ax.transAxes,
                 size=8,
             )
+            ok = d.expected > 0
+            o, e = d.observed[ok], d.expected[ok]
+            # Poisson deviance: like Pearson chi-squared, but stable for tiny expected
+            dev = 2 * (scipy.special.xlogy(o, o / e) - (o - e))
+            ax.text(
+                0.96,
+                0.04,
+                f"obs/exp = {d.observed.sum() / d.expected.sum():.2f}\n"
+                f"deviance/window = {dev.mean():.2f}",
+                transform=ax.transAxes,
+                ha="right",
+                va="bottom",
+                fontsize=6,
+                bbox=dict(fc="white", ec="none", alpha=0.7, pad=1.5),
+            )
             m = d.observed.mean()
             ax.axline((m, m), slope=1, linestyle="--", color="black", lw=0.8)
             ax.set_xlim(d.expected.min() * fudge, d.expected.max() / fudge)
@@ -369,8 +385,10 @@ def plot_afs(path):
     fig.supxlabel("expected # sites in window (from branch lengths)", fontsize=9)
     fig.suptitle(
         f"Site AFS per window, observed vs expected from branch lengths "
-        f"(sample size {df.sample_size.iloc[0]}); {title_of(df, path)}",
-        fontsize=10,
+        f"(sample size {df.sample_size.iloc[0]}); {title_of(df, path)}\n"
+        "obs/exp: ratio of total sites (1 = unbiased); deviance/window: mean Poisson "
+        "deviance (lower = better fit; compare across rows)",
+        fontsize=9,
     )
     fig.savefig(common.RESULTS / f"{path.stem}.png", dpi=150)
     plt.close(fig)
