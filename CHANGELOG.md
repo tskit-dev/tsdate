@@ -7,6 +7,10 @@ In development
 - `preprocess_ts` now always sorts the tree sequence, which may change the order
   of mutations
 
+- Removed the unused, undocumented `tsdate.evaluation` module. Its accuracy
+  diagnostics are superseded by the scripts in `evaluation/`, the AFS diagnostics
+  moved to `evaluation/afs.py`, and the polytomy test helpers to `tests/`.
+
 **Bugfixes**
 
 - Removed an assertion in `split_disjoint_nodes` that is not guarenteed

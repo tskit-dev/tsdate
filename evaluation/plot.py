@@ -325,6 +325,53 @@ def plot_calibration(path, mut_path=None):
     plt.close(fig)
 
 
+def plot_afs(path):
+    """Observed vs expected number of sites per window, in bins of allele frequency."""
+    df = pd.read_csv(path)
+    times = [t for t in ("true", "tsdate") if t in set(df["times"])]
+    nbins = df["bin"].nunique()
+    dim = int(np.ceil(np.sqrt(nbins)))
+    fig, axes = plt.subplots(
+        len(times),
+        dim * dim,
+        figsize=(2.2 * nbins, 2.6 * len(times) + 0.8),
+        squeeze=False,
+        layout="constrained",
+    )
+    fudge = 0.9
+    for row, t in zip(axes, times):
+        for ax, (_, d) in zip(row, df[df["times"] == t].groupby("bin")):
+            ax.scatter(d.expected, d.observed, color="firebrick", s=4, rasterized=True)
+            lo, hi = d.freq_lo.iloc[0], d.freq_hi.iloc[0]
+            ax.text(
+                0.02,
+                0.98,
+                f"{lo}:{hi}",
+                ha="left",
+                va="top",
+                transform=ax.transAxes,
+                size=8,
+            )
+            m = d.observed.mean()
+            ax.axline((m, m), slope=1, linestyle="--", color="black", lw=0.8)
+            ax.set_xlim(d.expected.min() * fudge, d.expected.max() / fudge)
+            ax.set_ylim(d.observed.min() * fudge, d.observed.max() / fudge)
+            ax.set_xticks(np.linspace(d.expected.min(), d.expected.max(), 3))
+            ax.set_yticks(np.linspace(d.observed.min(), d.observed.max(), 3))
+            ax.tick_params(labelsize=6)
+            ax.ticklabel_format(style="sci", scilimits=(0, 0))
+        row[0].set_ylabel(f"{t} times\nobserved # sites", fontsize=8)
+    for ax in axes[-1]:
+        ax.set_xlabel("expected # sites", fontsize=8)
+    fig.suptitle(
+        f"Site AFS per window, observed vs expected from branch lengths "
+        f"(sample size {df.sample_size.iloc[0]}); {title_of(df, path)}",
+        fontsize=10,
+    )
+    fig.savefig(common.RESULTS / f"{path.stem}.png", dpi=150)
+    plt.close(fig)
+
+
 def plot_performance(path):
     df = pd.read_csv(path)
     g = df.groupby(["length", "sample_size"]).median(numeric_only=True).reset_index()
@@ -373,6 +420,9 @@ def main():
                 )
                 summ.to_csv(common.RESULTS / f"{p.stem}_metrics.csv", index=False)
         print("plotted", path)
+    for afs in sorted(common.RESULTS.glob("afs_*.csv")):
+        plot_afs(afs)
+        print("plotted", afs)
     for perf in sorted(common.RESULTS.glob("performance*.csv")):
         plot_performance(perf)
         print("plotted", perf)
