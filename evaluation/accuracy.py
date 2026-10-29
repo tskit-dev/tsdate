@@ -1,7 +1,7 @@
 """
 Evaluate the accuracy of tsdate.variational_gamma on simulated data, sweeping one
-parameter at a time. Writes one row per node to results/accuracy_<name>.csv; use
-plot.py to make figures.
+parameter at a time. Writes one row per node to results/accuracy_<name>.csv and one
+row per mutation to results/mutations_<name>.csv; use plot.py to make figures.
 
 Modes:
   true  : date the true topology, compare node times to the truth
@@ -11,11 +11,12 @@ Modes:
 
 Example:
   python evaluation/accuracy.py --sweep sample_size --modes true inferred \\
-      --seeds 3 --cores 4
+      --seeds 3 --max-seeds 250 --cores 8
 """
 
 import argparse
 import concurrent.futures
+import math
 import multiprocessing
 
 import common
@@ -23,6 +24,7 @@ import numpy as np
 import pandas as pd
 import tqdm
 import tscompare
+import tskit
 
 import tsdate
 
@@ -72,14 +74,73 @@ def node_table(ts, true_ts, mode, overlap_threshold):
     )
 
 
+def edge_midpoint_times(ts, mut_ids):
+    """
+    Time halfway between the child and parent node of each mutation's edge. A
+    mutation's exact time is unknowable from the genotypes, so this is the best that
+    any method can do. Mutations above a root (no parent) get NaN.
+    """
+    mut_ids = np.asarray(mut_ids)
+    pos = ts.sites_position[ts.mutations_site[mut_ids]]
+    nodes = ts.mutations_node[mut_ids]
+    out = np.full(len(mut_ids), np.nan)
+    tree = ts.first()
+    for k in np.argsort(pos):
+        tree.seek(pos[k])
+        parent = tree.parent(nodes[k])
+        if parent != tskit.NULL:
+            out[k] = (ts.nodes_time[nodes[k]] + ts.nodes_time[parent]) / 2
+    return out
+
+
+def mutation_table(ts, true_ts):
+    """
+    Estimated (posterior mean) vs true mutation times, for sites that have exactly
+    one mutation in both the dated ts and the true ts. Sites are matched by position,
+    so this needs no node matching and works for any inferred topology. "true_time" is
+    the midpoint of the true edge the mutation sits on; "true_time_exact" is the
+    simulated time.
+    """
+
+    def by_position(t):
+        per_site = np.bincount(t.mutations_site, minlength=t.num_sites)
+        single = np.flatnonzero(per_site[t.mutations_site] == 1)
+        return pd.Series(single, index=t.sites_position[t.mutations_site[single]])
+
+    est, true = by_position(ts), by_position(true_ts)
+    pos = est.index.intersection(true.index)
+    est_id, true_id = est[pos].to_numpy(), true[pos].to_numpy()
+    meta = [ts.mutation(i).metadata for i in est_id]
+    mn = np.array([m["mn"] for m in meta])
+    vr = np.array([m["vr"] for m in meta])
+    true_time = edge_midpoint_times(true_ts, true_id)
+    exact_time = true_ts.mutations_time[true_id]
+    keep = (
+        np.isfinite(true_time)
+        & np.isfinite(exact_time)
+        & np.isfinite(mn)
+        & np.isfinite(vr)
+    )
+    return pd.DataFrame(
+        {
+            "position": pos[keep],
+            "true_time": true_time[keep],
+            "true_time_exact": exact_time[keep],
+            "est_time": mn[keep],
+            "post_mean": mn[keep],
+            "post_var": vr[keep],
+        }
+    )
+
+
 def run_case(args, value, seed, prov):
-    """Simulate once, then date and score each mode. Returns a list of DataFrames."""
+    """Simulate once, then date and score each mode. Returns (node, mutation) frames."""
     params = dict(DEFAULTS, max_iterations=None)
     params[args.sweep] = value
     true_ts = common.simulate(
         int(params["sample_size"]), params["length"], params["mutation_rate"], seed
     )
-    frames = []
+    frames, mut_frames = [], []
     for mode in args.modes:
         ts = true_ts if mode == "true" else common.infer_topology(true_ts)
         dated = tsdate.date(
@@ -89,30 +150,42 @@ def run_case(args, value, seed, prov):
             max_iterations=params["max_iterations"],
             progress=False,
         )
-        df = node_table(dated, true_ts, mode, args.min_overlap)
-        frames.append(
-            df.assign(
-                sweep=args.sweep,
-                method=METHOD,
-                value=value,
-                seed=seed,
-                mode=mode,
-                **prov,
-            )
+        extra = dict(
+            sweep=args.sweep, method=METHOD, value=value, seed=seed, mode=mode, **prov
         )
-    return frames
+        frames.append(node_table(dated, true_ts, mode, args.min_overlap).assign(**extra))
+        mut_frames.append(mutation_table(dated, true_ts).assign(**extra))
+    return frames, mut_frames
+
+
+def num_seeds(args, value, largest):
+    """Replicates for a case: --seeds, or more for small n if --max-seeds is larger.
+
+    Small samples have few young nodes per replicate, so they need more of them.
+    """
+    if args.sweep != "sample_size":
+        return args.seeds
+    return min(args.max_seeds, math.ceil(args.seeds * largest / value))
 
 
 def run(args):
     sweeps = QUICK if args.quick else SWEEPS
     prov = common.provenance()
-    cases = [(v, s) for v in sweeps[args.sweep] for s in range(1, args.seeds + 1)]
-    frames = []
+    values = sweeps[args.sweep]
+    cases = [
+        (v, s) for v in values for s in range(1, num_seeds(args, v, max(values)) + 1)
+    ]
+    # Larger values (more samples, longer sequence, higher mutation rate, more
+    # iterations) take longer, so start them first to keep all cores busy to the end
+    cases.sort(key=lambda case: -case[0])
+    frames, mut_frames = [], []
     progress = tqdm.tqdm(total=len(cases), desc=args.sweep, unit="case")
     if args.cores == 1:
         for value, seed in cases:
             progress.set_postfix_str(f"{value:g}, seed {seed}")
-            frames += run_case(args, value, seed, prov)
+            nodes, muts = run_case(args, value, seed, prov)
+            frames += nodes
+            mut_frames += muts
             progress.update()
     else:
         # Spawn (not fork) so that numba and tsinfer state is not shared
@@ -120,13 +193,19 @@ def run(args):
         with concurrent.futures.ProcessPoolExecutor(args.cores, mp_context=ctx) as ex:
             futures = [ex.submit(run_case, args, v, s, prov) for v, s in cases]
             for future in concurrent.futures.as_completed(futures):
-                frames += future.result()
+                nodes, muts = future.result()
+                frames += nodes
+                mut_frames += muts
                 progress.update()
     progress.close()
     common.RESULTS.mkdir(exist_ok=True)
     suffix = "_quick" if args.quick else ""
     out = common.RESULTS / f"accuracy_{args.sweep}{suffix}.csv"
     df = pd.concat(frames).sort_values(["mode", "value", "seed", "node"])
+    df.to_csv(out, index=False)
+    print("wrote", out)
+    out = common.RESULTS / f"mutations_{args.sweep}{suffix}.csv"
+    df = pd.concat(mut_frames).sort_values(["mode", "value", "seed", "position"])
     df.to_csv(out, index=False)
     print("wrote", out)
 
@@ -136,6 +215,12 @@ def main():
     p.add_argument("--sweep", choices=SWEEPS, required=True)
     p.add_argument("--modes", nargs="+", choices=["true", "inferred"], default=["true"])
     p.add_argument("--seeds", type=int, default=5)
+    p.add_argument(
+        "--max-seeds",
+        type=int,
+        help="For --sweep sample_size: use --seeds at the largest n, scaling up "
+        "inversely with n to at most this many seeds. Default: --seeds (no scaling).",
+    )
     p.add_argument(
         "--min-overlap",
         type=float,
@@ -150,7 +235,9 @@ def main():
         "use is roughly cores x the largest case.",
     )
     p.add_argument("--quick", action="store_true", help="Tiny smoke-test sizes")
-    run(p.parse_args())
+    args = p.parse_args()
+    args.max_seeds = args.max_seeds or args.seeds
+    run(args)
 
 
 if __name__ == "__main__":
