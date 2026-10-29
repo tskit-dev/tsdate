@@ -35,7 +35,6 @@ import utility_functions as util
 
 import tsdate
 from tsdate.demography import PopulationSizeHistory
-from tsdate.evaluation import remove_edges, unsupported_edges
 from tsdate.node_time_class import LIN_GRID, LOG_GRID
 
 
@@ -490,7 +489,7 @@ class TestVariational:
         tsdate.variational_gamma(self.ts, mutation_rate=1e-8)
 
     def test_polytomy(self):
-        pts = remove_edges(self.ts, unsupported_edges(self.ts)).simplify()
+        pts = util.remove_edges(self.ts, util.unsupported_edges(self.ts)).simplify()
         tsdate.variational_gamma(pts, mutation_rate=1e-8)
 
     def test_inferred(self):
