@@ -11,7 +11,7 @@ jobs:
     name: Python packaging
     permissions:
       contents: read
-    uses: tskit-dev/.github/.github/workflows/python-packaging.yml@v19
+    uses: tskit-dev/.github/.github/workflows/python-packaging.yml@v22
     with:
       cli-test-cmd: tsdate --help
 
@@ -19,7 +19,7 @@ jobs:
     name: Python
     permissions:
       contents: read
-    uses: tskit-dev/.github/.github/workflows/python-tests.yml@v19
+    uses: tskit-dev/.github/.github/workflows/python-tests.yml@v22
     with:
       os: ${{ matrix.os }}
       python-version: ${{ matrix.python }}
