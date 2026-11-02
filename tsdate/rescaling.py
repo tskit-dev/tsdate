@@ -467,6 +467,19 @@ def piecewise_scale_posterior(
     assert original_breaks.size == rescaled_breaks.size
     assert 1 > quantile_width > 0
 
+    if not np.all(np.diff(rescaled_breaks) > 0):
+        raise ValueError(
+            "Rescaling produced non-increasing time breakpoints. "
+            "Try setting `rescaling_intervals` to a smaller value "
+            "(e.g. half its current value)."
+        )
+    if not np.all(np.diff(original_breaks) > 0):
+        raise ValueError(
+            "Rescaling produced non-increasing time breakpoints. "
+            "Try setting `rescaling_intervals` to a smaller value "
+            "(e.g. half its current value)."
+        )
+
     dim = posteriors.shape[0]
     quant_lower = quantile_width / 2
     quant_upper = 1 - quantile_width / 2
@@ -485,8 +498,6 @@ def piecewise_scale_posterior(
         midpt[i] = (alpha + 1) / beta
 
     # rescale quantiles
-    assert np.all(np.diff(rescaled_breaks) > 0), "Use fewer rescaling intervals"
-    assert np.all(np.diff(original_breaks) > 0), "Use fewer rescaling intervals"
     scalings = np.append(np.diff(rescaled_breaks) / np.diff(original_breaks), 0)
 
     def rescale(x):
@@ -518,8 +529,18 @@ def piecewise_scale_point_estimate(
     original_breaks,
     rescaled_breaks,
 ):
-    assert np.all(np.diff(rescaled_breaks) > 0), "Use fewer rescaling intervals"
-    assert np.all(np.diff(original_breaks) > 0), "Use fewer rescaling intervals"
+    if not np.all(np.diff(rescaled_breaks) > 0):
+        raise ValueError(
+            "Rescaling produced non-increasing time breakpoints. "
+            "Try setting `rescaling_intervals` to a smaller value "
+            "(e.g. half its current value)."
+        )
+    if not np.all(np.diff(original_breaks) > 0):
+        raise ValueError(
+            "Rescaling produced non-increasing time breakpoints. "
+            "Try setting `rescaling_intervals` to a smaller value "
+            "(e.g. half its current value)."
+        )
     scalings = np.append(np.diff(rescaled_breaks) / np.diff(original_breaks), 0)
     idx = np.searchsorted(original_breaks, point_estimate, "right") - 1
     rescaled_estimate = rescaled_breaks[idx] + \

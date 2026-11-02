@@ -34,7 +34,12 @@ import tsinfer
 import tskit
 
 import tsdate
-from tsdate.rescaling import count_mutations, mutational_area
+from tsdate.rescaling import (
+    count_mutations,
+    mutational_area,
+    piecewise_scale_point_estimate,
+    piecewise_scale_posterior,
+)
 
 
 @pytest.fixture(scope="session")
@@ -147,6 +152,28 @@ class TestMutationalArea:
         np.testing.assert_allclose(epoch_span, ck_span)
         np.testing.assert_allclose(epoch_duration, ck_duration)
         np.testing.assert_allclose(node_index, ck_index)
+
+
+class TestPiecewiseScale:
+    def test_point_estimate_nonincreasing_breaks(self):
+        with pytest.raises(ValueError, match="Try setting `rescaling_intervals`"):
+            piecewise_scale_point_estimate(
+                np.array([0.5]),
+                np.array([False]),
+                np.array([0.0, 1.0]),
+                np.array([0.0, 0.0]),
+            )
+
+    def test_posterior_nonincreasing_breaks(self):
+        with pytest.raises(ValueError, match="Try setting `rescaling_intervals`"):
+            piecewise_scale_posterior(
+                np.array([[1.0, 1.0]]),
+                np.array([False]),
+                np.array([0.0, 1.0]),
+                np.array([0.0, 0.0]),
+                0.5,
+                1000,
+            )
 
 
 class TestCountMutations:
