@@ -1180,8 +1180,6 @@ class TestOutsideAlgorithm:
         ts = utility_functions.two_tree_two_mrcas()
         ignore_oldest = self.run_outside_algorithm(ts, ignore_oldest_root=True)
         use_oldest = self.run_outside_algorithm(ts, ignore_oldest_root=False)
-        assert ~np.array_equal(ignore_oldest.outside[7], use_oldest.outside[7])
-        assert ~np.array_equal(ignore_oldest.outside[6], use_oldest.outside[6])
         # In this example, if the outside algorithm was *not* used, nodes 4 and 5 should
         # have same outside values. If it is used, node 5 should seem younger than 4
         assert np.array_equal(ignore_oldest.outside[4], ignore_oldest.outside[5])
