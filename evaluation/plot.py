@@ -65,6 +65,16 @@ def title_of(df, path, noun=None):
     return f"{what}tsdate method: {method_of(df)}{quick}"
 
 
+def machine_of(df):
+    """One-line description of the machine that produced the results, if recorded."""
+    if "cpu" not in df or df["cpu"].isna().all():
+        return ""
+    r = df.iloc[0]
+    ram = f", {r.ram_gb:g} GB" if "ram_gb" in df and pd.notna(r.ram_gb) else ""
+    model = f"{r.machine}, " if "machine" in df and pd.notna(r.machine) else ""
+    return f"{model}{r.cpu} ({r.cpu_cores:g} cores{ram}), {r.os}, Python {r.python}"
+
+
 def method_of(df):
     return df["method"].iloc[0] if "method" in df else "variational_gamma"
 
@@ -396,15 +406,28 @@ def plot_afs(path):
 
 def plot_performance(path):
     df = pd.read_csv(path)
-    g = df.groupby(["length", "sample_size"]).median(numeric_only=True).reset_index()
+    g = df.groupby(["length", "sample_size"])
+    mean, sem = g.mean(numeric_only=True), g.sem(numeric_only=True)
     fig, axes = plt.subplots(1, 2, figsize=(9, 3.6))
-    for length, s in g.groupby("length"):
-        axes[0].plot(s.sample_size, s.time_s, "o-", label=f"L={length:g}")
-        axes[1].plot(s.sample_size, s.extra_rss_mb, "o-", label=f"L={length:g}")
+    for length in mean.index.get_level_values("length").unique():
+        for ax, col in zip(axes, ["time_s", "extra_rss_mb"]):
+            m = mean.loc[length, col]
+            ax.errorbar(
+                m.index,
+                m,
+                yerr=sem.loc[length, col].fillna(0),
+                fmt="o-",
+                capsize=3,
+                label=f"L={length:g}",
+            )
     for ax, t in zip(axes, ["Time (s)", "Memory increase during dating (MB)"]):
         ax.set(xscale="log", yscale="log", xlabel="sample size (diploids)", title=t)
         ax.legend()
-    fig.suptitle(title_of(df, path))
+    fig.suptitle(
+        f"{title_of(df, path)}\n{machine_of(df)}\n"
+        "(mean \u00b1 standard error over repeats)",
+        fontsize=9,
+    )
     fig.tight_layout()
     fig.savefig(common.RESULTS / f"{path.stem}.png", dpi=150)
     plt.close(fig)

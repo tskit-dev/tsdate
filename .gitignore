@@ -13,4 +13,7 @@ build/
 .*.swp
 
 evaluation/cache/
-evaluation/results/
+evaluation/results/*
+!evaluation/results/performance*.csv
+!evaluation/results/performance*.png
+evaluation/results/*_quick*
