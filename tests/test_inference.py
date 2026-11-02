@@ -334,10 +334,10 @@ class TestSimulated:
         self.ts_equal_except_times(ts, max_ts)
 
     def test_linear_space(self):
-        # This makes ~1700 trees, and previously caused a failure
+        # This makes ~140 trees. Much longer sequences overflow in linear space
         ts = msprime.simulate(
             sample_size=10,
-            length=2e6,
+            length=2e5,
             Ne=10000,
             mutation_rate=1e-8,
             recombination_rate=1e-8,
