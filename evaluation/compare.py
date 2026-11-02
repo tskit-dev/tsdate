@@ -24,7 +24,13 @@ def summarise(path):
     for m in METRICS:
         out[m + "_spread"] = g[m].max() - g[m].min()
     label = ",".join(sorted(df.git_sha.dropna().astype(str).unique()))
-    return out, label
+    machine = ""
+    cols = [c for c in ("machine", "cpu") if c in df]
+    if cols:
+        machine = "; ".join(
+            sorted(set(df[cols].fillna("").astype(str).agg(" ".join, axis=1)))
+        )
+    return out, label, machine
 
 
 def flag(ratio, base, new, base_spread, new_spread):
@@ -38,10 +44,13 @@ def main():
     p.add_argument("base", help="performance CSV of the reference version")
     p.add_argument("new", help="performance CSV of the version being tested")
     args = p.parse_args()
-    base, base_label = summarise(args.base)
-    new, new_label = summarise(args.new)
-    print(f"base: {args.base} ({base_label})\nnew:  {args.new} ({new_label})\n")
-    both = base.join(new, how="inner", lsuffix="_b", rsuffix="_n")
+    base, base_label, base_machine = summarise(args.base)
+    new, new_label, new_machine = summarise(args.new)
+    print(f"base: {args.base} ({base_label}) {base_machine}")
+    print(f"new:  {args.new} ({new_label}) {new_machine}\n")
+    if base_machine != new_machine:
+        print("Note: CPUs differ or are unrecorded, so ratios include hardware effects\n")
+    both = base.join(new, how="inner", suffixes=("_b", "_n"))
     if both.empty:
         raise SystemExit("No cases in common between the two files")
     names = {"time_s": "time (s)", "extra_rss_mb": "memory increase (MB)"}

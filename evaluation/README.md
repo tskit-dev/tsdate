@@ -4,7 +4,7 @@ Scripts to benchmark and validate tsdate **by hand**. They are not part of the
 package or of the unit tests (pytest only collects `tests/`), and need extra
 dependencies: `pip install -r evaluation/requirements.txt`.
 
-Run from the repository root; results go to `evaluation/results/` (git-ignored),
+Run from the repository root; results go to `evaluation/results/` (git-ignored, except `performance*.csv`/`.png`, which are committed to track progress),
 and simulations are cached in `evaluation/cache/`. Simulations use a discrete-time
 Wright-Fisher model for the most recent 20 generations (so node times are integers
 there, and the coalescent approximation does not give sub-generation nodes), then the
@@ -46,6 +46,29 @@ min-to-max spread of the repeats are shown as `~` (noise), so use at least 3 rep
 keep the machine otherwise idle. Use identical options (`--sizes`, `--lengths`,
 `--inferred`) for both runs; only cases present in both files are compared. Memory is
 the RSS increase during dating, not total process memory.
+
+#### Comparing against the stored results
+
+`evaluation/results/performance.csv` and `performance.png` are committed, so they act as
+a reference to check progress against. Each row records the machine (`machine`, `cpu`,
+`cpu_cores`, `ram_gb`, `os`, `python`) as well as the tsdate version and git SHA, and
+`compare.py` prints the machine of each file. To test the current code against the
+stored run, write the new results to a *different* file (otherwise you overwrite the
+stored reference) and compare:
+
+```
+python evaluation/performance.py --repeats 3 --output new.csv   # same options as stored run
+python evaluation/compare.py evaluation/results/performance.csv evaluation/results/new.csv
+```
+
+The stored run's sweep (sizes, lengths, `--inferred`) is in the CSV, so use the same
+options; only cases present in both files are compared. If the CPUs differ, `compare.py`
+prints a note: the ratios then include hardware effects (a fanless laptop may also
+throttle), so interpret them with care. To compare with an older commit instead, use
+`git show <commit>:evaluation/results/performance.csv > old.csv`. `new.csv` is
+git-ignored. To update the stored reference, re-run without `--output`, run `plot.py`,
+and commit the two `performance.*` files. The plot shows mean ± standard error over the
+repeats (use 5 or more for a reference run).
 
 Add `--quick` to `accuracy.py` / `performance.py` for a fast smoke test. Quick runs write
 to separate `*_quick.csv` files (so they never overwrite full results), and `plot.py`
