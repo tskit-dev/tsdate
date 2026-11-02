@@ -622,7 +622,10 @@ class TestLikelihoodClass:
             for standardize in (True, False):
                 lik = L(ts, grid, mut_rate, eps, standardize=standardize)
                 dt = grid
-                for num_threads in (None, 1, 2):
+                # Each multiprocessing pool re-imports (and recompiles) tsdate under
+                # "spawn", which takes ~25s, so only test it once per class
+                thread_options = (None, 1, 2) if standardize else (None, 1)
+                for num_threads in thread_options:
                     n_internal_edges = 0
                     lik.precalculate_mutation_likelihoods(num_threads=num_threads)
                     for edge in ts.edges():
