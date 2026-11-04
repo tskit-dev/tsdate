@@ -836,3 +836,7 @@ class BeliefPropagation:
         self.posterior_mean = self.lik.timepoints[
             np.array(maximized_node_times).astype("int")
         ]
+        # Fixed nodes (e.g. isolated non-samples) keep their existing times, which
+        # need not lie on the time grid
+        fixed = np.array(list(self.fixednodes), dtype=int)
+        self.posterior_mean[fixed] = self.ts.nodes_time[fixed]

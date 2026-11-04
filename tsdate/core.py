@@ -213,9 +213,16 @@ class EstimationMethod:
 
         # Add posterior mean and variance to node/mutation metadata
         meta_timing = time.time()
-        self.set_time_metadata(
-            nodes, node_mean_t, node_var_t, schemas.default_node_schema
-        )
+        # Isolated non-sample nodes are undated, so their metadata is NaN
+        md_mean_t, md_var_t = node_mean_t, node_var_t
+        isolated = util.isolated_nonsample_nodes(ts)
+        if len(isolated) > 0:
+            md_mean_t = np.array(node_mean_t, dtype=float)
+            md_mean_t[isolated] = np.nan
+            if node_var_t is not None:
+                md_var_t = np.array(node_var_t, dtype=float)
+                md_var_t[isolated] = np.nan
+        self.set_time_metadata(nodes, md_mean_t, md_var_t, schemas.default_node_schema)
         self.set_time_metadata(
             mutations, mut_mean_t, mut_var_t, schemas.default_mutation_schema
         )
@@ -309,7 +316,8 @@ class EstimationMethod:
         for sample in self.ts.samples():
             if self.ts.node(sample).time != 0:
                 raise NotImplementedError("Samples must all be at time 0")
-        return set(self.ts.samples())
+        # Isolated non-sample nodes can't be dated, so are treated as fixed too
+        return set(self.ts.samples()) | set(util.isolated_nonsample_nodes(self.ts))
 
 
 class DiscreteTimeMethod(EstimationMethod):

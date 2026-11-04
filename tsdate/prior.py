@@ -1026,6 +1026,7 @@ def fill_priors(
 
     datable_nodes = np.ones(ts.num_nodes, dtype=bool)
     datable_nodes[ts.samples()] = False
+    datable_nodes[util.isolated_nonsample_nodes(ts)] = False
     datable_nodes = np.where(datable_nodes)[0]
 
     # convert timepoints to generational timescale
@@ -1076,7 +1077,9 @@ class MixturePrior:
                 )
 
         contmpr_ts, node_map = util.reduce_to_contemporaneous(tree_sequence)
-        if contmpr_ts.num_nodes != tree_sequence.num_nodes:
+        # Isolated non-sample nodes are removed by simplification: they have no prior
+        isolated = util.isolated_nonsample_nodes(tree_sequence)
+        if contmpr_ts.num_nodes != tree_sequence.num_nodes - len(isolated):
             raise ValueError(
                 "Passed tree sequence is not simplified and/or contains "
                 "noncontemporaneous samples"
@@ -1097,6 +1100,7 @@ class MixturePrior:
 
         # Map the nodes in the prior params back to the node ids in the original ts
         self.prior_params = prior_params_contmpr[node_map, :]
+        self.prior_params[isolated, :] = np.nan
         self.base_priors = base_priors
         self.tree_sequence = tree_sequence
         self.prior_distribution = prior_distribution

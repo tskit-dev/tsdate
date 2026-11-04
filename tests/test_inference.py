@@ -450,6 +450,76 @@ class TestSimulated:
         assert has_missing
 
 
+class TestIsolatedNodes:
+    """
+    Isolated non-sample nodes can't be dated, so should keep their existing times
+    """
+
+    @staticmethod
+    def methods():
+        return [
+            lambda ts: tsdate.variational_gamma(ts, mutation_rate=1e-8),
+            lambda ts: tsdate.inside_outside(ts, mutation_rate=1e-8, population_size=1e4),
+            lambda ts: tsdate.maximization(ts, mutation_rate=1e-8, population_size=1e4),
+        ]
+
+    @pytest.mark.parametrize("method", range(3))
+    @pytest.mark.parametrize("isolated_time", [0.0, 5.5, 1e6])
+    def test_isolated_nonsample_node(self, method, isolated_time):
+        ts = msprime.sim_ancestry(
+            5,
+            sequence_length=1e5,
+            recombination_rate=1e-8,
+            population_size=1e4,
+            random_seed=1,
+        )
+        ts = msprime.sim_mutations(ts, rate=1e-8, random_seed=1)
+        tables = ts.dump_tables()
+        tables.nodes.add_row(flags=0, time=isolated_time)
+        isolated = ts.num_nodes
+        ts_iso = tables.tree_sequence()
+        func = self.methods()[method]
+        dated = func(ts)
+        dated_iso = func(ts_iso)
+        assert dated_iso.num_nodes == ts.num_nodes + 1
+        assert dated_iso.node(isolated).time == isolated_time
+        assert dated_iso.node(isolated).flags == 0
+        if method != 2:  # maximization does not set posterior metadata
+            md = dated_iso.node(isolated).metadata
+            assert np.isnan(md["mn"])
+            assert np.isnan(md["vr"])
+            assert not np.isnan(dated_iso.node(0).metadata["mn"])
+        assert np.allclose(dated_iso.nodes_time[:isolated], dated.nodes_time)
+        assert dated_iso.num_edges == ts.num_edges
+
+    @pytest.mark.parametrize("isolated_time", [0.0, 5.5])
+    def test_isolated_nonsample_fit_posterior_is_nan(self, isolated_time):
+        ts = msprime.sim_ancestry(
+            5, sequence_length=1e5, population_size=1e4, random_seed=1
+        )
+        ts = msprime.sim_mutations(ts, rate=1e-8, random_seed=1)
+        tables = ts.dump_tables()
+        tables.nodes.add_row(flags=0, time=isolated_time)
+        isolated = ts.num_nodes
+        _, fit = tsdate.variational_gamma(
+            tables.tree_sequence(), mutation_rate=1e-8, return_fit=True
+        )
+        post = fit.node_posteriors()
+        assert np.isnan(post["mean"][isolated])
+        assert np.isnan(post["variance"][isolated])
+        assert not np.any(np.isnan(post["mean"][:isolated]))
+
+    def test_isolated_sample_still_fails(self):
+        ts = msprime.sim_ancestry(
+            5, sequence_length=1e5, population_size=1e4, random_seed=1
+        )
+        ts = msprime.sim_mutations(ts, rate=1e-8, random_seed=1)
+        tables = ts.dump_tables()
+        tables.nodes.add_row(flags=tskit.NODE_IS_SAMPLE, time=0)
+        with pytest.raises(ValueError, match="disconnected"):
+            tsdate.variational_gamma(tables.tree_sequence(), mutation_rate=1e-8)
+
+
 class TestInferred:
     """
     Tests for tsdate on simulated then inferred tree sequences.

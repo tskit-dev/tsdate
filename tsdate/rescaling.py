@@ -263,7 +263,12 @@ def mutational_area(
     assert likelihoods.shape == (edges_parent.size, 2)
 
     # index node by unique time breaks
-    nodes_order = np.argsort(nodes_time)
+    # (nodes in no edges, e.g. isolated nodes, must not create epochs)
+    in_edge = np.zeros(nodes_time.size, dtype=np.bool_)
+    in_edge[edges_parent] = True
+    in_edge[edges_child] = True
+    nodes_order = np.flatnonzero(in_edge)
+    nodes_order = nodes_order[np.argsort(nodes_time[nodes_order])]
     nodes_index = np.zeros(nodes_time.size, dtype=np.int32)
     epoch_breaks = [0.0]
     k = 0
