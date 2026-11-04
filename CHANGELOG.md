@@ -11,6 +11,11 @@ In development
   diagnostics are superseded by the scripts in `evaluation/`, the AFS diagnostics
   moved to `evaluation/afs.py`, and the polytomy test helpers to `tests/`.
 
+- Isolated non-sample nodes (those in no edges) are now allowed by all dating
+  methods. They cannot be dated, so keep their input times (with NaN
+  posterior mean and variance in their metadata) and do not affect the dating of
+  other nodes. Isolated samples still raise an error.
+
 **Bugfixes**
 
 - Removed an assertion in `split_disjoint_nodes` that is not guarenteed
