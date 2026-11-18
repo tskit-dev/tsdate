@@ -30,6 +30,10 @@ or
 
     $ tsdate
 
+Binary wheels are provided for the common platforms. Building from source (e.g.
+from the sdist, or a development checkout) requires a C compiler, as `tsdate`
+includes a C extension module (`_tsdate`).
+
 Alternatively, the {ref}`Python API <sec_python_api>` allows more fine-grained control
 of the inference process.
 
@@ -42,6 +46,9 @@ for the general development workflow (git, prek, testing, documentation).
 Install development dependencies with `uv sync` and run the tests with:
 
     $ uv run pytest
+
+`uv sync` also (re)builds the C extension. After editing C code, run `uv sync`
+(or `make`) again to rebuild it.
 
 _Tsdate_ makes extensive use of [numba](https://numba.pydata.org)'s
 "just in time" (jit) compilation to speed up time-consuming numerical functions.

@@ -43,6 +43,19 @@ hooks = [
 repo = "local"
 hooks = [
   {
+    id = "clang-format",
+    name = "clang-format",
+    language = "system",
+    entry = "uv run --only-group=lint clang-format -i",
+    types = ["c"],
+    verbose = true,
+  },
+]
+
+[[repos]]
+repo = "local"
+hooks = [
+  {
     id = "zizmor",
     name = "zizmor",
     language = "system",

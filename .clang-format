@@ -1,0 +1,20 @@
+Language: Cpp
+BasedOnStyle: GNU
+SortIncludes:    false
+AllowShortIfStatementsOnASingleLine: false
+BreakBeforeBraces: Linux
+TabWidth:        4
+IndentWidth:     4
+ColumnLimit:     89
+SpaceBeforeParens:
+    ControlStatements
+SpacesInCStyleCastParentheses: false
+SpaceAfterCStyleCast: true
+IndentCaseLabels: true
+AlignAfterOpenBracket: DontAlign
+BinPackArguments: true
+BinPackParameters: true
+AlwaysBreakAfterReturnType: AllDefinitions
+
+StatementMacros: ["PyObject_HEAD", "Py_BEGIN_ALLOW_THREADS", "Py_END_ALLOW_THREADS"]
+AlignConsecutiveMacros: true
