@@ -3,6 +3,7 @@ requires = [
     "setuptools>=42",
     "setuptools_scm",
     "wheel",
+    "numpy>=2",
 ]
 build-backend = "setuptools.build_meta"
 
@@ -94,6 +95,7 @@ docs = [
 ]
 
 lint = [
+    "clang-format==21.1.8",
     "ruff==0.15.1",
     "prek==0.3.3",
     "zizmor==1.26.1",
@@ -101,6 +103,7 @@ lint = [
 
 packaging = [
     "twine",
+    "cibuildwheel",
     "validate-pyproject[all]",
 ]
 
@@ -148,3 +151,27 @@ known-third-party = [
   "pytest",
 ]
 
+
+[tool.cibuildwheel]
+build = ["cp311-*", "cp312-*", "cp313-*"]
+build-frontend = "build"
+build-verbosity = 1
+test-command = [
+  "python -c \"import _tsdate\"",
+  "tsdate --help",
+]
+
+[tool.cibuildwheel.linux]
+archs = ["x86_64"]
+skip = ["*musllinux*"]
+
+[tool.uv]
+# Rebuild the editable install (and so the C extension) when the C sources change.
+cache-keys = [
+  { file = "pyproject.toml" },
+  { file = "setup.py" },
+  { file = "_tsdatemodule.c" },
+  { file = "lib/*.c" },
+  { file = "lib/*.h" },
+  { git = { commit = true } },
+]

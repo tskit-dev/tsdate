@@ -17,3 +17,10 @@ evaluation/results/*
 !evaluation/results/performance*.csv
 !evaluation/results/performance*.png
 evaluation/results/*_quick*
+
+# C extension
+*.so
+lib/build*
+build-*
+*.gcda
+*.gcno

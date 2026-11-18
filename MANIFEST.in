@@ -1,0 +1,6 @@
+include lib/*.c
+include lib/*.h
+include _tsdatemodule.c
+include README.md
+include LICENSE
+recursive-include tests *.py

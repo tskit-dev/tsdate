@@ -1,0 +1,25 @@
+ignore:
+  - "lib/tests/"
+
+codecov:
+  require_ci_to_pass: false
+
+comment:
+  layout: "header, diff, flags, components"  # show component info in the PR comment
+
+component_management:
+  individual_components:
+    - component_id: python_code
+      name: Python API
+      paths:
+        - tsdate/*.py
+
+    - component_id: python_c_code
+      name: Python C interface
+      paths:
+        - _tsdatemodule.c
+
+    - component_id: c_code
+      name: C library
+      paths:
+        - lib
