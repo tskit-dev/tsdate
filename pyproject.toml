@@ -69,6 +69,7 @@ tsdate = "tsdate.__main__:main"
 
 [dependency-groups]
 test = [
+    "setuptools",
     "pytest",
     "pytest-xdist",
     "pytest-cov",
@@ -156,6 +157,7 @@ known-third-party = [
 build = ["cp311-*", "cp312-*", "cp313-*"]
 build-frontend = "build"
 build-verbosity = 1
+skip = ["*musllinux*"]
 test-command = [
   "python -c \"import _tsdate\"",
   "tsdate --help",
@@ -163,7 +165,6 @@ test-command = [
 
 [tool.cibuildwheel.linux]
 archs = ["x86_64"]
-skip = ["*musllinux*"]
 
 [tool.uv]
 # Rebuild the editable install (and so the C extension) when the C sources change.

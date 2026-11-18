@@ -3839,6 +3839,7 @@ dev = [
     { name = "pytest-cov" },
     { name = "pytest-xdist" },
     { name = "ruff" },
+    { name = "setuptools" },
     { name = "sphinx-argparse" },
     { name = "sphinx-book-theme" },
     { name = "sphinx-issues" },
@@ -3881,6 +3882,7 @@ test = [
     { name = "pytest" },
     { name = "pytest-cov" },
     { name = "pytest-xdist" },
+    { name = "setuptools" },
     { name = "tsinfer" },
 ]
 
@@ -3911,6 +3913,7 @@ dev = [
     { name = "pytest-cov" },
     { name = "pytest-xdist" },
     { name = "ruff", specifier = "==0.15.1" },
+    { name = "setuptools" },
     { name = "sphinx-argparse", specifier = "<0.6" },
     { name = "sphinx-book-theme" },
     { name = "sphinx-issues" },
@@ -3953,6 +3956,7 @@ test = [
     { name = "pytest" },
     { name = "pytest-cov" },
     { name = "pytest-xdist" },
+    { name = "setuptools" },
     { name = "tsinfer" },
 ]
 
