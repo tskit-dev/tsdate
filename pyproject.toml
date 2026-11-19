@@ -108,6 +108,10 @@ packaging = [
     "validate-pyproject[all]",
 ]
 
+wheels = [
+    "cibuildwheel",
+]
+
 dev = [
     {include-group = "docs"},
     {include-group = "lint"},
@@ -154,10 +158,16 @@ known-third-party = [
 
 
 [tool.cibuildwheel]
-build = ["cp311-*", "cp312-*", "cp313-*"]
+build = ["cp311-*", "cp312-*", "cp313-*", "cp314-*", "cp315-*"]
 build-frontend = "build"
 build-verbosity = 1
-skip = ["*musllinux*"]
+# scipy and numba publish no win32 wheels, and numba none for musllinux, so
+# installing these wheels would mean building the dependencies from source.
+skip = ["*musllinux*", "*-win32"]
+# numba publishes no macOS x86_64 wheels after 0.62.1 (none at all for
+# Python >= 3.14), so the install test fails there. Build these wheels, but
+# only test them once numba is no longer a dependency.
+test-skip = ["*-macosx_x86_64"]
 test-command = [
   "python -c \"import _tsdate\"",
   "tsdate --help",
