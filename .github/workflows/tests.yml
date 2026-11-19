@@ -11,7 +11,7 @@ jobs:
     name: Python packaging
     permissions:
       contents: read
-    uses: tskit-dev/.github/.github/workflows/python-packaging.yml@v22
+    uses: tskit-dev/.github/.github/workflows/python-packaging.yml@v23
     with:
       cli-test-cmd: tsdate --help
 
@@ -19,7 +19,7 @@ jobs:
     name: C tests
     permissions:
       contents: read
-    uses: tskit-dev/.github/.github/workflows/c-tests.yml@v22
+    uses: tskit-dev/.github/.github/workflows/c-tests.yml@v23
     with:
       library-directory: lib
     secrets:
@@ -29,7 +29,7 @@ jobs:
     name: Python-C tests
     permissions:
       contents: read
-    uses: tskit-dev/.github/.github/workflows/python-c-tests.yml@v22
+    uses: tskit-dev/.github/.github/workflows/python-c-tests.yml@v23
     secrets:
       CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
@@ -37,7 +37,7 @@ jobs:
     name: Python
     permissions:
       contents: read
-    uses: tskit-dev/.github/.github/workflows/python-tests.yml@v22
+    uses: tskit-dev/.github/.github/workflows/python-tests.yml@v23
     with:
       os: ${{ matrix.os }}
       python-version: ${{ matrix.python }}
