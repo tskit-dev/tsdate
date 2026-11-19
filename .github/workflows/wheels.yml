@@ -12,6 +12,10 @@ permissions:
 jobs:
   build-wheels:
     uses: tskit-dev/.github/.github/workflows/build-wheels.yml@v22
+    with:
+      # The shared default still lists macos-14, which GitHub no longer runs;
+      # macos-15 is its Apple Silicon replacement.
+      os-list: '["ubuntu-24.04", "windows-2025", "macos-15-intel", "macos-15"]'
 
   publish:
     runs-on: ubuntu-24.04
