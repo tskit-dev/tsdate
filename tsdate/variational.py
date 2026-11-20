@@ -43,7 +43,7 @@ from .rescaling import (
     piecewise_scale_point_estimate,
     piecewise_scale_posterior,
 )
-from .util import contains_unary_nodes
+from .util import contains_unary_nodes, isolated_nonsample_nodes
 
 logger = logging.getLogger(__name__)
 
@@ -280,7 +280,9 @@ class ExpectationPropagation:
         self.edge_children = ts.edges_child
 
         # lower and upper bounds on node ages
-        fixed_nodes = np.array(list(ts.samples()))
+        # Isolated non-sample nodes can't be dated, so are kept at their existing time
+        self.isolated_nodes = isolated_nonsample_nodes(ts)
+        fixed_nodes = np.concatenate((ts.samples(), self.isolated_nodes))
         self.node_constraints = np.zeros((ts.num_nodes, 2))
         self.node_constraints[:, 1] = np.inf
         self.node_constraints[fixed_nodes, :] = ts.nodes_time[fixed_nodes, np.newaxis]
@@ -335,7 +337,7 @@ class ExpectationPropagation:
         has_child[self.edge_parents] = True
         self.roots = np.logical_and(has_child, ~has_parent)
         self.leaves = np.logical_and(~has_child, has_parent)
-        if np.any(np.logical_and(~has_child, ~has_parent)):
+        if np.any(np.logical_and(~has_child, ~has_parent)[ts.samples()]):
             raise ValueError("Tree sequence contains disconnected nodes")
         # TODO: we don't need to store all these similar vectors
         self.unconstrained_roots = self.roots.copy()
@@ -960,6 +962,9 @@ class ExpectationPropagation:
         data = np.empty(node_mn.size, dtype=dtype)
         data["mean"] = node_mn
         data["variance"] = node_va
+        # Isolated nodes are undated, so report no posterior for them
+        data["mean"][self.isolated_nodes] = np.nan
+        data["variance"][self.isolated_nodes] = np.nan
         return data
 
     def mutation_posteriors(self):

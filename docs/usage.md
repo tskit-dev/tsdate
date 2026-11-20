@@ -203,7 +203,10 @@ running _tsdate_:
     {ref}`tskit:sec_metadata` specifying mean time and its variance.
     These metadata values (currently saved as `mn` and `vr`) are not constrained by
     the topology of the tree sequence, and should be used in preference
-    e.g. to `nodes_time` and `mutations_time` when evaluating the accuracy of _tsdate_. 
+    e.g. to `nodes_time` and `mutations_time` when evaluating the accuracy of _tsdate_.
+    Non-sample nodes that are not in any edge ("isolated" nodes) cannot be dated:
+    they keep their original `time`, and their `mn` and `vr` metadata values (and the corresponding rows of
+    `node_posteriors()` on the fit object) are NaN.
 2. The `return_fit` parameter can be used when calling {func}`tsdate.date`, which
     then returns both the dated tree sequence and a fit object. This object can then be
     queried for the unconstrained posterior distributions using e.g. `.node_posteriors()`

@@ -41,6 +41,18 @@ from .approx import _b, _b1r, _f, _f1r, _f1w, _i, _i1r, _i1w
 logger = logging.getLogger(__name__)
 
 
+def isolated_nonsample_nodes(ts):
+    """
+    Return the ids of non-sample nodes that are not in any edge. These cannot be
+    dated, so are left with their existing times.
+    """
+    in_edge = np.zeros(ts.num_nodes, dtype=bool)
+    in_edge[ts.edges_parent] = True
+    in_edge[ts.edges_child] = True
+    is_sample = (ts.nodes_flags & tskit.NODE_IS_SAMPLE) != 0
+    return np.flatnonzero(~in_edge & ~is_sample)
+
+
 def reduce_to_contemporaneous(ts):
     """
     Simplify the ts to only the contemporaneous samples, and return the new ts + node map
