@@ -17,6 +17,7 @@ standard coalescent.
 | `performance.py` | Wall time and peak RSS, each case in a fresh process. |
 | `microbench.py` | Microbenchmarks of the array-level accelerated functions (EP passes, rescaling, phasing, `util`, `prior`), on simulated inputs at three sizes (see below). |
 | `numerical_accuracy.py` | Accuracy of the special functions and gamma approximations (`tsdate.hypergeo`, `tsdate.approx`) per function and regime: worst error against mpmath, SciPy or closed forms, and violations of properties such as symmetry, monotonicity and continuity at switch points (see below). Not to be confused with `accuracy.py`, which scores dating. |
+| `ep_sensitivity.py` | How a one-ulp change in the edge mutational targets grows over EP sweeps (maximum relative change in node means), which sets the tolerance of the multi-sweep test in `tests/test_oracle_variational.py` (see below). |
 | `compare.py` | Compares two `performance.py` CSVs case by case (see below). |
 | `plot.py` | Reads `results/*.csv` and writes PNGs: error/bias/interval coverage vs parameter (`accuracy_*_summary.png`: top row node times, bottom row mutation times), estimated-vs-true scatter (`accuracy_*_scatter.png`: columns are swept values, rows are node/mutation times for true/tsinferred topology), PIT calibration histograms (`accuracy_*_calibration.png`: node row, mutation row), AFS observed-vs-expected (`afs_*.png`), time and memory scaling. |
 | `validation.py` | Stub: numerical checks too slow for the unit tests (issue #384). |
@@ -104,6 +105,21 @@ only comparable between runs on a quiet machine.
 Implementations are chosen with `--impl`. To add one, write a function returning a
 dict of callables with the same names and signatures as `_numba_impl` and register it
 in `IMPLS`.
+
+### Sensitivity of EP to last-bit differences
+
+`ep_sensitivity.py` perturbs the mutational target of every edge by one ulp and reports
+how far the node means move over successive EP sweeps (maximum relative change after
+selected sweeps, using tsdate's own `ExpectationPropagation`). This is the noise that an
+implementation with differently rounded intermediates has to live with, and the reason
+the multi-sweep comparison in `tests/test_oracle_variational.py` uses relative
+tolerances (1e-4 after the first sweep, 1e-6 later) instead of an ulp bound. Typical
+values: about 1e-6 to 1e-7 after one sweep, 1e-8 to 1e-9 after ten.
+
+```
+python evaluation/ep_sensitivity.py --quick
+python evaluation/ep_sensitivity.py --sizes 20 100 --seeds 1 2 3 --sweeps 1 5 10
+```
 
 ### Accuracy of the special functions
 
