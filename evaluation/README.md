@@ -15,6 +15,7 @@ standard coalescent.
 | `accuracy.py` | Sweep a parameter (`sample_size`, `length`, `mutation_rate`, `max_iterations`) for `variational_gamma`, comparing estimated to true node times. `--modes true` dates the true topology; `inferred` dates a tsinfer topology and compares to best-matching true nodes via [tscompare](https://github.com/tskit-dev/tscompare) (see issue #301). Writes one row per node (`accuracy_*.csv`). It also compares mutation times (`mutations_*.csv`): sites with a single mutation are matched by position, and tsdate's posterior mean mutation time is compared with the midpoint of the true edge the mutation sits on (the best any method can do; the exact simulated time is also saved as `true_time_exact`). `plot.py` scores scatter, RMSE and bias against the midpoint but PIT and interval coverage against the exact time, since the posterior is for the realised mutation time; `--mutation-truth midpoint` or `exact` forces one truth everywhere. Mutation comparison needs no node matching in either mode. |
 | `afs.py` | Compare the observed site allele frequency spectrum with the expected one from branch lengths (branch AFS x mutation rate) in genomic windows, for the true times, the true topology dated by tsdate, and a tsinfer topology dated by tsdate. Writes `afs_*.csv`. |
 | `performance.py` | Wall time and peak RSS, each case in a fresh process. |
+| `microbench.py` | Microbenchmarks of the array-level accelerated functions (EP passes, rescaling, phasing, `util`, `prior`), on simulated inputs at three sizes (see below). |
 | `compare.py` | Compares two `performance.py` CSVs case by case (see below). |
 | `plot.py` | Reads `results/*.csv` and writes PNGs: error/bias/interval coverage vs parameter (`accuracy_*_summary.png`: top row node times, bottom row mutation times), estimated-vs-true scatter (`accuracy_*_scatter.png`: columns are swept values, rows are node/mutation times for true/tsinferred topology), PIT calibration histograms (`accuracy_*_calibration.png`: node row, mutation row), AFS observed-vs-expected (`afs_*.png`), time and memory scaling. |
 | `validation.py` | Stub: numerical checks too slow for the unit tests (issue #384). |
@@ -73,3 +74,32 @@ repeats (use 5 or more for a reference run).
 Add `--quick` to `accuracy.py` / `performance.py` for a fast smoke test. Quick runs write
 to separate `*_quick.csv` files (so they never overwrite full results), and `plot.py`
 labels their figures "quick run" and names them `*_quick*.png`.
+
+### Microbenchmarks of the accelerated functions
+
+`microbench.py` times each array-level numba-jitted entry point on inputs built from
+simulated tree sequences (small/medium/large; the large case has ~560k edges, so the
+EP edge pass takes about a second). The EP state is produced by running
+`ExpectationPropagation.infer` for two iterations, and the functions are called as
+`iterate`/`infer`/`rescale` call them (edges with some nonzero-age samples, and
+unphased singleton blocks). Arrays modified in place are copied before each repeat,
+outside the timed region. Scalar functions (`approx`, `hypergeo`) are timed only
+through the EP passes.
+
+```
+python evaluation/microbench.py --quick                       # smoke test
+python evaluation/microbench.py --repeats 7 --output mb.csv   # table + results/mb.csv
+python evaluation/microbench.py --sizes medium --only propagate mutational
+```
+
+Each function is warmed up, then the median of `--repeats` timed calls is reported
+(fast calls are batched so each timed block lasts a few ms; times are per call).
+Compile time is reported separately: per function from numba's dispatcher timers, and
+in total as `import tsdate` with minus without `NUMBA_DISABLE_JIT` in a fresh process
+(functions with explicit signatures compile at import, not at first call; skipped
+with `--no-import-compile` or `--quick`). The CSV also records provenance. Timings are
+only comparable between runs on a quiet machine.
+
+Implementations are chosen with `--impl`. To add one, write a function returning a
+dict of callables with the same names and signatures as `_numba_impl` and register it
+in `IMPLS`.
