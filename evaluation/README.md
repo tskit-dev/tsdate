@@ -16,6 +16,7 @@ standard coalescent.
 | `afs.py` | Compare the observed site allele frequency spectrum with the expected one from branch lengths (branch AFS x mutation rate) in genomic windows, for the true times, the true topology dated by tsdate, and a tsinfer topology dated by tsdate. Writes `afs_*.csv`. |
 | `performance.py` | Wall time and peak RSS, each case in a fresh process. |
 | `microbench.py` | Microbenchmarks of the array-level accelerated functions (EP passes, rescaling, phasing, `util`, `prior`), on simulated inputs at three sizes (see below). |
+| `numerical_accuracy.py` | Accuracy of the special functions and gamma approximations (`tsdate.hypergeo`, `tsdate.approx`) per function and regime: worst error against mpmath, SciPy or closed forms, and violations of properties such as symmetry, monotonicity and continuity at switch points (see below). Not to be confused with `accuracy.py`, which scores dating. |
 | `compare.py` | Compares two `performance.py` CSVs case by case (see below). |
 | `plot.py` | Reads `results/*.csv` and writes PNGs: error/bias/interval coverage vs parameter (`accuracy_*_summary.png`: top row node times, bottom row mutation times), estimated-vs-true scatter (`accuracy_*_scatter.png`: columns are swept values, rows are node/mutation times for true/tsinferred topology), PIT calibration histograms (`accuracy_*_calibration.png`: node row, mutation row), AFS observed-vs-expected (`afs_*.png`), time and memory scaling. |
 | `validation.py` | Stub: numerical checks too slow for the unit tests (issue #384). |
@@ -103,3 +104,22 @@ only comparable between runs on a quiet machine.
 Implementations are chosen with `--impl`. To add one, write a function returning a
 dict of callables with the same names and signatures as `_numba_impl` and register it
 in `IMPLS`.
+
+### Accuracy of the special functions
+
+`numerical_accuracy.py` measures the approximation error of the production functions in
+`tsdate.hypergeo` (digamma, trigamma, `betaln`, the incomplete gamma derivative and
+inverse, and the Laplace approximations to U, 1F1 and 2F1, including the
+unity limit of 2F1) and `tsdate.approx` (moment matching, gamma fits, closed forms of
+the moment functions) against mpmath, SciPy and closed forms. It also reports how often
+properties that the exact functions have are violated: symmetry, monotonicity, the Kummer
+transformation, continuity across a switch point. One row per function and regime gives
+the worst error (`rel`, `abs`, `ulp`) or a violation `count`. The unit tests do not
+check any of this (they check only agreement with the oracles), so the table is
+where inaccurate regimes show up.
+
+```
+python evaluation/numerical_accuracy.py --quick                   # the computation takes seconds; importing tsdate compiles numba
+python evaluation/numerical_accuracy.py --only hyp2f1 gammainc    # groups: polygamma betaln gammainc hyperu hyp1f1 hyp2f1 approx
+python evaluation/numerical_accuracy.py --output acc.csv          # also writes results/acc.csv
+```
