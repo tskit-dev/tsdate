@@ -178,6 +178,61 @@ int tsd_mutation_sideways_projection(double t_i, const double pars_j[2],
 int tsd_mutation_block_projection(
     double t_i, double t_j, double *pr_m, double proj_m[2]);
 
+/* The id of no node, edge, mutation, individual or block. */
+#define TSD_NULL ((tsd_id_t) - 1)
+
+/*
+ * Phasing of singletons (phasing.c), tree sequence utilities (util.c) and the
+ * coalescent prior (prior.c). Flags are arrays of uint8_t (numpy bool); the arrays
+ * of the edges are those of a tree sequence, with the indexes of the insertion and
+ * removal orders. Results of unknown size are allocated by the function and freed by
+ * the caller.
+ */
+int tsd_argsort(tsd_size_t num_items, const double *keys, tsd_id_t *order);
+
+int tsd_block_singletons(tsd_size_t num_individuals, tsd_size_t num_edges,
+    tsd_size_t num_mutations, const uint8_t *individuals_unphased,
+    const tsd_id_t *nodes_individual, const tsd_id_t *mutations_node,
+    const double *mutations_position, const tsd_id_t *edges_child,
+    const double *edges_left, const double *edges_right, const tsd_id_t *indexes_insert,
+    const tsd_id_t *indexes_remove, double sequence_length, tsd_size_t *num_blocks,
+    double **blocks_stats, tsd_id_t **blocks_edges, tsd_id_t *mutations_block);
+int tsd_reallocate_unphased(tsd_size_t num_edges, tsd_size_t num_mutations,
+    tsd_size_t num_blocks, const double *mutations_phase,
+    const tsd_id_t *mutations_block, const tsd_id_t *blocks_edges,
+    double *edges_likelihood);
+int tsd_mutation_frequency(tsd_size_t num_nodes, tsd_size_t num_sample_sets,
+    tsd_size_t num_edges, tsd_size_t num_mutations, const uint8_t *nodes_sample,
+    const tsd_id_t *mutations_node, const double *mutations_position,
+    const tsd_id_t *edges_parent, const tsd_id_t *edges_child, const double *edges_left,
+    const double *edges_right, const tsd_id_t *indexes_insert,
+    const tsd_id_t *indexes_remove, double sequence_length, int32_t *mutations_freq);
+
+int tsd_split_disjoint_nodes(tsd_size_t num_nodes, tsd_size_t num_edges,
+    const tsd_id_t *edges_parent, const tsd_id_t *edges_child, const double *edges_left,
+    const double *edges_right, const uint8_t *node_excluded, tsd_id_t *new_parent,
+    tsd_id_t *new_child, tsd_size_t *num_split, tsd_id_t **nodes_order);
+int tsd_relabel_mutations_node(tsd_size_t num_nodes, tsd_size_t num_edges,
+    tsd_size_t num_mutations, const tsd_id_t *mutations_node,
+    const double *mutations_position, const tsd_id_t *nodes_order,
+    const tsd_id_t *edges_parent, const tsd_id_t *edges_child, const double *edges_left,
+    const double *edges_right, const tsd_id_t *insert_index,
+    const tsd_id_t *remove_index, tsd_id_t *output);
+int tsd_constrain_ages(tsd_size_t num_nodes, tsd_size_t num_edges,
+    const double *nodes_time, const uint8_t *nodes_fixed, const tsd_id_t *edges_parent,
+    const tsd_id_t *edges_child, double epsilon, int64_t max_iterations,
+    double *out_time);
+int tsd_contains_unary_nodes(tsd_size_t num_nodes, tsd_size_t num_edges,
+    const uint8_t *nodes_mask, const tsd_id_t *edges_parent, const double *edges_left,
+    const double *edges_right, const tsd_id_t *indexes_insert,
+    const tsd_id_t *indexes_remove, double sequence_length, int *contains_unary);
+
+/* `val` has `num_tips` >= 2 rows; `out` has `num_tips + 1` rows. */
+int tsd_marginalize_over_ancestors(
+    tsd_size_t num_tips, tsd_size_t num_moments, const double *val, double *out);
+/* `variance` has `num_tips + 1` entries; `num_tips` >= 1. */
+int tsd_conditional_coalescent_variance(tsd_size_t num_tips, double *variance);
+
 #ifdef __cplusplus
 }
 #endif

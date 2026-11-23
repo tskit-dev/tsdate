@@ -176,6 +176,30 @@ def _c_approx(_tsdate):
     )
 
 
+def _c_phasing(_tsdate):
+    return _PortedNamespace(
+        _block_singletons=_tsdate.block_singletons,
+        reallocate_unphased=_tsdate.reallocate_unphased,
+        _mutation_frequency=_tsdate.mutation_frequency,
+    )
+
+
+def _c_util(_tsdate):
+    return _PortedNamespace(
+        _split_disjoint_nodes=_tsdate.split_disjoint_nodes,
+        _relabel_mutations_node=_tsdate.relabel_mutations_node,
+        _constrain_ages=_tsdate.constrain_ages,
+        _contains_unary_nodes=_tsdate.contains_unary_nodes,
+    )
+
+
+def _c_prior(_tsdate):
+    return _PortedNamespace(
+        _marginalize_over_ancestors=_tsdate.marginalize_over_ancestors,
+        conditional_coalescent_variance=_tsdate.conditional_coalescent_variance,
+    )
+
+
 def _c_namespace():
     import _tsdate
 
@@ -184,9 +208,9 @@ def _c_namespace():
         approx=_c_approx(_tsdate),
         variational=_PortedNamespace(),
         rescaling=_PortedNamespace(),
-        phasing=_PortedNamespace(),
-        util=_PortedNamespace(),
-        prior=_PortedNamespace(),
+        phasing=_c_phasing(_tsdate),
+        util=_c_util(_tsdate),
+        prior=_c_prior(_tsdate),
         discrete=_PortedNamespace(),
     )
 

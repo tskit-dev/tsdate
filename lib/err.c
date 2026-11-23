@@ -80,6 +80,25 @@ tsd_strerror(int err)
         case TSD_ERR_INVALID_FIXED_AGE:
             ret = "The age of a fixed node is outside the domain of the function";
             break;
+        case TSD_ERR_UNPHASED_INDIVIDUAL_EDGES:
+            ret = "An unphased individual does not have exactly two edges over each "
+                  "of its blocks";
+            break;
+        case TSD_ERR_BLOCK_OUT_OF_RANGE:
+            ret = "A block or an edge of a block is out of range";
+            break;
+        case TSD_ERR_PHASE_OUT_OF_RANGE:
+            ret = "The phase of a mutation is not between zero and one";
+            break;
+        case TSD_ERR_UNPHASED_LIKELIHOOD_NOT_CONSERVED:
+            ret = "The total likelihood of the unphased edges is not conserved";
+            break;
+        case TSD_ERR_MUTATION_NODE_NOT_IN_TREE:
+            ret = "A mutation is above a node that is not in any tree before it";
+            break;
+        case TSD_ERR_FIXED_NODES_VIOLATE_CONSTRAINT:
+            ret = "An edge between two fixed nodes violates the age constraint";
+            break;
         default:
             break;
     }

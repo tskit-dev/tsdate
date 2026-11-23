@@ -15,7 +15,8 @@ if get_option('buildtype') == 'debug'
     extra_c_args += ['-DTSD_TRACE_ERRORS']
 endif
 
-tsdate_sources = ['err.c', 'hypergeo.c', 'approx.c']
+tsdate_sources = ['err.c', 'hypergeo.c', 'approx.c',
+    'phasing.c', 'util.c', 'prior.c']
 
 tsdate_lib = static_library('tsdate',
     sources: tsdate_sources, dependencies: [m_dep],

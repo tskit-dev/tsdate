@@ -55,6 +55,16 @@ extern "C" {
 /* approx: violated preconditions (numba asserts) */
 #define TSD_ERR_NONPOSITIVE_MOMENTS                                 -14
 #define TSD_ERR_INVALID_FIXED_AGE                                   -15
+
+/* phasing */
+#define TSD_ERR_UNPHASED_INDIVIDUAL_EDGES                           -16
+#define TSD_ERR_BLOCK_OUT_OF_RANGE                                  -17
+#define TSD_ERR_PHASE_OUT_OF_RANGE                                  -18
+#define TSD_ERR_UNPHASED_LIKELIHOOD_NOT_CONSERVED                   -19
+
+/* util */
+#define TSD_ERR_MUTATION_NODE_NOT_IN_TREE                           -20
+#define TSD_ERR_FIXED_NODES_VIOLATE_CONSTRAINT                      -21
 /* clang-format on */
 
 #ifdef __GNUC__

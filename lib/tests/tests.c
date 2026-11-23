@@ -45,7 +45,10 @@ test_strerror(void)
         TSD_ERR_KL_MAX_ITERATIONS, TSD_ERR_KL_INVALID_SHAPE,
         TSD_ERR_NONPOSITIVE_CENTRAL_MOMENTS, TSD_ERR_UNSORTED_QUANTILES,
         TSD_ERR_QUANTILE_MAX_ITERATIONS, TSD_ERR_NEGATIVE_SHAPE,
-        TSD_ERR_NONPOSITIVE_MOMENTS, TSD_ERR_INVALID_FIXED_AGE };
+        TSD_ERR_NONPOSITIVE_MOMENTS, TSD_ERR_INVALID_FIXED_AGE,
+        TSD_ERR_UNPHASED_INDIVIDUAL_EDGES, TSD_ERR_BLOCK_OUT_OF_RANGE,
+        TSD_ERR_PHASE_OUT_OF_RANGE, TSD_ERR_UNPHASED_LIKELIHOOD_NOT_CONSERVED,
+        TSD_ERR_MUTATION_NODE_NOT_IN_TREE, TSD_ERR_FIXED_NODES_VIOLATE_CONSTRAINT };
     const int num_codes = (int) (sizeof(codes) / sizeof(codes[0]));
     const char *msg_i;
     const char *msg_j;
@@ -676,6 +679,244 @@ test_mutation_moments(void)
         tsd_mutation_block_moments(2, 0, &pr, &mn, &va), TSD_ERR_INVALID_FIXED_AGE);
 }
 
+/* Two samples in each of two individuals below a root: 0, 1 | 2, 3 | root 4 */
+static const tsd_id_t phase_nodes_individual[] = { 0, 0, 1, 1, TSD_NULL };
+static const tsd_id_t phase_edges_parent[] = { 4, 4, 4, 4 };
+static const tsd_id_t phase_edges_child[] = { 0, 1, 2, 3 };
+static const double phase_edges_left[] = { 0, 0, 0, 0 };
+static const double phase_edges_right[] = { 10, 10, 10, 10 };
+static const tsd_id_t phase_order[] = { 0, 1, 2, 3 };
+
+static void
+test_block_singletons(void)
+{
+    const uint8_t unphased[] = { 1, 1 };
+    const tsd_id_t mutations_node[] = { 0, 4, 2 };
+    const double mutations_position[] = { 5, 1, 2 };
+    const tsd_id_t child_missing[] = { 0, 2, 3, 3 };
+    tsd_id_t mutations_block[3];
+    tsd_id_t *blocks_edges = NULL;
+    double *blocks_stats = NULL;
+    tsd_size_t num_blocks = 0;
+    int ret;
+
+    ret = tsd_block_singletons(2, 4, 3, unphased, phase_nodes_individual, mutations_node,
+        mutations_position, phase_edges_child, phase_edges_left, phase_edges_right,
+        phase_order, phase_order, 10.0, &num_blocks, &blocks_stats, &blocks_edges,
+        mutations_block);
+    CU_ASSERT_EQUAL(ret, 0);
+    CU_ASSERT_EQUAL(num_blocks, 2);
+    CU_ASSERT_EQUAL(mutations_block[0], 0);
+    CU_ASSERT_EQUAL(mutations_block[1], TSD_NULL);
+    CU_ASSERT_EQUAL(mutations_block[2], 1);
+    CU_ASSERT_EQUAL(blocks_stats[0], 1.0);
+    CU_ASSERT_EQUAL(blocks_stats[1], 10.0);
+    tsd_safe_free(blocks_stats);
+    tsd_safe_free(blocks_edges);
+
+    /* A haplotype edge is missing: the block is never completed */
+    ret = tsd_block_singletons(2, 4, 3, unphased, phase_nodes_individual, mutations_node,
+        mutations_position, child_missing, phase_edges_left, phase_edges_right,
+        phase_order, phase_order, 10.0, &num_blocks, &blocks_stats, &blocks_edges,
+        mutations_block);
+    CU_ASSERT_EQUAL(ret, TSD_ERR_UNPHASED_INDIVIDUAL_EDGES);
+    CU_ASSERT_PTR_NULL(blocks_stats);
+
+    /* No edges and no individuals */
+    ret = tsd_block_singletons(0, 0, 0, unphased, phase_nodes_individual, mutations_node,
+        mutations_position, phase_edges_child, phase_edges_left, phase_edges_right,
+        phase_order, phase_order, 10.0, &num_blocks, &blocks_stats, &blocks_edges,
+        mutations_block);
+    CU_ASSERT_EQUAL(ret, 0);
+    CU_ASSERT_EQUAL(num_blocks, 0);
+    tsd_safe_free(blocks_stats);
+    tsd_safe_free(blocks_edges);
+}
+
+static void
+test_reallocate_unphased(void)
+{
+    const tsd_id_t blocks_edges[] = { 0, 1 };
+    const tsd_id_t mutations_block[] = { 0, TSD_NULL };
+    const tsd_id_t mutations_block_bad[] = { 1, 0 };
+    const tsd_id_t blocks_edges_bad[] = { 0, 7 };
+    const double phase[] = { 0.25, NAN };
+    const double phase_bad[] = { 1.5, 0.0 };
+    const double phase_nan[] = { NAN, 0.0 };
+    const double initial[] = { 1.0, 5.0, 0.0, 5.0 };
+    double likelihood[4];
+    int ret;
+
+    memcpy(likelihood, initial, sizeof(initial));
+    ret = tsd_reallocate_unphased(
+        2, 2, 1, phase, mutations_block, blocks_edges, likelihood);
+    CU_ASSERT_EQUAL(ret, 0);
+    CU_ASSERT_DOUBLE_EQUAL(likelihood[0], 0.25, 1e-12);
+    CU_ASSERT_DOUBLE_EQUAL(likelihood[2], 0.75, 1e-12);
+    memcpy(likelihood, initial, sizeof(initial));
+    ret = tsd_reallocate_unphased(
+        2, 2, 1, phase_bad, mutations_block, blocks_edges, likelihood);
+    CU_ASSERT_EQUAL(ret, TSD_ERR_PHASE_OUT_OF_RANGE);
+    /* The mass of the skipped mutation is not allocated */
+    memcpy(likelihood, initial, sizeof(initial));
+    ret = tsd_reallocate_unphased(
+        2, 2, 1, phase_nan, mutations_block, blocks_edges, likelihood);
+    CU_ASSERT_EQUAL(ret, TSD_ERR_UNPHASED_LIKELIHOOD_NOT_CONSERVED);
+    memcpy(likelihood, initial, sizeof(initial));
+    ret = tsd_reallocate_unphased(
+        2, 2, 1, phase, mutations_block_bad, blocks_edges, likelihood);
+    CU_ASSERT_EQUAL(ret, TSD_ERR_BLOCK_OUT_OF_RANGE);
+    memcpy(likelihood, initial, sizeof(initial));
+    ret = tsd_reallocate_unphased(
+        2, 2, 1, phase, mutations_block, blocks_edges_bad, likelihood);
+    CU_ASSERT_EQUAL(ret, TSD_ERR_BLOCK_OUT_OF_RANGE);
+}
+
+static void
+test_mutation_frequency(void)
+{
+    const uint8_t nodes_sample[] = { 1, 1, 0, 0, 0 };
+    const tsd_id_t mutations_node[] = { 4, 0 };
+    const double mutations_position[] = { 5, 1 };
+    int32_t freq[2];
+    int ret;
+
+    ret = tsd_mutation_frequency(5, 1, 4, 2, nodes_sample, mutations_node,
+        mutations_position, phase_edges_parent, phase_edges_child, phase_edges_left,
+        phase_edges_right, phase_order, phase_order, 10.0, freq);
+    CU_ASSERT_EQUAL(ret, 0);
+    CU_ASSERT_EQUAL(freq[0], 2);
+    CU_ASSERT_EQUAL(freq[1], 1);
+}
+
+static void
+test_split_and_relabel(void)
+{
+    /* Node 1 has edges over [0, 2) and [4, 6): split into node 1 and a copy, 3 */
+    const tsd_id_t parent[] = { 2, 2, 2 };
+    const tsd_id_t child[] = { 0, 1, 1 };
+    const double left[] = { 0, 0, 4 };
+    const double right[] = { 6, 2, 6 };
+    const uint8_t excluded[] = { 1, 0, 0 };
+    const tsd_id_t insert[] = { 0, 1, 2 };
+    const tsd_id_t remove[] = { 1, 0, 2 };
+    const tsd_id_t mutations_node[] = { 1, 1 };
+    const double mutations_position[] = { 1, 5 };
+    tsd_id_t new_parent[3], new_child[3], output[2];
+    tsd_id_t *nodes_order = NULL;
+    tsd_size_t num_split = 0;
+    int ret;
+
+    ret = tsd_split_disjoint_nodes(3, 3, parent, child, left, right, excluded,
+        new_parent, new_child, &num_split, &nodes_order);
+    CU_ASSERT_EQUAL(ret, 0);
+    CU_ASSERT_EQUAL(num_split, 1);
+    CU_ASSERT_EQUAL(nodes_order[3], 1);
+    CU_ASSERT_EQUAL(new_child[2], 3);
+    ret = tsd_relabel_mutations_node(4, 3, 2, mutations_node, mutations_position,
+        nodes_order, new_parent, new_child, left, right, insert, remove, output);
+    CU_ASSERT_EQUAL(ret, 0);
+    CU_ASSERT_EQUAL(output[0], 1);
+    CU_ASSERT_EQUAL(output[1], 3);
+    /* A mutation above a node that is not in any tree */
+    {
+        const tsd_id_t absent[] = { 3, 3 };
+
+        ret = tsd_relabel_mutations_node(4, 3, 2, absent, mutations_position,
+            nodes_order, new_parent, new_child, left, right, insert, remove, output);
+        CU_ASSERT_EQUAL(ret, TSD_ERR_MUTATION_NODE_NOT_IN_TREE);
+    }
+    /* No edges: the mutations are not reached */
+    ret = tsd_relabel_mutations_node(4, 0, 2, mutations_node, mutations_position,
+        nodes_order, new_parent, new_child, left, right, insert, remove, output);
+    CU_ASSERT_EQUAL(ret, 0);
+    CU_ASSERT_EQUAL(output[1], TSD_NULL);
+    tsd_safe_free(nodes_order);
+}
+
+static void
+test_constrain_ages(void)
+{
+    const double times[] = { 0.0, 1.0, 0.5 };
+    const uint8_t fixed[] = { 1, 1, 0 };
+    const uint8_t all_fixed[] = { 1, 1, 1 };
+    const uint8_t free_nodes[] = { 0, 0, 0 };
+    const uint8_t fixed_child[] = { 1, 0, 0 };
+    const tsd_id_t parent[] = { 1, 2 };
+    const tsd_id_t child[] = { 0, 1 };
+    double out[3];
+    int ret;
+
+    /* Node 2 is younger than its child, node 1, which is fixed */
+    ret = tsd_constrain_ages(3, 2, times, fixed, parent, child, 1e-6, 10, out);
+    CU_ASSERT_EQUAL(ret, 0);
+    CU_ASSERT(out[2] > out[1]);
+    /* Free nodes meet in the middle; a fixed parent or child does not move */
+    ret = tsd_constrain_ages(3, 2, times, free_nodes, parent, child, 1e-6, 100, out);
+    CU_ASSERT_EQUAL(ret, 0);
+    ret = tsd_constrain_ages(3, 2, times, fixed_child, parent, child, 1e-6, 100, out);
+    CU_ASSERT_EQUAL(ret, 0);
+    /* Already consistent */
+    ret = tsd_constrain_ages(3, 1, times, fixed, parent, child, 1e-6, 10, out);
+    CU_ASSERT_EQUAL(ret, 0);
+    /* Forcing without iterations */
+    ret = tsd_constrain_ages(3, 2, times, fixed, parent, child, 1e-6, 0, out);
+    CU_ASSERT_EQUAL(ret, 0);
+    {
+        const double bad[] = { 0.0, 1.0, 0.0 };
+
+        ret = tsd_constrain_ages(3, 1, bad, all_fixed, child, parent, 1e-6, 10, out);
+        CU_ASSERT_EQUAL(ret, TSD_ERR_FIXED_NODES_VIOLATE_CONSTRAINT);
+    }
+}
+
+static void
+test_contains_unary_nodes(void)
+{
+    const uint8_t no_mask[] = { 0, 0, 0, 0, 0 };
+    const uint8_t all_mask[] = { 1, 1, 1, 1, 1 };
+    const tsd_id_t unary_parent[] = { 4, 3 };
+    const double left[] = { 0, 0 };
+    const double right[] = { 10, 10 };
+    const tsd_id_t order[] = { 0, 1 };
+    int contains = -1;
+    int ret;
+
+    ret = tsd_contains_unary_nodes(5, 4, no_mask, phase_edges_parent, phase_edges_left,
+        phase_edges_right, phase_order, phase_order, 10.0, &contains);
+    CU_ASSERT_EQUAL(ret, 0);
+    CU_ASSERT_EQUAL(contains, 0);
+    ret = tsd_contains_unary_nodes(
+        5, 2, no_mask, unary_parent, left, right, order, order, 10.0, &contains);
+    CU_ASSERT_EQUAL(ret, 0);
+    CU_ASSERT_EQUAL(contains, 1);
+    ret = tsd_contains_unary_nodes(
+        5, 2, all_mask, unary_parent, left, right, order, order, 10.0, &contains);
+    CU_ASSERT_EQUAL(ret, 0);
+    CU_ASSERT_EQUAL(contains, 0);
+}
+
+static void
+test_conditional_coalescent_variance(void)
+{
+    const double val[] = { 1.0, 2.0, 3.0, 4.0 };
+    double out[6], variance[11];
+    int ret;
+    int j;
+
+    ret = tsd_marginalize_over_ancestors(2, 2, val, out);
+    CU_ASSERT_EQUAL(ret, 0);
+    CU_ASSERT_EQUAL(out[4], 3.0);
+    ret = tsd_conditional_coalescent_variance(1, variance);
+    CU_ASSERT_EQUAL(ret, 0);
+    CU_ASSERT_EQUAL(variance[1], 0.0);
+    ret = tsd_conditional_coalescent_variance(10, variance);
+    CU_ASSERT_EQUAL(ret, 0);
+    for (j = 2; j <= 10; j++) {
+        CU_ASSERT(variance[j] > 0.0);
+    }
+}
+
 static void
 handle_cunit_error(void)
 {
@@ -717,6 +958,13 @@ main(int argc, char **argv)
         { "test_node_projections", test_node_projections },
         { "test_mutation_moments", test_mutation_moments },
         { "test_mutation_projections", test_mutation_projections },
+        { "test_block_singletons", test_block_singletons },
+        { "test_reallocate_unphased", test_reallocate_unphased },
+        { "test_mutation_frequency", test_mutation_frequency },
+        { "test_split_and_relabel", test_split_and_relabel },
+        { "test_constrain_ages", test_constrain_ages },
+        { "test_contains_unary_nodes", test_contains_unary_nodes },
+        { "test_conditional_coalescent_variance", test_conditional_coalescent_variance },
         CU_TEST_INFO_NULL,
     };
     CU_SuiteInfo suites[] = {

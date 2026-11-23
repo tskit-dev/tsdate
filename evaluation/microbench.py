@@ -85,7 +85,19 @@ def _c_impl():
     ``name: callable`` (taking the arguments of the numba function of that name); the
     functions that are missing are skipped in the benchmarks.
     """
-    return {}
+    import _tsdate
+
+    return {
+        "_block_singletons": _tsdate.block_singletons,
+        "reallocate_unphased": _tsdate.reallocate_unphased,
+        "_mutation_frequency": _tsdate.mutation_frequency,
+        "_split_disjoint_nodes": _tsdate.split_disjoint_nodes,
+        "_relabel_mutations_node": _tsdate.relabel_mutations_node,
+        "_constrain_ages": _tsdate.constrain_ages,
+        "_contains_unary_nodes": _tsdate.contains_unary_nodes,
+        "_marginalize_over_ancestors": _tsdate.marginalize_over_ancestors,
+        "conditional_coalescent_variance": _tsdate.conditional_coalescent_variance,
+    }
 
 
 # The seam for adding implementations: name -> {function name -> callable}. A

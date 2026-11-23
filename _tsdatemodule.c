@@ -26,6 +26,7 @@
 #define NPY_NO_DEPRECATED_API NPY_1_7_API_VERSION
 
 #include <Python.h>
+#include <string.h>
 #include <numpy/arrayobject.h>
 
 #include "lib/tsdate.h"
@@ -631,6 +632,601 @@ out:
     return ret;
 }
 
+/*
+ * Phasing, utilities and prior: array-level functions. Each takes the arguments of the
+ * numba function it replaces. Size checks that numba asserted raise ValueError.
+ */
+
+#define MAX_ARRAYS 10
+
+/* Convert `num_arrays` objects to C-contiguous arrays of the given types and ndim. */
+static int
+parse_arrays(PyObject **objs, const int *typenums, int ndim, int num_arrays,
+    PyArrayObject **arrays)
+{
+    int j;
+
+    for (j = 0; j < num_arrays; j++) {
+        arrays[j] = (PyArrayObject *) PyArray_FROMANY(
+            objs[j], typenums[j], ndim, ndim, NPY_ARRAY_IN_ARRAY);
+        if (arrays[j] == NULL) {
+            return -1;
+        }
+    }
+    return 0;
+}
+
+static void
+release_arrays(PyArrayObject **arrays, int num_arrays)
+{
+    int j;
+
+    for (j = 0; j < num_arrays; j++) {
+        Py_XDECREF(arrays[j]);
+    }
+}
+
+#define ARRAY_SIZE(array)      ((tsd_size_t) PyArray_SIZE(array))
+#define ARRAY_DIM(array, axis) ((tsd_size_t) PyArray_DIM(array, axis))
+
+/* Whether all the arrays have the same size; raises ValueError if not. */
+static int
+check_sizes_equal(PyArrayObject **arrays, int num_arrays)
+{
+    int j;
+
+    for (j = 1; j < num_arrays; j++) {
+        if (ARRAY_SIZE(arrays[j]) != ARRAY_SIZE(arrays[0])) {
+            PyErr_SetString(PyExc_ValueError, "Array sizes are not equal");
+            return -1;
+        }
+    }
+    return 0;
+}
+
+/* A new array of the given type and shape, copying `size` bytes from `data`. */
+static PyObject *
+array_from_data(int typenum, int ndim, npy_intp *dims, const void *data, size_t size)
+{
+    PyObject *ret = PyArray_SimpleNew(ndim, dims, typenum);
+
+    if (ret != NULL && size > 0) {
+        memcpy(PyArray_DATA((PyArrayObject *) ret), data, size);
+    }
+    return ret;
+}
+
+/*
+ * block_singletons(individuals_unphased, nodes_individual, mutations_node,
+ *     mutations_position, edges_parent, edges_child, edges_left, edges_right,
+ *     indexes_insert, indexes_remove, sequence_length)
+ * returns (blocks_stats, blocks_edges, mutations_block).
+ */
+static PyObject *
+tsdate_block_singletons(PyObject *Py_UNUSED(self), PyObject *args)
+{
+    PyObject *ret = NULL;
+    PyObject *objs[10];
+    const int typenums[10] = { NPY_BOOL, NPY_INT32, NPY_INT32, NPY_FLOAT64, NPY_INT32,
+        NPY_INT32, NPY_FLOAT64, NPY_FLOAT64, NPY_INT32, NPY_INT32 };
+    PyArrayObject *arrays[10] = { NULL };
+    PyObject *stats_array = NULL;
+    PyObject *edges_array = NULL;
+    PyObject *mutations_block = NULL;
+    double *blocks_stats = NULL;
+    tsd_id_t *blocks_edges = NULL;
+    tsd_size_t num_blocks = 0;
+    npy_intp dims[2];
+    double sequence_length;
+    int err;
+
+    if (!PyArg_ParseTuple(args, "OOOOOOOOOOd", &objs[0], &objs[1], &objs[2], &objs[3],
+            &objs[4], &objs[5], &objs[6], &objs[7], &objs[8], &objs[9],
+            &sequence_length)) {
+        goto out;
+    }
+    if (parse_arrays(objs, typenums, 1, 10, arrays) != 0) {
+        goto out;
+    }
+    if (check_sizes_equal(arrays + 4, 4) != 0 || check_sizes_equal(arrays + 8, 2) != 0
+        || check_sizes_equal(arrays + 2, 2) != 0
+        || ARRAY_SIZE(arrays[8]) != ARRAY_SIZE(arrays[4])) {
+        PyErr_SetString(PyExc_ValueError, "Array sizes are not equal");
+        goto out;
+    }
+    dims[0] = PyArray_DIM(arrays[2], 0);
+    mutations_block = PyArray_SimpleNew(1, dims, NPY_INT32);
+    if (mutations_block == NULL) {
+        goto out;
+    }
+    Py_BEGIN_ALLOW_THREADS
+    err = tsd_block_singletons(ARRAY_SIZE(arrays[0]), ARRAY_SIZE(arrays[4]),
+        ARRAY_SIZE(arrays[2]), (const uint8_t *) PyArray_DATA(arrays[0]),
+        (const tsd_id_t *) PyArray_DATA(arrays[1]),
+        (const tsd_id_t *) PyArray_DATA(arrays[2]),
+        (const double *) PyArray_DATA(arrays[3]),
+        (const tsd_id_t *) PyArray_DATA(arrays[5]),
+        (const double *) PyArray_DATA(arrays[6]),
+        (const double *) PyArray_DATA(arrays[7]),
+        (const tsd_id_t *) PyArray_DATA(arrays[8]),
+        (const tsd_id_t *) PyArray_DATA(arrays[9]), sequence_length, &num_blocks,
+        &blocks_stats, &blocks_edges,
+        (tsd_id_t *) PyArray_DATA((PyArrayObject *) mutations_block));
+    Py_END_ALLOW_THREADS
+    if (err != 0) {
+        handle_library_error(err);
+        goto out;
+    }
+    dims[0] = (npy_intp) num_blocks;
+    dims[1] = 2;
+    stats_array = array_from_data(
+        NPY_FLOAT64, 2, dims, blocks_stats, 2 * num_blocks * sizeof(*blocks_stats));
+    edges_array = array_from_data(
+        NPY_INT32, 2, dims, blocks_edges, 2 * num_blocks * sizeof(*blocks_edges));
+    if (stats_array == NULL || edges_array == NULL) {
+        goto out;
+    }
+    ret = Py_BuildValue("OOO", stats_array, edges_array, mutations_block);
+out:
+    release_arrays(arrays, 10);
+    Py_XDECREF(stats_array);
+    Py_XDECREF(edges_array);
+    Py_XDECREF(mutations_block);
+    tsd_safe_free(blocks_stats);
+    tsd_safe_free(blocks_edges);
+    return ret;
+}
+
+/*
+ * reallocate_unphased(edges_likelihood, mutations_phase, mutations_block,
+ *     blocks_edges): updates edges_likelihood in place.
+ */
+static PyObject *
+tsdate_reallocate_unphased(PyObject *Py_UNUSED(self), PyObject *args)
+{
+    PyObject *ret = NULL;
+    PyObject *likelihood_obj = NULL;
+    PyObject *phase_obj = NULL;
+    PyObject *block_obj = NULL;
+    PyObject *edges_obj = NULL;
+    PyArrayObject *likelihood_array = NULL;
+    PyArrayObject *phase_array = NULL;
+    PyArrayObject *block_array = NULL;
+    PyArrayObject *edges_array = NULL;
+    int err;
+
+    if (!PyArg_ParseTuple(
+            args, "OOOO", &likelihood_obj, &phase_obj, &block_obj, &edges_obj)) {
+        goto out;
+    }
+    likelihood_array = (PyArrayObject *) PyArray_FROMANY(
+        likelihood_obj, NPY_FLOAT64, 2, 2, NPY_ARRAY_INOUT_ARRAY);
+    phase_array = (PyArrayObject *) PyArray_FROMANY(
+        phase_obj, NPY_FLOAT64, 1, 1, NPY_ARRAY_IN_ARRAY);
+    block_array = (PyArrayObject *) PyArray_FROMANY(
+        block_obj, NPY_INT32, 1, 1, NPY_ARRAY_IN_ARRAY);
+    edges_array = (PyArrayObject *) PyArray_FROMANY(
+        edges_obj, NPY_INT32, 2, 2, NPY_ARRAY_IN_ARRAY);
+    if (likelihood_array == NULL || phase_array == NULL || block_array == NULL
+        || edges_array == NULL) {
+        goto out;
+    }
+    if (ARRAY_SIZE(phase_array) != ARRAY_SIZE(block_array)) {
+        PyErr_SetString(PyExc_ValueError, "Array sizes are not equal");
+        goto out;
+    }
+    if (ARRAY_DIM(edges_array, 1) != 2 || ARRAY_DIM(likelihood_array, 1) != 2) {
+        PyErr_SetString(PyExc_ValueError, "Arrays must have two columns");
+        goto out;
+    }
+    Py_BEGIN_ALLOW_THREADS
+    err = tsd_reallocate_unphased(ARRAY_DIM(likelihood_array, 0),
+        ARRAY_SIZE(phase_array), ARRAY_DIM(edges_array, 0),
+        (const double *) PyArray_DATA(phase_array),
+        (const tsd_id_t *) PyArray_DATA(block_array),
+        (const tsd_id_t *) PyArray_DATA(edges_array),
+        (double *) PyArray_DATA(likelihood_array));
+    Py_END_ALLOW_THREADS
+    if (err != 0) {
+        handle_library_error(err);
+        goto out;
+    }
+    ret = Py_None;
+    Py_INCREF(ret);
+out:
+    Py_XDECREF(likelihood_array);
+    Py_XDECREF(phase_array);
+    Py_XDECREF(block_array);
+    Py_XDECREF(edges_array);
+    return ret;
+}
+
+/*
+ * mutation_frequency(nodes_sample, mutations_node, mutations_position, edges_parent,
+ *     edges_child, edges_left, edges_right, indexes_insert, indexes_remove,
+ *     sequence_length) returns an int32 array of shape (mutations, sample sets).
+ */
+static PyObject *
+tsdate_mutation_frequency(PyObject *Py_UNUSED(self), PyObject *args)
+{
+    PyObject *ret = NULL;
+    PyObject *sample_obj = NULL;
+    PyObject *objs[MAX_ARRAYS];
+    const int typenums[9] = { NPY_INT32, NPY_FLOAT64, NPY_INT32, NPY_INT32, NPY_FLOAT64,
+        NPY_FLOAT64, NPY_INT32, NPY_INT32 };
+    PyArrayObject *sample_array = NULL;
+    PyArrayObject *arrays[8] = { NULL };
+    PyObject *freq_array = NULL;
+    npy_intp dims[2];
+    double sequence_length;
+    int err;
+
+    if (!PyArg_ParseTuple(args, "OOOOOOOOOd", &sample_obj, &objs[0], &objs[1], &objs[2],
+            &objs[3], &objs[4], &objs[5], &objs[6], &objs[7], &sequence_length)) {
+        goto out;
+    }
+    sample_array = (PyArrayObject *) PyArray_FROMANY(
+        sample_obj, NPY_BOOL, 2, 2, NPY_ARRAY_IN_ARRAY);
+    if (sample_array == NULL) {
+        goto out;
+    }
+    if (parse_arrays(objs, typenums, 1, 8, arrays) != 0) {
+        goto out;
+    }
+    if (check_sizes_equal(arrays + 2, 4) != 0 || check_sizes_equal(arrays + 6, 2) != 0
+        || check_sizes_equal(arrays, 2) != 0
+        || ARRAY_SIZE(arrays[6]) != ARRAY_SIZE(arrays[2])) {
+        PyErr_SetString(PyExc_ValueError, "Array sizes are not equal");
+        goto out;
+    }
+    dims[0] = PyArray_DIM(arrays[0], 0);
+    dims[1] = PyArray_DIM(sample_array, 1);
+    freq_array = PyArray_SimpleNew(2, dims, NPY_INT32);
+    if (freq_array == NULL) {
+        goto out;
+    }
+    Py_BEGIN_ALLOW_THREADS
+    err = tsd_mutation_frequency(ARRAY_DIM(sample_array, 0), ARRAY_DIM(sample_array, 1),
+        ARRAY_SIZE(arrays[2]), ARRAY_SIZE(arrays[0]),
+        (const uint8_t *) PyArray_DATA(sample_array),
+        (const tsd_id_t *) PyArray_DATA(arrays[0]),
+        (const double *) PyArray_DATA(arrays[1]),
+        (const tsd_id_t *) PyArray_DATA(arrays[2]),
+        (const tsd_id_t *) PyArray_DATA(arrays[3]),
+        (const double *) PyArray_DATA(arrays[4]),
+        (const double *) PyArray_DATA(arrays[5]),
+        (const tsd_id_t *) PyArray_DATA(arrays[6]),
+        (const tsd_id_t *) PyArray_DATA(arrays[7]), sequence_length,
+        (int32_t *) PyArray_DATA((PyArrayObject *) freq_array));
+    Py_END_ALLOW_THREADS
+    if (err != 0) {
+        handle_library_error(err);
+        goto out;
+    }
+    ret = freq_array;
+    freq_array = NULL;
+out:
+    Py_XDECREF(sample_array);
+    release_arrays(arrays, 8);
+    Py_XDECREF(freq_array);
+    return ret;
+}
+
+/*
+ * split_disjoint_nodes(edges_parent, edges_child, edges_left, edges_right,
+ *     node_excluded) returns (edges_parent, edges_child, nodes_order, split_nodes).
+ */
+static PyObject *
+tsdate_split_disjoint_nodes(PyObject *Py_UNUSED(self), PyObject *args)
+{
+    PyObject *ret = NULL;
+    PyObject *objs[5];
+    const int typenums[5] = { NPY_INT32, NPY_INT32, NPY_FLOAT64, NPY_FLOAT64, NPY_BOOL };
+    PyArrayObject *arrays[5] = { NULL };
+    PyObject *parent_array = NULL;
+    PyObject *child_array = NULL;
+    PyObject *order_array = NULL;
+    PyObject *split_array = NULL;
+    tsd_id_t *nodes_order = NULL;
+    tsd_size_t num_nodes, num_split = 0;
+    npy_intp dims[1];
+    int err;
+
+    if (!PyArg_ParseTuple(
+            args, "OOOOO", &objs[0], &objs[1], &objs[2], &objs[3], &objs[4])) {
+        goto out;
+    }
+    if (parse_arrays(objs, typenums, 1, 5, arrays) != 0) {
+        goto out;
+    }
+    if (check_sizes_equal(arrays, 4) != 0) {
+        goto out;
+    }
+    num_nodes = ARRAY_SIZE(arrays[4]);
+    dims[0] = PyArray_DIM(arrays[0], 0);
+    parent_array = PyArray_SimpleNew(1, dims, NPY_INT32);
+    child_array = PyArray_SimpleNew(1, dims, NPY_INT32);
+    if (parent_array == NULL || child_array == NULL) {
+        goto out;
+    }
+    Py_BEGIN_ALLOW_THREADS
+    err = tsd_split_disjoint_nodes(num_nodes, ARRAY_SIZE(arrays[0]),
+        (const tsd_id_t *) PyArray_DATA(arrays[0]),
+        (const tsd_id_t *) PyArray_DATA(arrays[1]),
+        (const double *) PyArray_DATA(arrays[2]),
+        (const double *) PyArray_DATA(arrays[3]),
+        (const uint8_t *) PyArray_DATA(arrays[4]),
+        (tsd_id_t *) PyArray_DATA((PyArrayObject *) parent_array),
+        (tsd_id_t *) PyArray_DATA((PyArrayObject *) child_array), &num_split,
+        &nodes_order);
+    Py_END_ALLOW_THREADS
+    if (err != 0) {
+        handle_library_error(err);
+        goto out;
+    }
+    dims[0] = (npy_intp) (num_nodes + num_split);
+    order_array = array_from_data(
+        NPY_INT32, 1, dims, nodes_order, (num_nodes + num_split) * sizeof(*nodes_order));
+    dims[0] = (npy_intp) num_split;
+    split_array = array_from_data(
+        NPY_INT32, 1, dims, nodes_order + num_nodes, num_split * sizeof(*nodes_order));
+    if (order_array == NULL || split_array == NULL) {
+        goto out;
+    }
+    ret = Py_BuildValue("OOOO", parent_array, child_array, order_array, split_array);
+out:
+    release_arrays(arrays, 5);
+    Py_XDECREF(parent_array);
+    Py_XDECREF(child_array);
+    Py_XDECREF(order_array);
+    Py_XDECREF(split_array);
+    tsd_safe_free(nodes_order);
+    return ret;
+}
+
+/*
+ * relabel_mutations_node(mutations_node, mutations_position, nodes_order,
+ *     edges_parent, edges_child, edges_left, edges_right, insert_index,
+ *     remove_index) returns the new node of each mutation.
+ */
+static PyObject *
+tsdate_relabel_mutations_node(PyObject *Py_UNUSED(self), PyObject *args)
+{
+    PyObject *ret = NULL;
+    PyObject *objs[9];
+    const int typenums[9] = { NPY_INT32, NPY_FLOAT64, NPY_INT32, NPY_INT32, NPY_INT32,
+        NPY_FLOAT64, NPY_FLOAT64, NPY_INT32, NPY_INT32 };
+    PyArrayObject *arrays[9] = { NULL };
+    PyObject *output = NULL;
+    npy_intp dims[1];
+    int err;
+
+    if (!PyArg_ParseTuple(args, "OOOOOOOOO", &objs[0], &objs[1], &objs[2], &objs[3],
+            &objs[4], &objs[5], &objs[6], &objs[7], &objs[8])) {
+        goto out;
+    }
+    if (parse_arrays(objs, typenums, 1, 9, arrays) != 0) {
+        goto out;
+    }
+    if (check_sizes_equal(arrays + 3, 6) != 0 || check_sizes_equal(arrays, 2) != 0) {
+        goto out;
+    }
+    dims[0] = PyArray_DIM(arrays[0], 0);
+    output = PyArray_SimpleNew(1, dims, NPY_INT32);
+    if (output == NULL) {
+        goto out;
+    }
+    Py_BEGIN_ALLOW_THREADS
+    err = tsd_relabel_mutations_node(ARRAY_SIZE(arrays[2]), ARRAY_SIZE(arrays[3]),
+        ARRAY_SIZE(arrays[0]), (const tsd_id_t *) PyArray_DATA(arrays[0]),
+        (const double *) PyArray_DATA(arrays[1]),
+        (const tsd_id_t *) PyArray_DATA(arrays[2]),
+        (const tsd_id_t *) PyArray_DATA(arrays[3]),
+        (const tsd_id_t *) PyArray_DATA(arrays[4]),
+        (const double *) PyArray_DATA(arrays[5]),
+        (const double *) PyArray_DATA(arrays[6]),
+        (const tsd_id_t *) PyArray_DATA(arrays[7]),
+        (const tsd_id_t *) PyArray_DATA(arrays[8]),
+        (tsd_id_t *) PyArray_DATA((PyArrayObject *) output));
+    Py_END_ALLOW_THREADS
+    if (err != 0) {
+        handle_library_error(err);
+        goto out;
+    }
+    ret = output;
+    output = NULL;
+out:
+    release_arrays(arrays, 9);
+    Py_XDECREF(output);
+    return ret;
+}
+
+/*
+ * constrain_ages(nodes_time, nodes_fixed, edges_parent, edges_child, epsilon,
+ *     max_iterations) returns a new array of node times.
+ */
+static PyObject *
+tsdate_constrain_ages(PyObject *Py_UNUSED(self), PyObject *args)
+{
+    PyObject *ret = NULL;
+    PyObject *objs[4];
+    const int typenums[4] = { NPY_FLOAT64, NPY_BOOL, NPY_INT32, NPY_INT32 };
+    PyArrayObject *arrays[4] = { NULL };
+    PyObject *output = NULL;
+    npy_intp dims[1];
+    double epsilon;
+    long long max_iterations;
+    int err;
+
+    if (!PyArg_ParseTuple(args, "OOOOdL", &objs[0], &objs[1], &objs[2], &objs[3],
+            &epsilon, &max_iterations)) {
+        goto out;
+    }
+    if (parse_arrays(objs, typenums, 1, 4, arrays) != 0) {
+        goto out;
+    }
+    if (check_sizes_equal(arrays, 2) != 0 || check_sizes_equal(arrays + 2, 2) != 0) {
+        goto out;
+    }
+    dims[0] = PyArray_DIM(arrays[0], 0);
+    output = PyArray_SimpleNew(1, dims, NPY_FLOAT64);
+    if (output == NULL) {
+        goto out;
+    }
+    Py_BEGIN_ALLOW_THREADS
+    err = tsd_constrain_ages(ARRAY_SIZE(arrays[0]), ARRAY_SIZE(arrays[2]),
+        (const double *) PyArray_DATA(arrays[0]),
+        (const uint8_t *) PyArray_DATA(arrays[1]),
+        (const tsd_id_t *) PyArray_DATA(arrays[2]),
+        (const tsd_id_t *) PyArray_DATA(arrays[3]), epsilon, (int64_t) max_iterations,
+        (double *) PyArray_DATA((PyArrayObject *) output));
+    Py_END_ALLOW_THREADS
+    if (err != 0) {
+        handle_library_error(err);
+        goto out;
+    }
+    ret = output;
+    output = NULL;
+out:
+    release_arrays(arrays, 4);
+    Py_XDECREF(output);
+    return ret;
+}
+
+/*
+ * contains_unary_nodes(nodes_mask, edges_parent, edges_left, edges_right,
+ *     indexes_insert, indexes_remove, sequence_length, num_nodes) returns a bool.
+ */
+static PyObject *
+tsdate_contains_unary_nodes(PyObject *Py_UNUSED(self), PyObject *args)
+{
+    PyObject *ret = NULL;
+    PyObject *objs[6];
+    const int typenums[6]
+        = { NPY_BOOL, NPY_INT32, NPY_FLOAT64, NPY_FLOAT64, NPY_INT32, NPY_INT32 };
+    PyArrayObject *arrays[6] = { NULL };
+    double sequence_length;
+    Py_ssize_t num_nodes;
+    int contains_unary = 0;
+    int err;
+
+    if (!PyArg_ParseTuple(args, "OOOOOOdn", &objs[0], &objs[1], &objs[2], &objs[3],
+            &objs[4], &objs[5], &sequence_length, &num_nodes)) {
+        goto out;
+    }
+    if (parse_arrays(objs, typenums, 1, 6, arrays) != 0) {
+        goto out;
+    }
+    if (check_sizes_equal(arrays + 1, 5) != 0) {
+        goto out;
+    }
+    if (num_nodes < 0 || ARRAY_SIZE(arrays[0]) != (tsd_size_t) num_nodes) {
+        PyErr_SetString(
+            PyExc_ValueError, "Mask size does not match the number of nodes");
+        goto out;
+    }
+    Py_BEGIN_ALLOW_THREADS
+    err = tsd_contains_unary_nodes((tsd_size_t) num_nodes, ARRAY_SIZE(arrays[1]),
+        (const uint8_t *) PyArray_DATA(arrays[0]),
+        (const tsd_id_t *) PyArray_DATA(arrays[1]),
+        (const double *) PyArray_DATA(arrays[2]),
+        (const double *) PyArray_DATA(arrays[3]),
+        (const tsd_id_t *) PyArray_DATA(arrays[4]),
+        (const tsd_id_t *) PyArray_DATA(arrays[5]), sequence_length, &contains_unary);
+    Py_END_ALLOW_THREADS
+    if (err != 0) {
+        handle_library_error(err);
+        goto out;
+    }
+    ret = PyBool_FromLong(contains_unary);
+out:
+    release_arrays(arrays, 6);
+    return ret;
+}
+
+/* marginalize_over_ancestors(val): val has at least two rows. */
+static PyObject *
+tsdate_marginalize_over_ancestors(PyObject *Py_UNUSED(self), PyObject *args)
+{
+    PyObject *ret = NULL;
+    PyObject *val_obj = NULL;
+    PyArrayObject *val_array = NULL;
+    PyObject *output = NULL;
+    npy_intp dims[2];
+    int err;
+
+    if (!PyArg_ParseTuple(args, "O", &val_obj)) {
+        goto out;
+    }
+    val_array = (PyArrayObject *) PyArray_FROMANY(
+        val_obj, NPY_FLOAT64, 2, 2, NPY_ARRAY_IN_ARRAY);
+    if (val_array == NULL) {
+        goto out;
+    }
+    if (ARRAY_DIM(val_array, 0) < 2) {
+        PyErr_SetString(PyExc_ValueError, "At least two tips are required");
+        goto out;
+    }
+    dims[0] = PyArray_DIM(val_array, 0) + 1;
+    dims[1] = PyArray_DIM(val_array, 1);
+    output = PyArray_SimpleNew(2, dims, NPY_FLOAT64);
+    if (output == NULL) {
+        goto out;
+    }
+    Py_BEGIN_ALLOW_THREADS
+    err = tsd_marginalize_over_ancestors(ARRAY_DIM(val_array, 0),
+        ARRAY_DIM(val_array, 1), (const double *) PyArray_DATA(val_array),
+        (double *) PyArray_DATA((PyArrayObject *) output));
+    Py_END_ALLOW_THREADS
+    if (err != 0) {
+        handle_library_error(err);
+        goto out;
+    }
+    ret = output;
+    output = NULL;
+out:
+    Py_XDECREF(val_array);
+    Py_XDECREF(output);
+    return ret;
+}
+
+/* conditional_coalescent_variance(num_tips): an array of num_tips + 1 variances. */
+static PyObject *
+tsdate_conditional_coalescent_variance(PyObject *Py_UNUSED(self), PyObject *args)
+{
+    PyObject *ret = NULL;
+    PyObject *output = NULL;
+    Py_ssize_t num_tips;
+    npy_intp dims[1];
+    int err;
+
+    if (!PyArg_ParseTuple(args, "n", &num_tips)) {
+        goto out;
+    }
+    if (num_tips < 1) {
+        PyErr_SetString(PyExc_ValueError, "The number of tips must be positive");
+        goto out;
+    }
+    dims[0] = (npy_intp) num_tips + 1;
+    output = PyArray_SimpleNew(1, dims, NPY_FLOAT64);
+    if (output == NULL) {
+        goto out;
+    }
+    Py_BEGIN_ALLOW_THREADS
+    err = tsd_conditional_coalescent_variance(
+        (tsd_size_t) num_tips, (double *) PyArray_DATA((PyArrayObject *) output));
+    Py_END_ALLOW_THREADS
+    if (err != 0) {
+        handle_library_error(err);
+        goto out;
+    }
+    ret = output;
+    output = NULL;
+out:
+    Py_XDECREF(output);
+    return ret;
+}
+
 static PyMethodDef tsdate_methods[] = {
     { "strerror", (PyCFunction) tsdate_strerror, METH_VARARGS,
         "Return the message for a library error code." },
@@ -639,6 +1235,25 @@ static PyMethodDef tsdate_methods[] = {
     { "average_gammas", (PyCFunction) tsdate_average_gammas, METH_VARARGS,
         "Natural parameters of the gamma averaging the sufficient statistics of an "
         "array of gammas, given as natural parameters." },
+    { "block_singletons", (PyCFunction) tsdate_block_singletons, METH_VARARGS,
+        "Group the singletons of unphased individuals into blocks." },
+    { "reallocate_unphased", (PyCFunction) tsdate_reallocate_unphased, METH_VARARGS,
+        "Reallocate the likelihood of unphased blocks, in place." },
+    { "mutation_frequency", (PyCFunction) tsdate_mutation_frequency, METH_VARARGS,
+        "The number of members of each sample set below each mutation." },
+    { "split_disjoint_nodes", (PyCFunction) tsdate_split_disjoint_nodes, METH_VARARGS,
+        "Split disconnected regions of nodes into separate nodes." },
+    { "relabel_mutations_node", (PyCFunction) tsdate_relabel_mutations_node,
+        METH_VARARGS, "The new node of each mutation, after splitting nodes." },
+    { "constrain_ages", (PyCFunction) tsdate_constrain_ages, METH_VARARGS,
+        "Constrain node ages to be consistent with the edges." },
+    { "contains_unary_nodes", (PyCFunction) tsdate_contains_unary_nodes, METH_VARARGS,
+        "Whether any unmasked node has a single child in some tree." },
+    { "marginalize_over_ancestors", (PyCFunction) tsdate_marginalize_over_ancestors,
+        METH_VARARGS, "Integrate an expectation over counts of extant ancestors." },
+    { "conditional_coalescent_variance",
+        (PyCFunction) tsdate_conditional_coalescent_variance, METH_VARARGS,
+        "Variance of node age given the number of descendant leaves." },
     { NULL } /* Sentinel */
 };
 
