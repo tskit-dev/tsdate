@@ -44,6 +44,12 @@ tsd_strerror(int err)
         case TSD_ERR_BAD_PARAM:
             ret = "Bad parameter value provided";
             break;
+        case TSD_ERR_ZERO_DIVISION:
+            ret = "Floating-point division by zero";
+            break;
+        case TSD_ERR_INVALID_HYPERGEO:
+            ret = "Parameters outside the domain of the hypergeometric function";
+            break;
         default:
             break;
     }

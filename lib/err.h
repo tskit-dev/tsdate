@@ -36,6 +36,12 @@ extern "C" {
 #define TSD_ERR_GENERIC                                             -1
 #define TSD_ERR_NO_MEMORY                                           -2
 #define TSD_ERR_BAD_PARAM                                           -3
+
+/* Floating-point division by zero, where numba raises ZeroDivisionError */
+#define TSD_ERR_ZERO_DIVISION                                       -4
+
+/* hypergeo */
+#define TSD_ERR_INVALID_HYPERGEO                                    -5
 /* clang-format on */
 
 #ifdef __GNUC__

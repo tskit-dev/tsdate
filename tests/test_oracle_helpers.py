@@ -1,5 +1,6 @@
 """Tests of the comparison helpers in ``tests/oracle/helpers.py``."""
 
+import _tsdate
 import numpy as np
 import pytest
 from oracle.helpers import (
@@ -158,6 +159,60 @@ class TestErrorsMatch:
 
     def test_expected_error(self):
         assert ValueError in expected_error(ValueError)
+
+
+KLFailed = type("KLMinimizationFailedError", (Exception,), {})
+
+
+class TestLibraryError:
+    """
+    The C library reports numba's ZeroDivisionError, AssertionError,
+    KLMinimizationFailedError and ValueError as ``_tsdate.LibraryError``; messages are
+    compared only for the last two.
+    """
+
+    @pytest.mark.parametrize(
+        "exc_type", [ZeroDivisionError, AssertionError, ValueError, KLFailed]
+    )
+    def test_expected_error_includes_library_error(self, exc_type):
+        assert exc_type in expected_error(exc_type)
+        assert _tsdate.LibraryError in expected_error(exc_type)
+
+    def test_expected_error_other_types(self):
+        assert expected_error(KeyError) == (KeyError,)
+
+    def test_assertion_error_accepts_shape_check_value_error(self):
+        assert ValueError in expected_error(AssertionError)
+        assert ValueError not in expected_error(ZeroDivisionError)
+
+    @pytest.mark.parametrize(
+        "oracle_exc",
+        [ZeroDivisionError("float division by zero"), AssertionError("Root")],
+    )
+    def test_messages_ignored(self, oracle_exc):
+        assert errors_match(_tsdate.LibraryError("other message"), oracle_exc)
+
+    def test_assertion_error_matches_shape_check_value_error(self):
+        assert errors_match(ValueError("bad shape"), AssertionError())
+
+    @pytest.mark.parametrize("oracle_type", [ValueError, KLFailed])
+    def test_messages_compared(self, oracle_type):
+        assert errors_match(_tsdate.LibraryError("a"), oracle_type("a"))
+        assert not errors_match(_tsdate.LibraryError("b"), oracle_type("a"))
+        assert errors_match(
+            _tsdate.LibraryError("b"), oracle_type("a"), check_message=False
+        )
+
+    @pytest.mark.parametrize("oracle_exc", [KeyError("a"), IndexError("a")], ids=type)
+    def test_other_oracle_errors_rejected(self, oracle_exc):
+        assert not errors_match(_tsdate.LibraryError("a"), oracle_exc)
+
+    def test_value_error_rejected_for_zero_division(self):
+        assert not errors_match(ValueError("a"), ZeroDivisionError("a"))
+
+    def test_assertion_error_still_compared_with_assertion_error(self):
+        assert errors_match(AssertionError("a"), AssertionError("a"))
+        assert not errors_match(AssertionError("b"), AssertionError("a"))
 
 
 def returns(value, modify=None):

@@ -3,6 +3,11 @@
 import numpy as np
 import tskit
 
+try:
+    from _tsdate import LibraryError
+except ImportError:  # the extension has not been built
+    LibraryError = None
+
 
 def _flatten(x, path=""):
     """Yield (path, array) for each leaf of a nested tuple/list of scalars/arrays."""
@@ -78,13 +83,28 @@ def log_uniform(rng, lo, hi, size=None):
     return float(x) if size is None else x
 
 
+# Exceptions of the oracle (and numba) that the C library reports as a LibraryError.
+_LIBRARY_ERROR_NAMES = (
+    "ZeroDivisionError",
+    "AssertionError",
+    "KLMinimizationFailedError",
+    "ValueError",
+)
+
+
 def expected_error(exc_type):
     """
     The exceptions an implementation may raise where numba raises ``exc_type``
     (``ZeroDivisionError``, ``AssertionError``, ...), for ``pytest.raises``. The C
-    port adds ``_tsdate.LibraryError`` here; this is the single place to do so.
+    library reports these as ``_tsdate.LibraryError``, and its argument checks raise
+    ``ValueError`` where numba asserts on array shapes and sizes.
     """
-    return (exc_type,)
+    allowed = (exc_type,)
+    if LibraryError is not None and exc_type.__name__ in _LIBRARY_ERROR_NAMES:
+        allowed += (LibraryError,)
+    if exc_type is AssertionError:
+        allowed += (ValueError,)
+    return allowed
 
 
 class Outcome:
@@ -138,12 +158,17 @@ def errors_match(actual, expected, check_message=True):
     the oracle): the same type and, if ``check_message``, the same message. The
     message of a ``ZeroDivisionError`` comes from the runtime, not from tsdate (numba
     says "division by zero", Python "float division by zero"), so it is not compared.
-    The C port extends this to accept ``_tsdate.LibraryError`` (see
-    `expected_error`).
+    A ``_tsdate.LibraryError`` (or, for an ``AssertionError``, a ``ValueError`` from
+    the module's shape checks) is accepted in place of the exceptions of
+    `expected_error`; its message is compared only with those of the tsdate-authored,
+    user-facing errors (``KLMinimizationFailedError`` and ``ValueError``), as the
+    messages of the others (assertions, divisions) are not part of the interface.
     """
     if not isinstance(actual, expected_error(type(expected))):
         return False
     if isinstance(expected, ZeroDivisionError):
+        return True
+    if isinstance(expected, AssertionError) and not isinstance(actual, AssertionError):
         return True
     return not check_message or str(actual) == str(expected)
 

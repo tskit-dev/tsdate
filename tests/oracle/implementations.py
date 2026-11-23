@@ -4,11 +4,17 @@ Registry of implementations to test against the oracles.
 ``IMPLEMENTATIONS`` maps a name to a namespace with one attribute per tsdate module
 (``hypergeo``, ``approx``, ``variational``, ``rescaling``, ``phasing``, ``util``,
 ``prior``, ``discrete``), exposing the jitted functions under the same names and
-signatures as the oracle modules. To add the C extension, add an entry here; to
-drop numba, delete the "numba" entry.
+signatures as the oracle modules. To drop numba, delete the "numba" entry.
+
+The "c" entry exists if the ``_tsdate`` extension can be imported. Its namespaces
+have the attributes of the functions that have been ported (as thin adapters where the
+oracle's signature or return type differs from the module's); other names skip the test
+that uses them.
 """
 
 import types
+
+import pytest
 
 import tsdate.approx
 import tsdate.hypergeo
@@ -70,6 +76,51 @@ def _numba_namespace():
     )
 
 
+class _PortedNamespace(types.SimpleNamespace):
+    """
+    A namespace of the functions ported to C: using a name that has not been ported yet
+    skips the test. Add ported functions as attributes in `_c_namespace`.
+    """
+
+    def __getattr__(self, name):
+        if name.startswith("__"):
+            raise AttributeError(name)
+        pytest.skip("not yet ported to C")
+
+
+def _c_hypergeo(_tsdate):
+    return _PortedNamespace(
+        _digamma=_tsdate.digamma,
+        _trigamma=_tsdate.trigamma,
+        _betaln=_tsdate.betaln,
+        _gammainc_der=_tsdate.gammainc_der,
+        _gammainc_inv=_tsdate.gammainc_inv,
+        _hyperu_laplace=_tsdate.hyperu_laplace,
+        _hyp1f1_laplace=_tsdate.hyp1f1_laplace,
+        _hyp2f1_laplace=_tsdate.hyp2f1_laplace,
+    )
+
+
+def _c_namespace():
+    import _tsdate
+
+    return types.SimpleNamespace(
+        hypergeo=_c_hypergeo(_tsdate),
+        approx=_PortedNamespace(),
+        variational=_PortedNamespace(),
+        rescaling=_PortedNamespace(),
+        phasing=_PortedNamespace(),
+        util=_PortedNamespace(),
+        prior=_PortedNamespace(),
+        discrete=_PortedNamespace(),
+    )
+
+
 IMPLEMENTATIONS: dict[str, types.SimpleNamespace] = {
     "numba": _numba_namespace(),
 }
+
+try:
+    IMPLEMENTATIONS["c"] = _c_namespace()
+except ImportError:  # the extension has not been built
+    pass

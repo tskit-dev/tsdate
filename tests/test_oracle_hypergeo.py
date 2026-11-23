@@ -248,9 +248,10 @@ def gammainc_inv_grid():
 
 class TestGammaincInv:
     """
-    `_gammainc_inv` wraps SciPy's ``gammaincinv`` (cephes ``igami``): the port has to
-    reproduce it to 4 ulp, including away from the interior of the domain (the
-    result is a NaN, 0 or inf for invalid shapes and quantiles, with no exception).
+    `_gammainc_inv` is SciPy's ``gammaincinv`` (cephes ``igami``), which every
+    implementation calls; checked to 4 ulp, including away from the interior of the
+    domain (the result is a NaN, 0 or inf for invalid shapes and quantiles, with no
+    exception).
     """
 
     @pytest.mark.parametrize(("a", "q"), gammainc_inv_grid(), ids=repr)

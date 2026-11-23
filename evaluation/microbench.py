@@ -79,10 +79,20 @@ def _numba_impl():
     }
 
 
-# The seam for adding implementations: name -> {function name -> callable}. A later
-# step adds e.g. "c": _c_impl here (a function returning a dict like _numba_impl's,
-# possibly wrapping calls to adapt argument types such as EPFactors).
-IMPLS = {"numba": _numba_impl}
+def _c_impl():
+    """
+    Callables of the C implementation. Each ported array-level function is added as
+    ``name: callable`` (taking the arguments of the numba function of that name); the
+    functions that are missing are skipped in the benchmarks.
+    """
+    return {}
+
+
+# The seam for adding implementations: name -> {function name -> callable}. A
+# function returning a dict like _numba_impl's (possibly wrapping calls to adapt
+# argument types such as EPFactors). Benchmarks that an implementation lacks are
+# skipped for it.
+IMPLS = {"numba": _numba_impl, "c": _c_impl}
 
 
 def numba_compile_times(funcs):
@@ -647,6 +657,8 @@ def main():
             if args.only and not any(s in bench.name for s in args.only):
                 continue
             for name, funcs in impls.items():
+                if bench.func not in funcs:
+                    continue
                 times, first, batch = time_bench(funcs[bench.func], bench, args.repeats)
                 row = dict(
                     function=bench.name,
