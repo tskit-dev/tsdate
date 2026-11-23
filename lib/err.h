@@ -42,6 +42,19 @@ extern "C" {
 
 /* hypergeo */
 #define TSD_ERR_INVALID_HYPERGEO                                    -5
+
+/* approx: messages are those of numba's KLMinimizationFailedError, verbatim */
+#define TSD_ERR_NONPOSITIVE_OR_NONFINITE_MOMENTS                    -6
+#define TSD_ERR_JENSEN_VIOLATION                                    -7
+#define TSD_ERR_KL_MAX_ITERATIONS                                   -8
+#define TSD_ERR_KL_INVALID_SHAPE                                    -9
+#define TSD_ERR_NONPOSITIVE_CENTRAL_MOMENTS                         -10
+#define TSD_ERR_UNSORTED_QUANTILES                                  -11
+#define TSD_ERR_QUANTILE_MAX_ITERATIONS                             -12
+#define TSD_ERR_NEGATIVE_SHAPE                                      -13
+/* approx: violated preconditions (numba asserts) */
+#define TSD_ERR_NONPOSITIVE_MOMENTS                                 -14
+#define TSD_ERR_INVALID_FIXED_AGE                                   -15
 /* clang-format on */
 
 #ifdef __GNUC__

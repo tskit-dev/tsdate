@@ -9,7 +9,7 @@ IS_WINDOWS = platform.system() == "Windows"
 libdir = "lib"
 includes = [libdir]
 
-tsd_source_files = ["err.c", "hypergeo.c"]
+tsd_source_files = ["err.c", "hypergeo.c", "approx.c"]
 
 sources = ["_tsdatemodule.c"] + [os.path.join(libdir, f) for f in tsd_source_files]
 

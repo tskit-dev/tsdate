@@ -14,6 +14,7 @@ that uses them.
 
 import types
 
+import numpy as np
 import pytest
 
 import tsdate.approx
@@ -101,12 +102,86 @@ def _c_hypergeo(_tsdate):
     )
 
 
+def _c_valid(func):
+    """The `_valid_*` checks return a bool in numba; the C function a float."""
+
+    def valid(*args):
+        return bool(func(*args))
+
+    return valid
+
+
+def _c_projection(func):
+    """
+    Adapter for a projection. The C function takes flat arguments (the ages, and the
+    entries of the parameter arrays) and returns a flat tuple: the first result, then
+    the pairs of natural parameters; the oracle takes arrays and returns the first
+    result and one array per pair.
+    """
+
+    def projection(*args):
+        flat = [float(x) for arg in args for x in np.atleast_1d(arg)]
+        first, *rest = func(*flat)
+        pairs = [np.array(rest[i : i + 2]) for i in range(0, len(rest), 2)]
+        return (first, *pairs)
+
+    return projection
+
+
+def _c_approx(_tsdate):
+    # The helpers; each commented section is owned by the agent that ports it.
+    return _PortedNamespace(
+        approximate_log_moments=_tsdate.approximate_log_moments,
+        approximate_gamma_kl=_tsdate.approximate_gamma_kl,
+        approximate_gamma_mom=_tsdate.approximate_gamma_mom,
+        approximate_gamma_iqr=_tsdate.approximate_gamma_iqr,
+        average_gammas=_tsdate.average_gammas,
+        _valid_moments=_c_valid(_tsdate.valid_moments),
+        _valid_gamma=_c_valid(_tsdate.valid_gamma),
+        _valid_hyp1f1=_c_valid(_tsdate.valid_hyp1f1),
+        _valid_hyperu=_c_valid(_tsdate.valid_hyperu),
+        _valid_hyp2f1=_c_valid(_tsdate.valid_hyp2f1),
+        # approx: node moments
+        moments=_tsdate.moments,
+        rootward_moments=_tsdate.rootward_moments,
+        leafward_moments=_tsdate.leafward_moments,
+        unphased_moments=_tsdate.unphased_moments,
+        twin_moments=_tsdate.twin_moments,
+        sideways_moments=_tsdate.sideways_moments,
+        # approx: node projections
+        gamma_projection=_c_projection(_tsdate.gamma_projection),
+        leafward_projection=_c_projection(_tsdate.leafward_projection),
+        rootward_projection=_c_projection(_tsdate.rootward_projection),
+        unphased_projection=_c_projection(_tsdate.unphased_projection),
+        twin_projection=_c_projection(_tsdate.twin_projection),
+        sideways_projection=_c_projection(_tsdate.sideways_projection),
+        # approx: mutation moments
+        mutation_moments=_tsdate.mutation_moments,
+        mutation_rootward_moments=_tsdate.mutation_rootward_moments,
+        mutation_leafward_moments=_tsdate.mutation_leafward_moments,
+        mutation_unphased_moments=_tsdate.mutation_unphased_moments,
+        mutation_twin_moments=_tsdate.mutation_twin_moments,
+        mutation_sideways_moments=_tsdate.mutation_sideways_moments,
+        mutation_edge_moments=_tsdate.mutation_edge_moments,
+        mutation_block_moments=_tsdate.mutation_block_moments,
+        # approx: mutation projections
+        mutation_gamma_projection=_c_projection(_tsdate.mutation_gamma_projection),
+        mutation_leafward_projection=_c_projection(_tsdate.mutation_leafward_projection),
+        mutation_rootward_projection=_c_projection(_tsdate.mutation_rootward_projection),
+        mutation_edge_projection=_c_projection(_tsdate.mutation_edge_projection),
+        mutation_unphased_projection=_c_projection(_tsdate.mutation_unphased_projection),
+        mutation_twin_projection=_c_projection(_tsdate.mutation_twin_projection),
+        mutation_sideways_projection=_c_projection(_tsdate.mutation_sideways_projection),
+        mutation_block_projection=_c_projection(_tsdate.mutation_block_projection),
+    )
+
+
 def _c_namespace():
     import _tsdate
 
     return types.SimpleNamespace(
         hypergeo=_c_hypergeo(_tsdate),
-        approx=_PortedNamespace(),
+        approx=_c_approx(_tsdate),
         variational=_PortedNamespace(),
         rescaling=_PortedNamespace(),
         phasing=_PortedNamespace(),

@@ -40,7 +40,12 @@ static void
 test_strerror(void)
 {
     const int codes[] = { 0, TSD_ERR_GENERIC, TSD_ERR_NO_MEMORY, TSD_ERR_BAD_PARAM,
-        TSD_ERR_ZERO_DIVISION, TSD_ERR_INVALID_HYPERGEO };
+        TSD_ERR_ZERO_DIVISION, TSD_ERR_INVALID_HYPERGEO,
+        TSD_ERR_NONPOSITIVE_OR_NONFINITE_MOMENTS, TSD_ERR_JENSEN_VIOLATION,
+        TSD_ERR_KL_MAX_ITERATIONS, TSD_ERR_KL_INVALID_SHAPE,
+        TSD_ERR_NONPOSITIVE_CENTRAL_MOMENTS, TSD_ERR_UNSORTED_QUANTILES,
+        TSD_ERR_QUANTILE_MAX_ITERATIONS, TSD_ERR_NEGATIVE_SHAPE,
+        TSD_ERR_NONPOSITIVE_MOMENTS, TSD_ERR_INVALID_FIXED_AGE };
     const int num_codes = (int) (sizeof(codes) / sizeof(codes[0]));
     const char *msg_i;
     const char *msg_j;
@@ -291,6 +296,386 @@ test_hyp2f1_laplace_errors(void)
     CU_ASSERT_EQUAL(ret, TSD_ERR_ZERO_DIVISION);
 }
 
+/*
+ * A stand-in for SciPy's gammaincinv: the inverse of the regularised lower
+ * incomplete gamma function by bisection, with the series expansion of the function.
+ */
+static double
+test_gammainc(double a, double x)
+{
+    double term = 1.0 / a;
+    double sum = term;
+    int n;
+
+    for (n = 1; n < 1000; n++) {
+        term *= x / (a + n);
+        sum += term;
+    }
+    return sum * exp(a * log(x) - x - lgamma(a));
+}
+
+static double
+test_gammaincinv(double a, double p)
+{
+    double lo = 0.0;
+    double hi = 1.0;
+    double mid;
+    int j;
+
+    while (test_gammainc(a, hi) < p) {
+        hi *= 2;
+    }
+    for (j = 0; j < 100; j++) {
+        mid = (lo + hi) / 2;
+        if (test_gammainc(a, mid) < p) {
+            lo = mid;
+        } else {
+            hi = mid;
+        }
+    }
+    return (lo + hi) / 2;
+}
+
+static double
+test_zero_inv(double a, double p)
+{
+    return a * 0.0 * p;
+}
+
+static double
+test_tiny_inv(double a, double p)
+{
+    return 1e-200 * a * p;
+}
+
+static void
+test_approximate_log_moments(void)
+{
+    double logx, xlogx, logx2;
+    int ret;
+
+    ret = tsd_approximate_log_moments(2.0, 0.5, &logx, &xlogx, &logx2);
+    CU_ASSERT_EQUAL(ret, 0);
+    CU_ASSERT(isfinite(logx) && isfinite(xlogx) && isfinite(logx2));
+    ret = tsd_approximate_log_moments(0.0, 0.5, &logx, &xlogx, &logx2);
+    CU_ASSERT_EQUAL(ret, TSD_ERR_NONPOSITIVE_MOMENTS);
+    ret = tsd_approximate_log_moments(1.0, NAN, &logx, &xlogx, &logx2);
+    CU_ASSERT_EQUAL(ret, TSD_ERR_NONPOSITIVE_MOMENTS);
+    /* mean ** 2 underflows */
+    ret = tsd_approximate_log_moments(1e-200, 1.0, &logx, &xlogx, &logx2);
+    CU_ASSERT_EQUAL(ret, TSD_ERR_ZERO_DIVISION);
+}
+
+static void
+test_approximate_gamma_kl(void)
+{
+    double out[2];
+    int ret;
+
+    ret = tsd_approximate_gamma_kl(2.0, 0.5, out);
+    CU_ASSERT_EQUAL(ret, 0);
+    CU_ASSERT(isfinite(out[0]) && isfinite(out[1]));
+    /* the asymptotic lower bound */
+    ret = tsd_approximate_gamma_kl(1.0, -1e-10, out);
+    CU_ASSERT_EQUAL(ret, 0);
+    ret = tsd_approximate_gamma_kl(0.0, -1.0, out);
+    CU_ASSERT_EQUAL(ret, TSD_ERR_NONPOSITIVE_OR_NONFINITE_MOMENTS);
+    ret = tsd_approximate_gamma_kl(1.0, 0.0, out);
+    CU_ASSERT_EQUAL(ret, TSD_ERR_JENSEN_VIOLATION);
+    /* the lower bound on the shape is zero */
+    ret = tsd_approximate_gamma_kl(INFINITY, -1.0, out);
+    CU_ASSERT_EQUAL(ret, TSD_ERR_ZERO_DIVISION);
+    /* the trigamma function divides by zero */
+    ret = tsd_approximate_gamma_kl(1.0, -1e164, out);
+    CU_ASSERT_EQUAL(ret, TSD_ERR_ZERO_DIVISION);
+}
+
+static void
+test_approximate_gamma_mom(void)
+{
+    double out[2];
+    int ret;
+
+    ret = tsd_approximate_gamma_mom(2.0, 4.0, out);
+    CU_ASSERT_EQUAL(ret, 0);
+    CU_ASSERT_EQUAL(out[0], 0.0);
+    CU_ASSERT_EQUAL(out[1], 0.5);
+    ret = tsd_approximate_gamma_mom(2.0, 0.0, out);
+    CU_ASSERT_EQUAL(ret, TSD_ERR_NONPOSITIVE_CENTRAL_MOMENTS);
+    ret = tsd_approximate_gamma_mom(NAN, 1.0, out);
+    CU_ASSERT_EQUAL(ret, TSD_ERR_NONPOSITIVE_CENTRAL_MOMENTS);
+}
+
+static void
+test_approximate_gamma_iqr(void)
+{
+    double out[2];
+    double shape = 5.0;
+    double x1 = test_gammaincinv(shape, 0.25);
+    double x2 = test_gammaincinv(shape, 0.75);
+    int ret;
+
+    /* Newton iteration recovers the shape */
+    ret = tsd_approximate_gamma_iqr(0.25, 0.75, x1, x2, 50.0, test_gammaincinv, out);
+    CU_ASSERT_EQUAL(ret, 0);
+    CU_ASSERT_DOUBLE_EQUAL(out[0], shape - 1, 1e-6);
+    /* capped shape: equal quantiles, a lower bound or an iteration above the cap */
+    ret = tsd_approximate_gamma_iqr(0.25, 0.75, 3.0, 3.0, 50.0, test_gammaincinv, out);
+    CU_ASSERT_EQUAL(ret, 0);
+    CU_ASSERT_EQUAL(out[0], 49.0);
+    ret = tsd_approximate_gamma_iqr(0.25, 0.75, x1, x2, 2.0, test_gammaincinv, out);
+    CU_ASSERT_EQUAL(ret, 0);
+    CU_ASSERT_EQUAL(out[0], 1.0);
+    ret = tsd_approximate_gamma_iqr(0.25, 0.75, 1.0, 1.1, 1e5, test_gammaincinv, out);
+    CU_ASSERT_EQUAL(ret, 0);
+    /* errors */
+    ret = tsd_approximate_gamma_iqr(0.25, 0.75, 2.0, 1.0, 50.0, test_gammaincinv, out);
+    CU_ASSERT_EQUAL(ret, TSD_ERR_UNSORTED_QUANTILES);
+    ret = tsd_approximate_gamma_iqr(0.25, 0.75, 0.0, 0.0, 50.0, test_gammaincinv, out);
+    CU_ASSERT_EQUAL(ret, TSD_ERR_ZERO_DIVISION);
+    ret = tsd_approximate_gamma_iqr(0.0, 0.75, 1.0, 2.0, 50.0, test_gammaincinv, out);
+    CU_ASSERT_EQUAL(ret, TSD_ERR_ZERO_DIVISION);
+    ret = tsd_approximate_gamma_iqr(0.25, 0.75, 0.0, 1.0, 50.0, test_gammaincinv, out);
+    CU_ASSERT_EQUAL(ret, TSD_ERR_ZERO_DIVISION);
+    ret = tsd_approximate_gamma_iqr(0.25, 1.0, 1.0, 2.0, 50.0, test_gammaincinv, out);
+    CU_ASSERT_EQUAL(ret, TSD_ERR_NEGATIVE_SHAPE);
+    /* a quantile function that returns zero, or underflows when squared */
+    ret = tsd_approximate_gamma_iqr(0.25, 0.75, 1.0, 2.0, 50.0, test_zero_inv, out);
+    CU_ASSERT_EQUAL(ret, TSD_ERR_ZERO_DIVISION);
+    ret = tsd_approximate_gamma_iqr(0.25, 0.75, 1.0, 2.0, 50.0, test_tiny_inv, out);
+    CU_ASSERT_EQUAL(ret, TSD_ERR_ZERO_DIVISION);
+}
+
+static void
+test_average_gammas(void)
+{
+    const double alpha[] = { 0.5, 3.0 };
+    const double beta[] = { 1.0, 2.0 };
+    const double zero_rate[] = { 1.0, 0.0 };
+    const double pole[] = { -1.0, 3.0 };
+    double out[2];
+    int ret;
+
+    ret = tsd_average_gammas(2, alpha, beta, out);
+    CU_ASSERT_EQUAL(ret, 0);
+    CU_ASSERT(isfinite(out[0]) && isfinite(out[1]));
+    ret = tsd_average_gammas(0, alpha, beta, out);
+    CU_ASSERT_EQUAL(ret, TSD_ERR_ZERO_DIVISION);
+    ret = tsd_average_gammas(2, alpha, zero_rate, out);
+    CU_ASSERT_EQUAL(ret, TSD_ERR_ZERO_DIVISION);
+    /* digamma has a pole at shape 0 */
+    ret = tsd_average_gammas(2, pole, beta, out);
+    CU_ASSERT_EQUAL(ret, TSD_ERR_ZERO_DIVISION);
+}
+
+static void
+test_valid(void)
+{
+    CU_ASSERT_TRUE(tsd_valid_moments(1.0, 1.0));
+    CU_ASSERT_FALSE(tsd_valid_moments(NAN, 1.0));
+    CU_ASSERT_FALSE(tsd_valid_moments(1.0, 0.0));
+    CU_ASSERT_TRUE(tsd_valid_gamma(1.0, 1.0));
+    CU_ASSERT_FALSE(tsd_valid_gamma(1.0, INFINITY));
+    CU_ASSERT_FALSE(tsd_valid_gamma(0.0, 1.0));
+    CU_ASSERT_TRUE(tsd_valid_hyp1f1(1.0, 2.0, 0.5));
+    CU_ASSERT_FALSE(tsd_valid_hyp1f1(1.0, NAN, 0.5));
+    CU_ASSERT_FALSE(tsd_valid_hyp1f1(2.0, 1.0, 0.5));
+    CU_ASSERT_TRUE(tsd_valid_hyperu(1.0, 2.0, 0.5));
+    CU_ASSERT_FALSE(tsd_valid_hyperu(1.0, 2.0, INFINITY));
+    CU_ASSERT_FALSE(tsd_valid_hyperu(1.0, 2.0, 0.0));
+    CU_ASSERT_FALSE(tsd_valid_hyperu(1.0, 1.0, 0.5));
+    CU_ASSERT_TRUE(tsd_valid_hyp2f1(1.0, 2.0, 3.0, 0.5));
+    CU_ASSERT_FALSE(tsd_valid_hyp2f1(1.0, 2.0, NAN, 0.5));
+    CU_ASSERT_FALSE(tsd_valid_hyp2f1(1.0, 2.0, 3.0, NAN));
+    CU_ASSERT_FALSE(tsd_valid_hyp2f1(1.0, 2.0, 3.0, 1.0));
+    CU_ASSERT_FALSE(tsd_valid_hyp2f1(1.0, 2.0, 3.0, -1e16));
+    CU_ASSERT_FALSE(tsd_valid_hyp2f1(0.0, 2.0, 3.0, 0.5));
+}
+
+/* approx: node moments */
+static void
+test_node_moments(void)
+{
+    int ret;
+    double v[5];
+
+    ret = tsd_moments(10, 0.01, 10, 0.01, 1, 1e-4, v, v + 1, v + 2, v + 3, v + 4);
+    CU_ASSERT_EQUAL(ret, 0);
+    CU_ASSERT_TRUE(isfinite(v[0]));
+    ret = tsd_moments(10, 0.01, 10, -0.02, 1, 1e-4, v, v + 1, v + 2, v + 3, v + 4);
+    CU_ASSERT_EQUAL(ret, 0);
+    CU_ASSERT_TRUE(isnan(v[0]));
+    ret = tsd_moments(10, 0.01, 10, 0.01, 1, 1e-4, v, v + 1, v + 2, v + 3, v + 4);
+    CU_ASSERT_EQUAL(ret, 0);
+
+    ret = tsd_unphased_moments(
+        10, 0.01, 10, 0.01, 1, 1e-4, v, v + 1, v + 2, v + 3, v + 4);
+    CU_ASSERT_EQUAL(ret, 0);
+    CU_ASSERT_TRUE(isfinite(v[0]));
+    ret = tsd_unphased_moments(
+        10, -1.0, 10, 0.01, 1, 1e-4, v, v + 1, v + 2, v + 3, v + 4);
+    CU_ASSERT_EQUAL(ret, 0);
+    CU_ASSERT_TRUE(isnan(v[0]));
+
+    /* a positive, a zero and an invalid child age; negative and NaN ages are errors */
+    ret = tsd_rootward_moments(1000, 10, 0.01, 1, 1e-4, v, v + 1, v + 2);
+    CU_ASSERT_EQUAL(ret, 0);
+    CU_ASSERT_TRUE(isfinite(v[0]));
+    ret = tsd_rootward_moments(0, 10, 0.01, 1, 1e-4, v, v + 1, v + 2);
+    CU_ASSERT_EQUAL(ret, 0);
+    CU_ASSERT_TRUE(isfinite(v[0]));
+    ret = tsd_rootward_moments(1000, 10, -1.0, 1, 1e-4, v, v + 1, v + 2);
+    CU_ASSERT_EQUAL(ret, 0);
+    CU_ASSERT_TRUE(isnan(v[0]));
+    ret = tsd_rootward_moments(1e308, 10, 1e10, 1, 1e-4, v, v + 1, v + 2);
+    CU_ASSERT_EQUAL(ret, 0);
+    CU_ASSERT_TRUE(isnan(v[0]));
+    ret = tsd_rootward_moments(-1.0, 10, 0.01, 1, 1e-4, v, v + 1, v + 2);
+    CU_ASSERT_EQUAL(ret, TSD_ERR_INVALID_FIXED_AGE);
+    ret = tsd_rootward_moments(NAN, 10, 0.01, 1, 1e-4, v, v + 1, v + 2);
+    CU_ASSERT_EQUAL(ret, TSD_ERR_INVALID_FIXED_AGE);
+
+    ret = tsd_leafward_moments(1000, 10, 0.01, 1, 1e-4, v, v + 1, v + 2);
+    CU_ASSERT_EQUAL(ret, 0);
+    CU_ASSERT_TRUE(isfinite(v[0]));
+    ret = tsd_leafward_moments(1000, 0, 0.01, 1, 1e-4, v, v + 1, v + 2);
+    CU_ASSERT_EQUAL(ret, 0);
+    CU_ASSERT_TRUE(isnan(v[0]));
+    ret = tsd_leafward_moments(0, 10, 0.01, 1, 1e-4, v, v + 1, v + 2);
+    CU_ASSERT_EQUAL(ret, TSD_ERR_INVALID_FIXED_AGE);
+
+    ret = tsd_sideways_moments(1000, 10, 0.01, 1, 1e-4, v, v + 1, v + 2);
+    CU_ASSERT_EQUAL(ret, 0);
+    CU_ASSERT_TRUE(isfinite(v[0]));
+    ret = tsd_sideways_moments(1000, 10, -1.0, 1, 1e-4, v, v + 1, v + 2);
+    CU_ASSERT_EQUAL(ret, 0);
+    CU_ASSERT_TRUE(isnan(v[0]));
+    ret = tsd_sideways_moments(0, 10, 0.01, 1, 1e-4, v, v + 1, v + 2);
+    CU_ASSERT_EQUAL(ret, TSD_ERR_INVALID_FIXED_AGE);
+
+    ret = tsd_twin_moments(10, 0.01, 1, 1e-4, v, v + 1, v + 2);
+    CU_ASSERT_EQUAL(ret, 0);
+    CU_ASSERT_TRUE(isfinite(v[0]));
+    ret = tsd_twin_moments(10, -2e-4, 1, 1e-4, v, v + 1, v + 2);
+    CU_ASSERT_EQUAL(ret, TSD_ERR_ZERO_DIVISION);
+    ret = tsd_twin_moments(10, 1e-300, 1, 0.0, v, v + 1, v + 2);
+    CU_ASSERT_EQUAL(ret, TSD_ERR_ZERO_DIVISION);
+}
+
+/* Each projection once with usable moments, and once with unusable ones (NaN). */
+static void
+test_mutation_projections(void)
+{
+    const double pars_i[2] = { 2.0, 1.0 };
+    const double pars_j[2] = { 1.0, 2.0 };
+    const double pars_ij[2] = { 1.0, 1.0 };
+    double pr_m;
+    double proj[2];
+
+    CU_ASSERT_EQUAL(
+        tsd_mutation_gamma_projection(pars_i, pars_j, pars_ij, &pr_m, proj), 0);
+    CU_ASSERT_EQUAL(pr_m, 1.0);
+    CU_ASSERT_EQUAL(
+        tsd_mutation_leafward_projection(2.0, pars_j, pars_ij, &pr_m, proj), 0);
+    CU_ASSERT_EQUAL(
+        tsd_mutation_rootward_projection(1.0, pars_i, pars_ij, &pr_m, proj), 0);
+    CU_ASSERT_EQUAL(tsd_mutation_edge_projection(2.0, 1.0, &pr_m, proj), 0);
+    CU_ASSERT_EQUAL(pr_m, 1.0);
+    CU_ASSERT_EQUAL(
+        tsd_mutation_unphased_projection(pars_i, pars_j, pars_ij, &pr_m, proj), 0);
+    CU_ASSERT_EQUAL(tsd_mutation_twin_projection(pars_i, pars_ij, &pr_m, proj), 0);
+    CU_ASSERT_EQUAL(
+        tsd_mutation_sideways_projection(2.0, pars_j, pars_ij, &pr_m, proj), 0);
+    CU_ASSERT_EQUAL(tsd_mutation_block_projection(2.0, 1.0, &pr_m, proj), 0);
+    CU_ASSERT_TRUE(pr_m > 0.0 && pr_m < 1.0);
+
+    /* Zero variance: the moments are unusable, which is in-band. */
+    CU_ASSERT_EQUAL(tsd_mutation_edge_projection(1.0, 1.0, &pr_m, proj), 0);
+    CU_ASSERT_TRUE(isnan(pr_m));
+    CU_ASSERT_TRUE(isnan(proj[0]));
+    CU_ASSERT_TRUE(isnan(proj[1]));
+}
+
+/* The node projections: usable moments, and unusable ones (NaN, input copied). */
+static void
+test_node_projections(void)
+{
+    const double pars[2] = { 1.0, 2.0 };
+    const double bad[2] = { -5.0, 1.0 };
+    const double edge[2] = { 2.0, 0.5 };
+    double logl;
+    double proj_i[2];
+    double proj_j[2];
+
+    CU_ASSERT_EQUAL(tsd_gamma_projection(pars, pars, edge, &logl, proj_i, proj_j), 0);
+    CU_ASSERT_TRUE(isfinite(logl));
+    CU_ASSERT_EQUAL(tsd_gamma_projection(bad, pars, edge, &logl, proj_i, proj_j), 0);
+    CU_ASSERT_TRUE(isnan(logl));
+    CU_ASSERT_EQUAL(proj_i[0], bad[0]);
+    CU_ASSERT_EQUAL(proj_j[1], pars[1]);
+
+    CU_ASSERT_EQUAL(tsd_unphased_projection(pars, pars, edge, &logl, proj_i, proj_j), 0);
+    CU_ASSERT_TRUE(isfinite(logl));
+    CU_ASSERT_EQUAL(tsd_unphased_projection(bad, pars, edge, &logl, proj_i, proj_j), 0);
+    CU_ASSERT_TRUE(isnan(logl));
+
+    CU_ASSERT_EQUAL(tsd_leafward_projection(2.0, pars, edge, &logl, proj_j), 0);
+    CU_ASSERT_TRUE(isfinite(logl));
+    CU_ASSERT_EQUAL(tsd_leafward_projection(2.0, bad, edge, &logl, proj_j), 0);
+    CU_ASSERT_TRUE(isnan(logl));
+    CU_ASSERT_EQUAL(proj_j[0], bad[0]);
+
+    CU_ASSERT_EQUAL(tsd_rootward_projection(0.5, pars, edge, &logl, proj_i), 0);
+    CU_ASSERT_TRUE(isfinite(logl));
+    CU_ASSERT_EQUAL(tsd_rootward_projection(0.5, bad, edge, &logl, proj_i), 0);
+    CU_ASSERT_TRUE(isnan(logl));
+
+    CU_ASSERT_EQUAL(tsd_twin_projection(pars, edge, &logl, proj_i), 0);
+    CU_ASSERT_TRUE(isfinite(logl));
+    CU_ASSERT_EQUAL(tsd_twin_projection(bad, edge, &logl, proj_i), 0);
+    CU_ASSERT_TRUE(isnan(logl));
+
+    CU_ASSERT_EQUAL(tsd_sideways_projection(1.0, pars, edge, &logl, proj_j), 0);
+    CU_ASSERT_TRUE(isfinite(logl));
+    CU_ASSERT_EQUAL(tsd_sideways_projection(1.0, bad, edge, &logl, proj_j), 0);
+    CU_ASSERT_TRUE(isnan(logl));
+}
+
+/* approx: mutation moments */
+static void
+test_mutation_moments(void)
+{
+    double pr, mn, va;
+
+    CU_ASSERT_EQUAL(tsd_mutation_moments(5, 0.01, 6, 0.02, 2, 0.001, &mn, &va), 0);
+    CU_ASSERT_TRUE(mn > 0);
+    /* t <= 0: the hypergeometric domain check fails, in-band */
+    CU_ASSERT_EQUAL(tsd_mutation_moments(5, -1, 6, 0.02, 2, 0.5, &mn, &va), 0);
+    CU_ASSERT_TRUE(isnan(mn));
+    CU_ASSERT_EQUAL(tsd_mutation_rootward_moments(1, 5, 0.01, 2, 0.001, &mn, &va), 0);
+    CU_ASSERT_EQUAL(tsd_mutation_leafward_moments(50, 5, 0.01, 2, 0.001, &mn, &va), 0);
+    CU_ASSERT_EQUAL(
+        tsd_mutation_unphased_moments(5, 0.01, 6, 0.02, 2, 0.001, &pr, &mn, &va), 0);
+    CU_ASSERT_TRUE(pr > 0);
+    CU_ASSERT_EQUAL(
+        tsd_mutation_unphased_moments(5, -1, 6, 0.02, 2, 0.5, &pr, &mn, &va), 0);
+    CU_ASSERT_TRUE(isnan(pr));
+    CU_ASSERT_EQUAL(tsd_mutation_twin_moments(5, 0.01, 2, 0.001, &pr, &mn, &va), 0);
+    CU_ASSERT_EQUAL(
+        tsd_mutation_sideways_moments(10, 5, 0.01, 2, 0.001, &pr, &mn, &va), 0);
+    CU_ASSERT_EQUAL(
+        tsd_mutation_sideways_moments(10, -5, 0.01, 2, 0.001, &pr, &mn, &va), 0);
+    CU_ASSERT_TRUE(isnan(pr));
+    CU_ASSERT_EQUAL(tsd_mutation_sideways_moments(0, 5, 0.01, 2, 0.001, &pr, &mn, &va),
+        TSD_ERR_INVALID_FIXED_AGE);
+    CU_ASSERT_EQUAL(tsd_mutation_edge_moments(10, 2, &mn, &va), 0);
+    CU_ASSERT_EQUAL(tsd_mutation_block_moments(10, 2, &pr, &mn, &va), 0);
+    CU_ASSERT_EQUAL(
+        tsd_mutation_block_moments(0, 2, &pr, &mn, &va), TSD_ERR_INVALID_FIXED_AGE);
+    CU_ASSERT_EQUAL(
+        tsd_mutation_block_moments(2, 0, &pr, &mn, &va), TSD_ERR_INVALID_FIXED_AGE);
+}
+
 static void
 handle_cunit_error(void)
 {
@@ -322,6 +707,16 @@ main(int argc, char **argv)
         { "test_hyp1f1_laplace_errors", test_hyp1f1_laplace_errors },
         { "test_hyp2f1_laplace", test_hyp2f1_laplace },
         { "test_hyp2f1_laplace_errors", test_hyp2f1_laplace_errors },
+        { "test_approximate_log_moments", test_approximate_log_moments },
+        { "test_approximate_gamma_kl", test_approximate_gamma_kl },
+        { "test_approximate_gamma_mom", test_approximate_gamma_mom },
+        { "test_approximate_gamma_iqr", test_approximate_gamma_iqr },
+        { "test_average_gammas", test_average_gammas },
+        { "test_valid", test_valid },
+        { "test_node_moments", test_node_moments },
+        { "test_node_projections", test_node_projections },
+        { "test_mutation_moments", test_mutation_moments },
+        { "test_mutation_projections", test_mutation_projections },
         CU_TEST_INFO_NULL,
     };
     CU_SuiteInfo suites[] = {

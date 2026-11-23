@@ -64,6 +64,120 @@ int tsd_hyp2f1_laplace(double a, double b, double c, double x, double *out);
  */
 typedef double (*tsd_gammaincinv_fn)(double a, double p);
 
+/*
+ * Approximations of gamma distributions and of the moments of the EP updates
+ * (approx.c).
+ *
+ * Gamma distributions are written as shape and rate (a, b), with density
+ * proportional to t^(a - 1) exp(-b t), or as "natural parameters" (a - 1, b); the
+ * latter are what the gamma_* approximation functions and the projections return and
+ * take. Errors are as for the special functions above, plus the TSD_ERR_* codes of
+ * the approximations whose messages are those of numba's KLMinimizationFailedError.
+ *
+ * Convention for the moment and projection functions (sections of approx.c):
+ *
+ *  - A function that can fail returns int: 0 or a negative TSD_ERR_* code. Results
+ *    are written through trailing output pointers, which are written only on
+ *    success (return 0) and must not alias the inputs.
+ *  - Moment functions take, in the order of the numba arguments, ages (`t_i`, `t_j`:
+ *    a fixed parent or child) and gamma SHAPE and rate (`a_i`, `b_i`, `a_j`, `b_j`:
+ *    not natural parameters), the mutation count `y_ij` and the rate `mu_ij`. They
+ *    write the values that numba returns, in the same order: the log normalising
+ *    constant (`logl`) or the phase probability (`pr_m`), then means and variances.
+ *    A result that numba returns as NaN (an invalid hypergeometric domain) is
+ *    returned as NaN in every output, with return value 0.
+ *  - Projection functions take the natural parameters of the cavity gammas as
+ *    `const double pars_i[2]`, `pars_j[2]` and the edge data as `pars_ij[2]`
+ *    (`y_ij`, `mu_ij`), or ages as in the moment functions. They write the log
+ *    normalising constant (`*logl`, or `*pr_m` for mutation projections) and the
+ *    projected natural parameters through `double proj_i[2]`, `proj_j[2]` (or
+ *    `proj_m[2]`). Where numba returns the input parameters because the moments are
+ *    unusable, `*logl` is NaN and `proj_*` is a copy of `pars_*`; mutation
+ *    projections write NaN to `*pr_m` and to both entries of `proj_m`.
+ *  - Functions of the gamma approximations that numba returns as a pair of natural
+ *    parameters write them through `double out[2]`.
+ *  - The `tsd_valid_*` predicates return 1 if the arguments are usable and 0 if not;
+ *    a failure is in-band (numba returned False), not an error.
+ */
+int tsd_approximate_log_moments(
+    double mean, double variance, double *logx, double *xlogx, double *logx2);
+int tsd_approximate_gamma_kl(double x, double logx, double out[2]);
+int tsd_approximate_gamma_mom(double mean, double variance, double out[2]);
+int tsd_approximate_gamma_iqr(double q1, double q2, double x1, double x2,
+    double max_shape, tsd_gammaincinv_fn gammaincinv, double out[2]);
+/* The natural parameters of the gamma whose mean and mean log are the averages of
+ * those of `num_gammas` gammas given by natural parameters `alpha`, `beta`. */
+int tsd_average_gammas(
+    tsd_size_t num_gammas, const double *alpha, const double *beta, double out[2]);
+
+int tsd_valid_moments(double mn, double va);
+int tsd_valid_gamma(double s, double r);
+int tsd_valid_hyp1f1(double a, double b, double z);
+int tsd_valid_hyperu(double a, double b, double z);
+int tsd_valid_hyp2f1(double a, double b, double c, double z);
+
+/* Node moments (approx.c) */
+int tsd_moments(double a_i, double b_i, double a_j, double b_j, double y_ij,
+    double mu_ij, double *logl, double *mn_i, double *va_i, double *mn_j, double *va_j);
+int tsd_rootward_moments(double t_j, double a_i, double b_i, double y_ij, double mu_ij,
+    double *logl, double *mn_i, double *va_i);
+int tsd_leafward_moments(double t_i, double a_j, double b_j, double y_ij, double mu_ij,
+    double *logl, double *mn_j, double *va_j);
+int tsd_unphased_moments(double a_i, double b_i, double a_j, double b_j, double y_ij,
+    double mu_ij, double *logl, double *mn_i, double *va_i, double *mn_j, double *va_j);
+int tsd_twin_moments(double a_i, double b_i, double y_ij, double mu_ij, double *logl,
+    double *mn_i, double *va_i);
+int tsd_sideways_moments(double t_i, double a_j, double b_j, double y_ij, double mu_ij,
+    double *logl, double *mn_j, double *va_j);
+
+/* Node projections */
+int tsd_gamma_projection(const double pars_i[2], const double pars_j[2],
+    const double pars_ij[2], double *logl, double proj_i[2], double proj_j[2]);
+int tsd_leafward_projection(double t_i, const double pars_j[2], const double pars_ij[2],
+    double *logl, double proj_j[2]);
+int tsd_rootward_projection(double t_j, const double pars_i[2], const double pars_ij[2],
+    double *logl, double proj_i[2]);
+int tsd_unphased_projection(const double pars_i[2], const double pars_j[2],
+    const double pars_ij[2], double *logl, double proj_i[2], double proj_j[2]);
+int tsd_twin_projection(
+    const double pars_i[2], const double pars_ij[2], double *logl, double proj_i[2]);
+int tsd_sideways_projection(double t_i, const double pars_j[2], const double pars_ij[2],
+    double *logl, double proj_j[2]);
+
+/* Mutation moments */
+int tsd_mutation_moments(double a_i, double b_i, double a_j, double b_j, double y_ij,
+    double mu_ij, double *mn_m, double *va_m);
+int tsd_mutation_rootward_moments(double t_j, double a_i, double b_i, double y_ij,
+    double mu_ij, double *mn_m, double *va_m);
+int tsd_mutation_leafward_moments(double t_i, double a_j, double b_j, double y_ij,
+    double mu_ij, double *mn_m, double *va_m);
+int tsd_mutation_unphased_moments(double a_i, double b_i, double a_j, double b_j,
+    double y_ij, double mu_ij, double *pr_m, double *mn_m, double *va_m);
+int tsd_mutation_twin_moments(double a_i, double b_i, double y_ij, double mu_ij,
+    double *pr_m, double *mn_m, double *va_m);
+int tsd_mutation_sideways_moments(double t_i, double a_j, double b_j, double y_ij,
+    double mu_ij, double *pr_m, double *mn_m, double *va_m);
+int tsd_mutation_edge_moments(double t_i, double t_j, double *mn_m, double *va_m);
+int tsd_mutation_block_moments(
+    double t_i, double t_j, double *pr_m, double *mn_m, double *va_m);
+
+/* Mutation projections */
+int tsd_mutation_gamma_projection(const double pars_i[2], const double pars_j[2],
+    const double pars_ij[2], double *pr_m, double proj_m[2]);
+int tsd_mutation_leafward_projection(double t_i, const double pars_j[2],
+    const double pars_ij[2], double *pr_m, double proj_m[2]);
+int tsd_mutation_rootward_projection(double t_j, const double pars_i[2],
+    const double pars_ij[2], double *pr_m, double proj_m[2]);
+int tsd_mutation_edge_projection(double t_i, double t_j, double *pr_m, double proj_m[2]);
+int tsd_mutation_unphased_projection(const double pars_i[2], const double pars_j[2],
+    const double pars_ij[2], double *pr_m, double proj_m[2]);
+int tsd_mutation_twin_projection(
+    const double pars_i[2], const double pars_ij[2], double *pr_m, double proj_m[2]);
+int tsd_mutation_sideways_projection(double t_i, const double pars_j[2],
+    const double pars_ij[2], double *pr_m, double proj_m[2]);
+int tsd_mutation_block_projection(
+    double t_i, double t_j, double *pr_m, double proj_m[2]);
+
 #ifdef __cplusplus
 }
 #endif

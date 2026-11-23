@@ -50,6 +50,36 @@ tsd_strerror(int err)
         case TSD_ERR_INVALID_HYPERGEO:
             ret = "Parameters outside the domain of the hypergeometric function";
             break;
+        case TSD_ERR_NONPOSITIVE_OR_NONFINITE_MOMENTS:
+            ret = "Nonpositive or nonfinite moments";
+            break;
+        case TSD_ERR_JENSEN_VIOLATION:
+            ret = "log E[t] <= E[log t] violates Jensen's inequality";
+            break;
+        case TSD_ERR_KL_MAX_ITERATIONS:
+            ret = "Maximum iterations reached in KL minimization";
+            break;
+        case TSD_ERR_KL_INVALID_SHAPE:
+            ret = "Invalid shape parameter in KL minimization";
+            break;
+        case TSD_ERR_NONPOSITIVE_CENTRAL_MOMENTS:
+            ret = "Nonpositive central moments";
+            break;
+        case TSD_ERR_UNSORTED_QUANTILES:
+            ret = "Quantiles must be sorted";
+            break;
+        case TSD_ERR_QUANTILE_MAX_ITERATIONS:
+            ret = "Maximum iterations reached in quantile matching";
+            break;
+        case TSD_ERR_NEGATIVE_SHAPE:
+            ret = "Negative shape parameter";
+            break;
+        case TSD_ERR_NONPOSITIVE_MOMENTS:
+            ret = "The mean and variance must be positive";
+            break;
+        case TSD_ERR_INVALID_FIXED_AGE:
+            ret = "The age of a fixed node is outside the domain of the function";
+            break;
         default:
             break;
     }
