@@ -200,6 +200,18 @@ def _c_prior(_tsdate):
     )
 
 
+def _c_rescaling(_tsdate):
+    return _PortedNamespace(
+        _fixed_changepoints=_tsdate.fixed_changepoints,
+        _poisson_changepoints=_tsdate.poisson_changepoints,
+        _count_mutations=_tsdate.count_mutations,
+        mutational_area=_tsdate.mutational_area,
+        mutational_timescale=_tsdate.mutational_timescale,
+        piecewise_scale_point_estimate=_tsdate.piecewise_scale_point_estimate,
+        piecewise_scale_posterior=_tsdate.piecewise_scale_posterior,
+    )
+
+
 def _c_namespace():
     import _tsdate
 
@@ -207,7 +219,7 @@ def _c_namespace():
         hypergeo=_c_hypergeo(_tsdate),
         approx=_c_approx(_tsdate),
         variational=_PortedNamespace(),
-        rescaling=_PortedNamespace(),
+        rescaling=_c_rescaling(_tsdate),
         phasing=_c_phasing(_tsdate),
         util=_c_util(_tsdate),
         prior=_c_prior(_tsdate),

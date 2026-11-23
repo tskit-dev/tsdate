@@ -48,7 +48,11 @@ test_strerror(void)
         TSD_ERR_NONPOSITIVE_MOMENTS, TSD_ERR_INVALID_FIXED_AGE,
         TSD_ERR_UNPHASED_INDIVIDUAL_EDGES, TSD_ERR_BLOCK_OUT_OF_RANGE,
         TSD_ERR_PHASE_OUT_OF_RANGE, TSD_ERR_UNPHASED_LIKELIHOOD_NOT_CONSERVED,
-        TSD_ERR_MUTATION_NODE_NOT_IN_TREE, TSD_ERR_FIXED_NODES_VIOLATE_CONSTRAINT };
+        TSD_ERR_MUTATION_NODE_NOT_IN_TREE, TSD_ERR_FIXED_NODES_VIOLATE_CONSTRAINT,
+        TSD_ERR_NONPOSITIVE_INTERVALS, TSD_ERR_NEGATIVE_CHANGEPOINT_PARAMETER,
+        TSD_ERR_ZERO_EDGE_SPAN, TSD_ERR_NON_INCREASING_BREAKPOINTS,
+        TSD_ERR_INVALID_QUANTILE_WIDTH, TSD_ERR_INVALID_POSTERIOR,
+        TSD_ERR_TIME_BELOW_FIRST_BREAKPOINT, TSD_ERR_NO_POSTERIORS };
     const int num_codes = (int) (sizeof(codes) / sizeof(codes[0]));
     const char *msg_i;
     const char *msg_j;
@@ -917,6 +921,231 @@ test_conditional_coalescent_variance(void)
     }
 }
 
+/* ---- rescaling ---- */
+
+static void
+test_fixed_changepoints(void)
+{
+    const double counts[] = { 1.0, 2.0, 3.0, 4.0 };
+    const double zeros[] = { 0.0, 0.0 };
+    tsd_id_t *breaks = NULL;
+    tsd_size_t num_breaks;
+    int ret;
+
+    ret = tsd_fixed_changepoints(4, counts, 2, &breaks, &num_breaks);
+    CU_ASSERT_EQUAL(ret, 0);
+    CU_ASSERT_EQUAL(num_breaks, 3);
+    CU_ASSERT_EQUAL(breaks[0], 0);
+    CU_ASSERT_EQUAL(breaks[2], 4);
+    tsd_safe_free(breaks);
+    /* no counts: NaN cumulative distribution, and no observations at all */
+    ret = tsd_fixed_changepoints(2, zeros, 3, &breaks, &num_breaks);
+    CU_ASSERT_EQUAL(ret, 0);
+    tsd_safe_free(breaks);
+    ret = tsd_fixed_changepoints(0, counts, 1, &breaks, &num_breaks);
+    CU_ASSERT_EQUAL(ret, 0);
+    tsd_safe_free(breaks);
+    ret = tsd_fixed_changepoints(4, counts, 0, &breaks, &num_breaks);
+    CU_ASSERT_EQUAL(ret, TSD_ERR_NONPOSITIVE_INTERVALS);
+}
+
+static void
+test_poisson_changepoints(void)
+{
+    const double counts[] = { 5.0, 6.0, 20.0, 22.0, 21.0, 3.0 };
+    const double offset[] = { 1.0, 1.0, 1.0, 1.0, 1.0, 1.0 };
+    tsd_id_t *breaks = NULL;
+    tsd_size_t num_breaks;
+    int ret;
+
+    ret = tsd_poisson_changepoints(
+        6, counts, offset, 2.0, 0.0, 0.0, &breaks, &num_breaks);
+    CU_ASSERT_EQUAL(ret, 0);
+    CU_ASSERT(num_breaks >= 2);
+    CU_ASSERT_EQUAL(breaks[0], 0);
+    CU_ASSERT_EQUAL(breaks[num_breaks - 1], 6);
+    tsd_safe_free(breaks);
+    /* thresholds that rule out short segments */
+    ret = tsd_poisson_changepoints(
+        6, counts, offset, 2.0, 21.0, 1.5, &breaks, &num_breaks);
+    CU_ASSERT_EQUAL(ret, 0);
+    tsd_safe_free(breaks);
+    ret = tsd_poisson_changepoints(
+        0, counts, offset, 2.0, 0.0, 0.0, &breaks, &num_breaks);
+    CU_ASSERT_EQUAL(ret, 0);
+    CU_ASSERT_EQUAL(num_breaks, 1);
+    tsd_safe_free(breaks);
+    ret = tsd_poisson_changepoints(
+        6, counts, offset, -1.0, 0.0, 0.0, &breaks, &num_breaks);
+    CU_ASSERT_EQUAL(ret, TSD_ERR_NEGATIVE_CHANGEPOINT_PARAMETER);
+    ret = tsd_poisson_changepoints(
+        6, counts, offset, 2.0, NAN, 0.0, &breaks, &num_breaks);
+    CU_ASSERT_EQUAL(ret, TSD_ERR_NEGATIVE_CHANGEPOINT_PARAMETER);
+}
+
+/*
+ * Two samples (nodes 0 and 1) below a root (node 2), with edges over [0, 10), and a
+ * mutation on each sample branch and one above the root.
+ */
+static void
+test_count_mutations(void)
+{
+    const uint8_t is_sample[] = { 1, 1, 0 };
+    const tsd_id_t mutations_node[] = { 1, 0, 2 };
+    const double mutations_position[] = { 6.0, 1.0, 2.0 };
+    const tsd_id_t parent[] = { 2, 2 };
+    const tsd_id_t child[] = { 0, 1 };
+    const double left[] = { 0.0, 0.0 };
+    const double right[] = { 10.0, 5.0 };
+    const tsd_id_t insert[] = { 0, 1 };
+    const tsd_id_t remove[] = { 1, 0 };
+    double stats[4];
+    tsd_id_t mutations_edge[3];
+    int size_biased;
+    int ret;
+
+    for (size_biased = 0; size_biased < 2; size_biased++) {
+        ret = tsd_count_mutations(3, is_sample, 3, mutations_node, mutations_position, 2,
+            parent, child, left, right, insert, remove, 10.0, size_biased, stats,
+            mutations_edge);
+        CU_ASSERT_EQUAL(ret, 0);
+        CU_ASSERT_EQUAL(mutations_edge[0], -1);
+        CU_ASSERT_EQUAL(mutations_edge[1], 0);
+        CU_ASSERT_EQUAL(mutations_edge[2], -1);
+        CU_ASSERT_EQUAL(stats[0], 1.0);
+        CU_ASSERT_EQUAL(stats[1], 10.0);
+        CU_ASSERT_EQUAL(stats[3], 5.0);
+    }
+    /* no edges, no mutations */
+    ret = tsd_count_mutations(3, is_sample, 0, NULL, NULL, 0, NULL, NULL, NULL, NULL,
+        NULL, NULL, 10.0, 0, NULL, NULL);
+    CU_ASSERT_EQUAL(ret, 0);
+}
+
+/* Two samples at time zero, below a node at time 1, below a root at time 2. */
+static void
+test_mutational_area_and_timescale(void)
+{
+    const double nodes_time[] = { 0.0, 0.0, 1.0, 2.0 };
+    const double likelihoods[] = { 2.0, 10.0, 1.0, 10.0, 3.0, 10.0 };
+    const double zero_span[] = { 2.0, 0.0, 1.0, 0.0, 3.0, 0.0 };
+    const tsd_id_t parent[] = { 2, 2, 3 };
+    const tsd_id_t child[] = { 0, 1, 2 };
+    tsd_epoch_stats_t stats;
+    tsd_id_t nodes_index[4];
+    tsd_size_t num_breaks;
+    double *origin = NULL;
+    double *adjust = NULL;
+    int ret;
+
+    ret = tsd_mutational_area(
+        4, nodes_time, 3, likelihoods, parent, child, &stats, nodes_index);
+    CU_ASSERT_EQUAL(ret, 0);
+    CU_ASSERT_EQUAL(stats.num_epochs, 2);
+    CU_ASSERT_EQUAL(nodes_index[3], 2);
+    tsd_epoch_stats_free(&stats);
+    /* no nodes */
+    ret = tsd_mutational_area(0, NULL, 0, NULL, NULL, NULL, &stats, NULL);
+    CU_ASSERT_EQUAL(ret, 0);
+    CU_ASSERT_EQUAL(stats.num_epochs, 0);
+    tsd_epoch_stats_free(&stats);
+
+    ret = tsd_mutational_timescale(
+        4, nodes_time, 3, likelihoods, parent, child, 2, &num_breaks, &origin, &adjust);
+    CU_ASSERT_EQUAL(ret, 0);
+    CU_ASSERT(num_breaks >= 2);
+    CU_ASSERT_EQUAL(origin[0], 0.0);
+    CU_ASSERT_EQUAL(adjust[0], 0.0);
+    tsd_safe_free(origin);
+    tsd_safe_free(adjust);
+    ret = tsd_mutational_timescale(
+        4, nodes_time, 3, likelihoods, parent, child, 0, &num_breaks, &origin, &adjust);
+    CU_ASSERT_EQUAL(ret, TSD_ERR_NONPOSITIVE_INTERVALS);
+    ret = tsd_mutational_timescale(
+        4, nodes_time, 3, zero_span, parent, child, 2, &num_breaks, &origin, &adjust);
+    CU_ASSERT_EQUAL(ret, TSD_ERR_ZERO_EDGE_SPAN);
+    /* all nodes at time zero: there are no epochs, and the span is zero */
+    ret = tsd_mutational_timescale(
+        2, nodes_time, 0, NULL, NULL, NULL, 1, &num_breaks, &origin, &adjust);
+    CU_ASSERT_EQUAL(ret, TSD_ERR_ZERO_EDGE_SPAN);
+}
+
+static void
+test_piecewise_scale_point_estimate(void)
+{
+    const double estimate[] = { 0.5, 1.5, 4.0, -1.0, NAN };
+    const uint8_t fixed[] = { 0, 0, 1, 0, 0 };
+    const double original[] = { 0.0, 1.0, 3.0 };
+    const double rescaled[] = { 0.0, 2.0, 3.5 };
+    const double flat[] = { 0.0, 2.0, 2.0 };
+    double out[5];
+    int ret;
+
+    ret = tsd_piecewise_scale_point_estimate(
+        5, estimate, fixed, 3, original, rescaled, out);
+    CU_ASSERT_EQUAL(ret, 0);
+    CU_ASSERT_DOUBLE_EQUAL(out[0], 1.0, 1e-12);
+    CU_ASSERT_DOUBLE_EQUAL(out[1], 2.375, 1e-12);
+    CU_ASSERT_EQUAL(out[2], 4.0);
+    CU_ASSERT(isnan(out[4]));
+    ret = tsd_piecewise_scale_point_estimate(5, estimate, fixed, 3, original, flat, out);
+    CU_ASSERT_EQUAL(ret, TSD_ERR_NON_INCREASING_BREAKPOINTS);
+    ret = tsd_piecewise_scale_point_estimate(5, estimate, fixed, 3, flat, rescaled, out);
+    CU_ASSERT_EQUAL(ret, TSD_ERR_NON_INCREASING_BREAKPOINTS);
+}
+
+static void
+test_piecewise_scale_posterior(void)
+{
+    const double posteriors[] = { 1.0, 1.0, 2.0, 3.0, 0.0, 1.0, 5.0, 2.0 };
+    const uint8_t fixed[] = { 0, 0, 1, 0 };
+    const uint8_t none_fixed[] = { 0, 0, 0, 0 };
+    const double original[] = { 0.0, 1.0, 3.0 };
+    const double rescaled[] = { 0.0, 2.0, 3.5 };
+    const double late_original[] = { 0.5, 1.0, 3.0 };
+    const double flat[] = { 0.0, 2.0, 2.0 };
+    const double bad_posteriors[] = { -1.0, 1.0, 1.0, 1.0 };
+    const double zero_rate[] = { 1.0, INFINITY };
+    const double near_pole[] = { -0.9999, 1.0 };
+    double out[8];
+    int ret;
+
+    ret = tsd_piecewise_scale_posterior(
+        4, posteriors, fixed, 3, original, rescaled, 0.5, 1000.0, test_gammaincinv, out);
+    CU_ASSERT_EQUAL(ret, 0);
+    CU_ASSERT(isnan(out[4]));
+    CU_ASSERT(isfinite(out[0]) && isfinite(out[1]));
+    ret = tsd_piecewise_scale_posterior(4, posteriors, none_fixed, 3, original, rescaled,
+        0.5, 1000.0, test_gammaincinv, out);
+    CU_ASSERT_EQUAL(ret, 0);
+    ret = tsd_piecewise_scale_posterior(
+        4, posteriors, fixed, 3, original, rescaled, 1.0, 1000.0, test_gammaincinv, out);
+    CU_ASSERT_EQUAL(ret, TSD_ERR_INVALID_QUANTILE_WIDTH);
+    ret = tsd_piecewise_scale_posterior(
+        4, posteriors, fixed, 3, original, flat, 0.5, 1000.0, test_gammaincinv, out);
+    CU_ASSERT_EQUAL(ret, TSD_ERR_NON_INCREASING_BREAKPOINTS);
+    ret = tsd_piecewise_scale_posterior(2, bad_posteriors, none_fixed, 3, original,
+        rescaled, 0.5, 1000.0, test_gammaincinv, out);
+    CU_ASSERT_EQUAL(ret, TSD_ERR_INVALID_POSTERIOR);
+    ret = tsd_piecewise_scale_posterior(4, posteriors, fixed, 3, late_original, rescaled,
+        0.5, 1000.0, test_gammaincinv, out);
+    CU_ASSERT_EQUAL(ret, TSD_ERR_TIME_BELOW_FIRST_BREAKPOINT);
+    ret = tsd_piecewise_scale_posterior(
+        0, posteriors, fixed, 3, original, rescaled, 0.5, 1000.0, test_gammaincinv, out);
+    CU_ASSERT_EQUAL(ret, TSD_ERR_NO_POSTERIORS);
+    /* an infinite rate gives a zero lower quantile, and a zero rate a zero mean */
+    ret = tsd_piecewise_scale_posterior(1, zero_rate, none_fixed, 3, original, rescaled,
+        0.5, 1000.0, test_gammaincinv, out);
+    CU_ASSERT_EQUAL(ret, TSD_ERR_ZERO_DIVISION);
+    ret = tsd_piecewise_scale_posterior(1, near_pole, none_fixed, 3, original, rescaled,
+        0.5, 1000.0, test_zero_inv, out);
+    CU_ASSERT_EQUAL(ret, TSD_ERR_ZERO_DIVISION);
+    /* failures of the interquantile approximation are passed on */
+    ret = tsd_piecewise_scale_posterior(1, posteriors, none_fixed, 3, original, rescaled,
+        0.5, 1000.0, test_zero_inv, out);
+    CU_ASSERT_EQUAL(ret, TSD_ERR_ZERO_DIVISION);
+}
+
 static void
 handle_cunit_error(void)
 {
@@ -965,6 +1194,12 @@ main(int argc, char **argv)
         { "test_constrain_ages", test_constrain_ages },
         { "test_contains_unary_nodes", test_contains_unary_nodes },
         { "test_conditional_coalescent_variance", test_conditional_coalescent_variance },
+        { "test_fixed_changepoints", test_fixed_changepoints },
+        { "test_poisson_changepoints", test_poisson_changepoints },
+        { "test_count_mutations", test_count_mutations },
+        { "test_mutational_area_and_timescale", test_mutational_area_and_timescale },
+        { "test_piecewise_scale_point_estimate", test_piecewise_scale_point_estimate },
+        { "test_piecewise_scale_posterior", test_piecewise_scale_posterior },
         CU_TEST_INFO_NULL,
     };
     CU_SuiteInfo suites[] = {

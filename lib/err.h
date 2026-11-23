@@ -65,6 +65,16 @@ extern "C" {
 /* util */
 #define TSD_ERR_MUTATION_NODE_NOT_IN_TREE                           -20
 #define TSD_ERR_FIXED_NODES_VIOLATE_CONSTRAINT                      -21
+
+/* rescaling */
+#define TSD_ERR_NONPOSITIVE_INTERVALS                               -22
+#define TSD_ERR_NEGATIVE_CHANGEPOINT_PARAMETER                      -23
+#define TSD_ERR_ZERO_EDGE_SPAN                                      -24
+#define TSD_ERR_NON_INCREASING_BREAKPOINTS                          -25
+#define TSD_ERR_INVALID_QUANTILE_WIDTH                              -26
+#define TSD_ERR_INVALID_POSTERIOR                                   -27
+#define TSD_ERR_TIME_BELOW_FIRST_BREAKPOINT                         -28
+#define TSD_ERR_NO_POSTERIORS                                       -29
 /* clang-format on */
 
 #ifdef __GNUC__

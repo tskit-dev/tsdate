@@ -232,6 +232,60 @@ int tsd_marginalize_over_ancestors(
     tsd_size_t num_tips, tsd_size_t num_moments, const double *val, double *out);
 /* `variance` has `num_tips + 1` entries; `num_tips` >= 1. */
 int tsd_conditional_coalescent_variance(tsd_size_t num_tips, double *variance);
+/*
+ * Time rescaling (rescaling.c).
+ *
+ * Array arguments are contiguous. `likelihoods` and the edge statistics are
+ * row-major with two columns per edge (mutation count, mutational span). The
+ * functions that return arrays whose size is not known beforehand allocate them
+ * with malloc, and the caller frees them (tsd_safe_free, tsd_epoch_stats_free).
+ * Array sizes are the caller's responsibility (tsd_bug_assert); the numerical
+ * preconditions that numba asserted are reported as errors.
+ */
+
+/* Per-epoch results of tsd_mutational_area; every array has `num_epochs` entries. */
+typedef struct {
+    tsd_size_t num_epochs;
+    double *counts;
+    double *offset;
+    double *duration;
+} tsd_epoch_stats_t;
+
+void tsd_epoch_stats_free(tsd_epoch_stats_t *stats);
+
+/* Breakpoints (`*num_breaks == epochs + 1` of them) dividing the counts roughly
+ * equally between `epochs` epochs. */
+int tsd_fixed_changepoints(tsd_size_t num_counts, const double *counts, int64_t epochs,
+    tsd_id_t **breaks, tsd_size_t *num_breaks);
+int tsd_poisson_changepoints(tsd_size_t num_counts, const double *counts,
+    const double *offset, double penalty, double min_counts, double min_offset,
+    tsd_id_t **breaks, tsd_size_t *num_breaks);
+/* `edges_stats` has 2 * num_edges entries and `mutations_edge` num_mutations. */
+int tsd_count_mutations(tsd_size_t num_nodes, const uint8_t *node_is_sample,
+    tsd_size_t num_mutations, const tsd_id_t *mutations_node,
+    const double *mutations_position, tsd_size_t num_edges, const tsd_id_t *edges_parent,
+    const tsd_id_t *edges_child, const double *edges_left, const double *edges_right,
+    const tsd_id_t *indexes_insert, const tsd_id_t *indexes_remove,
+    double sequence_length, int size_biased, double *edges_stats,
+    tsd_id_t *mutations_edge);
+/* `nodes_index` has num_nodes entries. */
+int tsd_mutational_area(tsd_size_t num_nodes, const double *nodes_time,
+    tsd_size_t num_edges, const double *likelihoods, const tsd_id_t *edges_parent,
+    const tsd_id_t *edges_child, tsd_epoch_stats_t *stats, tsd_id_t *nodes_index);
+/* `*origin` and `*adjust` have `*num_breaks` entries. */
+int tsd_mutational_timescale(tsd_size_t num_nodes, const double *nodes_time,
+    tsd_size_t num_edges, const double *likelihoods, const tsd_id_t *edges_parent,
+    const tsd_id_t *edges_child, int64_t max_intervals, tsd_size_t *num_breaks,
+    double **origin, double **adjust);
+/* There must be at least one breakpoint; `rescaled` has `num_points` entries. */
+int tsd_piecewise_scale_point_estimate(tsd_size_t num_points,
+    const double *point_estimate, const uint8_t *point_fixed, tsd_size_t num_breaks,
+    const double *original_breaks, const double *rescaled_breaks, double *rescaled);
+/* `posteriors` and `new_posteriors` are natural parameters, row-major, two columns. */
+int tsd_piecewise_scale_posterior(tsd_size_t num_posteriors, const double *posteriors,
+    const uint8_t *posteriors_fixed, tsd_size_t num_breaks,
+    const double *original_breaks, const double *rescaled_breaks, double quantile_width,
+    double max_shape, tsd_gammaincinv_fn gammaincinv, double *new_posteriors);
 
 #ifdef __cplusplus
 }

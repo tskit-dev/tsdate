@@ -99,6 +99,34 @@ tsd_strerror(int err)
         case TSD_ERR_FIXED_NODES_VIOLATE_CONSTRAINT:
             ret = "An edge between two fixed nodes violates the age constraint";
             break;
+        case TSD_ERR_NONPOSITIVE_INTERVALS:
+            ret = "The number of intervals must be positive";
+            break;
+        case TSD_ERR_NEGATIVE_CHANGEPOINT_PARAMETER:
+            ret = "The penalty, minimum counts and minimum offset must not be negative";
+            break;
+        case TSD_ERR_ZERO_EDGE_SPAN:
+            ret = "Zero edge span in interval";
+            break;
+        case TSD_ERR_NON_INCREASING_BREAKPOINTS:
+            ret = "Rescaling produced non-increasing time breakpoints. "
+                  "Try setting `rescaling_intervals` to a smaller value "
+                  "(e.g. half its current value).";
+            break;
+        case TSD_ERR_INVALID_QUANTILE_WIDTH:
+            ret = "The quantile width must be greater than zero and less than one";
+            break;
+        case TSD_ERR_INVALID_POSTERIOR:
+            ret = "A posterior to be rescaled has shape not greater than -1 or rate "
+                  "not greater than zero";
+            break;
+        case TSD_ERR_TIME_BELOW_FIRST_BREAKPOINT:
+            ret = "A time to be rescaled is below the first time breakpoint";
+            break;
+        case TSD_ERR_NO_POSTERIORS:
+            ret = "zero-size array to reduction operation minimum which has no "
+                  "identity";
+            break;
         default:
             break;
     }

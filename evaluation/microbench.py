@@ -97,6 +97,14 @@ def _c_impl():
         "_contains_unary_nodes": _tsdate.contains_unary_nodes,
         "_marginalize_over_ancestors": _tsdate.marginalize_over_ancestors,
         "conditional_coalescent_variance": _tsdate.conditional_coalescent_variance,
+        # rescaling
+        "mutational_area": _tsdate.mutational_area,
+        "mutational_timescale": _tsdate.mutational_timescale,
+        "piecewise_scale_point_estimate": _tsdate.piecewise_scale_point_estimate,
+        "piecewise_scale_posterior": _tsdate.piecewise_scale_posterior,
+        "_fixed_changepoints": _tsdate.fixed_changepoints,
+        "_poisson_changepoints": _tsdate.poisson_changepoints,
+        "_count_mutations": _tsdate.count_mutations,
     }
 
 
