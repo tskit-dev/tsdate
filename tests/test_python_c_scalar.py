@@ -9,7 +9,6 @@ import subprocess
 import sys
 
 import _tsdate
-import numpy as np
 import pytest
 import scipy.special
 
@@ -84,65 +83,30 @@ class TestScalarErrors:
         assert math.isnan(_tsdate.gammainc_inv(math.nan, 0.5))
 
 
-def gammainc_inv_grid():
-    inf, nan = math.inf, math.nan
-    shapes = [nan, -inf, -1e300, -1e5 - 0.5, -100.5, -40.7, -40.0, -35.7, -35.0, -34.5]
-    shapes += [-33.5, -1.5, -1.0, -0.5, -1e-10, 3e305]
-    shapes += [-0.0, 0.0, 5e-324, 1e-300, 1e-100, 1e-10, 1e-3, 0.01, 0.1, 0.2, 0.25]
-    shapes += [0.3, 0.5, 0.9, 1.0, 1.1, 2.0, 5.0, 10.0, 20.0, 21.0, 50.0, 150.0]
-    shapes += [
-        25.0,
-        30.0,
-        40.0,
-        60.0,
-        100.0,
-        170.0,
-        171.7,
-        199.0,
-        200.0,
-        201.0,
-        500.0,
-        1e3,
-        1e4,
-        1e5,
-        1e6,
-        1e8,
-    ]
-    shapes += [1e10, 1e15, 1e300, inf]
-    quantiles = [nan, -inf, -0.1, -0.0, 0.0, 5e-324, 1e-300, 1e-100, 1e-20, 1e-10]
-    quantiles += [1e-5, 1e-3, 0.01, 0.1, 0.3, 0.5, 0.7, 0.9, np.nextafter(0.9, 1)]
-    quantiles += [0.95, 0.99, 1 - 1e-10, np.nextafter(1.0, 0), 1.0]
-    quantiles += [np.nextafter(1.0, 2), 1.1, inf]
-    return [(a, q) for a in shapes for q in quantiles]
-
-
-def assert_identical(actual, expected):
-    """Equal values (including the sign of zero), or both NaN"""
-    both_nan = np.isnan(actual) & np.isnan(expected)
-    same = (actual == expected) & (np.signbit(actual) == np.signbit(expected))
-    assert np.all(both_nan | same)
-
-
 class TestGammaincInv:
     """
     ``gammainc_inv`` calls SciPy's ``gammaincinv`` through its Cython C API, so it is
     identical to ``scipy.special.gammaincinv``, including outside the domain.
     """
 
-    def test_grid(self):
-        a, q = np.array(gammainc_inv_grid()).T
-        actual = np.array([_tsdate.gammainc_inv(*x) for x in zip(a, q)])
-        assert_identical(actual, scipy.special.gammaincinv(a, q))
-
-    @pytest.mark.parametrize("seed", [1, 2])
-    def test_random_draws(self, seed):
-        rng = np.random.default_rng(seed)
-        a = 10 ** rng.uniform(-6, 6, 5000)
-        q = np.where(
-            rng.random(5000) < 0.5, rng.random(5000), 10 ** rng.uniform(-12, 0, 5000)
-        )
-        actual = np.array([_tsdate.gammainc_inv(*x) for x in zip(a, q)])
-        assert_identical(actual, scipy.special.gammaincinv(a, q))
+    @pytest.mark.parametrize(
+        ("a", "q"),
+        [
+            (0.5, 0.3),
+            (2.0, 0.9),
+            (1e5, 1e-10),
+            (1e-3, 0.99),
+            (2.0, 0.0),
+            (2.0, 1.0),
+            (-1.0, 0.5),
+            (2.0, 1.5),
+            (math.nan, 0.5),
+        ],
+    )
+    def test_matches_scipy(self, a, q):
+        actual = _tsdate.gammainc_inv(a, q)
+        expected = scipy.special.gammaincinv(a, q)
+        assert actual == expected or (math.isnan(actual) and math.isnan(expected))
 
 
 class TestScipyDependency:

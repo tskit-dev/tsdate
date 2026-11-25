@@ -11,7 +11,6 @@ import numpy as np
 import pytest
 from oracle import approx
 from oracle.helpers import compare
-from oracle.implementations import _c_projection
 
 # error code: the message of numba's KLMinimizationFailedError (or the assertion)
 APPROX_ERRORS = {
@@ -37,7 +36,7 @@ class TestApproxErrors:
 
 
 class TestAverageGammas:
-    def test_matches_kl_of_averages(self):
+    def test_returns_floats(self):
         alpha = np.array([0.5, 3.0])
         beta = np.array([1.0, 2.0])
         result = _tsdate.average_gammas(alpha, beta)
@@ -74,21 +73,6 @@ class TestAverageGammas:
     def test_library_error(self):
         with pytest.raises(_tsdate.LibraryError, match="division by zero"):
             _tsdate.average_gammas(np.array([]), np.array([]))
-
-
-class TestProjectionAdapter:
-    def test_flattens_arrays_and_wraps_pairs(self):
-        calls = []
-
-        def func(*flat):
-            calls.append(flat)
-            return 7.0, 1.0, 2.0, 3.0, 4.0
-
-        result = _c_projection(func)(2.5, np.array([1.0, 2.0]), np.array([3.0, 4.0]))
-        assert calls == [(2.5, 1.0, 2.0, 3.0, 4.0)]
-        assert result[0] == 7.0
-        np.testing.assert_array_equal(result[1], [1.0, 2.0])
-        np.testing.assert_array_equal(result[2], [3.0, 4.0])
 
 
 # Failures of the quantile fit (found by random search), each at a different step of

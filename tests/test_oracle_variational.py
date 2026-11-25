@@ -854,10 +854,8 @@ class TestPropagateMutations:
 
 class TestMultiSweep:
     """
-    Whole sweeps from the initial state. One ulp of difference in an intermediate
-    result grows to ~1e-6 in node means after a sweep (see
-    `evaluation/ep_sensitivity.py`), so node means are compared to a relative
-    tolerance, and the pattern of skipped updates (NaN) must be identical.
+    Whole sweeps from the initial state: the node posteriors, likelihood
+    normalisers and mutation posteriors of every sweep are identical to the oracle's.
     """
 
     CASES = {
@@ -869,17 +867,6 @@ class TestMultiSweep:
         ),
     }
 
-    @staticmethod
-    def means(posterior):
-        with np.errstate(all="ignore"):
-            return (posterior[:, 0] + 1) / posterior[:, 1]
-
-    def assert_means_close(self, actual, expected, rtol):
-        a, e = self.means(actual), self.means(expected)
-        assert np.array_equal(np.isfinite(a), np.isfinite(e))
-        ok = np.isfinite(a)
-        np.testing.assert_allclose(a[ok], e[ok], rtol=rtol)
-
     @pytest.mark.parametrize("case", CASES)
     def test_sweeps(self, impl, fresh, case):
         name, kwargs = self.CASES[case]
@@ -887,11 +874,8 @@ class TestMultiSweep:
         sweeps = 4
         actual = ep_state.run_sweeps(impl.variational, snap, sweeps, **kwargs)
         expected = ep_state.run_sweeps(variational, snap, sweeps, **kwargs)
-        for sweep, (a, e) in enumerate(zip(actual[0], expected[0])):
-            assert np.array_equal(np.isnan(a[1]), np.isnan(e[1]))  # edge lognorm
-            assert np.array_equal(np.isnan(a[2]), np.isnan(e[2]))  # block lognorm
-            rtol = 1e-4 if sweep == 0 else 1e-6
-            self.assert_means_close(a[0], e[0], rtol)
-        mutation_actual, mutation_expected = actual[1][0], expected[1][0]
-        assert np.array_equal(np.isnan(mutation_actual), np.isnan(mutation_expected))
-        self.assert_means_close(mutation_actual, mutation_expected, 1e-6)
+        for a, e in zip(actual[0], expected[0]):
+            for x, y in zip(a, e):  # node posterior, edge and block lognorm
+                np.testing.assert_array_equal(x, y)
+        for x, y in zip(actual[1], expected[1]):  # mutation posterior, phase
+            np.testing.assert_array_equal(x, y)
