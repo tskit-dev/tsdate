@@ -52,7 +52,11 @@ test_strerror(void)
         TSD_ERR_NONPOSITIVE_INTERVALS, TSD_ERR_NEGATIVE_CHANGEPOINT_PARAMETER,
         TSD_ERR_ZERO_EDGE_SPAN, TSD_ERR_NON_INCREASING_BREAKPOINTS,
         TSD_ERR_INVALID_QUANTILE_WIDTH, TSD_ERR_INVALID_POSTERIOR,
-        TSD_ERR_TIME_BELOW_FIRST_BREAKPOINT, TSD_ERR_NO_POSTERIORS };
+        TSD_ERR_TIME_BELOW_FIRST_BREAKPOINT, TSD_ERR_NO_POSTERIORS,
+        TSD_ERR_INVALID_MAX_SHAPE, TSD_ERR_INVALID_MIN_STEP,
+        TSD_ERR_INVALID_NODE_POSTERIOR, TSD_ERR_INVALID_DAMPING,
+        TSD_ERR_INCONSISTENT_CONSTRAINTS, TSD_ERR_TWIN_EDGE_IN_PHASED_PASS,
+        TSD_ERR_NONPOSITIVE_PENALTY };
     const int num_codes = (int) (sizeof(codes) / sizeof(codes[0]));
     const char *msg_i;
     const char *msg_j;
@@ -1154,6 +1158,298 @@ handle_cunit_error(void)
     exit(EXIT_FAILURE);
 }
 
+/* Expectation propagation (variational.c): a four node, four edge fixture */
+typedef struct {
+    double node[16];
+    double edge[16];
+    double block[16];
+    double scale[4];
+    tsd_id_t parent[4];
+    tsd_id_t child[4];
+    tsd_id_t left[4];
+    tsd_id_t right[4];
+    tsd_ep_factors_t factors;
+} ep_fixture_t;
+
+/* Nodes 0 and 1 are fixed, at ages 1 and 5; 2 and 3 are free. */
+static const double ep_constraints[8] = { 1, 1, 5, 5, 0, INFINITY, 0, INFINITY };
+static const double ep_likelihoods[8] = { 1, 0.1, 1, 0.1, 1, 0.1, 1, 0.1 };
+
+static void
+ep_fixture_init(ep_fixture_t *fixture, const tsd_id_t *parent, const tsd_id_t *child)
+{
+    tsd_ep_factors_t *f = &fixture->factors;
+    int j;
+
+    for (j = 0; j < 16; j++) {
+        fixture->node[j] = 0;
+        fixture->edge[j] = 0;
+        fixture->block[j] = 0;
+    }
+    for (j = 0; j < 4; j++) {
+        fixture->scale[j] = 1.0;
+        fixture->parent[j] = parent[j];
+        fixture->child[j] = child[j];
+        fixture->left[j] = parent[j];
+        fixture->right[j] = child[j];
+    }
+    f->num_nodes = 4;
+    f->num_edges = 4;
+    f->num_blocks = 4;
+    f->node = fixture->node;
+    f->edge = fixture->edge;
+    f->block = fixture->block;
+    f->scale = fixture->scale;
+    f->edges_parent = fixture->parent;
+    f->edges_child = fixture->child;
+    f->blocks_left = fixture->left;
+    f->blocks_right = fixture->right;
+}
+
+static void
+test_damp_and_rescale(void)
+{
+    const double zero[2] = { 0, 0 };
+    const double x[2] = { 1, 2 };
+    const double y[2] = { 4, 8 };
+    const double improper[2] = { -1, 1 };
+    const double infinite[2] = { INFINITY, 1 };
+    const double nan_y[2] = { NAN, 0 };
+    const double small_y[2] = { 0, 1e300 };
+    const double tiny_x[2] = { 1, 1e-300 };
+    double d;
+
+    CU_ASSERT_EQUAL(tsd_damp(zero, zero, 5.0, &d), 0);
+    CU_ASSERT_EQUAL(d, 1.0);
+    CU_ASSERT_EQUAL(tsd_damp(x, zero, 0.5, &d), 0);
+    CU_ASSERT_EQUAL(d, 1.0);
+    CU_ASSERT_EQUAL(tsd_damp(x, y, 0.5, &d), 0);
+    CU_ASSERT_TRUE(d > 0 && d < 1);
+    CU_ASSERT_EQUAL(tsd_damp(x, y, 1.0, &d), TSD_ERR_INVALID_MIN_STEP);
+    CU_ASSERT_EQUAL(tsd_damp(improper, zero, 0.5, &d), TSD_ERR_INVALID_NODE_POSTERIOR);
+    CU_ASSERT_EQUAL(tsd_damp(infinite, zero, 0.5, &d), TSD_ERR_ZERO_DIVISION);
+    CU_ASSERT_EQUAL(tsd_damp(x, nan_y, 0.5, &d), TSD_ERR_INVALID_DAMPING);
+    CU_ASSERT_EQUAL(tsd_damp(tiny_x, small_y, 0.5, &d), TSD_ERR_INVALID_DAMPING);
+    CU_ASSERT_EQUAL(tsd_damp(tiny_x, y, 0.5, &d), 0);
+
+    CU_ASSERT_EQUAL(tsd_rescale(zero, 0.5, &d), 0);
+    CU_ASSERT_EQUAL(d, 1.0);
+    CU_ASSERT_EQUAL(tsd_rescale(x, 10.0, &d), 0);
+    CU_ASSERT_EQUAL(d, 1.0);
+    CU_ASSERT_EQUAL(tsd_rescale(x, 1.5, &d), 0);
+    CU_ASSERT_DOUBLE_EQUAL(d, 0.5, 1e-15);
+    CU_ASSERT_EQUAL(tsd_rescale(x, 0.1, &d), 0);
+    CU_ASSERT_EQUAL(tsd_rescale(tiny_x, 1.0, &d), 0);
+    CU_ASSERT_EQUAL(tsd_rescale(improper, 10.0, &d), TSD_ERR_INVALID_NODE_POSTERIOR);
+    CU_ASSERT_EQUAL(tsd_rescale(infinite, 10.0, &d), 0);
+    CU_ASSERT_EQUAL(tsd_rescale(nan_y, 10.0, &d), TSD_ERR_INVALID_NODE_POSTERIOR);
+    {
+        const double zero_shape[2] = { 0, 1 };
+        const double low[2] = { -0.5, 1 };
+
+        CU_ASSERT_EQUAL(tsd_rescale(zero_shape, 0.5, &d), TSD_ERR_ZERO_DIVISION);
+        CU_ASSERT_EQUAL(tsd_rescale(low, 1.0, &d), 0);
+        CU_ASSERT_EQUAL(tsd_rescale(low, 2.0, &d), 0);
+        CU_ASSERT_EQUAL(tsd_rescale(low, 1.5, &d), 0);
+        CU_ASSERT_DOUBLE_EQUAL(d, 2.0 / 3.0, 1e-12);
+    }
+}
+
+static void
+test_rescale_and_assemble_factors(void)
+{
+    const tsd_id_t parent[4] = { 2, 1, 3, 1 };
+    const tsd_id_t child[4] = { 0, 3, 2, 0 };
+    ep_fixture_t fixture;
+    double posterior[8];
+    int j;
+
+    ep_fixture_init(&fixture, parent, child);
+    for (j = 0; j < 16; j++) {
+        fixture.node[j] = 1.0 + j;
+        fixture.edge[j] = 1.0 + j;
+        fixture.block[j] = 0.5 * (1.0 + j);
+    }
+    for (j = 0; j < 4; j++) {
+        fixture.scale[j] = 2.0;
+    }
+    tsd_assemble_factors(&fixture.factors, posterior);
+    CU_ASSERT_TRUE(posterior[0] > 0);
+    tsd_rescale_factors(&fixture.factors);
+    CU_ASSERT_EQUAL(fixture.scale[3], 1.0);
+    CU_ASSERT_EQUAL(fixture.node[0], 2.0);
+    CU_ASSERT_EQUAL(fixture.edge[0], 2.0);
+    CU_ASSERT_EQUAL(fixture.block[0], 1.0);
+}
+
+static void
+test_check_valid_constraints(void)
+{
+    const tsd_id_t parent[2] = { 1, 2 };
+    const tsd_id_t child[2] = { 0, 1 };
+    const double valid[6] = { 0, 0, 1, 5, 2, INFINITY };
+    const double invalid[6] = { 3, 3, 1, 2, 2, INFINITY };
+
+    CU_ASSERT_EQUAL(tsd_check_valid_constraints(3, 2, valid, parent, child), 0);
+    CU_ASSERT_EQUAL(tsd_check_valid_constraints(3, 0, valid, parent, child), 0);
+    CU_ASSERT_EQUAL(tsd_check_valid_constraints(3, 2, invalid, parent, child),
+        TSD_ERR_INCONSISTENT_CONSTRAINTS);
+    CU_ASSERT_EQUAL(tsd_check_valid_constraints(0, 0, valid, parent, child), 0);
+}
+
+/* The branches of an EP pass: fixed child, fixed parent, free, both fixed. */
+static void
+run_likelihood_pass(int unphased, const tsd_id_t *parent, const tsd_id_t *child)
+{
+    const tsd_id_t order[5] = { 0, 1, 2, 3, 2 };
+    ep_fixture_t fixture;
+    double posterior[8] = { 0, 0, 0, 0, 1, 1, 1, 1 };
+    double lognorm[4] = { 0 };
+    int ret;
+
+    ep_fixture_init(&fixture, parent, child);
+    ret = tsd_propagate_likelihood(5, order, 4, parent, child, ep_likelihoods,
+        ep_constraints, 1000.0, 0.1, unphased, posterior, &fixture.factors, lognorm);
+    CU_ASSERT_EQUAL(ret, 0);
+    CU_ASSERT_TRUE(isfinite(lognorm[2]));
+    /* a small scale triggers a rescaling of the factors in mid-pass */
+    fixture.scale[2] = 1e-200;
+    ret = tsd_propagate_likelihood(5, order, 4, parent, child, ep_likelihoods,
+        ep_constraints, 1000.0, 0.1, unphased, posterior, &fixture.factors, lognorm);
+    CU_ASSERT_EQUAL(ret, 0);
+    CU_ASSERT_EQUAL(fixture.scale[0], 1.0);
+}
+
+static void
+test_propagate_likelihood(void)
+{
+    const tsd_id_t parent[4] = { 2, 1, 3, 1 };
+    const tsd_id_t child[4] = { 0, 3, 2, 0 };
+    const tsd_id_t twin_parent[4] = { 2, 1, 3, 2 };
+    const tsd_id_t twin_child[4] = { 0, 3, 2, 2 };
+    const tsd_id_t order[1] = { 3 };
+    const double huge[8] = { 1, 1e300, 1, 1e300, 1, 1e300, 1, 1e300 };
+    ep_fixture_t fixture;
+    double posterior[8] = { 0, 0, 0, 0, 1, 1, 1, 1 };
+    double lognorm[4] = { 0 };
+    const tsd_id_t sideways[1] = { 0 };
+
+    run_likelihood_pass(0, parent, child);
+    run_likelihood_pass(1, parent, child);
+    ep_fixture_init(&fixture, twin_parent, twin_child);
+    /* a block with a single node: the twin update, only in an unphased pass */
+    CU_ASSERT_EQUAL(
+        tsd_propagate_likelihood(1, order, 4, twin_parent, twin_child, ep_likelihoods,
+            ep_constraints, 1000.0, 0.1, 1, posterior, &fixture.factors, lognorm),
+        0);
+    CU_ASSERT_EQUAL(
+        tsd_propagate_likelihood(1, order, 4, twin_parent, twin_child, ep_likelihoods,
+            ep_constraints, 1000.0, 0.1, 0, posterior, &fixture.factors, lognorm),
+        TSD_ERR_TWIN_EDGE_IN_PHASED_PASS);
+    /* the projection of an edge with a huge mutational target divides by zero */
+    CU_ASSERT_EQUAL(
+        tsd_propagate_likelihood(1, sideways, 4, parent, child, huge, ep_constraints,
+            1000.0, 0.1, 1, posterior, &fixture.factors, lognorm),
+        TSD_ERR_ZERO_DIVISION);
+    /* an improper posterior, a damping that fails, and bad parameters */
+    posterior[4] = -5;
+    CU_ASSERT_EQUAL(
+        tsd_propagate_likelihood(1, sideways, 4, parent, child, ep_likelihoods,
+            ep_constraints, 1000.0, 0.1, 0, posterior, &fixture.factors, lognorm),
+        TSD_ERR_INVALID_NODE_POSTERIOR);
+    CU_ASSERT_EQUAL(
+        tsd_propagate_likelihood(1, order, 4, parent, child, ep_likelihoods,
+            ep_constraints, 0.5, 0.1, 0, posterior, &fixture.factors, lognorm),
+        TSD_ERR_INVALID_MAX_SHAPE);
+    CU_ASSERT_EQUAL(
+        tsd_propagate_likelihood(1, order, 4, parent, child, ep_likelihoods,
+            ep_constraints, 1000.0, 1.0, 0.0, posterior, &fixture.factors, lognorm),
+        TSD_ERR_INVALID_MIN_STEP);
+}
+
+static void
+test_propagate_prior(void)
+{
+    const tsd_id_t parent[4] = { 2, 1, 3, 1 };
+    const tsd_id_t child[4] = { 0, 3, 2, 0 };
+    const uint8_t free_nodes[4] = { 0, 0, 1, 1 };
+    const uint8_t none[4] = { 0, 0, 0, 0 };
+    ep_fixture_t fixture;
+    double posterior[8] = { 0, 0, 0, 0, 2, 1, 3, 2 };
+    double improper[8] = { 0, 0, 0, 0, 1, 0, 1, 0 };
+
+    ep_fixture_init(&fixture, parent, child);
+    CU_ASSERT_EQUAL(
+        tsd_propagate_prior(free_nodes, 1000.0, 10, 1e-8, posterior, &fixture.factors),
+        0);
+    CU_ASSERT_TRUE(fixture.node[9] != 0);
+    CU_ASSERT_EQUAL(
+        tsd_propagate_prior(none, 0.5, 10, 1e-8, posterior, &fixture.factors),
+        TSD_ERR_INVALID_MAX_SHAPE);
+    CU_ASSERT_EQUAL(
+        tsd_propagate_prior(none, 1000.0, 10, 1e-8, posterior, &fixture.factors), 0);
+    CU_ASSERT_EQUAL(
+        tsd_propagate_prior(free_nodes, 1000.0, 10, 1e-8, improper, &fixture.factors),
+        TSD_ERR_NONPOSITIVE_PENALTY);
+    /* the fit succeeds, but a posterior that is improper cannot be rescaled */
+    posterior[4] = -5;
+    posterior[6] = 99;
+    CU_ASSERT_EQUAL(
+        tsd_propagate_prior(free_nodes, 1000.0, 10, 1e-8, posterior, &fixture.factors),
+        TSD_ERR_INVALID_NODE_POSTERIOR);
+}
+
+static void
+run_mutations_pass(int unphased)
+{
+    const tsd_id_t parent[4] = { 2, 1, 3, 1 };
+    const tsd_id_t child[4] = { 0, 3, 2, 0 };
+    const tsd_id_t twin_parent[4] = { 2, 1, 3, 2 };
+    const tsd_id_t twin_child[4] = { 0, 3, 2, 2 };
+    const tsd_id_t order[6] = { 0, 1, 2, 3, 4, 5 };
+    const tsd_id_t edges[6] = { 0, 1, 2, 3, TSD_NULL, 3 };
+    const double posterior[8] = { 0, 0, 0, 0, 1, 1, 1, 1 };
+    const tsd_id_t *twin_edges = twin_parent;
+    ep_fixture_t fixture;
+    double mutations_posterior[12];
+    double mutations_phase[6];
+    int ret;
+
+    ep_fixture_init(&fixture, parent, child);
+    ret = tsd_propagate_mutations(6, order, edges, parent, child, ep_likelihoods,
+        ep_constraints, posterior, &fixture.factors, unphased, mutations_posterior,
+        mutations_phase);
+    CU_ASSERT_EQUAL(ret, 0);
+    CU_ASSERT_TRUE(isfinite(mutations_phase[2]));
+    ep_fixture_init(&fixture, twin_parent, twin_child);
+    ret = tsd_propagate_mutations(6, order, edges, twin_edges, twin_child,
+        ep_likelihoods, ep_constraints, posterior, &fixture.factors, unphased,
+        mutations_posterior, mutations_phase);
+    CU_ASSERT_EQUAL(ret, 0);
+}
+
+static void
+test_propagate_mutations(void)
+{
+    const tsd_id_t parent[4] = { 2, 1, 3, 1 };
+    const tsd_id_t child[4] = { 0, 3, 2, 0 };
+    const tsd_id_t order[1] = { 0 };
+    const tsd_id_t edge[1] = { 0 };
+    const double posterior[8] = { 0, 0, 0, 0, 1, 1, 1, 1 };
+    const double huge[8] = { 1, 1e300, 1, 1e300, 1, 1e300, 1, 1e300 };
+    ep_fixture_t fixture;
+    double mutations_posterior[2];
+    double mutations_phase[1];
+
+    run_mutations_pass(0);
+    run_mutations_pass(1);
+    ep_fixture_init(&fixture, parent, child);
+    CU_ASSERT_EQUAL(
+        tsd_propagate_mutations(1, order, edge, parent, child, huge, ep_constraints,
+            posterior, &fixture.factors, 1, mutations_posterior, mutations_phase),
+        TSD_ERR_ZERO_DIVISION);
+}
+
 int
 main(int argc, char **argv)
 {
@@ -1200,6 +1496,12 @@ main(int argc, char **argv)
         { "test_mutational_area_and_timescale", test_mutational_area_and_timescale },
         { "test_piecewise_scale_point_estimate", test_piecewise_scale_point_estimate },
         { "test_piecewise_scale_posterior", test_piecewise_scale_posterior },
+        { "test_damp_and_rescale", test_damp_and_rescale },
+        { "test_rescale_and_assemble_factors", test_rescale_and_assemble_factors },
+        { "test_check_valid_constraints", test_check_valid_constraints },
+        { "test_propagate_likelihood", test_propagate_likelihood },
+        { "test_propagate_prior", test_propagate_prior },
+        { "test_propagate_mutations", test_propagate_mutations },
         CU_TEST_INFO_NULL,
     };
     CU_SuiteInfo suites[] = {

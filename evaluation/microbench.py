@@ -79,6 +79,30 @@ def _numba_impl():
     }
 
 
+def _factor_arrays(factors):
+    """The fields of an ``EPFactors`` as the tuple of arrays that `_tsdate` takes."""
+    return (
+        factors.node,
+        factors.edge,
+        factors.block,
+        factors.scale,
+        factors._p,
+        factors._c,
+        factors._j,
+        factors._k,
+    )
+
+
+def _with_factors(func, position):
+    """Wrap a `_tsdate` function so that it takes an ``EPFactors`` at `position`."""
+
+    def wrapped(*args):
+        factors = _factor_arrays(args[position])
+        return func(*args[:position], factors, *args[position + 1 :])
+
+    return wrapped
+
+
 def _c_impl():
     """
     Callables of the C implementation. Each ported array-level function is added as
@@ -88,6 +112,9 @@ def _c_impl():
     import _tsdate
 
     return {
+        "propagate_likelihood": _with_factors(_tsdate.propagate_likelihood, 6),
+        "propagate_prior": _with_factors(_tsdate.propagate_prior, 2),
+        "propagate_mutations": _with_factors(_tsdate.propagate_mutations, 9),
         "_block_singletons": _tsdate.block_singletons,
         "reallocate_unphased": _tsdate.reallocate_unphased,
         "_mutation_frequency": _tsdate.mutation_frequency,

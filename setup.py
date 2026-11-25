@@ -17,6 +17,7 @@ tsd_source_files = [
     "phasing.c",
     "util.c",
     "prior.c",
+    "variational.c",
 ]
 
 sources = ["_tsdatemodule.c"] + [os.path.join(libdir, f) for f in tsd_source_files]

@@ -408,6 +408,19 @@ adapt_mutation_block_projection(const double *in, double *out)
     return tsd_mutation_block_projection(in[0], in[1], out, out + 1);
 }
 
+/* variational: x and y are the natural parameters of two gammas, in `in` */
+static int
+adapt_damp(const double *in, double *out)
+{
+    return tsd_damp(in, in + 2, in[4], out);
+}
+
+static int
+adapt_rescale(const double *in, double *out)
+{
+    return tsd_rescale(in, in[2], out);
+}
+
 /* clang-format off */
 static const scalar_function_t scalar_functions[] = {
     /* hypergeo */
@@ -461,6 +474,9 @@ static const scalar_function_t scalar_functions[] = {
     { "mutation_twin_projection", 4, 3, adapt_mutation_twin_projection },
     { "mutation_sideways_projection", 5, 3, adapt_mutation_sideways_projection },
     { "mutation_block_projection", 2, 3, adapt_mutation_block_projection },
+    /* variational: x0, x1, [y0, y1,] s */
+    { "damp", 5, 1, adapt_damp },
+    { "rescale", 3, 1, adapt_rescale },
 };
 /* clang-format on */
 
@@ -1740,6 +1756,457 @@ out:
     return ret;
 }
 
+/*
+ * Expectation propagation. The factors are passed as a tuple of eight arrays,
+ * (node, edge, block, scale, edges_parent, edges_child, blocks_left, blocks_right),
+ * the fields of EPFactors; the arrays of the first four are updated in place by the
+ * passes that change them.
+ */
+#define NUM_FACTOR_ARRAYS 8
+
+typedef struct {
+    PyArrayObject *arrays[NUM_FACTOR_ARRAYS];
+    tsd_ep_factors_t c;
+} py_factors_t;
+
+static void
+release_factors(py_factors_t *factors)
+{
+    release_arrays(factors->arrays, NUM_FACTOR_ARRAYS);
+}
+
+/*
+ * A float64 array of the given dimension that the call updates in place: `obj` itself,
+ * which must not need converting (a copy would silently lose the updates).
+ */
+static PyArrayObject *
+get_inout_array(PyObject *obj, int ndim)
+{
+    PyArrayObject *ret = (PyArrayObject *) PyArray_FROMANY(
+        obj, NPY_FLOAT64, ndim, ndim, NPY_ARRAY_INOUT_ARRAY);
+
+    if (ret != NULL && (PyObject *) ret != obj) {
+        Py_DECREF(ret);
+        ret = NULL;
+        PyErr_SetString(PyExc_ValueError,
+            "Arrays that are updated must be writeable, C-contiguous float64 arrays");
+    }
+    return ret;
+}
+
+/*
+ * Parse a tuple of factors, writing the sizes and pointers to `factors->c`. The arrays
+ * that the caller needs to update must be (and are required to be) writeable, aligned
+ * and C-contiguous if `writeable`. Returns 0, or -1 with an exception.
+ */
+static int
+parse_factors(PyObject *obj, int writeable, py_factors_t *factors)
+{
+    int ret = -1;
+    const int typenums[NUM_FACTOR_ARRAYS] = { NPY_FLOAT64, NPY_FLOAT64, NPY_FLOAT64,
+        NPY_FLOAT64, NPY_INT32, NPY_INT32, NPY_INT32, NPY_INT32 };
+    const int ndims[NUM_FACTOR_ARRAYS] = { 3, 3, 3, 1, 1, 1, 1, 1 };
+    PyArrayObject **a = factors->arrays;
+    PyObject *item;
+    int j;
+
+    if (!PyTuple_Check(obj) || PyTuple_GET_SIZE(obj) != NUM_FACTOR_ARRAYS) {
+        PyErr_SetString(PyExc_TypeError, "factors must be a tuple of eight arrays");
+        goto out;
+    }
+    for (j = 0; j < NUM_FACTOR_ARRAYS; j++) {
+        item = PyTuple_GET_ITEM(obj, j);
+        if (writeable && j < 4) {
+            a[j] = get_inout_array(item, ndims[j]);
+        } else {
+            a[j] = (PyArrayObject *) PyArray_FROMANY(
+                item, typenums[j], ndims[j], ndims[j], NPY_ARRAY_IN_ARRAY);
+        }
+        if (a[j] == NULL) {
+            goto out;
+        }
+    }
+    for (j = 0; j < 3; j++) {
+        if (check_sizes(PyArray_DIM(a[j], 1) == 2 && PyArray_DIM(a[j], 2) == 2,
+                "Factors must have shape (n, 2, 2)")
+            != 0) {
+            goto out;
+        }
+    }
+    if (check_sizes(ARRAY_DIM(a[0], 0) == ARRAY_SIZE(a[3])
+                        && ARRAY_DIM(a[1], 0) == ARRAY_SIZE(a[4])
+                        && ARRAY_DIM(a[1], 0) == ARRAY_SIZE(a[5])
+                        && ARRAY_DIM(a[2], 0) == ARRAY_SIZE(a[6])
+                        && ARRAY_DIM(a[2], 0) == ARRAY_SIZE(a[7]),
+            "Factor arrays have inconsistent sizes")
+        != 0) {
+        goto out;
+    }
+    factors->c.num_nodes = ARRAY_DIM(a[0], 0);
+    factors->c.num_edges = ARRAY_DIM(a[1], 0);
+    factors->c.num_blocks = ARRAY_DIM(a[2], 0);
+    factors->c.node = (double *) PyArray_DATA(a[0]);
+    factors->c.edge = (double *) PyArray_DATA(a[1]);
+    factors->c.block = (double *) PyArray_DATA(a[2]);
+    factors->c.scale = (double *) PyArray_DATA(a[3]);
+    factors->c.edges_parent = IDS(a[4]);
+    factors->c.edges_child = IDS(a[5]);
+    factors->c.blocks_left = IDS(a[6]);
+    factors->c.blocks_right = IDS(a[7]);
+    ret = 0;
+out:
+    return ret;
+}
+
+/* Whether `array` has `rows` rows of two columns; else raise ValueError. */
+static int
+check_pairs(PyArrayObject *array, tsd_size_t rows, const char *message)
+{
+    return check_sizes(
+        ARRAY_DIM(array, 0) == rows && PyArray_DIM(array, 1) == 2, message);
+}
+
+/* rescale_factors(factors): multiply the factors by the node scales, in place. */
+static PyObject *
+tsdate_rescale_factors(PyObject *Py_UNUSED(self), PyObject *args)
+{
+    PyObject *ret = NULL;
+    PyObject *factors_obj = NULL;
+    py_factors_t factors = { { NULL }, { 0 } };
+
+    if (!PyArg_ParseTuple(args, "O", &factors_obj)) {
+        goto out;
+    }
+    if (parse_factors(factors_obj, 1, &factors) != 0) {
+        goto out;
+    }
+    Py_BEGIN_ALLOW_THREADS
+    tsd_rescale_factors(&factors.c);
+    Py_END_ALLOW_THREADS
+    ret = Py_None;
+    Py_INCREF(ret);
+out:
+    release_factors(&factors);
+    return ret;
+}
+
+/* assemble_factors(factors): the posteriors implied by the factors. */
+static PyObject *
+tsdate_assemble_factors(PyObject *Py_UNUSED(self), PyObject *args)
+{
+    PyObject *ret = NULL;
+    PyObject *factors_obj = NULL;
+    PyObject *posterior = NULL;
+    py_factors_t factors = { { NULL }, { 0 } };
+    npy_intp dims[2];
+
+    if (!PyArg_ParseTuple(args, "O", &factors_obj)) {
+        goto out;
+    }
+    if (parse_factors(factors_obj, 0, &factors) != 0) {
+        goto out;
+    }
+    dims[0] = (npy_intp) factors.c.num_nodes;
+    dims[1] = 2;
+    posterior = PyArray_SimpleNew(2, dims, NPY_FLOAT64);
+    if (posterior == NULL) {
+        goto out;
+    }
+    Py_BEGIN_ALLOW_THREADS
+    tsd_assemble_factors(
+        &factors.c, (double *) PyArray_DATA((PyArrayObject *) posterior));
+    Py_END_ALLOW_THREADS
+    ret = posterior;
+    posterior = NULL;
+out:
+    release_factors(&factors);
+    Py_XDECREF(posterior);
+    return ret;
+}
+
+/* check_valid_constraints(constraints, edges_parent, edges_child) */
+static PyObject *
+tsdate_check_valid_constraints(PyObject *Py_UNUSED(self), PyObject *args)
+{
+    PyObject *ret = NULL;
+    PyObject *obj[3];
+    PyArrayObject *constraints = NULL;
+    PyArrayObject *edges_parent = NULL;
+    PyArrayObject *edges_child = NULL;
+    int err;
+
+    if (!PyArg_ParseTuple(args, "OOO", &obj[0], &obj[1], &obj[2])) {
+        goto out;
+    }
+    constraints = get_array(obj[0], NPY_FLOAT64, 2);
+    edges_parent = get_array(obj[1], NPY_INT32, 1);
+    edges_child = get_array(obj[2], NPY_INT32, 1);
+    if (constraints == NULL || edges_parent == NULL || edges_child == NULL) {
+        goto out;
+    }
+    if (check_pairs(
+            constraints, ARRAY_DIM(constraints, 0), "Constraints must have two columns")
+            != 0
+        || check_sizes(ARRAY_LEN(edges_parent) == ARRAY_LEN(edges_child),
+               "Edge arrays must have the same size")
+               != 0) {
+        goto out;
+    }
+    Py_BEGIN_ALLOW_THREADS
+    err = tsd_check_valid_constraints(ARRAY_LEN(constraints), ARRAY_LEN(edges_parent),
+        DOUBLES(constraints), IDS(edges_parent), IDS(edges_child));
+    Py_END_ALLOW_THREADS
+    if (err != 0) {
+        handle_library_error(err);
+        goto out;
+    }
+    ret = Py_None;
+    Py_INCREF(ret);
+out:
+    Py_XDECREF(constraints);
+    Py_XDECREF(edges_parent);
+    Py_XDECREF(edges_child);
+    return ret;
+}
+
+/*
+ * propagate_likelihood(edge_order, edges_parent, edges_child, likelihoods,
+ *     constraints, posterior, factors, lognorm, max_shape, min_step, unphased)
+ * updates posterior, the factors and lognorm in place.
+ */
+static PyObject *
+tsdate_propagate_likelihood(PyObject *Py_UNUSED(self), PyObject *args)
+{
+    PyObject *ret = NULL;
+    PyObject *obj[8];
+    PyArrayObject *edge_order = NULL;
+    PyArrayObject *edges_parent = NULL;
+    PyArrayObject *edges_child = NULL;
+    PyArrayObject *likelihoods = NULL;
+    PyArrayObject *constraints = NULL;
+    PyArrayObject *posterior = NULL;
+    PyArrayObject *lognorm = NULL;
+    py_factors_t factors = { { NULL }, { 0 } };
+    double max_shape, min_step;
+    int unphased;
+    tsd_size_t num_edges;
+    int err;
+
+    if (!PyArg_ParseTuple(args, "OOOOOOOOddp", &obj[0], &obj[1], &obj[2], &obj[3],
+            &obj[4], &obj[5], &obj[6], &obj[7], &max_shape, &min_step, &unphased)) {
+        goto out;
+    }
+    edge_order = get_array(obj[0], NPY_INT32, 1);
+    edges_parent = get_array(obj[1], NPY_INT32, 1);
+    edges_child = get_array(obj[2], NPY_INT32, 1);
+    likelihoods = get_array(obj[3], NPY_FLOAT64, 2);
+    constraints = get_array(obj[4], NPY_FLOAT64, 2);
+    posterior = get_inout_array(obj[5], 2);
+    lognorm = get_inout_array(obj[7], 1);
+    if (edge_order == NULL || edges_parent == NULL || edges_child == NULL
+        || likelihoods == NULL || constraints == NULL || posterior == NULL
+        || lognorm == NULL) {
+        goto out;
+    }
+    if (parse_factors(obj[6], 1, &factors) != 0) {
+        goto out;
+    }
+    num_edges = ARRAY_LEN(edges_parent);
+    if (check_sizes(
+            ARRAY_LEN(edges_child) == num_edges, "Edge arrays must have the same size")
+            != 0
+        || check_pairs(likelihoods, num_edges, "Likelihoods must have shape (edges, 2)")
+               != 0
+        || check_pairs(constraints, factors.c.num_nodes,
+               "Constraints must have shape (nodes, 2)")
+               != 0
+        || check_pairs(posterior, factors.c.num_nodes,
+               "Posterior must have the same shape as constraints")
+               != 0
+        || check_sizes(
+               ARRAY_LEN(lognorm) == num_edges, "Lognorm must have one entry per edge")
+               != 0
+        || check_sizes(
+               num_edges == (unphased ? factors.c.num_blocks : factors.c.num_edges),
+               "Factors must have one entry per edge")
+               != 0) {
+        goto out;
+    }
+    Py_BEGIN_ALLOW_THREADS
+    err = tsd_propagate_likelihood(ARRAY_LEN(edge_order), IDS(edge_order), num_edges,
+        IDS(edges_parent), IDS(edges_child), DOUBLES(likelihoods), DOUBLES(constraints),
+        max_shape, min_step, unphased, (double *) PyArray_DATA(posterior), &factors.c,
+        (double *) PyArray_DATA(lognorm));
+    Py_END_ALLOW_THREADS
+    if (err != 0) {
+        handle_library_error(err);
+        goto out;
+    }
+    ret = Py_None;
+    Py_INCREF(ret);
+out:
+    Py_XDECREF(edge_order);
+    Py_XDECREF(edges_parent);
+    Py_XDECREF(edges_child);
+    Py_XDECREF(likelihoods);
+    Py_XDECREF(constraints);
+    Py_XDECREF(posterior);
+    Py_XDECREF(lognorm);
+    release_factors(&factors);
+    return ret;
+}
+
+/*
+ * propagate_prior(free, posterior, factors, max_shape, em_maxitt, em_reltol)
+ * updates posterior and the factors in place.
+ */
+static PyObject *
+tsdate_propagate_prior(PyObject *Py_UNUSED(self), PyObject *args)
+{
+    PyObject *ret = NULL;
+    PyObject *obj[3];
+    PyArrayObject *free_nodes = NULL;
+    PyArrayObject *posterior = NULL;
+    py_factors_t factors = { { NULL }, { 0 } };
+    double max_shape, em_reltol;
+    long long em_maxitt;
+    int err;
+
+    if (!PyArg_ParseTuple(args, "OOOdLd", &obj[0], &obj[1], &obj[2], &max_shape,
+            &em_maxitt, &em_reltol)) {
+        goto out;
+    }
+    free_nodes
+        = (PyArrayObject *) PyArray_FROMANY(obj[0], NPY_BOOL, 1, 1, NPY_ARRAY_IN_ARRAY);
+    posterior = get_inout_array(obj[1], 2);
+    if (free_nodes == NULL || posterior == NULL) {
+        goto out;
+    }
+    if (parse_factors(obj[2], 1, &factors) != 0) {
+        goto out;
+    }
+    if (check_sizes(ARRAY_LEN(free_nodes) == factors.c.num_nodes
+                        && ARRAY_DIM(posterior, 0) == factors.c.num_nodes
+                        && PyArray_DIM(posterior, 1) == 2,
+            "The free nodes, posterior and factors must have one entry per node")
+        != 0) {
+        goto out;
+    }
+    Py_BEGIN_ALLOW_THREADS
+    err = tsd_propagate_prior(FLAGS(free_nodes), max_shape, (int64_t) em_maxitt,
+        em_reltol, (double *) PyArray_DATA(posterior), &factors.c);
+    Py_END_ALLOW_THREADS
+    if (err != 0) {
+        handle_library_error(err);
+        goto out;
+    }
+    ret = Py_None;
+    Py_INCREF(ret);
+out:
+    Py_XDECREF(free_nodes);
+    Py_XDECREF(posterior);
+    release_factors(&factors);
+    return ret;
+}
+
+/*
+ * propagate_mutations(mutations_order, mutations_posterior, mutations_phase,
+ *     mutations_edge, edges_parent, edges_child, likelihoods, constraints, posterior,
+ *     factors, unphased)
+ * updates mutations_posterior and mutations_phase in place.
+ */
+static PyObject *
+tsdate_propagate_mutations(PyObject *Py_UNUSED(self), PyObject *args)
+{
+    PyObject *ret = NULL;
+    PyObject *obj[10];
+    PyArrayObject *mutations_order = NULL;
+    PyArrayObject *mutations_posterior = NULL;
+    PyArrayObject *mutations_phase = NULL;
+    PyArrayObject *mutations_edge = NULL;
+    PyArrayObject *edges_parent = NULL;
+    PyArrayObject *edges_child = NULL;
+    PyArrayObject *likelihoods = NULL;
+    PyArrayObject *constraints = NULL;
+    PyArrayObject *posterior = NULL;
+    py_factors_t factors = { { NULL }, { 0 } };
+    int unphased;
+    tsd_size_t num_edges, num_mutations;
+    int err;
+
+    if (!PyArg_ParseTuple(args, "OOOOOOOOOOp", &obj[0], &obj[1], &obj[2], &obj[3],
+            &obj[4], &obj[5], &obj[6], &obj[7], &obj[8], &obj[9], &unphased)) {
+        goto out;
+    }
+    mutations_order = get_array(obj[0], NPY_INT32, 1);
+    mutations_posterior = get_inout_array(obj[1], 2);
+    mutations_phase = get_inout_array(obj[2], 1);
+    mutations_edge = get_array(obj[3], NPY_INT32, 1);
+    edges_parent = get_array(obj[4], NPY_INT32, 1);
+    edges_child = get_array(obj[5], NPY_INT32, 1);
+    likelihoods = get_array(obj[6], NPY_FLOAT64, 2);
+    constraints = get_array(obj[7], NPY_FLOAT64, 2);
+    posterior = get_array(obj[8], NPY_FLOAT64, 2);
+    if (mutations_order == NULL || mutations_posterior == NULL || mutations_phase == NULL
+        || mutations_edge == NULL || edges_parent == NULL || edges_child == NULL
+        || likelihoods == NULL || constraints == NULL || posterior == NULL) {
+        goto out;
+    }
+    if (parse_factors(obj[9], 0, &factors) != 0) {
+        goto out;
+    }
+    num_edges = ARRAY_LEN(edges_parent);
+    num_mutations = ARRAY_LEN(mutations_phase);
+    if (check_sizes(ARRAY_LEN(mutations_edge) == num_mutations,
+            "Mutation arrays must have the same size")
+            != 0
+        || check_pairs(mutations_posterior, num_mutations,
+               "Mutation posterior must have shape (mutations, 2)")
+               != 0
+        || check_sizes(ARRAY_LEN(edges_child) == num_edges,
+               "Edge arrays must have the same size")
+               != 0
+        || check_pairs(likelihoods, num_edges, "Likelihoods must have shape (edges, 2)")
+               != 0
+        || check_pairs(constraints, factors.c.num_nodes,
+               "Constraints must have shape (nodes, 2)")
+               != 0
+        || check_pairs(posterior, factors.c.num_nodes,
+               "Posterior must have the same shape as constraints")
+               != 0
+        || check_sizes(
+               num_edges == (unphased ? factors.c.num_blocks : factors.c.num_edges),
+               "Factors must have one entry per edge")
+               != 0) {
+        goto out;
+    }
+    Py_BEGIN_ALLOW_THREADS
+    err = tsd_propagate_mutations(ARRAY_LEN(mutations_order), IDS(mutations_order),
+        IDS(mutations_edge), IDS(edges_parent), IDS(edges_child), DOUBLES(likelihoods),
+        DOUBLES(constraints), DOUBLES(posterior), &factors.c, unphased,
+        (double *) PyArray_DATA(mutations_posterior),
+        (double *) PyArray_DATA(mutations_phase));
+    Py_END_ALLOW_THREADS
+    if (err != 0) {
+        handle_library_error(err);
+        goto out;
+    }
+    ret = Py_None;
+    Py_INCREF(ret);
+out:
+    Py_XDECREF(mutations_order);
+    Py_XDECREF(mutations_posterior);
+    Py_XDECREF(mutations_phase);
+    Py_XDECREF(mutations_edge);
+    Py_XDECREF(edges_parent);
+    Py_XDECREF(edges_child);
+    Py_XDECREF(likelihoods);
+    Py_XDECREF(constraints);
+    Py_XDECREF(posterior);
+    release_factors(&factors);
+    return ret;
+}
+
 static PyMethodDef tsdate_methods[] = {
     { "strerror", (PyCFunction) tsdate_strerror, METH_VARARGS,
         "Return the message for a library error code." },
@@ -1782,6 +2249,18 @@ static PyMethodDef tsdate_methods[] = {
         "Rescale point estimates of node ages." },
     { "piecewise_scale_posterior", (PyCFunction) tsdate_piecewise_scale_posterior,
         METH_VARARGS, "Rescale gamma posteriors of node ages." },
+    { "rescale_factors", (PyCFunction) tsdate_rescale_factors, METH_VARARGS,
+        "Multiply the EP factors by the node scales, in place." },
+    { "assemble_factors", (PyCFunction) tsdate_assemble_factors, METH_VARARGS,
+        "The node posteriors implied by the EP factors." },
+    { "check_valid_constraints", (PyCFunction) tsdate_check_valid_constraints,
+        METH_VARARGS, "Check that node age constraints are consistent with the edges." },
+    { "propagate_likelihood", (PyCFunction) tsdate_propagate_likelihood, METH_VARARGS,
+        "Update the factors of the edge likelihoods, in place." },
+    { "propagate_prior", (PyCFunction) tsdate_propagate_prior, METH_VARARGS,
+        "Update the factors of the prior, in place." },
+    { "propagate_mutations", (PyCFunction) tsdate_propagate_mutations, METH_VARARGS,
+        "Posteriors of the ages of mutations, in place." },
     { NULL } /* Sentinel */
 };
 

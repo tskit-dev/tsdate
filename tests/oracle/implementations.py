@@ -26,6 +26,8 @@ import tsdate.util
 import tsdate.variational
 from tsdate.discrete import LogLikelihoods
 
+from . import variational as oracle_variational
+
 _EP = tsdate.variational.ExpectationPropagation
 
 # Functions that are staticmethods of ExpectationPropagation, exposed as plain names.
@@ -212,13 +214,123 @@ def _c_rescaling(_tsdate):
     )
 
 
+def _factor_arrays(factors):
+    """The fields of an ``EPFactors`` that the module takes, as a tuple of arrays."""
+    return (
+        factors.node,
+        factors.edge,
+        factors.block,
+        factors.scale,
+        factors._p,
+        factors._c,
+        factors._j,
+        factors._k,
+    )
+
+
+def _c_variational(_tsdate):
+    """
+    The EP state stays in the numpy arrays of an ``EPFactors`` (the oracle's plain
+    class), which the module updates in place; the adapters unpack the object.
+    """
+
+    def check_size_two(*arrays):
+        if any(a.size != 2 for a in arrays):
+            raise ValueError("Natural parameters must have two entries")
+
+    def damp(x, y, s):
+        check_size_two(x, y)
+        return _tsdate.damp(x[0], x[1], y[0], y[1], s)
+
+    def rescale(x, s):
+        check_size_two(x)
+        return _tsdate.rescale(x[0], x[1], s)
+
+    def rescale_factors(factors):
+        _tsdate.rescale_factors(_factor_arrays(factors))
+
+    def assemble_factors(factors):
+        return _tsdate.assemble_factors(_factor_arrays(factors))
+
+    def propagate_likelihood(
+        edge_order,
+        edges_parent,
+        edges_child,
+        likelihoods,
+        constraints,
+        posterior,
+        factors,
+        lognorm,
+        max_shape,
+        min_step,
+        unphased,
+    ):
+        _tsdate.propagate_likelihood(
+            edge_order,
+            edges_parent,
+            edges_child,
+            likelihoods,
+            constraints,
+            posterior,
+            _factor_arrays(factors),
+            lognorm,
+            max_shape,
+            min_step,
+            unphased,
+        )
+
+    def propagate_prior(free, posterior, factors, max_shape, em_maxitt, em_reltol):
+        _tsdate.propagate_prior(
+            free, posterior, _factor_arrays(factors), max_shape, em_maxitt, em_reltol
+        )
+
+    def propagate_mutations(
+        mutations_order,
+        mutations_posterior,
+        mutations_phase,
+        mutations_edge,
+        edges_parent,
+        edges_child,
+        likelihoods,
+        constraints,
+        posterior,
+        factors,
+        unphased,
+    ):
+        _tsdate.propagate_mutations(
+            mutations_order,
+            mutations_posterior,
+            mutations_phase,
+            mutations_edge,
+            edges_parent,
+            edges_child,
+            likelihoods,
+            constraints,
+            posterior,
+            _factor_arrays(factors),
+            unphased,
+        )
+
+    return _PortedNamespace(
+        EPFactors=oracle_variational.EPFactors,
+        _rescale_factors=rescale_factors,
+        _assemble_factors=assemble_factors,
+        _damp=damp,
+        _rescale=rescale,
+        _check_valid_constraints=_tsdate.check_valid_constraints,
+        propagate_likelihood=propagate_likelihood,
+        propagate_prior=propagate_prior,
+        propagate_mutations=propagate_mutations,
+    )
+
+
 def _c_namespace():
     import _tsdate
 
     return types.SimpleNamespace(
         hypergeo=_c_hypergeo(_tsdate),
         approx=_c_approx(_tsdate),
-        variational=_PortedNamespace(),
+        variational=_c_variational(_tsdate),
         rescaling=_c_rescaling(_tsdate),
         phasing=_c_phasing(_tsdate),
         util=_c_util(_tsdate),

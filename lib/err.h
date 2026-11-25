@@ -75,6 +75,15 @@ extern "C" {
 #define TSD_ERR_INVALID_POSTERIOR                                   -27
 #define TSD_ERR_TIME_BELOW_FIRST_BREAKPOINT                         -28
 #define TSD_ERR_NO_POSTERIORS                                       -29
+
+/* variational */
+#define TSD_ERR_INVALID_MAX_SHAPE                                   -30
+#define TSD_ERR_INVALID_MIN_STEP                                    -31
+#define TSD_ERR_INVALID_NODE_POSTERIOR                              -32
+#define TSD_ERR_INVALID_DAMPING                                     -33
+#define TSD_ERR_INCONSISTENT_CONSTRAINTS                            -34
+#define TSD_ERR_TWIN_EDGE_IN_PHASED_PASS                            -35
+#define TSD_ERR_NONPOSITIVE_PENALTY                                 -36
 /* clang-format on */
 
 #ifdef __GNUC__

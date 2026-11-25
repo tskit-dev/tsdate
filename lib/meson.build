@@ -16,7 +16,7 @@ if get_option('buildtype') == 'debug'
 endif
 
 tsdate_sources = ['err.c', 'hypergeo.c', 'approx.c', 'rescaling.c',
-    'phasing.c', 'util.c', 'prior.c']
+    'phasing.c', 'util.c', 'prior.c', 'variational.c']
 
 tsdate_lib = static_library('tsdate',
     sources: tsdate_sources, dependencies: [m_dep],

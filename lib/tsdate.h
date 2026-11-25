@@ -287,6 +287,69 @@ int tsd_piecewise_scale_posterior(tsd_size_t num_posteriors, const double *poste
     const double *original_breaks, const double *rescaled_breaks, double quantile_width,
     double max_shape, tsd_gammaincinv_fn gammaincinv, double *new_posteriors);
 
+/*
+ * Expectation propagation passes (variational.c).
+ *
+ * The state of the algorithm stays in arrays owned by the caller, which the passes
+ * update in place. Natural parameters of a node are two doubles, so the posteriors
+ * and constraints have two columns, and the factors have shape [n][2][2]: for each
+ * edge (block), the factor to the parent (first block node) and to the child
+ * (second), each of two natural parameters; for each node, the mixture prior and the
+ * constraint. Array sizes are the caller's responsibility (tsd_bug_assert); errors are
+ * those of the numerical preconditions that numba asserted (parameters, improper
+ * posteriors), and of the projections.
+ */
+typedef struct {
+    tsd_size_t num_nodes;
+    tsd_size_t num_edges;
+    tsd_size_t num_blocks;
+    double *node;  /* num_nodes x 2 x 2 */
+    double *edge;  /* num_edges x 2 x 2 */
+    double *block; /* num_blocks x 2 x 2 */
+    double *scale; /* num_nodes */
+    const tsd_id_t *edges_parent;
+    const tsd_id_t *edges_child;
+    const tsd_id_t *blocks_left;
+    const tsd_id_t *blocks_right;
+} tsd_ep_factors_t;
+
+/* Multiply the factors by the scale of their node, and reset the scale to one. */
+void tsd_rescale_factors(const tsd_ep_factors_t *factors);
+/* The posteriors implied by the factors; `posterior` has num_nodes x 2 entries. */
+void tsd_assemble_factors(const tsd_ep_factors_t *factors, double *posterior);
+/* The step `d` in (0, 1] so that the cavity `x - d * y` is proper, for `0 < s < 1`. */
+int tsd_damp(const double x[2], const double y[2], double s, double *out);
+/* The factor that brings the shape of `x` between 1 / s and s; `s` is `max_shape`. */
+int tsd_rescale(const double x[2], double s, double *out);
+/* `constraints` has num_nodes x 2 entries (lower and upper bound). */
+int tsd_check_valid_constraints(tsd_size_t num_nodes, tsd_size_t num_edges,
+    const double *constraints, const tsd_id_t *edges_parent,
+    const tsd_id_t *edges_child);
+/*
+ * Update the factors of the edges (blocks of unphased singletons, if `unphased`),
+ * visited in the given order. `edges_parent`, `edges_child` and `likelihoods` (two
+ * columns) are those of the edges or blocks; `factors` must have `num_edges` of them.
+ */
+int tsd_propagate_likelihood(tsd_size_t num_order, const tsd_id_t *edge_order,
+    tsd_size_t num_edges, const tsd_id_t *edges_parent, const tsd_id_t *edges_child,
+    const double *likelihoods, const double *constraints, double max_shape,
+    double min_step, int unphased, double *posterior, const tsd_ep_factors_t *factors,
+    double *lognorm);
+/* Fit an exponential prior to the cavities of the free nodes and update their factors.
+ */
+int tsd_propagate_prior(const uint8_t *free, double max_shape, int64_t em_maxitt,
+    double em_reltol, double *posterior, const tsd_ep_factors_t *factors);
+/*
+ * Posteriors (`mutations_posterior`, two columns) and phases of the mutations in the
+ * given order, from the edges (blocks) above them; `mutations_edge` has the edge of
+ * each mutation, or TSD_NULL. The factors are not changed.
+ */
+int tsd_propagate_mutations(tsd_size_t num_order, const tsd_id_t *mutations_order,
+    const tsd_id_t *mutations_edge, const tsd_id_t *edges_parent,
+    const tsd_id_t *edges_child, const double *likelihoods, const double *constraints,
+    const double *posterior, const tsd_ep_factors_t *factors, int unphased,
+    double *mutations_posterior, double *mutations_phase);
+
 #ifdef __cplusplus
 }
 #endif

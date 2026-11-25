@@ -127,6 +127,30 @@ tsd_strerror(int err)
             ret = "zero-size array to reduction operation minimum which has no "
                   "identity";
             break;
+        case TSD_ERR_INVALID_MAX_SHAPE:
+            ret = "The maximum shape must be at least one";
+            break;
+        case TSD_ERR_INVALID_MIN_STEP:
+            ret = "The minimum step size must be greater than zero and less than one";
+            break;
+        case TSD_ERR_INVALID_NODE_POSTERIOR:
+            ret = "A node posterior has shape not greater than -1 or rate not greater "
+                  "than zero";
+            break;
+        case TSD_ERR_INVALID_DAMPING:
+            ret = "The damping factor is not greater than zero and at most one";
+            break;
+        case TSD_ERR_INCONSISTENT_CONSTRAINTS:
+            ret = "Node age constraints are inconsistent, some descendants have"
+                  " lower bounds that exceed upper bounds of their ancestors.";
+            break;
+        case TSD_ERR_TWIN_EDGE_IN_PHASED_PASS:
+            ret = "An edge with the same parent and child can only be updated in an "
+                  "unphased pass";
+            break;
+        case TSD_ERR_NONPOSITIVE_PENALTY:
+            ret = "The fitted regularisation penalty is not positive";
+            break;
         default:
             break;
     }
