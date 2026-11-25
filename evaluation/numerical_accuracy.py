@@ -1,6 +1,7 @@
 """
 Numerical accuracy of the special functions and gamma approximations in tsdate
-(``tsdate.hypergeo`` and ``tsdate.approx``), per function and regime. Each row of the
+(the scalar functions of ``_tsdate``, ported from the numba modules
+``tsdate.hypergeo`` and ``tsdate.approx``), per function and regime. Each row of the
 table reports the worst error of the production function against a reference (mpmath,
 SciPy, a closed form) or the violation of a property the approximation should have
 (symmetry, monotonicity, continuity across a switch point). These are measurements, not
@@ -21,11 +22,10 @@ import csv
 import math
 import pathlib
 
+import _tsdate
 import mpmath
 import numpy as np
 import scipy.special
-
-from tsdate import approx, hypergeo
 
 INF = math.inf
 RESULTS = pathlib.Path(__file__).parent / "results"
@@ -119,18 +119,18 @@ POLYGAMMA_REGIMES = {
 
 def polygamma(report):
     for name, order in [("_digamma", 0), ("_trigamma", 1)]:
-        func = getattr(hypergeo, name)
+        func = getattr(_tsdate, name.lstrip("_"))
         for regime, xs in POLYGAMMA_REGIMES.items():
             errors = [rel(try_call(func, x), mp_psi(order, x)) for x in xs]
             report.worst("polygamma", name, regime, "rel", errors)
     # trigamma returns 1 / x**2 for x <= 1e-4, omitting pi**2 / 6
     xs = [1e-6, 1e-5, 1e-4]
-    errors = [rel(try_call(hypergeo._trigamma, x), mp_psi(1, x)) for x in xs]
+    errors = [rel(try_call(_tsdate.trigamma, x), mp_psi(1, x)) for x in xs]
     report.worst("polygamma", "_trigamma", "x <= 1e-4 (1/x**2)", "rel", errors)
     # continuity at the switch points of the series
     for x in [1e-5, 8.5]:
-        lo = hypergeo._digamma(x)
-        hi = hypergeo._digamma(np.nextafter(x, 2 * x))
+        lo = _tsdate.digamma(x)
+        hi = _tsdate.digamma(np.nextafter(x, 2 * x))
         report.add("polygamma", "_digamma", f"jump at x={x}", "rel", rel(lo, hi))
 
 
@@ -143,9 +143,7 @@ def betaln(report):
     for regime, points in regimes.items():
         errors = []
         for p, q in points:
-            errors.append(
-                rel(try_call(hypergeo._betaln, p, q), scipy.special.betaln(p, q))
-            )
+            errors.append(rel(try_call(_tsdate.betaln, p, q), scipy.special.betaln(p, q)))
         report.worst("betaln", "_betaln", regime, "rel", errors)
 
 
@@ -170,10 +168,10 @@ def gammainc_der(report):
         errors = []
         for p, x in points:
             ref = gammainc_der_reference(p, x)
-            errors.append(rel(try_call(hypergeo._gammainc_der, p, x), ref))
+            errors.append(rel(try_call(_tsdate.gammainc_der, p, x), ref))
         report.worst("gammainc", "_gammainc_der", regime, "rel", errors)
-    below = hypergeo._gammainc_der(1000.0, 1000.0)
-    above = hypergeo._gammainc_der(np.nextafter(1000.0, 2000.0), 1000.0)
+    below = _tsdate.gammainc_der(1000.0, 1000.0)
+    above = _tsdate.gammainc_der(np.nextafter(1000.0, 2000.0), 1000.0)
     report.add("gammainc", "_gammainc_der", "jump at p = 1000", "rel", rel(above, below))
 
 
@@ -192,7 +190,7 @@ def exact_gammainc_inv(a, q, x0):
 
 
 def gammainc_inv(report, rng, quick):
-    func = hypergeo._gammainc_inv
+    func = _tsdate.gammainc_inv
     n = 10 if quick else 40
     for a in [0.1, 0.3, 1.0, 2.5, 10.0, 60.0, 1e3, 1e4]:
         errors = []
@@ -265,7 +263,7 @@ def absolute(func, reference, points):
 
 
 def hyperu(report):
-    func = hypergeo._hyperu_laplace
+    func = _tsdate.hyperu_laplace
     regimes = {
         "a >= 1 (EP: a = y + 1)": [(1.0, 2.0, 1.0), (2.0, 5.0, 0.5), (5.0, 15.0, 1.0)]
         + [(10.0, 20.0, 50.0), (50.0, 60.0, 1.0), (1000.0, 1010.0, 1e4)],
@@ -328,7 +326,7 @@ def hyperu(report):
 
 
 def hyp1f1(report):
-    func = hypergeo._hyp1f1_laplace
+    func = _tsdate.hyp1f1_laplace
     regimes = {
         "moderate": [
             (1.0, 2.0, 1.0),
@@ -361,7 +359,7 @@ def hyp1f1(report):
 
 
 def hyp2f1(report, quick):
-    func = hypergeo._hyp2f1_laplace
+    func = _tsdate.hyp2f1_laplace
     zs = [(-1e9,), (-100.0,), (-1.0,), (0.5,), (0.9,), (0.99,), (0.99998,), (0.999999,)]
     abcs = {
         "(1, 2, 3)": (1.0, 2.0, 3.0),
@@ -435,7 +433,7 @@ def hyp2f1(report, quick):
     )
 
 
-# --- gamma approximations (tsdate.approx) --- #
+# --- gamma approximations --- #
 
 
 def gamma_quantiles(shape, rate, q1=0.25, q2=0.75):
@@ -444,7 +442,7 @@ def gamma_quantiles(shape, rate, q1=0.25, q2=0.75):
 
 
 def gamma_fits(report, rng, quick):
-    kl = approx.approximate_gamma_kl
+    kl = _tsdate.approximate_gamma_kl
     errors, residuals = [], []
     for x, gap in [
         (1.0, 1e-3),
@@ -473,13 +471,13 @@ def gamma_fits(report, rng, quick):
     )
     errors = []
     for mean, variance in [(1.0, 1.0), (10.0, 4.0), (1e3, 1e-6), (1e-3, 1e-3)]:
-        shape, rate = approx.approximate_gamma_mom(mean, variance)
+        shape, rate = _tsdate.approximate_gamma_mom(mean, variance)
         errors += [rel((shape + 1) / rate, mean), rel((shape + 1) / rate**2, variance)]
     report.worst(
         "approx", "approximate_gamma_mom", "mean and variance matched", "rel", errors
     )
     mean, variance = 3.0, 0.5
-    logx, xlogx, logx2 = approx.approximate_log_moments(mean, variance)
+    logx, xlogx, logx2 = _tsdate.approximate_log_moments(mean, variance)
     expected = (
         math.log(mean) - 0.5 * variance / mean**2,
         mean * math.log(mean) + 0.5 * variance / mean,
@@ -494,7 +492,7 @@ def gamma_fits(report, rng, quick):
         errors = []
         for shape in shapes:
             args = (*gamma_quantiles(shape, 0.001), max_shape)
-            result = try_call(approx.approximate_gamma_iqr, *args)
+            result = try_call(_tsdate.approximate_gamma_iqr, *args)
             errors.append(
                 None if result is None else rel(result[0] + 1.0, min(shape, max_shape))
             )
@@ -506,11 +504,11 @@ def gamma_fits(report, rng, quick):
             errors,
         )
     errors = [
-        rel(approx.average_gammas(np.full(3, s), np.full(3, r))[0] + 1.0, s + 1.0)
+        rel(_tsdate.average_gammas(np.full(3, s), np.full(3, r))[0] + 1.0, s + 1.0)
         for s, r in [(3.0, 0.5), (0.5, 2.0)]
     ]
     report.worst("approx", "average_gammas", "identical gammas recovered", "rel", errors)
-    shape, rate = approx.average_gammas(np.array([0.0]), np.array([1.0]))
+    shape, rate = _tsdate.average_gammas(np.array([0.0]), np.array([1.0]))
     report.add(
         "approx", "average_gammas", "single gamma, shape 1", "rel", rel(shape + 1.0, 1.0)
     )
@@ -519,7 +517,7 @@ def gamma_fits(report, rng, quick):
 def moment_functions(report, quick):
     a_i, b_i, y, mu = 10.0, 0.01, 3.0, 1e-4
     s, r = a_i + y, b_i + 2 * mu
-    got = approx.twin_moments(a_i, b_i, y, mu)
+    got = _tsdate.twin_moments(a_i, b_i, y, mu)
     expected = (math.log(2) * y + math.lgamma(s) - math.log(r) * s, s / r, s / r**2)
     report.worst(
         "approx",
@@ -529,10 +527,10 @@ def moment_functions(report, quick):
         [rel(g, e) for g, e in zip(got, expected)],
     )
     t_i, t_j = 7.0, 2.0
-    mn, va = approx.mutation_edge_moments(t_i, t_j)
+    mn, va = _tsdate.mutation_edge_moments(t_i, t_j)
     errors = [rel(mn, 4.5), rel(va, 25.0 / 12.0)]
     report.worst("approx", "mutation_edge_moments", "closed form", "rel", errors)
-    pr, mn, va = approx.mutation_block_moments(t_i, t_j)
+    pr, mn, va = _tsdate.mutation_block_moments(t_i, t_j)
     errors = [rel(pr, 7.0 / 9.0), rel(mn, pr * t_i / 2 + (1 - pr) * t_j / 2)]
     report.worst("approx", "mutation_block_moments", "closed form", "rel", errors)
     # rootward with t_j -> 0 approaches the gamma with shape a_i + y, rate b_i + mu
@@ -540,7 +538,7 @@ def moment_functions(report, quick):
     s, r = a_i + y, b_i + mu
     exact = (math.lgamma(s) - s * math.log(r), s / r, s / r**2)
     for t_j in [1e-10, 1e-3]:
-        got = approx.rootward_moments(t_j, a_i, b_i, y, mu)
+        got = _tsdate.rootward_moments(t_j, a_i, b_i, y, mu)
         report.add(
             "approx",
             "rootward_moments",
@@ -557,7 +555,7 @@ def moment_functions(report, quick):
         )
     # y = 0: U(a, a + 1, z) = z**-a
     a_j, b_j, mu, t_i = 10.0, 0.01, 1e-4, 1000.0
-    logl, mn, va = approx.sideways_moments(t_i, a_j, b_j, 0.0, mu)
+    logl, mn, va = _tsdate.sideways_moments(t_i, a_j, b_j, 0.0, mu)
     z = t_i * (mu + b_j)
     f0 = logl + mu * t_i - a_j * math.log(t_i) - math.lgamma(a_j)
     report.add(
@@ -565,10 +563,10 @@ def moment_functions(report, quick):
     )
     # projected gammas reproduce the moments
     args = (10.0, 0.01, 10.0, 0.01, 1.0, 1e-4)
-    _, mn_i, va_i, mn_j, va_j = approx.moments(*args)
-    _, proj_i, proj_j = approx.gamma_projection(
-        np.array([9.0, 0.01]), np.array([9.0, 0.01]), np.array([1.0, 1e-4])
-    )
+    _, mn_i, va_i, mn_j, va_j = _tsdate.moments(*args)
+    _, *flat = _tsdate.gamma_projection(9.0, 0.01, 9.0, 0.01, 1.0, 1e-4)
+    proj_i = flat[0:2]
+    proj_j = flat[2:4]
     errors = []
     for proj, mn, va in [(proj_i, mn_i, va_i), (proj_j, mn_j, va_j)]:
         errors += [
@@ -583,7 +581,7 @@ def moment_functions(report, quick):
         ("moments", (1e8, 1e5, 1e8, 1e5, 1, 1e-4)),
         ("moments", (10, 0.01, 10, 0.01, 1, 1e-4)),
     ]:
-        va = getattr(approx, name)(*[float(a) for a in args])[2]
+        va = getattr(_tsdate, name)(*[float(a) for a in args])[2]
         regime = "shape 1e8" if args[0] == 1e8 else "typical"
         report.add(
             "approx",
@@ -600,7 +598,7 @@ def moment_functions(report, quick):
         a_i, a_j = rng.uniform(0.5, 30, 2)
         b_i, b_j = log_uniform(rng, -5, -2, 2)
         y, mu = float(rng.integers(0, 12)), log_uniform(rng, -4, -2)
-        result = approx.moments(a_i, b_i, a_j, b_j, y, mu)
+        result = _tsdate.moments(a_i, b_i, a_j, b_j, y, mu)
         count += not (result[2] > 0 and result[4] > 0)
     report.add(
         "approx",
@@ -615,7 +613,7 @@ def moment_functions(report, quick):
         a_i, a_j = rng.uniform(0.5, 30, 2)
         b_i, b_j = log_uniform(rng, -5, -2, 2)
         y, mu = float(rng.integers(0, 12)), log_uniform(rng, -4, -2)
-        pr = approx.mutation_unphased_moments(a_i, b_i, a_j, b_j, y, mu)[0]
+        pr = _tsdate.mutation_unphased_moments(a_i, b_i, a_j, b_j, y, mu)[0]
         count += not (0 <= pr <= 1)
     report.add(
         "approx",

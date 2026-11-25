@@ -794,6 +794,25 @@ out:
 }
 
 /*
+ * A float64 array of the given dimension that the call updates in place: `obj` itself,
+ * which must not need converting (a copy would silently lose the updates).
+ */
+static PyArrayObject *
+get_inout_array(PyObject *obj, int ndim)
+{
+    PyArrayObject *ret = (PyArrayObject *) PyArray_FROMANY(
+        obj, NPY_FLOAT64, ndim, ndim, NPY_ARRAY_INOUT_ARRAY);
+
+    if (ret != NULL && (PyObject *) ret != obj) {
+        Py_DECREF(ret);
+        ret = NULL;
+        PyErr_SetString(PyExc_ValueError,
+            "Arrays that are updated must be writeable, C-contiguous float64 arrays");
+    }
+    return ret;
+}
+
+/*
  * reallocate_unphased(edges_likelihood, mutations_phase, mutations_block,
  *     blocks_edges): updates edges_likelihood in place.
  */
@@ -815,8 +834,7 @@ tsdate_reallocate_unphased(PyObject *Py_UNUSED(self), PyObject *args)
             args, "OOOO", &likelihood_obj, &phase_obj, &block_obj, &edges_obj)) {
         goto out;
     }
-    likelihood_array = (PyArrayObject *) PyArray_FROMANY(
-        likelihood_obj, NPY_FLOAT64, 2, 2, NPY_ARRAY_INOUT_ARRAY);
+    likelihood_array = get_inout_array(likelihood_obj, 2);
     phase_array = (PyArrayObject *) PyArray_FROMANY(
         phase_obj, NPY_FLOAT64, 1, 1, NPY_ARRAY_IN_ARRAY);
     block_array = (PyArrayObject *) PyArray_FROMANY(
@@ -1773,25 +1791,6 @@ static void
 release_factors(py_factors_t *factors)
 {
     release_arrays(factors->arrays, NUM_FACTOR_ARRAYS);
-}
-
-/*
- * A float64 array of the given dimension that the call updates in place: `obj` itself,
- * which must not need converting (a copy would silently lose the updates).
- */
-static PyArrayObject *
-get_inout_array(PyObject *obj, int ndim)
-{
-    PyArrayObject *ret = (PyArrayObject *) PyArray_FROMANY(
-        obj, NPY_FLOAT64, ndim, ndim, NPY_ARRAY_INOUT_ARRAY);
-
-    if (ret != NULL && (PyObject *) ret != obj) {
-        Py_DECREF(ret);
-        ret = NULL;
-        PyErr_SetString(PyExc_ValueError,
-            "Arrays that are updated must be writeable, C-contiguous float64 arrays");
-    }
-    return ret;
 }
 
 /*

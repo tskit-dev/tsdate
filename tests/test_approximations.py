@@ -27,6 +27,7 @@ Test cases for the gamma-variational approximations in tsdate
 
 from math import sqrt
 
+import _tsdate
 import numpy as np
 import pytest
 import scipy.integrate
@@ -49,8 +50,6 @@ from exact_moments import (
     unphased_moments,
 )
 
-from tsdate import approx, hypergeo
-
 # TODO: better test set?
 _gamma_trio_test_cases = [  # [shape1, rate1, shape2, rate2, muts, rate]
     [2.0, 0.0005, 1.5, 0.005, 0.0, 0.001],
@@ -71,7 +70,7 @@ class TestPosteriorMomentMatching:
         Test mean and variance when ages of both nodes are free
         """
         rtol = 1e-2
-        ll, mn_i, va_i, mn_j, va_j = approx.moments(*pars)
+        ll, mn_i, va_i, mn_j, va_j = _tsdate.moments(*pars)
         ck_ll, ck_mn_i, ck_va_i, ck_mn_j, ck_va_j = moments(*pars)
         assert np.isclose(ck_ll, ll, rtol=rtol)
         assert np.isclose(ck_mn_i, mn_i, rtol=rtol)
@@ -88,7 +87,7 @@ class TestPosteriorMomentMatching:
         pars_redux = (a_i, b_i, y, mu)
         mn_j = a_j / b_j
         for t_j in [0.0, mn_j]:
-            ll, mn_i, va_i = approx.rootward_moments(t_j, *pars_redux)
+            ll, mn_i, va_i = _tsdate.rootward_moments(t_j, *pars_redux)
             ck_ll, ck_mn_i, ck_va_i = rootward_moments(t_j, *pars_redux)
             assert np.isclose(ck_ll, ll, rtol=rtol)
             assert np.isclose(ck_mn_i, mn_i, rtol=rtol)
@@ -102,7 +101,7 @@ class TestPosteriorMomentMatching:
         a_i, b_i, a_j, b_j, y, mu = pars
         t_i = a_i / b_i
         pars_redux = (a_j, b_j, y, mu)
-        ll, mn_j, va_j = approx.leafward_moments(t_i, *pars_redux)
+        ll, mn_j, va_j = _tsdate.leafward_moments(t_i, *pars_redux)
         ck_ll, ck_mn_j, ck_va_j = leafward_moments(t_i, *pars_redux)
         assert np.isclose(ck_ll, ll, rtol=rtol)
         assert np.isclose(ck_mn_j, mn_j, rtol=rtol)
@@ -113,7 +112,7 @@ class TestPosteriorMomentMatching:
         Parent ages for an singleton nodes above an unphased individual
         """
         rtol = 1e-2
-        ll, mn_i, va_i, mn_j, va_j = approx.unphased_moments(*pars)
+        ll, mn_i, va_i, mn_j, va_j = _tsdate.unphased_moments(*pars)
         ck_ll, ck_mn_i, ck_va_i, ck_mn_j, ck_va_j = unphased_moments(*pars)
         assert np.isclose(ck_ll, ll, rtol=rtol)
         assert np.isclose(ck_mn_i, mn_i, rtol=rtol)
@@ -128,7 +127,7 @@ class TestPosteriorMomentMatching:
         """
         a_i, b_i, a_j, b_j, y_ij, mu_ij = pars
         pars_redux = (a_i, b_i, y_ij, mu_ij)
-        ll, mn_i, va_i = approx.twin_moments(*pars_redux)
+        ll, mn_i, va_i = _tsdate.twin_moments(*pars_redux)
         ck_ll, ck_mn_i, ck_va_i = twin_moments(*pars_redux)
         assert np.isclose(ck_ll, ll)
         assert np.isclose(ck_mn_i, mn_i)
@@ -143,7 +142,7 @@ class TestPosteriorMomentMatching:
         a_i, b_i, a_j, b_j, y, mu = pars
         pars_redux = (a_j, b_j, y, mu)
         t_i = a_i / b_i
-        ll, mn_j, va_j = approx.sideways_moments(t_i, *pars_redux)
+        ll, mn_j, va_j = _tsdate.sideways_moments(t_i, *pars_redux)
         ck_ll, ck_mn_j, ck_va_j = sideways_moments(t_i, *pars_redux)
         assert np.isclose(ck_ll, ll, rtol=rtol)
         assert np.isclose(ck_mn_j, mn_j, rtol=rtol)
@@ -154,7 +153,7 @@ class TestPosteriorMomentMatching:
         Mutation mapped to a single branch with both nodes free
         """
         rtol = 2e-2
-        mn, va = approx.mutation_moments(*pars)
+        mn, va = _tsdate.mutation_moments(*pars)
         ck_mn, ck_va = mutation_moments(*pars)
         assert np.isclose(ck_mn, mn, rtol=rtol)
         assert np.isclose(sqrt(ck_va), sqrt(va), rtol=rtol)
@@ -168,7 +167,7 @@ class TestPosteriorMomentMatching:
         pars_redux = (a_i, b_i, y, mu)
         mn_j = a_j / b_j
         for t_j in [0.0, mn_j]:
-            mn, va = approx.mutation_rootward_moments(t_j, *pars_redux)
+            mn, va = _tsdate.mutation_rootward_moments(t_j, *pars_redux)
             ck_mn, ck_va = mutation_rootward_moments(t_j, *pars_redux)
             assert np.isclose(ck_mn, mn, rtol=rtol)
             assert np.isclose(sqrt(ck_va), sqrt(va), rtol=rtol)
@@ -181,7 +180,7 @@ class TestPosteriorMomentMatching:
         a_i, b_i, a_j, b_j, y, mu = pars
         t_i = a_i / b_i
         pars_redux = (a_j, b_j, y, mu)
-        mn, va = approx.mutation_leafward_moments(t_i, *pars_redux)
+        mn, va = _tsdate.mutation_leafward_moments(t_i, *pars_redux)
         ck_mn, ck_va = mutation_leafward_moments(t_i, *pars_redux)
         assert np.isclose(ck_mn, mn, rtol=rtol)
         assert np.isclose(sqrt(ck_va), sqrt(va), rtol=rtol)
@@ -191,7 +190,7 @@ class TestPosteriorMomentMatching:
         Mutation mapped to two singleton branches with children fixed to time zero
         """
         rtol = 1e-2
-        pr, mn, va = approx.mutation_unphased_moments(*pars)
+        pr, mn, va = _tsdate.mutation_unphased_moments(*pars)
         ck_pr, ck_mn, ck_va = mutation_unphased_moments(*pars)
         assert np.isclose(ck_pr, pr, rtol=rtol)
         assert np.isclose(ck_mn, mn, rtol=rtol)
@@ -204,7 +203,7 @@ class TestPosteriorMomentMatching:
         """
         a_i, b_i, a_j, b_j, y_ij, mu_ij = pars
         pars_redux = (a_i, b_i, y_ij, mu_ij)
-        pr, mn, va = approx.mutation_twin_moments(*pars_redux)
+        pr, mn, va = _tsdate.mutation_twin_moments(*pars_redux)
         ck_pr, ck_mn, ck_va = mutation_twin_moments(*pars_redux)
         assert np.isclose(ck_pr, pr)
         assert np.isclose(ck_mn, mn)
@@ -219,7 +218,7 @@ class TestPosteriorMomentMatching:
         a_i, b_i, a_j, b_j, y, mu = pars
         t_i = a_i / b_i
         pars_redux = (a_j, b_j, y, mu)
-        pr, mn, va = approx.mutation_sideways_moments(t_i, *pars_redux)
+        pr, mn, va = _tsdate.mutation_sideways_moments(t_i, *pars_redux)
         ck_pr, ck_mn, ck_va = mutation_sideways_moments(t_i, *pars_redux)
         assert np.isclose(ck_pr, pr, rtol=rtol)
         assert np.isclose(ck_mn, mn, rtol=rtol)
@@ -232,7 +231,7 @@ class TestPosteriorMomentMatching:
         a_i, b_i, a_j, b_j, y, mu = pars
         t_i = a_i / b_i
         t_j = a_j / b_j
-        mn, va = approx.mutation_edge_moments(t_i, t_j)
+        mn, va = _tsdate.mutation_edge_moments(t_i, t_j)
         ck_mn, ck_va = mutation_edge_moments(t_i, t_j)
         assert np.isclose(ck_mn, mn)
         assert np.isclose(sqrt(ck_va), sqrt(va))
@@ -245,7 +244,7 @@ class TestPosteriorMomentMatching:
         a_i, b_i, a_j, b_j, y, mu = pars
         t_i = a_i / b_i
         t_j = a_j / b_j
-        pr, mn, va = approx.mutation_block_moments(t_i, t_j)
+        pr, mn, va = _tsdate.mutation_block_moments(t_i, t_j)
         ck_pr, ck_mn, ck_va = mutation_block_moments(t_i, t_j)
         assert np.isclose(ck_pr, pr)
         assert np.isclose(ck_mn, mn)
@@ -254,24 +253,24 @@ class TestPosteriorMomentMatching:
     def test_approximate_gamma_kl(self, pars):
         a_i, b_i, a_j, b_j, y, mu = pars
         t_i = a_i / b_i
-        ln_t_i = hypergeo._digamma(a_i) - np.log(b_i)
+        ln_t_i = _tsdate.digamma(a_i) - np.log(b_i)
         t_j = a_j / b_j
-        ln_t_j = hypergeo._digamma(a_j) - np.log(b_j)
-        alpha_i, beta_i = approx.approximate_gamma_kl(t_i, ln_t_i)
-        alpha_j, beta_j = approx.approximate_gamma_kl(t_j, ln_t_j)
+        ln_t_j = _tsdate.digamma(a_j) - np.log(b_j)
+        alpha_i, beta_i = _tsdate.approximate_gamma_kl(t_i, ln_t_i)
+        alpha_j, beta_j = _tsdate.approximate_gamma_kl(t_j, ln_t_j)
         ck_t_i = (alpha_i + 1) / beta_i
         assert np.isclose(t_i, ck_t_i)
         ck_t_j = (alpha_j + 1) / beta_j
         assert np.isclose(t_j, ck_t_j)
-        ck_ln_t_i = hypergeo._digamma(alpha_i + 1) - np.log(beta_i)
+        ck_ln_t_i = _tsdate.digamma(alpha_i + 1) - np.log(beta_i)
         assert np.isclose(ln_t_i, ck_ln_t_i)
-        ck_ln_t_j = hypergeo._digamma(alpha_j + 1) - np.log(beta_j)
+        ck_ln_t_j = _tsdate.digamma(alpha_j + 1) - np.log(beta_j)
         assert np.isclose(ln_t_j, ck_ln_t_j)
 
     def test_approximate_gamma_mom(self, pars):
-        _, t_i, va_t_i, t_j, va_t_j = approx.moments(*pars)
-        alpha_i, beta_i = approx.approximate_gamma_mom(t_i, va_t_i)
-        alpha_j, beta_j = approx.approximate_gamma_mom(t_j, va_t_j)
+        _, t_i, va_t_i, t_j, va_t_j = _tsdate.moments(*pars)
+        alpha_i, beta_i = _tsdate.approximate_gamma_mom(t_i, va_t_i)
+        alpha_j, beta_j = _tsdate.approximate_gamma_mom(t_j, va_t_j)
         ck_t_i = (alpha_i + 1) / beta_i
         assert np.isclose(t_i, ck_t_i)
         ck_t_j = (alpha_j + 1) / beta_j
@@ -292,7 +291,7 @@ class TestGammaFactorization:
         # E[log x] = digamma(shape) - log(rate)
         shape = np.array([0.5, 1.5])
         rate = np.array([1.0, 1.0])
-        avg_shape, avg_rate = approx.average_gammas(shape, rate)
+        avg_shape, avg_rate = _tsdate.average_gammas(shape, rate)
         E_x = np.mean(shape + 1)
         E_logx = np.mean(scipy.special.digamma(shape + 1))
         assert np.isclose(E_x, (avg_shape + 1) / avg_rate)
@@ -305,20 +304,20 @@ class TestKLMinimizationFailed:
     """
 
     def test_violates_jensen(self):
-        with pytest.raises(approx.KLMinimizationFailedError, match="violates Jensen's"):
-            approx.approximate_gamma_kl(1, 0)
+        with pytest.raises(_tsdate.LibraryError, match="violates Jensen's"):
+            _tsdate.approximate_gamma_kl(1, 0)
 
     def test_asymptotic_bound(self):
         # check that bound is returned over threshold (rather than optimization)
         logx = -0.000001
-        alpha, _ = approx.approximate_gamma_kl(1, logx)
+        alpha, _ = _tsdate.approximate_gamma_kl(1, logx)
         alpha += 1
         alpha_bound = -0.5 / logx
         assert alpha == alpha_bound
         assert alpha > 1e4
         # check that bound matches optimization result just under threshold
         logx = -0.000051
-        alpha, _ = approx.approximate_gamma_kl(1, logx)
+        alpha, _ = _tsdate.approximate_gamma_kl(1, logx)
         alpha += 1
         alpha_bound = -0.5 / logx
         assert np.abs(alpha - alpha_bound) < 1

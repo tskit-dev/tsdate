@@ -7,11 +7,11 @@ import operator
 from collections import defaultdict
 
 import numpy as np
+import scipy.special
 import scipy.stats
 import tskit
 from tqdm.auto import tqdm
 
-from .accelerate import numba_jit
 from .node_time_class import LIN_GRID, LOG_GRID
 
 
@@ -362,25 +362,7 @@ class LogLikelihoods(Likelihoods):
     identity_constant = 0.0
     null_constant = -np.inf
 
-    """
-    Uses an alternative to logsumexp, useful for large grid sizes, see
-    http://www.nowozin.net/sebastian/blog/streaming-log-sum-exp-computation.html
-    """
-
-    @staticmethod
-    @numba_jit
-    def logsumexp(X):
-        alpha = -np.inf
-        r = 0.0
-        for x in X:
-            if x != -np.inf:
-                if x <= alpha:
-                    r += np.exp(x - alpha)
-                else:
-                    r *= np.exp(alpha - x)
-                    r += 1.0
-                    alpha = x
-        return -np.inf if r == 0 else np.log(r) + alpha
+    logsumexp = staticmethod(scipy.special.logsumexp)
 
     @staticmethod
     def _lik(muts, span, dt, mutation_rate, standardize=True):
@@ -404,32 +386,12 @@ class LogLikelihoods(Likelihoods):
         )
 
     def rowsum_lower_tri(self, input_array):
-        """
-        The function below is equivalent to (but numba makes it faster than)
-        np.logaddexp.reduceat(input_array, self.row_indices[0])
-        """
         assert len(input_array) == self.tri_size
-        res = list()
-        i_start = self.row_indices[0][0]
-        for i in self.row_indices[0][1:]:
-            res.append(self.logsumexp(input_array[i_start:i]))
-            i_start = i
-        res.append(self.logsumexp(input_array[i:]))
-        return np.array(res)
+        return np.logaddexp.reduceat(input_array, self.row_indices[0])
 
     def rowsum_upper_tri(self, input_array):
-        """
-        The function below is equivalent to (but numba makes it faster than)
-        np.logaddexp.reduceat(input_array, self.col_indices)
-        """
         assert len(input_array) == self.tri_size
-        res = list()
-        i_start = self.col_indices[0]
-        for i in self.col_indices[1:]:
-            res.append(self.logsumexp(input_array[i_start:i]))
-            i_start = i
-        res.append(self.logsumexp(input_array[i:]))
-        return np.array(res)
+        return np.logaddexp.reduceat(input_array, self.col_indices)
 
     def _recombination_loglik(self, edge, fixed=True):
         # Needs to return a lower tri *or* flattened array depending on `fixed`

@@ -1,4 +1,4 @@
-"""Oracles for the jitted functions in ``tsdate.hypergeo``."""
+"""Oracles for the special functions (formerly the numba module ``tsdate.hypergeo``)."""
 
 from math import pi
 

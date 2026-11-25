@@ -26,12 +26,11 @@ Test cases for numba-fied hypergeometric functions
 
 from math import lgamma
 
+import _tsdate
 import mpmath
 import numdifftools as nd
 import numpy as np
 import pytest
-
-from tsdate import hypergeo
 
 
 @pytest.mark.parametrize("x", [-0.3, 1e-10, 1e-6, 1e-2, 1e1, 1e2, 1e3, 1e5, 1e10])
@@ -44,14 +43,14 @@ class TestPolygamma:
         assert np.isclose(lgamma(x), float(mpmath.re(mpmath.loggamma(x))))
 
     def test_digamma(self, x):
-        assert np.isclose(hypergeo._digamma(x), float(mpmath.psi(0, x)))
+        assert np.isclose(_tsdate.digamma(x), float(mpmath.psi(0, x)))
 
     def test_trigamma(self, x):
-        assert np.isclose(hypergeo._trigamma(x), float(mpmath.psi(1, x)))
+        assert np.isclose(_tsdate.trigamma(x), float(mpmath.psi(1, x)))
 
     def test_betaln(self, x):
         assert np.isclose(
-            hypergeo._betaln(x, 2 * x),
+            _tsdate.betaln(x, 2 * x),
             float(mpmath.re(mpmath.log(mpmath.beta(x, 2 * x)))),
         )
 
@@ -90,7 +89,7 @@ class TestLaplaceApprox2F1:
         B = a_i + a_j + y
         C = a_j + y + 1
         z = (mu - b_j) / (mu + b_i)
-        f = hypergeo._hyp2f1_laplace(A, B, C, z)
+        f = _tsdate.hyp2f1_laplace(A, B, C, z)
         check = float(mpmath.log(self._2f1_validate(*pars)))
         assert np.isclose(f, check, rtol=2e-2)
 
@@ -134,7 +133,7 @@ class Test2F1Unity:
             s = -B * np.log(1 - z)
             A = C - A
             z = z / (z - 1)
-        f = hypergeo._hyp2f1_unity(A, B, C, z) + s
+        f = _tsdate.hyp2f1_unity(A, B, C, z) + s
         check = float(mpmath.log(self._2f1_validate(*pars)))
         assert np.isclose(f, check, rtol=1e-2)
 
@@ -169,10 +168,8 @@ class TestLaplaceApproxU:
         A = y + 1
         B = a_i + y + 1
         z = t_j * (mu + b_i)
-        f, df = hypergeo._hyperu_laplace(A, B, z)
-        der = nd.Derivative(
-            lambda z: hypergeo._hyperu_laplace(A, B, z)[0], n=1, step=1e-4
-        )
+        f, df = _tsdate.hyperu_laplace(A, B, z)
+        der = nd.Derivative(lambda z: _tsdate.hyperu_laplace(A, B, z)[0], n=1, step=1e-4)
         check_f = float(mpmath.log(self._hyperu_validate(*pars)))
         check_df = der(z)
         assert np.isclose(f, check_f, rtol=2e-2)
@@ -211,6 +208,6 @@ class TestLaplaceApproxM:
         A = a_j
         B = a_j + y + 1
         z = t_i * (b_j - mu)
-        f = hypergeo._hyp1f1_laplace(A, B, z)
+        f = _tsdate.hyp1f1_laplace(A, B, z)
         check = float(mpmath.log(self._hyp1f1_validate(*pars)))
         assert np.isclose(f, check, rtol=2e-2)

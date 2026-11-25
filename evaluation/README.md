@@ -16,7 +16,7 @@ standard coalescent.
 | `afs.py` | Compare the observed site allele frequency spectrum with the expected one from branch lengths (branch AFS x mutation rate) in genomic windows, for the true times, the true topology dated by tsdate, and a tsinfer topology dated by tsdate. Writes `afs_*.csv`. |
 | `performance.py` | Wall time and peak RSS, each case in a fresh process. |
 | `microbench.py` | Microbenchmarks of the array-level accelerated functions (EP passes, rescaling, phasing, `util`, `prior`), on simulated inputs at three sizes (see below). |
-| `numerical_accuracy.py` | Accuracy of the special functions and gamma approximations (`tsdate.hypergeo`, `tsdate.approx`) per function and regime: worst error against mpmath, SciPy or closed forms, and violations of properties such as symmetry, monotonicity and continuity at switch points (see below). Not to be confused with `accuracy.py`, which scores dating. |
+| `numerical_accuracy.py` | Accuracy of the special functions and gamma approximations (the scalar functions of `_tsdate`) per function and regime: worst error against mpmath, SciPy or closed forms, and violations of properties such as symmetry, monotonicity and continuity at switch points (see below). Not to be confused with `accuracy.py`, which scores dating. |
 | `ep_sensitivity.py` | How a one-ulp change in the edge mutational targets grows over EP sweeps (maximum relative change in node means), which sets the tolerance of the multi-sweep test in `tests/test_oracle_variational.py` (see below). |
 | `compare.py` | Compares two `performance.py` CSVs case by case (see below). |
 | `plot.py` | Reads `results/*.csv` and writes PNGs: error/bias/interval coverage vs parameter (`accuracy_*_summary.png`: top row node times, bottom row mutation times), estimated-vs-true scatter (`accuracy_*_scatter.png`: columns are swept values, rows are node/mutation times for true/tsinferred topology), PIT calibration histograms (`accuracy_*_calibration.png`: node row, mutation row), AFS observed-vs-expected (`afs_*.png`), time and memory scaling. |
@@ -77,9 +77,9 @@ Add `--quick` to `accuracy.py` / `performance.py` for a fast smoke test. Quick r
 to separate `*_quick.csv` files (so they never overwrite full results), and `plot.py`
 labels their figures "quick run" and names them `*_quick*.png`.
 
-### Microbenchmarks of the accelerated functions
+### Microbenchmarks of the C extension
 
-`microbench.py` times each array-level numba-jitted entry point on inputs built from
+`microbench.py` times each array-level entry point of the `_tsdate` extension on inputs built from
 simulated tree sequences (small/medium/large; the large case has ~560k edges, so the
 EP edge pass takes about a second). The EP state is produced by running
 `ExpectationPropagation.infer` for two iterations, and the functions are called as
@@ -96,14 +96,11 @@ python evaluation/microbench.py --sizes medium --only propagate mutational
 
 Each function is warmed up, then the median of `--repeats` timed calls is reported
 (fast calls are batched so each timed block lasts a few ms; times are per call).
-Compile time is reported separately: per function from numba's dispatcher timers, and
-in total as `import tsdate` with minus without `NUMBA_DISABLE_JIT` in a fresh process
-(functions with explicit signatures compile at import, not at first call; skipped
-with `--no-import-compile` or `--quick`). The CSV also records provenance. Timings are
-only comparable between runs on a quiet machine.
+The CSV also records provenance. Timings are only comparable between runs on a quiet
+machine.
 
 Implementations are chosen with `--impl`. To add one, write a function returning a
-dict of callables with the same names and signatures as `_numba_impl` and register it
+dict of callables with the same names and signatures as `_c_impl` and register it
 in `IMPLS`.
 
 ### Sensitivity of EP to last-bit differences
@@ -123,10 +120,10 @@ python evaluation/ep_sensitivity.py --sizes 20 100 --seeds 1 2 3 --sweeps 1 5 10
 
 ### Accuracy of the special functions
 
-`numerical_accuracy.py` measures the approximation error of the production functions in
-`tsdate.hypergeo` (digamma, trigamma, `betaln`, the incomplete gamma derivative and
+`numerical_accuracy.py` measures the approximation error of the special functions in
+`_tsdate` (digamma, trigamma, `betaln`, the incomplete gamma derivative and
 inverse, and the Laplace approximations to U, 1F1 and 2F1, including the
-unity limit of 2F1) and `tsdate.approx` (moment matching, gamma fits, closed forms of
+unity limit of 2F1) and the gamma approximations (moment matching, gamma fits, closed forms of
 the moment functions) against mpmath, SciPy and closed forms. It also reports how often
 properties that the exact functions have are violated: symmetry, monotonicity, the Kummer
 transformation, continuity across a switch point. One row per function and regime gives
@@ -135,7 +132,7 @@ check any of this (they check only agreement with the oracles), so the table is
 where inaccurate regimes show up.
 
 ```
-python evaluation/numerical_accuracy.py --quick                   # the computation takes seconds; importing tsdate compiles numba
+python evaluation/numerical_accuracy.py --quick                   # the computation takes seconds
 python evaluation/numerical_accuracy.py --only hyp2f1 gammainc    # groups: polygamma betaln gammainc hyperu hyp1f1 hyp2f1 approx
 python evaluation/numerical_accuracy.py --output acc.csv          # also writes results/acc.csv
 ```

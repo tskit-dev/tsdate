@@ -1,7 +1,7 @@
 """
 Parity of each implementation (``impl``) with the oracles in ``oracle/hypergeo.py``
-for the special functions in ``tsdate.hypergeo``: values to 4 ulp, NaN and infinity
-patterns, and which exception is raised (``AssertionError`` for the domain checks,
+for the special functions: values to 4 ulp, NaN and infinity patterns, and which
+exception is raised (``AssertionError`` for the domain checks,
 ``ZeroDivisionError`` for float division by zero). Expected values always come from the
 oracle. Tables hold deliberate edge cases (poles, domain boundaries, both sides of a
 branch switch); grids and seeded random draws cover the interior and extreme ranges.
@@ -26,7 +26,7 @@ nextafter = np.nextafter
 
 def parity(impl, name, args, expected_kind=None):
     """
-    Compare ``tsdate.hypergeo.<name>(*args)`` with the oracle; optionally check kind.
+    Compare ``impl.hypergeo.<name>(*args)`` with the oracle; optionally check kind.
     """
     func = getattr(impl.hypergeo, name)
     oracle = getattr(hypergeo, name)

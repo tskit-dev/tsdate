@@ -1,6 +1,6 @@
 """
-Microbenchmarks of the array-level accelerated entry points in tsdate (the
-numba-jitted functions that take and return arrays). Inputs are built from simulated
+Microbenchmarks of the array-level entry points of the `_tsdate` extension in tsdate
+(the functions that take and return arrays). Inputs are built from simulated
 tree sequences at several sizes, mirroring how the functions are called in
 production. Scalar functions (approx, hypergeo) are not timed on their own: they are
 exercised through the EP passes. Writes a table to stdout and, with --output, a CSV
@@ -11,14 +11,8 @@ on identical, freshly copied inputs (copies are made outside the timed region); 
 median of `time.perf_counter` is reported. Very fast calls are batched, so that a
 timed block lasts at least a few ms (reported times are per call).
 
-Compile time (numba): functions with explicit signatures compile eagerly when tsdate
-is imported, so a "first call" timing does not capture it. Instead report (a) the
-compile time recorded by each numba dispatcher (its `compiler_lock` timer, which
-includes LLVM), and (b) the total cost of `import tsdate` in a fresh process with
-and without NUMBA_DISABLE_JIT (the difference is the total compile time at import).
-
 Implementations are selected with --impl. To add one, write a function returning a
-dict from function names (the keys of `_numba_impl`) to callables with the same
+dict from function names (the keys of `_c_impl`) to callables with the same
 signature, and register it in IMPLS; everything else is implementation-agnostic.
 
 Example:
@@ -28,10 +22,7 @@ Example:
 import argparse
 import dataclasses
 import math
-import os
 import statistics
-import subprocess
-import sys
 import time
 
 import common
@@ -51,53 +42,11 @@ MIN_BLOCK_S = 5e-3  # batch fast calls until a timed block lasts this long
 MAX_BATCH = 1000
 
 
-def _numba_impl():
-    from tsdate import discrete, phasing, prior, rescaling, util, variational
-
-    ep = variational.ExpectationPropagation
-    return {
-        "propagate_likelihood": ep.propagate_likelihood,
-        "propagate_prior": ep.propagate_prior,
-        "propagate_mutations": ep.propagate_mutations,
-        "mutational_area": rescaling.mutational_area,
-        "mutational_timescale": rescaling.mutational_timescale,
-        "piecewise_scale_point_estimate": rescaling.piecewise_scale_point_estimate,
-        "piecewise_scale_posterior": rescaling.piecewise_scale_posterior,
-        "_fixed_changepoints": rescaling._fixed_changepoints,
-        "_poisson_changepoints": rescaling._poisson_changepoints,
-        "_count_mutations": rescaling._count_mutations,
-        "_block_singletons": phasing._block_singletons,
-        "reallocate_unphased": phasing.reallocate_unphased,
-        "_mutation_frequency": phasing._mutation_frequency,
-        "_split_disjoint_nodes": util._split_disjoint_nodes,
-        "_relabel_mutations_node": util._relabel_mutations_node,
-        "_constrain_ages": util._constrain_ages,
-        "_contains_unary_nodes": util._contains_unary_nodes,
-        "_marginalize_over_ancestors": prior._marginalize_over_ancestors,
-        "conditional_coalescent_variance": prior.conditional_coalescent_variance,
-        "logsumexp": discrete.LogLikelihoods.logsumexp,
-    }
-
-
-def _factor_arrays(factors):
-    """The fields of an ``EPFactors`` as the tuple of arrays that `_tsdate` takes."""
-    return (
-        factors.node,
-        factors.edge,
-        factors.block,
-        factors.scale,
-        factors._p,
-        factors._c,
-        factors._j,
-        factors._k,
-    )
-
-
 def _with_factors(func, position):
     """Wrap a `_tsdate` function so that it takes an ``EPFactors`` at `position`."""
 
     def wrapped(*args):
-        factors = _factor_arrays(args[position])
+        factors = args[position].arrays()
         return func(*args[:position], factors, *args[position + 1 :])
 
     return wrapped
@@ -106,7 +55,7 @@ def _with_factors(func, position):
 def _c_impl():
     """
     Callables of the C implementation. Each ported array-level function is added as
-    ``name: callable`` (taking the arguments of the numba function of that name); the
+    ``name: callable`` (taking the arguments of the function of that name); the
     functions that are missing are skipped in the benchmarks.
     """
     import _tsdate
@@ -136,44 +85,10 @@ def _c_impl():
 
 
 # The seam for adding implementations: name -> {function name -> callable}. A
-# function returning a dict like _numba_impl's (possibly wrapping calls to adapt
+# function returning a dict like _c_impl's (possibly wrapping calls to adapt
 # argument types such as EPFactors). Benchmarks that an implementation lacks are
 # skipped for it.
-IMPLS = {"numba": _numba_impl, "c": _c_impl}
-
-
-def numba_compile_times(funcs):
-    """Seconds spent compiling each numba dispatcher (NaN if unavailable)."""
-    out = {}
-    for name, f in funcs.items():
-        total = 0.0
-        try:
-            for res in f.overloads.values():
-                total += res.metadata["timers"]["compiler_lock"]
-        except (AttributeError, KeyError):
-            total = math.nan
-        out[name] = total
-    return out
-
-
-COMPILE_TIMES = {"numba": numba_compile_times}
-
-
-def numba_import_compile_time():
-    """Total compile time at import: `import tsdate` with minus without numba JIT."""
-
-    def import_time(disable_jit):
-        env = dict(os.environ, TSDATE_ENABLE_NUMBA_CACHE="0")
-        env["NUMBA_DISABLE_JIT"] = "1" if disable_jit else "0"
-        code = (
-            "import time; import numpy, tskit, numba, scipy.special; "
-            "t = time.perf_counter(); import tsdate; "
-            "print(time.perf_counter() - t)"
-        )
-        out = subprocess.check_output([sys.executable, "-c", code], env=env, text=True)
-        return float(out.strip().splitlines()[-1])
-
-    return import_time(False) - import_time(True)
+IMPLS = {"c": _c_impl}
 
 
 # ---------------------------------------------------------------------------
@@ -596,10 +511,6 @@ def build_benchmarks(n, length, iterations):
         )
     )
 
-    # --- discrete.py: log-sum-exp over a grid slice ---
-    grid = rng.normal(-5, 3, 10 * ts_flat.num_samples)
-    add(Bench("logsumexp", "logsumexp", _const(grid), note="size 10 x num_samples"))
-
     return benches, info
 
 
@@ -611,7 +522,7 @@ def build_benchmarks(n, length, iterations):
 def time_bench(func, bench, repeats):
     """Warm up, then return per-call times (seconds) for `repeats` timed blocks."""
     t0 = time.perf_counter()
-    func(*bench.make_args())  # warm up (also first-call cost, e.g. lazy compilation)
+    func(*bench.make_args())  # warm up (also the first-call cost)
     first_call = time.perf_counter() - t0
     # estimate the cost of one call to choose a batch size
     args = bench.make_args()
@@ -652,7 +563,7 @@ def format_table(rows):
 
 def main():
     p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    p.add_argument("--impl", nargs="+", default=["numba"], choices=sorted(IMPLS))
+    p.add_argument("--impl", nargs="+", default=["c"], choices=sorted(IMPLS))
     p.add_argument("--sizes", nargs="+", default=list(SIZES), choices=list(SIZES))
     p.add_argument("--repeats", type=int, default=7)
     p.add_argument("--ep-iterations", type=int, default=2, help="EP iterations first")
@@ -664,31 +575,16 @@ def main():
         help="Output CSV name in results/ (default: none, print only)",
     )
     p.add_argument(
-        "--no-import-compile",
-        action="store_true",
-        help="Skip the (slow, ~1 min) fresh-process measurement of total compile time",
-    )
-    p.add_argument(
         "--quick",
         action="store_true",
-        help="Tiny smoke-test run (implies --no-import-compile)",
+        help="Tiny smoke-test run",
     )
     args = p.parse_args()
     sizes = {k: SIZES[k] for k in args.sizes}
     if args.quick:
         sizes, args.repeats, args.ep_iterations = QUICK_SIZES, 1, 1
-        args.no_import_compile = True
 
-    # Compile time is measured with an empty cache, and excluded from timings below.
-    os.environ["TSDATE_ENABLE_NUMBA_CACHE"] = "0"
     impls = {name: IMPLS[name]() for name in args.impl}
-    import_compile_s = {}
-    if "numba" in impls and not args.no_import_compile:
-        import_compile_s["numba"] = numba_import_compile_time()
-        print(
-            f"numba: total compile time at import ~ {import_compile_s['numba']:.1f} s "
-            f"(import tsdate with minus without JIT, fresh process)"
-        )
 
     prov = common.provenance()
     rows = []
@@ -717,7 +613,6 @@ def main():
                     repeats=args.repeats,
                     batch=batch,
                     first_call_s=first,
-                    import_compile_s=import_compile_s.get(name, math.nan),
                     sample_size=n,
                     length=length,
                     note=bench.note,
@@ -731,23 +626,8 @@ def main():
                     flush=True,
                 )
 
-    # Read after the runs: lazily compiled functions (no explicit signature) only
-    # compile on first call, which happens in the warm-up.
-    compile_s = {
-        name: COMPILE_TIMES[name](funcs) if name in COMPILE_TIMES else {}
-        for name, funcs in impls.items()
-    }
-    for row in rows:
-        func = next(b.func for b in benches if b.name == row["function"])
-        row["compile_s"] = compile_s[row["impl"]].get(func, math.nan)
-
     print()
     print(format_table(rows))
-    print()
-    print("Compile time per dispatcher (s, from numba's timers):")
-    for name in impls:
-        for func, secs in sorted(compile_s[name].items(), key=lambda kv: -kv[1]):
-            print(f"  {name:6s} {func:36s} {secs:.2f}")
     if args.output:
         common.RESULTS.mkdir(exist_ok=True)
         out = common.RESULTS / args.output

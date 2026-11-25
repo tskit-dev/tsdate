@@ -76,6 +76,19 @@ class TestReallocateUnphased:
         with pytest.raises(ValueError, match="two columns"):
             self.call(np.ones((2, 3)), [0.5], [0], [[0, 1]])
 
+    @pytest.mark.parametrize("kind", ["float32", "strided", "readonly"])
+    def test_array_updated_in_place_must_not_be_converted(self, kind):
+        # a copy would silently lose the update
+        if kind == "float32":
+            likelihood = np.ones((2, 2), dtype=np.float32)
+        elif kind == "strided":
+            likelihood = np.ones((2, 4))[:, ::2]
+        else:
+            likelihood = np.ones((2, 2))
+            likelihood.flags.writeable = False
+        with pytest.raises(ValueError):
+            self.call(likelihood, [0.5], [0], [[0, 1]])
+
 
 class TestMutationFrequency:
     def test_nodes_sample_dtype(self):

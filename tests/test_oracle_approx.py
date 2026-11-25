@@ -1,10 +1,10 @@
 """
 Parity of each implementation (``impl``) with the oracles in ``oracle/approx.py`` for
-``tsdate.approx``: values to 4 ulp, NaN and infinity patterns, and which exception is
-raised. Expected values always come from the oracle. Tables hold deliberate edge cases
-(boundaries of the ``_valid_*`` checks, degenerate gamma fits, regimes of the moment and
-projection functions); seeded random draws cover ranges typical of expectation
-propagation (EP) and extreme ones.
+the gamma approximations: values to 4 ulp, NaN and infinity patterns, and which
+exception is raised. Expected values always come from the oracle. Tables hold
+deliberate edge cases (boundaries of the ``_valid_*`` checks, degenerate gamma fits,
+regimes of the moment and projection functions); seeded random draws cover ranges
+typical of expectation propagation (EP) and extreme ones.
 
 Conventions of the C port pinned here: a NaN result (not an exception) signals a
 parameter outside the valid region of the hypergeometric function; the ``*_projection``
@@ -21,6 +21,7 @@ import numpy as np
 import pytest
 import scipy.special
 from oracle import approx
+from oracle.approx import KLMinimizationFailedError
 from oracle.helpers import (
     INF,
     NAN,
@@ -32,8 +33,6 @@ from oracle.helpers import (
     outcome,
 )
 
-from tsdate.approx import KLMinimizationFailedError
-
 nextafter = np.nextafter
 MAX = np.finfo(np.float64).max
 TINY = 5e-324
@@ -41,7 +40,7 @@ TINY = 5e-324
 
 def parity(impl, name, args, expected_kind=None):
     """
-    Compare ``tsdate.approx.<name>(*args)`` with the oracle (returning the oracle's
+    Compare ``impl.approx.<name>(*args)`` with the oracle (returning the oracle's
     outcome); optionally check its kind.
     """
     func = getattr(impl.approx, name)

@@ -1,10 +1,8 @@
-"""Oracles for the jitted functions in ``tsdate.approx``."""
+"""Oracles for the gamma approximations (formerly the numba module ``tsdate.approx``)."""
 
 from math import inf, nan
 
 import numpy as np
-
-from tsdate.approx import _KLMIN_MAXITT, _KLMIN_RELTOL, KLMinimizationFailedError
 
 from . import hypergeo
 
@@ -20,6 +18,14 @@ from . import hypergeo
 # oracle: for the same reason, elements unpacked from a NumPy array are converted with
 # `float` (marked `oracle: float`), since in numba they are Python-semantics floats.
 from ._libm import exp, ipow, lgamma, log
+
+# the tolerances of the KL minimisation, as in the library
+_KLMIN_MAXITT = 100
+_KLMIN_RELTOL = np.sqrt(np.finfo(np.float64).eps)
+
+
+class KLMinimizationFailedError(Exception):
+    pass
 
 
 def approximate_log_moments(mean, variance):

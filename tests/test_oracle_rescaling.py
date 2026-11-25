@@ -6,6 +6,7 @@ degenerate inputs, and every ``assert``/``raise``.
 
 import numpy as np
 import pytest
+from oracle import approx as oracle_approx
 from oracle import rescaling
 from oracle.helpers import (
     INF,
@@ -19,11 +20,10 @@ from oracle.helpers import (
     shrink,
 )
 
-import tsdate.approx
 from tsdate.variational import ExpectationPropagation
 
 BREAKS_MSG = "non-increasing time breakpoints"
-KLFailed = tsdate.approx.KLMinimizationFailedError
+KLFailed = oracle_approx.KLMinimizationFailedError
 
 
 @pytest.fixture(params=["small_ts_unphased", "small_ts_historical"])

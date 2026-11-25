@@ -11,6 +11,9 @@ In development
   diagnostics are superseded by the scripts in `evaluation/`, the AFS diagnostics
   moved to `evaluation/afs.py`, and the polytomy test helpers to `tests/`.
 
+- Removed the internal `tsdate.approx` and `tsdate.hypergeo` modules; the special
+  functions and gamma approximations are now part of the `_tsdate` C extension.
+
 **Bugfixes**
 
 - Removed an assertion in `split_disjoint_nodes` that is not guarenteed
