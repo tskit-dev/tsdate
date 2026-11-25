@@ -72,11 +72,6 @@ INF = float("inf")
 NAN = float("nan")
 
 
-def call(func, *args, **kwargs):
-    """Call a function, or the ``ctypes`` interface of a compiled numba ``cfunc``."""
-    return getattr(func, "ctypes", func)(*args, **kwargs)
-
-
 def log_uniform(rng, lo, hi, size=None):
     """``10 ** U(lo, hi)``: a scalar float if ``size`` is None, else an array."""
     x = 10.0 ** rng.uniform(lo, hi, size)
@@ -146,7 +141,7 @@ def outcome(func, *args, **kwargs):
     copies = [_copy_arg(x) for x in args]
     try:
         with np.errstate(all="ignore"):
-            value = call(func, *copies, **kwargs)
+            value = func(*copies, **kwargs)
     except Exception as e:  # noqa: BLE001
         return Outcome(exception=e, args=copies)
     return Outcome(value=value, args=copies)

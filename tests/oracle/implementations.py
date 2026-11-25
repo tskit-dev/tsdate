@@ -1,39 +1,20 @@
 """
-Registry of implementations to test against the oracles.
-
-``IMPLEMENTATIONS`` maps a name to a namespace with one attribute per tsdate module
+The C implementation, as a namespace with one attribute per tsdate module
 (``hypergeo``, ``approx``, ``variational``, ``rescaling``, ``phasing``, ``util``,
-``prior``), exposing the functions under the same names and signatures as the oracle
-modules.
-
-The "c" entry exists if the ``_tsdate`` extension can be imported. Its namespaces
-have the attributes of the functions that have been ported (as thin adapters where the
-oracle's signature or return type differs from the module's); other names skip the test
-that uses them.
+``prior``) exposing the functions of ``_tsdate`` under the names and signatures of the
+oracle modules, through thin adapters where the oracle's signature or return type
+differs from the extension's.
 """
 
 import types
 
 import numpy as np
-import pytest
 
 from . import variational as oracle_variational
 
 
-class _PortedNamespace(types.SimpleNamespace):
-    """
-    A namespace of the functions ported to C: using a name that has not been ported yet
-    skips the test. Add ported functions as attributes in `_c_namespace`.
-    """
-
-    def __getattr__(self, name):
-        if name.startswith("__"):
-            raise AttributeError(name)
-        pytest.skip("not yet ported to C")
-
-
 def _c_hypergeo(_tsdate):
-    return _PortedNamespace(
+    return types.SimpleNamespace(
         _digamma=_tsdate.digamma,
         _trigamma=_tsdate.trigamma,
         _betaln=_tsdate.betaln,
@@ -73,7 +54,7 @@ def _c_projection(func):
 
 def _c_approx(_tsdate):
     # The helpers; each commented section is owned by the agent that ports it.
-    return _PortedNamespace(
+    return types.SimpleNamespace(
         approximate_log_moments=_tsdate.approximate_log_moments,
         approximate_gamma_kl=_tsdate.approximate_gamma_kl,
         approximate_gamma_mom=_tsdate.approximate_gamma_mom,
@@ -120,7 +101,7 @@ def _c_approx(_tsdate):
 
 
 def _c_phasing(_tsdate):
-    return _PortedNamespace(
+    return types.SimpleNamespace(
         _block_singletons=_tsdate.block_singletons,
         reallocate_unphased=_tsdate.reallocate_unphased,
         _mutation_frequency=_tsdate.mutation_frequency,
@@ -128,7 +109,7 @@ def _c_phasing(_tsdate):
 
 
 def _c_util(_tsdate):
-    return _PortedNamespace(
+    return types.SimpleNamespace(
         _split_disjoint_nodes=_tsdate.split_disjoint_nodes,
         _relabel_mutations_node=_tsdate.relabel_mutations_node,
         _constrain_ages=_tsdate.constrain_ages,
@@ -137,14 +118,14 @@ def _c_util(_tsdate):
 
 
 def _c_prior(_tsdate):
-    return _PortedNamespace(
+    return types.SimpleNamespace(
         _marginalize_over_ancestors=_tsdate.marginalize_over_ancestors,
         conditional_coalescent_variance=_tsdate.conditional_coalescent_variance,
     )
 
 
 def _c_rescaling(_tsdate):
-    return _PortedNamespace(
+    return types.SimpleNamespace(
         _fixed_changepoints=_tsdate.fixed_changepoints,
         _poisson_changepoints=_tsdate.poisson_changepoints,
         _count_mutations=_tsdate.count_mutations,
@@ -252,7 +233,7 @@ def _c_variational(_tsdate):
             unphased,
         )
 
-    return _PortedNamespace(
+    return types.SimpleNamespace(
         EPFactors=oracle_variational.EPFactors,
         _rescale_factors=rescale_factors,
         _assemble_factors=assemble_factors,
@@ -279,9 +260,4 @@ def _c_namespace():
     )
 
 
-IMPLEMENTATIONS: dict[str, types.SimpleNamespace] = {}
-
-try:
-    IMPLEMENTATIONS["c"] = _c_namespace()
-except ImportError:  # the extension has not been built
-    pass
+C = _c_namespace()

@@ -188,7 +188,7 @@ def run(args):
             mut_frames += muts
             progress.update()
     else:
-        # Spawn (not fork) so that numba and tsinfer state is not shared
+        # Spawn (not fork) so that tsinfer state is not shared
         ctx = multiprocessing.get_context("spawn")
         with concurrent.futures.ProcessPoolExecutor(args.cores, mp_context=ctx) as ex:
             futures = [ex.submit(run_case, args, v, s, prov) for v, s in cases]

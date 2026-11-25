@@ -15,7 +15,7 @@ standard coalescent.
 | `accuracy.py` | Sweep a parameter (`sample_size`, `length`, `mutation_rate`, `max_iterations`) for `variational_gamma`, comparing estimated to true node times. `--modes true` dates the true topology; `inferred` dates a tsinfer topology and compares to best-matching true nodes via [tscompare](https://github.com/tskit-dev/tscompare) (see issue #301). Writes one row per node (`accuracy_*.csv`). It also compares mutation times (`mutations_*.csv`): sites with a single mutation are matched by position, and tsdate's posterior mean mutation time is compared with the midpoint of the true edge the mutation sits on (the best any method can do; the exact simulated time is also saved as `true_time_exact`). `plot.py` scores scatter, RMSE and bias against the midpoint but PIT and interval coverage against the exact time, since the posterior is for the realised mutation time; `--mutation-truth midpoint` or `exact` forces one truth everywhere. Mutation comparison needs no node matching in either mode. |
 | `afs.py` | Compare the observed site allele frequency spectrum with the expected one from branch lengths (branch AFS x mutation rate) in genomic windows, for the true times, the true topology dated by tsdate, and a tsinfer topology dated by tsdate. Writes `afs_*.csv`. |
 | `performance.py` | Wall time and peak RSS, each case in a fresh process. |
-| `microbench.py` | Microbenchmarks of the array-level accelerated functions (EP passes, rescaling, phasing, `util`, `prior`), on simulated inputs at three sizes (see below). |
+| `microbench.py` | Microbenchmarks of the array-level functions of `_tsdate` (EP passes, rescaling, phasing, `util`, `prior`), on simulated inputs at three sizes (see below). |
 | `numerical_accuracy.py` | Accuracy of the special functions and gamma approximations (the scalar functions of `_tsdate`) per function and regime: worst error against mpmath, SciPy or closed forms, and violations of properties such as symmetry, monotonicity and continuity at switch points (see below). Not to be confused with `accuracy.py`, which scores dating. |
 | `compare.py` | Compares two `performance.py` CSVs case by case (see below). |
 | `plot.py` | Reads `results/*.csv` and writes PNGs: error/bias/interval coverage vs parameter (`accuracy_*_summary.png`: top row node times, bottom row mutation times), estimated-vs-true scatter (`accuracy_*_scatter.png`: columns are swept values, rows are node/mutation times for true/tsinferred topology), PIT calibration histograms (`accuracy_*_calibration.png`: node row, mutation row), AFS observed-vs-expected (`afs_*.png`), time and memory scaling. |
@@ -97,10 +97,6 @@ Each function is warmed up, then the median of `--repeats` timed calls is report
 (fast calls are batched so each timed block lasts a few ms; times are per call).
 The CSV also records provenance. Timings are only comparable between runs on a quiet
 machine.
-
-Implementations are chosen with `--impl`. To add one, write a function returning a
-dict of callables with the same names and signatures as `_c_impl` and register it
-in `IMPLS`.
 
 ### Accuracy of the special functions
 

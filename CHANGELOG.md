@@ -4,6 +4,16 @@
 
 In development
 
+- The numerical core (the special functions, gamma approximations, expectation
+  propagation passes, rescaling and utilities) is now a C extension instead of
+  numba-compiled Python, with identical results. numba is no longer a dependency,
+  so importing tsdate no longer takes tens of seconds to compile, and
+  `TSDATE_ENABLE_NUMBA_CACHE` is gone. Wheels are now tested on macOS x86_64 and
+  built for musllinux.
+
+- The inside-outside method uses `scipy.special.logsumexp`, which can change
+  results in the last few digits.
+
 - `preprocess_ts` now always sorts the tree sequence, which may change the order
   of mutations
 

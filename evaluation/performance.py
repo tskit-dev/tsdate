@@ -11,7 +11,6 @@ Example:
 
 import argparse
 import multiprocessing
-import os
 import queue as queue_lib
 import time
 
@@ -29,10 +28,6 @@ def _case(queue, n, length, mutation_rate, seed, inferred):
     ts = common.simulate(n, length, mutation_rate, seed)
     if inferred:
         ts = common.infer_topology(ts)
-    # Warm up numba compilation on a tiny case so it isn't timed
-    tsdate.date(
-        common.simulate(5, 1e4, 1e-8, 1), mutation_rate=1e-8, method="variational_gamma"
-    )
     queue.put(("start", None))
     start = time.perf_counter()
     tsdate.date(ts, mutation_rate=mutation_rate, method="variational_gamma")
@@ -103,9 +98,6 @@ def main():
     if args.quick:
         args.sizes, args.lengths, args.repeats = [10, 30], [1e5], 1
 
-    # Compiled code is not part of the timing or the memory increase (it is warmed up
-    # first), so cache it on disk to avoid recompiling in every fresh process
-    os.environ.setdefault("TSDATE_ENABLE_NUMBA_CACHE", "1")
     prov = common.provenance()
     rows = []
     total = len(args.sizes) * len(args.lengths) * args.repeats

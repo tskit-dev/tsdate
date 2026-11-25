@@ -1,11 +1,10 @@
 """
 Numerical accuracy of the special functions and gamma approximations in tsdate
-(the scalar functions of ``_tsdate``, ported from the numba modules
-``tsdate.hypergeo`` and ``tsdate.approx``), per function and regime. Each row of the
+(the scalar functions of ``_tsdate``), per function and regime. Each row of the
 table reports the worst error of the production function against a reference (mpmath,
 SciPy, a closed form) or the violation of a property the approximation should have
 (symmetry, monotonicity, continuity across a switch point). These are measurements, not
-tests: the unit tests only check that implementations agree with the numba oracles, so
+tests: the unit tests only check that the C implementation agrees with the oracles, so
 inaccuracy of the algorithms themselves is recorded here. Behaviour that looks wrong
 is a candidate for a fix.
 
@@ -31,15 +30,10 @@ INF = math.inf
 RESULTS = pathlib.Path(__file__).parent / "results"
 
 
-def call(func, *args):
-    """Call a function, or the ``ctypes`` interface of a compiled numba ``cfunc``"""
-    return getattr(func, "ctypes", func)(*args)
-
-
 def try_call(func, *args):
     """The result of ``func``, or None if it raised"""
     try:
-        return call(func, *args)
+        return func(*args)
     except Exception:  # noqa: BLE001
         return None
 
@@ -226,10 +220,10 @@ def gammainc_inv(report, rng, quick):
     qs = np.linspace(0.001, 0.999, 50)
     violations = 0
     for a in [0.2, 1.0, 5.0, 100.0]:
-        x = [call(func, a, q) for q in qs.tolist()]
+        x = [func(a, q) for q in qs.tolist()]
         violations += int(np.sum(np.diff(x) <= 0))
     report.add("gammainc", "_gammainc_inv", "monotone in q", "count", violations, 200)
-    exact = [(q, call(func, 1.0, q), -math.log1p(-q)) for q in [1e-100, 1e-3, 0.5, 0.999]]
+    exact = [(q, func(1.0, q), -math.log1p(-q)) for q in [1e-100, 1e-3, 0.5, 0.999]]
     errors = [rel(x, e) for _, x, e in exact]
     report.worst("gammainc", "_gammainc_inv", "a = 1, exponential", "rel", errors)
 

@@ -11,10 +11,6 @@ on identical, freshly copied inputs (copies are made outside the timed region); 
 median of `time.perf_counter` is reported. Very fast calls are batched, so that a
 timed block lasts at least a few ms (reported times are per call).
 
-Implementations are selected with --impl. To add one, write a function returning a
-dict from function names (the keys of `_c_impl`) to callables with the same
-signature, and register it in IMPLS; everything else is implementation-agnostic.
-
 Example:
   python evaluation/microbench.py --repeats 7 --output microbench.csv
 """
@@ -52,12 +48,8 @@ def _with_factors(func, position):
     return wrapped
 
 
-def _c_impl():
-    """
-    Callables of the C implementation. Each ported array-level function is added as
-    ``name: callable`` (taking the arguments of the function of that name); the
-    functions that are missing are skipped in the benchmarks.
-    """
+def _functions():
+    """The benchmarked functions of `_tsdate`, by the name the benchmarks use."""
     import _tsdate
 
     return {
@@ -82,13 +74,6 @@ def _c_impl():
         "_poisson_changepoints": _tsdate.poisson_changepoints,
         "_count_mutations": _tsdate.count_mutations,
     }
-
-
-# The seam for adding implementations: name -> {function name -> callable}. A
-# function returning a dict like _c_impl's (possibly wrapping calls to adapt
-# argument types such as EPFactors). Benchmarks that an implementation lacks are
-# skipped for it.
-IMPLS = {"c": _c_impl}
 
 
 # ---------------------------------------------------------------------------
@@ -541,12 +526,11 @@ def time_bench(func, bench, repeats):
 
 
 def format_table(rows):
-    cols = ["function", "size", "impl", "median_s", "min_s", "max_s", "repeats"]
+    cols = ["function", "size", "median_s", "min_s", "max_s", "repeats"]
     body = [
         [
             r["function"],
             r["size"],
-            r["impl"],
             f"{r['median_s']:.3e}",
             f"{r['min_s']:.3e}",
             f"{r['max_s']:.3e}",
@@ -563,7 +547,6 @@ def format_table(rows):
 
 def main():
     p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    p.add_argument("--impl", nargs="+", default=["c"], choices=sorted(IMPLS))
     p.add_argument("--sizes", nargs="+", default=list(SIZES), choices=list(SIZES))
     p.add_argument("--repeats", type=int, default=7)
     p.add_argument("--ep-iterations", type=int, default=2, help="EP iterations first")
@@ -584,7 +567,7 @@ def main():
     if args.quick:
         sizes, args.repeats, args.ep_iterations = QUICK_SIZES, 1, 1
 
-    impls = {name: IMPLS[name]() for name in args.impl}
+    funcs = _functions()
 
     prov = common.provenance()
     rows = []
@@ -599,32 +582,27 @@ def main():
         for bench in benches:
             if args.only and not any(s in bench.name for s in args.only):
                 continue
-            for name, funcs in impls.items():
-                if bench.func not in funcs:
-                    continue
-                times, first, batch = time_bench(funcs[bench.func], bench, args.repeats)
-                row = dict(
-                    function=bench.name,
-                    size=size,
-                    impl=name,
-                    median_s=statistics.median(times),
-                    min_s=min(times),
-                    max_s=max(times),
-                    repeats=args.repeats,
-                    batch=batch,
-                    first_call_s=first,
-                    sample_size=n,
-                    length=length,
-                    note=bench.note,
-                    **info,
-                    **prov,
-                )
-                rows.append(row)
-                print(
-                    f"  {bench.name:36s} {name:6s} {row['median_s']:.3e} s "
-                    f"(x{batch} per block)",
-                    flush=True,
-                )
+            times, first, batch = time_bench(funcs[bench.func], bench, args.repeats)
+            row = dict(
+                function=bench.name,
+                size=size,
+                median_s=statistics.median(times),
+                min_s=min(times),
+                max_s=max(times),
+                repeats=args.repeats,
+                batch=batch,
+                first_call_s=first,
+                sample_size=n,
+                length=length,
+                note=bench.note,
+                **info,
+                **prov,
+            )
+            rows.append(row)
+            print(
+                f"  {bench.name:36s} {row['median_s']:.3e} s (x{batch} per block)",
+                flush=True,
+            )
 
     print()
     print(format_table(rows))

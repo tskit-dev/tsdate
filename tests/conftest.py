@@ -1,7 +1,7 @@
 import msprime
 import numpy as np
 import pytest
-from oracle.implementations import IMPLEMENTATIONS
+from oracle.implementations import C
 
 
 def pytest_addoption(parser):
@@ -37,10 +37,10 @@ def pytest_configure(config):
     )
 
 
-@pytest.fixture(params=list(IMPLEMENTATIONS), ids=list(IMPLEMENTATIONS))
-def impl(request):
-    """Namespace of an implementation (see oracle/implementations.py)."""
-    return IMPLEMENTATIONS[request.param]
+@pytest.fixture(scope="session")
+def impl():
+    """The C implementation, with the signatures of the oracles."""
+    return C
 
 
 @pytest.fixture

@@ -3814,7 +3814,6 @@ source = { editable = "." }
 dependencies = [
     { name = "appdirs" },
     { name = "mpmath" },
-    { name = "numba" },
     { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
     { name = "numpy", version = "2.5.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
     { name = "scipy", version = "1.17.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
@@ -3893,7 +3892,6 @@ wheels = [
 requires-dist = [
     { name = "appdirs" },
     { name = "mpmath" },
-    { name = "numba", specifier = ">=0.58.1" },
     { name = "numpy" },
     { name = "scipy", specifier = ">=1.13.0" },
     { name = "tqdm" },
