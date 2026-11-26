@@ -24,13 +24,25 @@ from oracle.helpers import (
 
 nextafter = np.nextafter
 
+# The C function for each oracle in ``hypergeo``
+C_FUNCTIONS = {
+    "_digamma": _tsdate.digamma,
+    "_trigamma": _tsdate.trigamma,
+    "_betaln": _tsdate.betaln,
+    "_gammainc_der": _tsdate.gammainc_der,
+    "_gammainc_inv": _tsdate.gammainc_inv,
+    "_hyperu_laplace": _tsdate.hyperu_laplace,
+    "_hyp1f1_laplace": _tsdate.hyp1f1_laplace,
+    "_hyp2f1_laplace": _tsdate.hyp2f1_laplace,
+}
+
 
 def parity(name, args, expected_kind=None):
     """
-    Compare the C function for the oracle ``hypergeo.<name>`` (its name without the
-    leading underscore) with the oracle on ``args``; optionally check the kind.
+    Compare the C function for the oracle ``hypergeo.<name>`` with the oracle on
+    ``args``; optionally check the kind.
     """
-    func = getattr(_tsdate, name.removeprefix("_"))
+    func = C_FUNCTIONS[name]
     oracle = getattr(hypergeo, name)
     if expected_kind is None:
         return compare(func, oracle, *args)

@@ -67,17 +67,47 @@ def projection(func):
     return project
 
 
-def c_function(name):
-    """
-    The C function for the oracle ``approx.<name>`` (its name without the leading
-    underscore), with the oracle's signature
-    """
-    func = getattr(_tsdate, name.removeprefix("_"))
-    if name.startswith("_valid_"):
-        return valid_check(func)
-    if name.endswith("_projection"):
-        return projection(func)
-    return func
+# The C function for each oracle in ``approx``, with the oracle's signature
+C_FUNCTIONS = {
+    "approximate_log_moments": _tsdate.approximate_log_moments,
+    "approximate_gamma_kl": _tsdate.approximate_gamma_kl,
+    "approximate_gamma_mom": _tsdate.approximate_gamma_mom,
+    "approximate_gamma_iqr": _tsdate.approximate_gamma_iqr,
+    "average_gammas": _tsdate.average_gammas,
+    "moments": _tsdate.moments,
+    "rootward_moments": _tsdate.rootward_moments,
+    "leafward_moments": _tsdate.leafward_moments,
+    "unphased_moments": _tsdate.unphased_moments,
+    "twin_moments": _tsdate.twin_moments,
+    "sideways_moments": _tsdate.sideways_moments,
+    "mutation_moments": _tsdate.mutation_moments,
+    "mutation_rootward_moments": _tsdate.mutation_rootward_moments,
+    "mutation_leafward_moments": _tsdate.mutation_leafward_moments,
+    "mutation_unphased_moments": _tsdate.mutation_unphased_moments,
+    "mutation_twin_moments": _tsdate.mutation_twin_moments,
+    "mutation_sideways_moments": _tsdate.mutation_sideways_moments,
+    "mutation_edge_moments": _tsdate.mutation_edge_moments,
+    "mutation_block_moments": _tsdate.mutation_block_moments,
+    "_valid_moments": valid_check(_tsdate.valid_moments),
+    "_valid_gamma": valid_check(_tsdate.valid_gamma),
+    "_valid_hyp1f1": valid_check(_tsdate.valid_hyp1f1),
+    "_valid_hyperu": valid_check(_tsdate.valid_hyperu),
+    "_valid_hyp2f1": valid_check(_tsdate.valid_hyp2f1),
+    "gamma_projection": projection(_tsdate.gamma_projection),
+    "leafward_projection": projection(_tsdate.leafward_projection),
+    "rootward_projection": projection(_tsdate.rootward_projection),
+    "unphased_projection": projection(_tsdate.unphased_projection),
+    "twin_projection": projection(_tsdate.twin_projection),
+    "sideways_projection": projection(_tsdate.sideways_projection),
+    "mutation_gamma_projection": projection(_tsdate.mutation_gamma_projection),
+    "mutation_leafward_projection": projection(_tsdate.mutation_leafward_projection),
+    "mutation_rootward_projection": projection(_tsdate.mutation_rootward_projection),
+    "mutation_edge_projection": projection(_tsdate.mutation_edge_projection),
+    "mutation_unphased_projection": projection(_tsdate.mutation_unphased_projection),
+    "mutation_twin_projection": projection(_tsdate.mutation_twin_projection),
+    "mutation_sideways_projection": projection(_tsdate.mutation_sideways_projection),
+    "mutation_block_projection": projection(_tsdate.mutation_block_projection),
+}
 
 
 def parity(name, args, expected_kind=None):
@@ -85,7 +115,7 @@ def parity(name, args, expected_kind=None):
     Compare the C function for the oracle ``approx.<name>`` with the oracle on
     ``args`` (returning the oracle's outcome); optionally check its kind.
     """
-    func = c_function(name)
+    func = C_FUNCTIONS[name]
     oracle = getattr(approx, name)
     if expected_kind is None:
         return compare(func, oracle, *args)
@@ -394,7 +424,7 @@ class TestGammaApproximations:
     )
     def test_error_messages(self, name, args, expected):
         # the messages distinguish the failure modes
-        func = c_function(name)
+        func = C_FUNCTIONS[name]
         with pytest.raises(expected_error(KLMinimizationFailedError)):
             func(*args)
         compare(func, getattr(approx, name), *args)
@@ -690,7 +720,7 @@ class TestProjections:
         first_regime = next(iter(REGIMES[moments].values()))
         proj_args = projection_args(name, floats(first_regime))
         copies = [a.copy() if isinstance(a, np.ndarray) else a for a in proj_args]
-        func = c_function(name)
+        func = C_FUNCTIONS[name]
         func(*proj_args)
         for arg, copy in zip(proj_args, copies):
             np.testing.assert_array_equal(arg, copy)
