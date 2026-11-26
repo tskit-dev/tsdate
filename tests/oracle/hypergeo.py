@@ -2,6 +2,7 @@
 Oracles for the special functions (``lib/hypergeo.c``).
 """
 
+import math
 from math import pi
 
 import numpy as np
@@ -21,12 +22,21 @@ from ._libm import erf, exp, ipow, lgamma, log, pow, sin, sqrt, tan  # noqa: A00
 
 
 # The C library's gammaincinv is a port of `scipy.special.gammaincinv`, which is the
-# reference. The ufunc returns an `np.float64`, which is converted so that callers
-# divide by it with Python semantics (ZeroDivisionError).
+# reference inside the domain. The ufunc returns an `np.float64`, which is converted
+# so that callers divide by it with Python semantics (ZeroDivisionError).
 def _gammainc_inv(a, x):
     """
-    scipy.special.gammaincinv
+    scipy.special.gammaincinv for 0 < a < inf and 0 <= x <= 1, with x = 0 and x = 1
+    giving 0 and inf for any a >= 0; NaN otherwise.
     """
+    if not (a >= 0 and 0 <= x <= 1):
+        return math.nan
+    if x == 0:
+        return 0.0
+    if x == 1:
+        return math.inf
+    if a == 0 or math.isinf(a):
+        return math.nan
     return float(scipy.special.gammaincinv(a, x))
 
 

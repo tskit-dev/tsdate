@@ -7,12 +7,13 @@
  * include/xsf/cephes/: igami.h (igami, igamci, find_inverse_gamma, find_inverse_s,
  * didonato_SN), igam.h (igam, igamc, igam_fac, igam_series, igamc_series,
  * igamc_continued_fraction, asymptotic_series), igam_asymp_coeff.h, gamma.h (Gamma,
- * stirf, lgam, lgam_sgn, lgam_large_x), lanczos.h (lanczos_sum_expg_scaled),
- * unity.h (log1p, log1pmx, expm1, lgam1p, lgam1p_taylor), zeta.h (zeta), ndtr.h
- * (erf, erfc), trig.h (sinpi), polevl.h (polevl, p1evl, ratevl) and const.h. The
- * operations, constants, branches and iteration limits are those of xsf; error
- * reporting (set_error, a no-op in xsf's default build) is dropped and the in-band
- * return values are kept.
+ * lgam, lgam_large_x), lanczos.h (lanczos_sum_expg_scaled), unity.h (log1p,
+ * log1pmx, expm1, lgam1p, lgam1p_taylor), zeta.h (zeta), ndtr.h (erf, erfc),
+ * polevl.h (polevl, p1evl, ratevl) and const.h. The operations, constants, branches
+ * and iteration limits are those of xsf. Arguments outside the domain give NaN
+ * directly, and the helper functions keep only the branches that the arguments they
+ * receive can reach; error reporting (set_error, a no-op in xsf's default build) is
+ * dropped and the in-band return values are kept.
  *
  * The notices of the original files and the licences they are distributed under
  * follow.
@@ -29,8 +30,6 @@
  * igami.h (the Didonato and Morris initial approximation and the Halley iteration)
  * and lanczos.h: (C) Copyright John Maddock 2006. Use, modification and
  * distribution are subject to the Boost Software License, Version 1.0, below.
- *
- * trig.h: original author Josh Wilson, 2020.
  *
  * ----------------------------------------------------------------------------
  *
@@ -99,9 +98,6 @@
 #define CEPH_MAXITER     500
 #define CEPH_MACHEP      1.1102230246251565404236316680908203125E-16
 #define CEPH_MAXLOG      7.097827128933839730962063185871E2
-#define CEPH_SQRT2PI     2.506628274631000502415765284811045253007
-#define CEPH_LOGPI       1.144729885849400174143427351353058711647
-#define CEPH_MAXGAM      171.624376956302725
 #define CEPH_SCIPY_EULER 0.577215664901532860606512090082402431
 #define CEPH_PI          3.14159265358979323846
 #define CEPH_SQRT2       1.41421356237309504880
@@ -194,28 +190,6 @@ ceph_ratevl(double x, const double num[], int M, const double denom[], int N)
     }
 }
 
-/* trig.h: sin(pi * x). */
-static double
-ceph_sinpi(double x)
-{
-    double s = 1.0;
-    double r;
-
-    if (signbit(x)) {
-        x = -x;
-        s = -1.0;
-    }
-
-    r = fmod(x, 2.0);
-    if (r < 0.5) {
-        return s * sin(CEPH_PI * r);
-    } else if (r > 1.5) {
-        return s * sin(CEPH_PI * (r - 2.0));
-    } else {
-        return -s * sin(CEPH_PI * (r - 1.0));
-    }
-}
-
 /* gamma.h */
 
 static const double gamma_P[] = { 1.60119522476751861407E-4, 1.19135147006586384913E-3,
@@ -226,111 +200,16 @@ static const double gamma_Q[] = { -2.31581873324120129819E-5, 5.3960558049330339
     -4.45641913851797240494E-3, 1.18139785222060435552E-2, 3.58236398605498653373E-2,
     -2.34591795718243348568E-1, 7.14304917030273074085E-2, 1.00000000000000000320E0 };
 
-/* Stirling's formula for the Gamma function */
-static const double gamma_STIR[5] = {
-    7.87311395793093628397E-4,
-    -2.29549961613378126380E-4,
-    -2.68132617805781232825E-3,
-    3.47222221605458667310E-3,
-    8.33333333333482257126E-2,
-};
-
-#define GAMMA_MAXSTIR 143.01608
-
-/* Gamma function computed by Stirling's formula.
- * The polynomial STIR is valid for 33 <= x <= 172.
- */
-static double
-ceph_stirf(double x)
-{
-    double y, w, v;
-
-    if (x >= CEPH_MAXGAM) {
-        return INFINITY;
-    }
-    w = 1.0 / x;
-    w = 1.0 + w * ceph_polevl(w, gamma_STIR, 4);
-    y = exp(x);
-    if (x > GAMMA_MAXSTIR) { /* Avoid overflow in pow() */
-        v = pow(x, 0.5 * x - 0.25);
-        y = v * (v / y);
-    } else {
-        y = pow(x, x - 0.5) / y;
-    }
-    y = CEPH_SQRT2PI * y * w;
-    return y;
-}
-
+/* The Gamma function for 0 < x < 1, the only arguments it receives. */
 static double
 ceph_Gamma(double x)
 {
     double p, q, z;
-    int i;
-    int sgngam = 1;
-
-    if (!isfinite(x)) {
-        if (x > 0) {
-            /* gamma(+inf) = +inf */
-            return x;
-        }
-        /* gamma(NaN) and gamma(-inf) both should equal NaN. */
-        return NAN;
-    }
-
-    if (x == 0) {
-        /* For pole at zero, value depends on sign of zero.
-         * +inf when approaching from right, -inf when approaching
-         * from left. */
-        return copysign(INFINITY, x);
-    }
-
-    q = fabs(x);
-
-    if (q > 33.0) {
-        if (x < 0.0) {
-            p = floor(q);
-            if (p == q) {
-                /* x is a negative integer. This is a pole. */
-                return NAN;
-            }
-            i = (int) p;
-            if ((i & 1) == 0) {
-                sgngam = -1;
-            }
-            z = q - p;
-            if (z > 0.5) {
-                p += 1.0;
-                z = q - p;
-            }
-            z = q * ceph_sinpi(z);
-            if (z == 0.0) {
-                return sgngam * (double) INFINITY;
-            }
-            z = fabs(z);
-            z = CEPH_PI / (z * ceph_stirf(q));
-        } else {
-            z = ceph_stirf(x);
-        }
-        return sgngam * z;
-    }
 
     z = 1.0;
-    while (x >= 3.0) {
-        x -= 1.0;
-        z *= x;
-    }
-
-    while (x < 0.0) {
-        if (x > -1.E-9) {
-            goto small;
-        }
-        z /= x;
-        x += 1.0;
-    }
-
     while (x < 2.0) {
         if (x < 1.e-9) {
-            goto small;
+            return z / ((1.0 + 0.5772156649015329 * x) * x);
         }
         z /= x;
         x += 1.0;
@@ -344,14 +223,6 @@ ceph_Gamma(double x)
     p = ceph_polevl(x, gamma_P, 6);
     q = ceph_polevl(x, gamma_Q, 7);
     return z * p / q;
-
-small:
-    if (x == 0.0) {
-        /* For this to have happened, x must have started as a negative integer. */
-        return NAN;
-    } else {
-        return z / ((1.0 + 0.5772156649015329 * x) * x);
-    }
 }
 
 /* A[]: Stirling's formula expansion of log Gamma
@@ -389,45 +260,12 @@ ceph_lgam_large_x(double x)
     return q + p;
 }
 
+/* Logarithm of the Gamma function for positive finite x, the only arguments it
+ * receives. */
 static double
-ceph_lgam_sgn(double x, int *sign)
+ceph_lgam(double x)
 {
-    double p, q, u, w, z;
-    int i;
-
-    *sign = 1;
-
-    if (!isfinite(x)) {
-        return x;
-    }
-
-    if (x < -34.0) {
-        q = -x;
-        w = ceph_lgam_sgn(q, sign);
-        p = floor(q);
-        if (p == q) {
-        lgsing:
-            return INFINITY;
-        }
-        i = (int) p;
-        if ((i & 1) == 0) {
-            *sign = -1;
-        } else {
-            *sign = 1;
-        }
-        z = q - p;
-        if (z > 0.5) {
-            p += 1.0;
-            z = p - q;
-        }
-        z = q * ceph_sinpi(z);
-        if (z == 0.0) {
-            goto lgsing;
-        }
-        /*     z = log(M_PI) - log( z ) - w; */
-        z = CEPH_LOGPI - log(z) - w;
-        return z;
-    }
+    double p, q, u, z;
 
     if (x < 13.0) {
         z = 1.0;
@@ -439,18 +277,9 @@ ceph_lgam_sgn(double x, int *sign)
             z *= u;
         }
         while (u < 2.0) {
-            if (u == 0.0) {
-                goto lgsing;
-            }
             z /= u;
             p += 1.0;
             u = x + p;
-        }
-        if (z < 0.0) {
-            *sign = -1;
-            z = -z;
-        } else {
-            *sign = 1;
         }
         if (u == 2.0) {
             return log(z);
@@ -462,7 +291,7 @@ ceph_lgam_sgn(double x, int *sign)
     }
 
     if (x > GAMMA_MAXLGM) {
-        return *sign * (double) INFINITY;
+        return INFINITY;
     }
 
     if (x >= 1000.0) {
@@ -472,14 +301,6 @@ ceph_lgam_sgn(double x, int *sign)
     q = (x - 0.5) * log(x) - x + GAMMA_LS2PI;
     p = 1.0 / (x * x);
     return q + ceph_polevl(p, gamma_A, 4) / x;
-}
-
-/* Logarithm of Gamma function */
-static double
-ceph_lgam(double x)
-{
-    int sign;
-    return ceph_lgam_sgn(x, &sign);
 }
 
 /* lanczos.h */
@@ -1274,25 +1095,14 @@ ceph_igam(double a, double x)
 {
     double absxma_a;
 
-    if (isnan(a) || isnan(x)) {
+    if (isnan(x)) {
         return NAN;
     }
 
-    if (x < 0 || a < 0) {
+    if (x < 0) {
         return NAN;
-    } else if (a == 0) {
-        if (x > 0) {
-            return 1;
-        } else {
-            return NAN;
-        }
     } else if (x == 0) {
         /* Zero integration limit */
-        return 0;
-    } else if (isinf(a)) {
-        if (isinf(x)) {
-            return NAN;
-        }
         return 0;
     } else if (isinf(x)) {
         return 1;
@@ -1318,24 +1128,13 @@ ceph_igamc(double a, double x)
 {
     double absxma_a;
 
-    if (isnan(a) || isnan(x)) {
+    if (isnan(x)) {
         return NAN;
     }
 
-    if (x < 0 || a < 0) {
+    if (x < 0) {
         return NAN;
-    } else if (a == 0) {
-        if (x > 0) {
-            return 0;
-        } else {
-            return NAN;
-        }
     } else if (x == 0) {
-        return 1;
-    } else if (isinf(a)) {
-        if (isinf(x)) {
-            return NAN;
-        }
         return 1;
     } else if (isinf(x)) {
         return 0;
@@ -1634,15 +1433,19 @@ tsd_gammaincinv(double a, double p)
     int i;
     double x, fac, f_fp, fpp_fp;
 
-    if (isnan(a) || isnan(p)) {
+    if (!(a >= 0) || !(p >= 0 && p <= 1)) {
         return NAN;
-    } else if ((a < 0) || (p < 0) || (p > 1)) {
-        /* Outside the domain: fall through. */
-    } else if (p == 0.0) {
+    }
+    if (p == 0.0) {
         return 0.0;
-    } else if (p == 1.0) {
+    }
+    if (p == 1.0) {
         return INFINITY;
-    } else if (p > 0.9) {
+    }
+    if (a == 0 || isinf(a)) {
+        return NAN;
+    }
+    if (p > 0.9) {
         return ceph_igamci(a, 1 - p);
     }
 

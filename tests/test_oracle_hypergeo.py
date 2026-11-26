@@ -255,15 +255,6 @@ class TestGammaincDer:
 
 
 GAMMAINC_INV_EDGES = [
-    # shapes outside the domain reach the poles, the reflection formula and Stirling's
-    # formula in the gamma function of the initial approximation
-    (-40.0, 0.5),
-    (-1e-10, 0.5),
-    (-46.752919088367761, -0.92813118104822934),
-    (-39.271336710778996, -5.5046762376648753e-13),
-    (-640.33633048902459, 0.13827951904386282),
-    (-150.91834423637511, 1.0674574812874198),
-    (-63.911108928063285, -0.68496137764304876),
     # the gamma function's recurrence lands on 2 exactly
     (nextafter(1.0, 0), 0.5),
     # the series of igamc for small arguments, and a Newton step where the ratio of the
@@ -306,10 +297,9 @@ def gammainc_inv_random():
 
 class TestGammaincInv:
     """
-    `_gammainc_inv` is SciPy's ``gammaincinv`` (cephes ``igami``), of which the C
-    library's is a port; checked exactly, including away from the interior of the
-    domain (the result is a NaN, 0 or inf for invalid shapes and quantiles, with no
-    exception).
+    `_gammainc_inv` is SciPy's ``gammaincinv`` (cephes ``igami``) inside the domain,
+    of which the C library's is a port; checked exactly, including the edges of the
+    domain and outside it (NaN, with no exception).
     """
 
     @pytest.mark.parametrize(("a", "q"), gammainc_inv_grid(), ids=repr)
