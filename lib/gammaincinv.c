@@ -13,7 +13,9 @@
  * and iteration limits are those of xsf. Arguments outside the domain give NaN
  * directly, and the helper functions keep only the branches that the arguments they
  * receive can reach; error reporting (set_error, a no-op in xsf's default build) is
- * dropped and the in-band return values are kept.
+ * dropped and the in-band return values are kept. Branches marked GCOVR_EXCL are
+ * kept unmodified from xsf although valid arguments do not reach them (none of 20
+ * million random draws did), so the tests do not cover them.
  *
  * The notices of the original files and the licences they are distributed under
  * follow.
@@ -251,7 +253,7 @@ ceph_lgam_large_x(double x)
     double p;
 
     if (x > 1.0e8) {
-        return q;
+        return q; /* GCOVR_EXCL_LINE */
     }
     p = 1.0 / (x * x);
     p = ((7.9365079365079365079365e-4 * p - 2.7777777777777777777778e-3) * p
@@ -291,7 +293,7 @@ ceph_lgam(double x)
     }
 
     if (x > GAMMA_MAXLGM) {
-        return INFINITY;
+        return INFINITY; /* GCOVR_EXCL_LINE */
     }
 
     if (x >= 1000.0) {
@@ -366,7 +368,7 @@ ceph_log1p(double x)
 
     z = 1.0 + x;
     if ((z < CEPH_SQRT1_2) || (z > CEPH_SQRT2)) {
-        return log(z);
+        return log(z); /* GCOVR_EXCL_LINE */
     }
     z = x * x;
     z = -0.5 * z + x * (z * ceph_polevl(x, unity_LP, 6) / ceph_p1evl(x, unity_LQ, 6));
@@ -418,6 +420,7 @@ ceph_expm1(double x)
 {
     double r, xx;
 
+    /* GCOVR_EXCL_START */
     if (!isfinite(x)) {
         if (isnan(x)) {
             return x;
@@ -427,8 +430,9 @@ ceph_expm1(double x)
             return -1.0;
         }
     }
+    /* GCOVR_EXCL_STOP */
     if ((x < -0.5) || (x > 0.5)) {
-        return exp(x) - 1.0;
+        return exp(x) - 1.0; /* GCOVR_EXCL_LINE */
     }
     xx = x * x;
     r = x * ceph_polevl(xx, unity_EP, 2);
@@ -496,7 +500,7 @@ ceph_zeta(double x, double q)
         b /= w;
         k += 1.0;
     }
-done:
+done: /* GCOVR_EXCL_LINE: reached, but gcov counts no execution of the label */
     return s;
 }
 
@@ -533,7 +537,7 @@ ceph_lgam1p(double x)
     } else if (fabs(x - 1) < 0.5) {
         return log(x) + ceph_lgam1p_taylor(x - 1);
     } else {
-        return ceph_lgam(x + 1);
+        return ceph_lgam(x + 1); /* GCOVR_EXCL_LINE */
     }
 }
 
@@ -575,7 +579,7 @@ ceph_erfc(double a)
     double p, q, x, y, z;
 
     if (isnan(a)) {
-        return NAN;
+        return NAN; /* GCOVR_EXCL_LINE */
     }
 
     if (a < 0.0) {
@@ -591,7 +595,7 @@ ceph_erfc(double a)
     z = -a * a;
 
     if (z < -CEPH_MAXLOG) {
-        goto under;
+        goto under; /* GCOVR_EXCL_LINE */
     }
 
     z = exp(z);
@@ -600,8 +604,8 @@ ceph_erfc(double a)
         p = ceph_polevl(x, ndtr_P, 8);
         q = ceph_p1evl(x, ndtr_Q, 8);
     } else {
-        p = ceph_polevl(x, ndtr_R, 5);
-        q = ceph_p1evl(x, ndtr_S, 6);
+        p = ceph_polevl(x, ndtr_R, 5); /* GCOVR_EXCL_LINE */
+        q = ceph_p1evl(x, ndtr_S, 6);  /* GCOVR_EXCL_LINE */
     }
     y = (z * p) / q;
 
@@ -613,12 +617,14 @@ ceph_erfc(double a)
         return y;
     }
 
+    /* GCOVR_EXCL_START */
 under:
     if (a < 0) {
         return 2.0;
     } else {
         return 0.0;
     }
+    /* GCOVR_EXCL_STOP */
 }
 
 static double
@@ -627,7 +633,7 @@ ceph_erf(double x)
     double y, z;
 
     if (isnan(x)) {
-        return NAN;
+        return NAN; /* GCOVR_EXCL_LINE */
     }
 
     if (x < 0.0) {
@@ -635,7 +641,7 @@ ceph_erf(double x)
     }
 
     if (fabs(x) > 1.0) {
-        return 1.0 - ceph_erfc(x);
+        return 1.0 - ceph_erfc(x); /* GCOVR_EXCL_LINE */
     }
     z = x * x;
 
@@ -930,7 +936,7 @@ ceph_igamc_continued_fraction(double a, double x)
 
     ax = ceph_igam_fac(a, x);
     if (ax == 0.0) {
-        return 0.0;
+        return 0.0; /* GCOVR_EXCL_LINE */
     }
 
     /* continued fraction */
@@ -955,7 +961,7 @@ ceph_igamc_continued_fraction(double a, double x)
             t = fabs((ans - r) / r);
             ans = r;
         } else {
-            t = 1.0;
+            t = 1.0; /* GCOVR_EXCL_LINE */
         }
         pkm2 = pkm1;
         pkm1 = pk;
@@ -984,7 +990,7 @@ ceph_igam_series(double a, double x)
 
     ax = ceph_igam_fac(a, x);
     if (ax == 0.0) {
-        return 0.0;
+        return 0.0; /* GCOVR_EXCL_LINE */
     }
 
     /* power series */
@@ -1074,7 +1080,7 @@ ceph_asymptotic_series(double a, double x, int func)
         term = ck * afac;
         absterm = fabs(term);
         if (absterm > absoldterm) {
-            break;
+            break; /* GCOVR_EXCL_LINE */
         }
         sum += term;
         if (absterm < CEPH_MACHEP * fabs(sum)) {
@@ -1100,12 +1106,12 @@ ceph_igam(double a, double x)
     }
 
     if (x < 0) {
-        return NAN;
+        return NAN; /* GCOVR_EXCL_LINE */
     } else if (x == 0) {
         /* Zero integration limit */
-        return 0;
+        return 0; /* GCOVR_EXCL_LINE */
     } else if (isinf(x)) {
-        return 1;
+        return 1; /* GCOVR_EXCL_LINE */
     }
 
     /* Asymptotic regime where a ~ x; see [2]. */
@@ -1133,11 +1139,11 @@ ceph_igamc(double a, double x)
     }
 
     if (x < 0) {
-        return NAN;
+        return NAN; /* GCOVR_EXCL_LINE */
     } else if (x == 0) {
-        return 1;
+        return 1; /* GCOVR_EXCL_LINE */
     } else if (isinf(x)) {
-        return 0;
+        return 0; /* GCOVR_EXCL_LINE */
     }
 
     /* Asymptotic regime where a ~ x; see [2]. */
@@ -1151,19 +1157,19 @@ ceph_igamc(double a, double x)
     /* Everywhere else; see [2]. */
     if (x > 1.1) {
         if (x < a) {
-            return 1.0 - ceph_igam_series(a, x);
+            return 1.0 - ceph_igam_series(a, x); /* GCOVR_EXCL_LINE */
         } else {
             return ceph_igamc_continued_fraction(a, x);
         }
     } else if (x <= 0.5) {
         if (-0.4 / log(x) < a) {
-            return 1.0 - ceph_igam_series(a, x);
+            return 1.0 - ceph_igam_series(a, x); /* GCOVR_EXCL_LINE */
         } else {
             return ceph_igamc_series(a, x);
         }
     } else {
         if (x * 1.1 < a) {
-            return 1.0 - ceph_igam_series(a, x);
+            return 1.0 - ceph_igam_series(a, x); /* GCOVR_EXCL_LINE */
         } else {
             return ceph_igamc_series(a, x);
         }
