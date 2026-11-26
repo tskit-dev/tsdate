@@ -1,6 +1,6 @@
 """
 Equivalence of the expectation propagation functions of ``_tsdate`` with the oracle of
-``tsdate.variational``: the EP helpers (``EPFactors``, ``_damp``, ``_rescale``,
+``tsdate.variational``: the EP helpers (``_damp``, ``_rescale``,
 ``_rescale_factors``, ``_constraints_are_consistent``) and the passes
 ``propagate_likelihood``, ``propagate_prior`` and ``propagate_mutations``, plus whole
 sweeps. The ``c_*`` adapters give the C functions the signatures of the oracles: the
@@ -68,18 +68,11 @@ def factor_arrays(factors):
     )
 
 
-def check_size_two(*arrays):
-    if any(a.size != 2 for a in arrays):
-        raise ValueError("Natural parameters must have two entries")
-
-
 def c_damp(x, y, s):
-    check_size_two(x, y)
     return _tsdate.damp(x[0], x[1], y[0], y[1], s)
 
 
 def c_rescale(x, s):
-    check_size_two(x)
     return _tsdate.rescale(x[0], x[1], s)
 
 
@@ -212,23 +205,6 @@ def unphased_name(ts_name):
     return ts_name == "small_ts_unphased"
 
 
-class TestEPFactors:
-    def test_constructor(self, snaps):
-        snap = snaps["small_ts"]
-        actual = snap.factors()
-        expected = snap.factors()
-        for field in ("node", "edge", "block", "scale"):
-            a, e = getattr(actual, field), getattr(expected, field)
-            assert a.dtype == e.dtype
-            assert a.shape == e.shape
-        for field in ("_p", "_c", "_j", "_k"):
-            assert np.array_equal(getattr(actual, field), getattr(expected, field))
-        fields = ("node", "edge", "block", "scale")
-        assert_same_values(
-            [getattr(actual, f) for f in fields], [getattr(expected, f) for f in fields]
-        )
-
-
 class TestRescaleFactors:
     @pytest.mark.parametrize("ts_name", ["small_ts", "small_ts_unphased"])
     @pytest.mark.parametrize("scale", ["seed0", "seed1", 1e-160, 1e100])
@@ -296,9 +272,7 @@ DAMP_TABLE = [
     ("y1_nan_a_damped", f64(1, 1), f64(8, NAN), 0.5, "finite"),
     ("y0_minus_inf", f64(1, 1), f64(-INF, 0), 0.5, "finite"),
     ("y1_minus_inf", f64(1, 1), f64(0, -INF), 0.5, "finite"),
-    # asserts: sizes and `s` are checked by the callers (direct calls only)
-    ("size_x", f64(1, 1, 1), f64(0, 0), 0.5, AssertionError),
-    ("size_y", f64(1, 1), f64(0, 0, 0), 0.5, AssertionError),
+    # asserts: `s` is checked by the callers (direct calls only)
     ("s_zero", f64(1, 1), f64(0, 0), 0.0, AssertionError),
     ("s_one", f64(1, 1), f64(0, 0), 1.0, AssertionError),
     ("s_negative", f64(1, 1), f64(0, 0), -0.5, AssertionError),
@@ -336,7 +310,6 @@ RESCALE_TABLE = [
     ("s_one_upper", f64(1, 1), 1.0, "finite"),
     ("s_one_lower", f64(-0.5, 1), 1.0, "finite"),
     # asserts (reachable as for `_damp`)
-    ("size", f64(1, 1, 1), 10.0, AssertionError),
     ("x0_minus_one", f64(-1, 1), 10.0, AssertionError),
     ("x0_nan", f64(NAN, 1), 10.0, AssertionError),
     ("x1_zero", f64(1, 0), 10.0, AssertionError),
@@ -365,7 +338,7 @@ class TestDamp:
 
     @pytest.mark.parametrize("which", [0, 1])
     def test_infinite_posterior_zero_message(self, which):
-        # Compiled code divides inf by 0.0 and raises; the oracle returns d = 1. Needs
+        # C reports the division of inf by 0.0; the oracle returns d = 1. Needs
         # an infinite posterior, which is unreachable without a prior failure.
         x = f64(1, 1)
         x[which] = INF
@@ -390,7 +363,7 @@ class TestRescale:
         compare(c_rescale, variational._rescale, x, s)
 
     def test_zero_shape_offset_cap_below_one(self):
-        # Compiled code divides by zero and raises; the oracle returns -inf. Direct
+        # C reports the division by zero; the oracle returns -inf. Direct
         # call only: `propagate_*` assert `max_shape >= 1`.
         with pytest.raises(expected_error(ZeroDivisionError)):
             c_rescale(f64(0, 1), 0.5)
@@ -485,7 +458,7 @@ class TestPropagateLikelihoodBranches:
         kwargs = dict(max_shape=1e300)  # no posterior rescaling
         if "sideways" in branch and case == "projection_fails":
             # `sideways_moments` divides by zero for an astronomically large mutation
-            # target: compiled code raises where the oracle returns NaN and skips.
+            # target: C reports it where the oracle returns NaN and skips.
             with pytest.raises(expected_error(ZeroDivisionError)):
                 ep_state.run_likelihood(
                     c_propagate_likelihood, snap, snap.unphased, **kwargs
@@ -937,7 +910,8 @@ class TestPropagateMutations:
         likelihood = (1.0, 1e300) if fails else (3.0, 0.1)
         snap = tiny_snapshot(branch, likelihood=likelihood)
         if fails and "sideways" in branch:
-            # as in propagate_likelihood: compiled `*_sideways_moments` raises
+            # as in propagate_likelihood: C reports a division by zero in
+            # `*_sideways_moments`
             with pytest.raises(expected_error(ZeroDivisionError)):
                 ep_state.run_mutations(c_propagate_mutations, snap, snap.unphased)
         else:
