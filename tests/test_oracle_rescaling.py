@@ -33,8 +33,6 @@ from oracle.helpers import (
 
 from tsdate.variational import ExpectationPropagation
 
-BREAKS_MSG = "non-increasing time breakpoints"
-
 
 @pytest.fixture(params=["small_ts_unphased", "small_ts_historical"])
 def sim_ts(request):
