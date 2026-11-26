@@ -1,6 +1,6 @@
 """
 Parity of the C implementation (``impl``) with the oracles in ``oracle/approx.py`` for
-the gamma approximations: values to 4 ulp, NaN and infinity patterns, and which
+the gamma approximations: exact values (including NaNs and infinities), and which
 exception is raised. Expected values always come from the oracle. Tables hold
 deliberate edge cases (boundaries of the ``_valid_*`` checks, degenerate gamma fits,
 regimes of the moment and projection functions); seeded random draws cover ranges

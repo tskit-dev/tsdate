@@ -25,7 +25,7 @@
 /*
  * The expectation propagation passes: the damping helpers, the passes over edges
  * (blocks of unphased singletons), the prior and the mutations. Operation order
- * matches the oracles in tests/oracle, which the tests compare bit for bit.
+ * matches the oracles in tests/oracle, which the tests compare exactly.
  */
 
 #include <float.h>

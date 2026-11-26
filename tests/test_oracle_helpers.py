@@ -11,19 +11,13 @@ from oracle.helpers import (
     NAN,
     assert_outcome,
     assert_same_outcome,
-    assert_ulp_close,
+    assert_same_values,
     compare,
     errors_match,
     outcome,
 )
 
 KLFailed = type("KLMinimizationFailedError", (Exception,), {})
-
-
-def ulps_up(x, n):
-    for _ in range(n):
-        x = np.nextafter(x, np.inf)
-    return x
 
 
 def returns(value, modify=None):
@@ -42,30 +36,30 @@ def raises(exception):
     return func
 
 
-class TestAssertUlpClose:
+class TestAssertSameValues:
     @pytest.mark.parametrize(
         ("actual", "desired", "match"),
         [
-            pytest.param(ulps_up(1.0, 5), 1.0, "ulp", id="five_ulp"),
+            pytest.param(np.nextafter(1.0, 2.0), 1.0, "differ", id="one_ulp"),
             pytest.param(
-                np.array([1.0, NAN]), np.array([NAN, 1.0]), "NaN", id="nan_place"
+                np.array([1.0, NAN]), np.array([NAN, 1.0]), "differ", id="nan_place"
             ),
-            pytest.param(1.0, NAN, "NaN", id="nan_vs_number"),
-            pytest.param(INF, -INF, "infinity", id="inf_sign"),
+            pytest.param(1.0, NAN, "differ", id="nan_vs_number"),
+            pytest.param(INF, -INF, "differ", id="inf_sign"),
             pytest.param((1.0, 2.0), (1.0, 2.0, 3.0), "structure", id="structure"),
             pytest.param(np.zeros(3), np.zeros(4), "shape", id="shape"),
         ],
     )
     def test_fails(self, actual, desired, match):
         with pytest.raises(AssertionError, match=match):
-            assert_ulp_close(actual, desired)
+            assert_same_values(actual, desired)
 
 
 class TestAssertSameOutcome:
     @pytest.mark.parametrize(
         ("impl", "oracle", "match"),
         [
-            pytest.param(returns(1.0), returns(2.0), "ulp", id="value"),
+            pytest.param(returns(1.0), returns(2.0), "differ", id="value"),
             pytest.param(
                 raises(ValueError("a")), returns(1.0), "implementation", id="impl_raises"
             ),

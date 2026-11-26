@@ -22,8 +22,8 @@ from oracle.ep_state import BRANCHES, SNAPSHOT_SPECS, tiny_snapshot
 from oracle.helpers import (
     INF,
     NAN,
-    assert_inplace_close,
     assert_same_outcome,
+    assert_same_values,
     compare,
     expected_error,
     f64,
@@ -109,7 +109,7 @@ class TestEPFactors:
         for field in ("_p", "_c", "_j", "_k"):
             assert np.array_equal(getattr(actual, field), getattr(expected, field))
         fields = ("node", "edge", "block", "scale")
-        assert_inplace_close(
+        assert_same_values(
             [getattr(actual, f) for f in fields], [getattr(expected, f) for f in fields]
         )
 
@@ -129,7 +129,7 @@ class TestRescaleFactors:
         impl.variational._rescale_factors(actual)
         variational._rescale_factors(expected)
         fields = ("node", "edge", "block", "scale")
-        assert_inplace_close(
+        assert_same_values(
             [getattr(actual, f) for f in fields], [getattr(expected, f) for f in fields]
         )
 
@@ -564,9 +564,7 @@ class TestPropagateLikelihood:
                 ep_state.USE_EDGE_LIKELIHOOD,
             )
 
-        result = compare(
-            lambda: call(impl.variational), lambda: call(variational), maxulp=0
-        )
+        result = compare(lambda: call(impl.variational), lambda: call(variational))
         assert kind(result) is AssertionError
 
 

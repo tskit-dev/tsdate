@@ -24,7 +24,7 @@
 
 /*
  * Gamma approximations and the moments of the EP updates. Operation order and libm
- * calls match the oracles in tests/oracle, which the tests compare to the last bit.
+ * calls match the oracles in tests/oracle, which the tests compare exactly.
  *
  * A float division by zero returns TSD_ERR_ZERO_DIVISION at the divisions that the
  * tests show to be reachable (where the oracle raises ZeroDivisionError). The other

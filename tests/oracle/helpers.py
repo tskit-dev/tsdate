@@ -4,11 +4,7 @@ Comparison helpers shared by the oracle equivalence tests.
 
 import numpy as np
 import tskit
-
-try:
-    from _tsdate import LibraryError
-except ImportError:  # the extension has not been built
-    LibraryError = None
+from _tsdate import LibraryError
 
 
 def _flatten(x, path=""):
@@ -22,11 +18,10 @@ def _flatten(x, path=""):
         yield path, np.asarray(x, dtype=np.float64)
 
 
-def assert_ulp_close(actual, desired, maxulp=4):
+def assert_same_values(actual, desired):
     """
-    Assert that two scalars, arrays, or (nested) tuples of them agree to within
-    ``maxulp`` units in the last place. NaNs must occur in the same places, and
-    equal infinities compare equal. Shapes and tuple structure must match.
+    Assert that two scalars, arrays, or (nested) tuples of them are equal, with NaNs in
+    the same places. Shapes and tuple structure must match.
     """
     a_leaves = list(_flatten(actual))
     d_leaves = list(_flatten(desired))
@@ -37,39 +32,9 @@ def assert_ulp_close(actual, desired, maxulp=4):
         assert a.shape == d.shape, (
             f"shape mismatch at {path or 'value'}: {a.shape} vs {d.shape}"
         )
-        nan_a, nan_d = np.isnan(a), np.isnan(d)
-        assert np.array_equal(nan_a, nan_d), (
-            f"NaN pattern mismatch at {path or 'value'}:\n{a}\nvs\n{d}"
+        assert np.array_equal(a, d, equal_nan=True), (
+            f"values differ at {path or 'value'}:\nactual:  {a}\ndesired: {d}"
         )
-        inf_mask = np.isinf(a) | np.isinf(d)
-        assert np.array_equal(a[inf_mask], d[inf_mask]), (
-            f"infinity mismatch at {path or 'value'}:\n{a}\nvs\n{d}"
-        )
-        ok = ~(nan_a | inf_mask)
-        if ok.any():
-            try:
-                np.testing.assert_array_max_ulp(a[ok], d[ok], maxulp=maxulp)
-            except AssertionError as e:
-                raise AssertionError(
-                    f"values differ by more than {maxulp} ulp at {path or 'value'}:"
-                    f"\nactual:  {a}\ndesired: {d}\n{e}"
-                ) from None
-
-
-def assert_inplace_close(args_actual, args_desired, maxulp=4):
-    """
-    Compare sequences of arguments after both implementations have modified them
-    in place (e.g. posterior arrays, ``EPFactors`` fields). Each element is
-    compared with `assert_ulp_close`; use ``(a.node, a.edge, ...)`` to pass fields.
-    """
-    assert len(args_actual) == len(args_desired)
-    for i, (a, d) in enumerate(zip(args_actual, args_desired)):
-        try:
-            assert_ulp_close(a, d, maxulp=maxulp)
-        except AssertionError as e:
-            raise AssertionError(
-                f"argument {i} differs after in-place update: {e}"
-            ) from None
 
 
 INF = float("inf")
@@ -101,7 +66,7 @@ def expected_error(exc_type):
     ``ValueError`` where the oracle asserts on array shapes and sizes.
     """
     allowed = (exc_type,)
-    if LibraryError is not None and exc_type.__name__ in _LIBRARY_ERROR_NAMES:
+    if exc_type.__name__ in _LIBRARY_ERROR_NAMES:
         allowed += (LibraryError,)
     if exc_type is AssertionError:
         allowed += (ValueError,)
@@ -173,10 +138,10 @@ def errors_match(actual, expected, check_message=True):
     return not check_message or str(actual) == str(expected)
 
 
-def assert_same_outcome(actual, expected, maxulp=4, check_message=True):
+def assert_same_outcome(actual, expected, check_message=True):
     """
     Assert that two `Outcome` objects agree: both raise matching exceptions, or both
-    return values (and leave array arguments) within ``maxulp`` ulp.
+    return the same values and leave array arguments the same.
     """
     if expected.exception is not None:
         assert actual.exception is not None, (
@@ -191,25 +156,25 @@ def assert_same_outcome(actual, expected, maxulp=4, check_message=True):
     assert actual.exception is None, (
         f"implementation raised {actual.exception!r}, oracle returned {expected.value!r}"
     )
-    assert_ulp_close(actual.value, expected.value, maxulp=maxulp)
+    assert_same_values(actual.value, expected.value)
     for i, (a, d) in enumerate(zip(actual.args, expected.args)):
         if isinstance(a, np.ndarray):
             try:
-                assert_ulp_close(a, d, maxulp=maxulp)
+                assert_same_values(a, d)
             except AssertionError as e:
                 raise AssertionError(
                     f"argument {i} differs after the call: {e}"
                 ) from None
 
 
-def compare(impl_func, oracle_func, *args, maxulp=4, check_message=True, **kwargs):
+def compare(impl_func, oracle_func, *args, check_message=True, **kwargs):
     """
     Call the implementation and the oracle on copies of ``args``, assert that their
     outcomes agree (`assert_same_outcome`), and return the oracle's `Outcome`.
     """
     expected = outcome(oracle_func, *args, **kwargs)
     actual = outcome(impl_func, *args, **kwargs)
-    assert_same_outcome(actual, expected, maxulp=maxulp, check_message=check_message)
+    assert_same_outcome(actual, expected, check_message=check_message)
     return expected
 
 
@@ -237,17 +202,6 @@ def assert_outcome(impl_func, oracle_func, args, expected_kind, **kwargs):
     result = compare(impl_func, oracle_func, *args, **kwargs)
     assert kind(result) == expected_kind, f"{args}: {result!r}"
     return result
-
-
-def both(impl_func, oracle_func, *args, maxulp=4):
-    """
-    `compare`, returning the oracle's value; if both raise, re-raise the oracle's
-    exception (for use with ``pytest.raises``).
-    """
-    result = compare(impl_func, oracle_func, *args, maxulp=maxulp)
-    if result.exception is not None:
-        raise result.exception
-    return result.value
 
 
 def make_ts(nodes, edges, mutations, length, num_individuals=0):

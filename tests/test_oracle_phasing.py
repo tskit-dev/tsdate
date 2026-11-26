@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 import tskit
 from oracle import phasing
-from oracle.helpers import INF, NAN, assert_ulp_close, compare, make_ts, shrink
+from oracle.helpers import INF, NAN, assert_same_values, compare, make_ts, shrink
 
 from tsdate.phasing import block_singletons
 from tsdate.rescaling import count_mutations
@@ -149,7 +149,7 @@ class TestBlockSingletons:
         # also the dtypes, which `compare` ignores, and the public wrapper
         actual = impl.phasing._block_singletons(*args)
         assert actual[1].dtype == actual[2].dtype == np.int32
-        assert_ulp_close(actual, block_singletons(ts, unphased))
+        assert_same_values(actual, block_singletons(ts, unphased))
         assert result.value[1].dtype == np.int32
 
 

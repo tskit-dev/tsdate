@@ -25,7 +25,7 @@
 /*
  * Numerically stable implementations of the Gauss hypergeometric function and related
  * special functions. Operation order and libm calls match the oracles in tests/oracle,
- * which the tests compare to the last bit or two.
+ * which the tests compare exactly.
  *
  * A float division by zero returns TSD_ERR_ZERO_DIVISION at the divisions that the
  * tests show to be reachable (those of the poles of the polygamma functions and of the

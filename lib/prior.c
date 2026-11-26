@@ -25,7 +25,7 @@
 /*
  * Moments of node ages under the coalescent, conditional on the number of descendant
  * leaves. Operation order and libm calls match the oracles in tests/oracle, which the
- * tests compare to the last bit or two.
+ * tests compare exactly.
  */
 
 #include <math.h>

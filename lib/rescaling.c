@@ -24,8 +24,7 @@
 
 /*
  * Rescaling of time so that the mutation rate is constant. Operation order and libm
- * calls match the oracles in tests/oracle, which the tests compare to the last bit or
- * two.
+ * calls match the oracles in tests/oracle, which the tests compare exactly.
  *
  * Arrays whose size is not known beforehand are allocated with room for one more
  * element than needed, so that empty inputs still give valid pointers.

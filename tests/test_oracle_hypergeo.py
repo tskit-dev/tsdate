@@ -1,6 +1,6 @@
 """
 Parity of the C implementation (``impl``) with the oracles in ``oracle/hypergeo.py``
-for the special functions: values to 4 ulp, NaN and infinity patterns, and which
+for the special functions: exact values (including NaNs and infinities), and which
 exception is raised (``AssertionError`` for the domain checks,
 ``ZeroDivisionError`` for float division by zero). Expected values always come from the
 oracle. Tables hold deliberate edge cases (poles, domain boundaries, both sides of a
@@ -16,7 +16,7 @@ from oracle.helpers import (
     INF,
     NAN,
     assert_outcome,
-    assert_ulp_close,
+    assert_same_values,
     compare,
     log_uniform,
 )
@@ -250,8 +250,8 @@ def gammainc_inv_grid():
 
 class TestGammaincInv:
     """
-    `_gammainc_inv` is SciPy's ``gammaincinv`` (cephes ``igami``), which every
-    implementation calls; checked to 4 ulp, including away from the interior of the
+    `_gammainc_inv` is SciPy's ``gammaincinv`` (cephes ``igami``), which the C
+    library calls; checked exactly, including away from the interior of the
     domain (the result is a NaN, 0 or inf for invalid shapes and quantiles, with no
     exception).
     """
@@ -502,7 +502,7 @@ class TestHyp2f1Unity:
         mapped = z / (z - 1) if z < 0 else z
         assert np.isclose(mapped, 1.0), "case must take the unity branch"
         result = parity(impl, "_hyp2f1_laplace", args)
-        assert_ulp_close(result.value, unity_formula(a, b, c, z))
+        assert_same_values(result.value, unity_formula(a, b, c, z))
 
     @pytest.mark.parametrize("sign", ["positive", "negative"])
     @pytest.mark.parametrize("side", ["not_close", "close"])
