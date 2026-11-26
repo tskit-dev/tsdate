@@ -1,27 +1,26 @@
-"""Oracles for the special functions (formerly the numba module ``tsdate.hypergeo``)."""
+"""Oracles for the special functions (``lib/hypergeo.c``)."""
 
 from math import pi
 
 import numpy as np
 import scipy.special
 
-# oracle: plain `math` raises on log(0), exp overflow etc., where compiled numba
-# follows C (-inf, inf, nan); `_libm` restores the C results.
-# oracle: numba computes `x ** n` for integer constants `n` by repeated squaring,
-# whereas CPython calls libm pow, which differs by an ulp in a few percent of cases;
-# `ipow` does what numba does (see `_libm.ipow`). Changed lines are marked.
+# oracle: plain `math` raises on log(0), exp overflow etc., where C gives -inf, inf or
+# nan; `_libm` gives the C results.
+# oracle: C computes `x ** n` for integer constants `n` by repeated squaring, whereas
+# CPython calls libm pow, which differs by an ulp in a few percent of cases; `ipow`
+# squares (see `_libm.ipow`). Lines that use it are marked.
 # oracle: NumPy ufuncs on Python floats return `np.float64`, so a following division
-# by zero (e.g. `pi / tan(0)`) gives inf with a warning where numba, following Python
-# semantics, raises ZeroDivisionError; and NumPy's SIMD loops may differ from libm.
-# `np.log`, `np.tan`, `np.sin` and `np.power` are replaced by their `_libm` versions
-# (libm functions on Python floats); numba lowers `np.power(x, k)` to libm `pow`.
+# by zero (e.g. `pi / tan(0)`) gives inf with a warning instead of the
+# ZeroDivisionError that stands for the library's TSD_ERR_ZERO_DIVISION; and NumPy's
+# SIMD loops may differ from libm. Logs, tangents, sines and powers are the `_libm`
+# versions (libm functions on Python floats).
 from ._libm import erf, exp, ipow, lgamma, log, pow, sin, sqrt, tan  # noqa: A004
 
 
-# oracle: the numba version is a `numba.cfunc` wrapping SciPy's Cython gammaincinv
-# (which is `scipy.special.gammaincinv`); here we call that directly. The ufunc returns
-# an `np.float64`, which is converted so that callers divide by it with Python
-# semantics (ZeroDivisionError), as in numba.
+# oracle: the C library calls SciPy's Cython gammaincinv, which is
+# `scipy.special.gammaincinv`. The ufunc returns an `np.float64`, which is converted
+# so that callers divide by it with Python semantics (ZeroDivisionError).
 def _gammainc_inv(a, x):
     """scipy.special.cython_special.gammaincinv"""
     return float(scipy.special.gammaincinv(a, x))

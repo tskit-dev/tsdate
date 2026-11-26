@@ -23,13 +23,12 @@
  */
 
 /*
- * Gamma approximations and the moments of the EP updates, ported from
- * tsdate/approx.py (numba). Operation order and libm calls follow the numba code so
- * that results agree to the last bit or two.
+ * Gamma approximations and the moments of the EP updates. Operation order and libm
+ * calls match the oracles in tests/oracle, which the tests compare to the last bit.
  *
- * In numba, a float division by zero raises ZeroDivisionError; here it returns
- * TSD_ERR_ZERO_DIVISION, but only at the divisions that the tests show to be
- * reachable. The other divisions follow IEEE semantics (infinity or NaN).
+ * A float division by zero returns TSD_ERR_ZERO_DIVISION at the divisions that the
+ * tests show to be reachable (where the oracle raises ZeroDivisionError). The other
+ * divisions follow IEEE semantics (infinity or NaN).
  */
 
 #include <math.h>
@@ -638,8 +637,8 @@ out:
 /*
  * log p(t_i) = log(2 t_i) * y_ij - mu_ij * (2 t_i) + log(t_i) * (a_i - 1) - b_i * t_i
  * for the two edges of an unphased individual to the same parent. Writes the
- * normalising constant, E[t_i], V[t_i]. As numba raised ZeroDivisionError for a zero
- * rate r (or one whose square underflows), this returns TSD_ERR_ZERO_DIVISION.
+ * normalising constant, E[t_i], V[t_i]. A zero rate r (or one whose square
+ * underflows) returns TSD_ERR_ZERO_DIVISION.
  */
 int
 tsd_twin_moments(double a_i, double b_i, double y_ij, double mu_ij, double *logl,
@@ -730,8 +729,8 @@ out:
     return ret;
 }
 
-/* The projection of the two marginals of a two-parameter update; as numba, both are
- * checked before either is projected. */
+/* The projection of the two marginals of a two-parameter update; both are checked
+ * before either is projected. */
 static int
 project_pair(double mn_i, double va_i, double mn_j, double va_j, const double pars_i[2],
     const double pars_j[2], double *logl, double logl_value, double proj_i[2],
@@ -914,8 +913,8 @@ out:
 /*
  * Moments of the mutation age t_m. Conditional on the node ages, t_m is uniform on
  * (t_j, t_i) for a phased edge; the moments are those of the EP surrogate density
- * integrated over the node ages, in terms of hypergeometric functions. A result that
- * numba returns as NaN (arguments outside the domain) is NaN here, not an error.
+ * integrated over the node ages, in terms of hypergeometric functions. Arguments outside
+ * the domain give NaN, not an error.
  */
 int
 tsd_mutation_moments(double a_i, double b_i, double a_j, double b_j, double y_ij,

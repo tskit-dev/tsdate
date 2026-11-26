@@ -1,10 +1,10 @@
 """
 C-semantics versions of the `math` functions used by the oracles.
 
-Compiled numba calls libm directly, so e.g. ``log(0.0) == -inf``, ``exp(1e4) == inf``
+C calls libm directly, so e.g. ``log(0.0) == -inf``, ``exp(1e4) == inf``
 and ``sqrt(-1.0)`` is NaN. Python's `math` module raises ``ValueError`` or
 ``OverflowError`` in these cases. These wrappers return the C results instead and
-otherwise defer to `math`, so values agree with numba's libm calls. `lgamma` goes
+otherwise defer to `math`, so values agree with the C library's libm calls. `lgamma` goes
 to libm itself (see `_load_libm_lgamma`).
 """
 
@@ -56,8 +56,8 @@ def tan(x):
 
 def _load_libm_lgamma():
     """
-    The platform C runtime's ``lgamma``, as used by compiled numba (and by the C
-    library): libm on Linux and macOS, the Universal CRT (``ucrtbase``) on Windows.
+    The platform C runtime's ``lgamma``, as used by the C library: libm on Linux and
+    macOS, the Universal CRT (``ucrtbase``) on Windows.
     CPython's `math.lgamma` is its own Lanczos implementation, which differs from
     the C runtime by up to thousands of ulp where lgamma is near zero (x near 1 or
     2), so there is deliberately no fallback to it: if the C runtime can't be
@@ -100,10 +100,9 @@ def ipow(x, n):
     """
     ``x ** n`` for a small positive integer constant ``n``, by repeated squaring.
 
-    Numba lowers a float raised to an integer constant this way (``llvm.powi``), so
-    ``x ** 2 == x * x``. CPython calls libm ``pow`` instead, which differs from
-    this by an ulp in a small fraction of cases. Compiled code (and the C port) has
-    the repeated-squaring behaviour, and it matters where results cancel
+    The C library computes ``x ** n`` this way (``tsd_ipow``), so ``x ** 2 == x * x``.
+    CPython calls libm ``pow`` instead, which differs from this by an ulp in a small
+    fraction of cases. The difference matters where results cancel
     (e.g. ``va = sq - mn ** 2``).
     """
     result = 1.0
@@ -118,7 +117,7 @@ def ipow(x, n):
 
 def seq_sum(x):
     """
-    Sum of a 1d array, accumulating strictly left to right, as numba (and a C loop)
+    Sum of a 1d array, accumulating strictly left to right, as a C loop
     does. ``np.sum`` uses pairwise summation, which differs in the last bits.
     """
     x = np.asarray(x)
@@ -126,5 +125,5 @@ def seq_sum(x):
 
 
 def seq_mean(x):
-    """Mean of a 1d array using `seq_sum`, as ``np.mean`` is compiled by numba."""
+    """Mean of a 1d array using `seq_sum`, as the C library computes means."""
     return seq_sum(x) / np.size(x)

@@ -36,8 +36,8 @@ extern "C" {
 #define TSD_EULER_GAMMA 0.5772156649015329
 
 /*
- * x ** n for a small positive integer constant n, by repeated squaring. This is the
- * multiplication order of llvm.powi, which numba uses for `x ** n`; ipow(x, 2) is
+ * x ** n for a small positive integer constant n, by repeated squaring (the
+ * multiplication order of LLVM's llvm.powi, and of the oracles' `ipow`); ipow(x, 2) is
  * exactly x * x. It can differ in the last bit from pow(x, n).
  */
 static inline double

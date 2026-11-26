@@ -12,7 +12,7 @@ import pytest
 from oracle import approx
 from oracle.helpers import compare
 
-# error code: the message of numba's KLMinimizationFailedError (or the assertion)
+# error code: the message of the oracle's KLMinimizationFailedError (or assertion)
 APPROX_ERRORS = {
     -6: "Nonpositive or nonfinite moments",
     -7: "log E[t] <= E[log t] violates Jensen's inequality",

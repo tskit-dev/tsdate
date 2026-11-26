@@ -1,5 +1,5 @@
 """
-Parity of each implementation (``impl``) with the oracles in ``oracle/hypergeo.py``
+Parity of the C implementation (``impl``) with the oracles in ``oracle/hypergeo.py``
 for the special functions: values to 4 ulp, NaN and infinity patterns, and which
 exception is raised (``AssertionError`` for the domain checks,
 ``ZeroDivisionError`` for float division by zero). Expected values always come from the
@@ -445,7 +445,7 @@ UNITY_CASES = [
     (19.0, 30.0, 25.0, 1 - 1e-7),
     (1.0, 2.0, 1.0 + 2.0 + 1e-3, 1 - 1e-9),  # g tiny positive
     (1.0, 2.0, 3.0 - 1e-3, 1 - 1e-9),  # g tiny negative
-    # parameters of EP updates that reach the limit (formerly the skipped Test2F1Unity)
+    # parameters of EP updates that reach the limit
     unity_args_from_ep(202.865, 0.0153, 0.0012724, 101353547.00, 0.0, 2.404560e-05),
     unity_args_from_ep(999.998, 0.1041, 0.0012612, 14749022.000, 2.0, 7.830300e-05),
     unity_args_from_ep(157.778, 0.0182, 0.0011993, 20861958.000, 0.0, 4.128000e-07),

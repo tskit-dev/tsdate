@@ -24,8 +24,8 @@
 
 /*
  * Moments of node ages under the coalescent, conditional on the number of descendant
- * leaves, ported from tsdate/prior.py (numba). Operation order and libm calls follow
- * the numba code so that results agree to the last bit or two.
+ * leaves. Operation order and libm calls match the oracles in tests/oracle, which the
+ * tests compare to the last bit or two.
  */
 
 #include <math.h>
@@ -98,8 +98,7 @@ out:
 /*
  * Variance of node age conditional on the number of descendant leaves, under the
  * standard coalescent. Writes `num_tips + 1` values, indexed by the number of
- * descendant leaves. (For a single tip the numba code reads out of bounds; the
- * variances are zero.)
+ * descendant leaves. For a single tip the variances are zero.
  */
 int
 tsd_conditional_coalescent_variance(tsd_size_t num_tips, double *variance_out)

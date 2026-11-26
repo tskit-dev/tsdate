@@ -37,13 +37,13 @@ extern "C" {
 #define TSD_ERR_NO_MEMORY                                           -2
 #define TSD_ERR_BAD_PARAM                                           -3
 
-/* Floating-point division by zero, where numba raises ZeroDivisionError */
+/* Floating-point division by zero */
 #define TSD_ERR_ZERO_DIVISION                                       -4
 
 /* hypergeo */
 #define TSD_ERR_INVALID_HYPERGEO                                    -5
 
-/* approx: messages are those of numba's KLMinimizationFailedError, verbatim */
+/* approx: failures of the gamma approximations */
 #define TSD_ERR_NONPOSITIVE_OR_NONFINITE_MOMENTS                    -6
 #define TSD_ERR_JENSEN_VIOLATION                                    -7
 #define TSD_ERR_KL_MAX_ITERATIONS                                   -8
@@ -52,7 +52,7 @@ extern "C" {
 #define TSD_ERR_UNSORTED_QUANTILES                                  -11
 #define TSD_ERR_QUANTILE_MAX_ITERATIONS                             -12
 #define TSD_ERR_NEGATIVE_SHAPE                                      -13
-/* approx: violated preconditions (numba asserts) */
+/* approx: violated preconditions */
 #define TSD_ERR_NONPOSITIVE_MOMENTS                                 -14
 #define TSD_ERR_INVALID_FIXED_AGE                                   -15
 

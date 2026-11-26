@@ -1,4 +1,4 @@
-"""Oracles for the jitted functions in ``tsdate.util``."""
+"""Oracles for the tree sequence utilities (``lib/util.c``)."""
 
 import numpy as np
 import tskit

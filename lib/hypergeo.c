@@ -24,13 +24,12 @@
 
 /*
  * Numerically stable implementations of the Gauss hypergeometric function and related
- * special functions, ported from tsdate/hypergeo.py (numba). Operation order and
- * libm calls follow the numba code so that results agree to the last bit or two.
+ * special functions. Operation order and libm calls match the oracles in tests/oracle,
+ * which the tests compare to the last bit or two.
  *
- * In numba, a float division by zero raises ZeroDivisionError; here it returns
- * TSD_ERR_ZERO_DIVISION, but only at the divisions that the tests show to be
- * reachable (those of the poles of the polygamma functions and of the Laplace
- * roots). The other divisions follow IEEE semantics (infinity or NaN).
+ * A float division by zero returns TSD_ERR_ZERO_DIVISION at the divisions that the
+ * tests show to be reachable (those of the poles of the polygamma functions and of the
+ * Laplace roots). The other divisions follow IEEE semantics (infinity or NaN).
  */
 
 #include <math.h>

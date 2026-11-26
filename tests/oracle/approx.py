@@ -1,4 +1,4 @@
-"""Oracles for the gamma approximations (formerly the numba module ``tsdate.approx``)."""
+"""Oracles for the gamma approximations (``lib/approx.c``)."""
 
 from math import inf, nan
 
@@ -6,17 +6,17 @@ import numpy as np
 
 from . import hypergeo
 
-# oracle: plain `math` raises on log(0), exp overflow etc., where compiled numba
-# follows C (-inf, inf, nan); `_libm` restores the C results.
-# oracle: numba computes `x ** n` for integer constants `n` by repeated squaring,
-# whereas CPython calls libm pow, which differs by an ulp in a few percent of cases;
-# `ipow` does what numba does (see `_libm.ipow`). Changed lines are marked.
+# oracle: plain `math` raises on log(0), exp overflow etc., where C gives -inf, inf or
+# nan; `_libm` gives the C results.
+# oracle: C computes `x ** n` for integer constants `n` by repeated squaring, whereas
+# CPython calls libm pow, which differs by an ulp in a few percent of cases; `ipow`
+# squares (see `_libm.ipow`). Lines that use it are marked.
 # oracle: `np.log` of a Python float returns an `np.float64`, so that a following
-# division by zero gives inf (with a warning) where numba, following Python
-# semantics, raises ZeroDivisionError; and NumPy's SIMD log may differ from libm by an
-# ulp. All `np.log` calls are replaced by the `_libm.log` of a Python float.
+# division by zero gives inf (with a warning) instead of the ZeroDivisionError that
+# stands for the library's TSD_ERR_ZERO_DIVISION; and NumPy's SIMD log may differ
+# from libm by an ulp. Logs are the `_libm.log` of a Python float.
 # oracle: for the same reason, elements unpacked from a NumPy array are converted with
-# `float` (marked `oracle: float`), since in numba they are Python-semantics floats.
+# `float` (marked `oracle: float`).
 from ._libm import exp, ipow, lgamma, log
 
 # the tolerances of the KL minimisation, as in the library

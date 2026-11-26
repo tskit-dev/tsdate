@@ -23,10 +23,9 @@
  */
 
 /*
- * The expectation propagation passes, ported from tsdate/variational.py (numba): the
- * damping helpers, the passes over edges (blocks of unphased singletons), the prior
- * and the mutations. Operation order follows the numba code so that results agree
- * bit for bit.
+ * The expectation propagation passes: the damping helpers, the passes over edges
+ * (blocks of unphased singletons), the prior and the mutations. Operation order
+ * matches the oracles in tests/oracle, which the tests compare bit for bit.
  */
 
 #include <float.h>

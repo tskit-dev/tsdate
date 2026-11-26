@@ -1,5 +1,5 @@
 """
-Parity of the jitted functions in ``tsdate.util`` with their oracles: simulated tree
+Parity of the tree sequence utilities of ``_tsdate`` with their oracles: simulated tree
 sequences, degenerate inputs, and every ``assert``.
 """
 

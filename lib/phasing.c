@@ -23,8 +23,7 @@
  */
 
 /*
- * Phasing of singleton mutations in unphased individuals, ported from
- * tsdate/phasing.py (numba).
+ * Phasing of singleton mutations in unphased individuals.
  */
 
 #include <math.h>
@@ -308,7 +307,7 @@ tsd_reallocate_unphased(tsd_size_t num_edges, tsd_size_t num_mutations,
             goto out;
         }
         phase = mutations_phase[m];
-        if (isnan(phase)) { /* TODO (numba): fix rare numerical issue */
+        if (isnan(phase)) { /* TODO: fix rare numerical issue */
             continue;
         }
         if (!(phase >= 0.0 && phase <= 1.0)) {

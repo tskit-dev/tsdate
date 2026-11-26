@@ -1,12 +1,12 @@
 """
-Parity of each implementation (``impl``) with the oracles in ``oracle/approx.py`` for
+Parity of the C implementation (``impl``) with the oracles in ``oracle/approx.py`` for
 the gamma approximations: values to 4 ulp, NaN and infinity patterns, and which
 exception is raised. Expected values always come from the oracle. Tables hold
 deliberate edge cases (boundaries of the ``_valid_*`` checks, degenerate gamma fits,
 regimes of the moment and projection functions); seeded random draws cover ranges
 typical of expectation propagation (EP) and extreme ones.
 
-Conventions of the C port pinned here: a NaN result (not an exception) signals a
+Conventions pinned here: a NaN result (not an exception) signals a
 parameter outside the valid region of the hypergeometric function; the ``*_projection``
 functions then return NaN and, except for the ``mutation_*`` ones, their input
 parameters unchanged; ``AssertionError`` signals a violated precondition (a fixed node
@@ -343,7 +343,7 @@ class TestGammaApproximations:
         [p for p in GAMMA_DOMAIN if p.values[2] is KLMinimizationFailedError],
     )
     def test_error_messages(self, impl, name, args, expected):
-        # the messages distinguish the failure modes; the port re-raises them
+        # the messages distinguish the failure modes
         func = getattr(impl.approx, name)
         with pytest.raises(expected_error(KLMinimizationFailedError)):
             func(*args)

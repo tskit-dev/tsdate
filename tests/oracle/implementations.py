@@ -27,7 +27,7 @@ def _c_hypergeo(_tsdate):
 
 
 def _c_valid(func):
-    """The `_valid_*` checks return a bool in numba; the C function a float."""
+    """The `_valid_*` oracles return a bool; the C functions a float."""
 
     def valid(*args):
         return bool(func(*args))

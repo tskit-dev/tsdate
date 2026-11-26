@@ -37,7 +37,7 @@ static PyObject *TsdLibraryError;
 
 /*
  * SciPy's gammaincinv, taken from the C API of scipy.special.cython_special at module
- * initialisation (as numba did). The third argument is Cython's __pyx_skip_dispatch.
+ * initialisation. The third argument is Cython's __pyx_skip_dispatch.
  */
 typedef double (*cython_gammaincinv_fn)(double a, double p, int skip_dispatch);
 static cython_gammaincinv_fn scipy_gammaincinv;
@@ -102,26 +102,26 @@ typedef struct {
 } scalar_function_t;
 
 static int
-adapt_digamma(const double *in, double *out)
+scalar_digamma(const double *in, double *out)
 {
     return tsd_digamma(in[0], out);
 }
 
 static int
-adapt_trigamma(const double *in, double *out)
+scalar_trigamma(const double *in, double *out)
 {
     return tsd_trigamma(in[0], out);
 }
 
 static int
-adapt_betaln(const double *in, double *out)
+scalar_betaln(const double *in, double *out)
 {
     out[0] = tsd_betaln(in[0], in[1]);
     return 0;
 }
 
 static int
-adapt_gammainc_der(const double *in, double *out)
+scalar_gammainc_der(const double *in, double *out)
 {
     return tsd_gammainc_der(in[0], in[1], out);
 }
@@ -134,26 +134,26 @@ gammaincinv(double a, double p)
 }
 
 static int
-adapt_gammainc_inv(const double *in, double *out)
+scalar_gammainc_inv(const double *in, double *out)
 {
     out[0] = gammaincinv(in[0], in[1]);
     return 0;
 }
 
 static int
-adapt_hyperu_laplace(const double *in, double *out)
+scalar_hyperu_laplace(const double *in, double *out)
 {
     return tsd_hyperu_laplace(in[0], in[1], in[2], out, out + 1);
 }
 
 static int
-adapt_hyp1f1_laplace(const double *in, double *out)
+scalar_hyp1f1_laplace(const double *in, double *out)
 {
     return tsd_hyp1f1_laplace(in[0], in[1], in[2], out);
 }
 
 static int
-adapt_hyp2f1_laplace(const double *in, double *out)
+scalar_hyp2f1_laplace(const double *in, double *out)
 {
     return tsd_hyp2f1_laplace(in[0], in[1], in[2], in[3], out);
 }
@@ -161,60 +161,60 @@ adapt_hyp2f1_laplace(const double *in, double *out)
 /* approx: helpers */
 
 static int
-adapt_approximate_log_moments(const double *in, double *out)
+scalar_approximate_log_moments(const double *in, double *out)
 {
     return tsd_approximate_log_moments(in[0], in[1], out, out + 1, out + 2);
 }
 
 static int
-adapt_approximate_gamma_kl(const double *in, double *out)
+scalar_approximate_gamma_kl(const double *in, double *out)
 {
     return tsd_approximate_gamma_kl(in[0], in[1], out);
 }
 
 static int
-adapt_approximate_gamma_mom(const double *in, double *out)
+scalar_approximate_gamma_mom(const double *in, double *out)
 {
     return tsd_approximate_gamma_mom(in[0], in[1], out);
 }
 
 static int
-adapt_approximate_gamma_iqr(const double *in, double *out)
+scalar_approximate_gamma_iqr(const double *in, double *out)
 {
     return tsd_approximate_gamma_iqr(
         in[0], in[1], in[2], in[3], in[4], gammaincinv, out);
 }
 
 static int
-adapt_valid_moments(const double *in, double *out)
+scalar_valid_moments(const double *in, double *out)
 {
     out[0] = tsd_valid_moments(in[0], in[1]);
     return 0;
 }
 
 static int
-adapt_valid_gamma(const double *in, double *out)
+scalar_valid_gamma(const double *in, double *out)
 {
     out[0] = tsd_valid_gamma(in[0], in[1]);
     return 0;
 }
 
 static int
-adapt_valid_hyp1f1(const double *in, double *out)
+scalar_valid_hyp1f1(const double *in, double *out)
 {
     out[0] = tsd_valid_hyp1f1(in[0], in[1], in[2]);
     return 0;
 }
 
 static int
-adapt_valid_hyperu(const double *in, double *out)
+scalar_valid_hyperu(const double *in, double *out)
 {
     out[0] = tsd_valid_hyperu(in[0], in[1], in[2]);
     return 0;
 }
 
 static int
-adapt_valid_hyp2f1(const double *in, double *out)
+scalar_valid_hyp2f1(const double *in, double *out)
 {
     out[0] = tsd_valid_hyp2f1(in[0], in[1], in[2], in[3]);
     return 0;
@@ -229,41 +229,41 @@ adapt_valid_hyp2f1(const double *in, double *out)
 
 /* approx: node moments */
 static int
-adapt_moments(const double *in, double *out)
+scalar_moments(const double *in, double *out)
 {
     return tsd_moments(in[0], in[1], in[2], in[3], in[4], in[5], out, out + 1, out + 2,
         out + 3, out + 4);
 }
 
 static int
-adapt_rootward_moments(const double *in, double *out)
+scalar_rootward_moments(const double *in, double *out)
 {
     return tsd_rootward_moments(
         in[0], in[1], in[2], in[3], in[4], out, out + 1, out + 2);
 }
 
 static int
-adapt_leafward_moments(const double *in, double *out)
+scalar_leafward_moments(const double *in, double *out)
 {
     return tsd_leafward_moments(
         in[0], in[1], in[2], in[3], in[4], out, out + 1, out + 2);
 }
 
 static int
-adapt_unphased_moments(const double *in, double *out)
+scalar_unphased_moments(const double *in, double *out)
 {
     return tsd_unphased_moments(in[0], in[1], in[2], in[3], in[4], in[5], out, out + 1,
         out + 2, out + 3, out + 4);
 }
 
 static int
-adapt_twin_moments(const double *in, double *out)
+scalar_twin_moments(const double *in, double *out)
 {
     return tsd_twin_moments(in[0], in[1], in[2], in[3], out, out + 1, out + 2);
 }
 
 static int
-adapt_sideways_moments(const double *in, double *out)
+scalar_sideways_moments(const double *in, double *out)
 {
     return tsd_sideways_moments(
         in[0], in[1], in[2], in[3], in[4], out, out + 1, out + 2);
@@ -271,152 +271,152 @@ adapt_sideways_moments(const double *in, double *out)
 
 /* approx: node projections */
 static int
-adapt_gamma_projection(const double *in, double *out)
+scalar_gamma_projection(const double *in, double *out)
 {
     return tsd_gamma_projection(in, in + 2, in + 4, out, out + 1, out + 3);
 }
 
 static int
-adapt_leafward_projection(const double *in, double *out)
+scalar_leafward_projection(const double *in, double *out)
 {
     return tsd_leafward_projection(in[0], in + 1, in + 3, out, out + 1);
 }
 
 static int
-adapt_rootward_projection(const double *in, double *out)
+scalar_rootward_projection(const double *in, double *out)
 {
     return tsd_rootward_projection(in[0], in + 1, in + 3, out, out + 1);
 }
 
 static int
-adapt_unphased_projection(const double *in, double *out)
+scalar_unphased_projection(const double *in, double *out)
 {
     return tsd_unphased_projection(in, in + 2, in + 4, out, out + 1, out + 3);
 }
 
 static int
-adapt_twin_projection(const double *in, double *out)
+scalar_twin_projection(const double *in, double *out)
 {
     return tsd_twin_projection(in, in + 2, out, out + 1);
 }
 
 static int
-adapt_sideways_projection(const double *in, double *out)
+scalar_sideways_projection(const double *in, double *out)
 {
     return tsd_sideways_projection(in[0], in + 1, in + 3, out, out + 1);
 }
 
 /* approx: mutation moments */
 static int
-adapt_mutation_moments(const double *in, double *out)
+scalar_mutation_moments(const double *in, double *out)
 {
     return tsd_mutation_moments(in[0], in[1], in[2], in[3], in[4], in[5], out, out + 1);
 }
 
 static int
-adapt_mutation_rootward_moments(const double *in, double *out)
+scalar_mutation_rootward_moments(const double *in, double *out)
 {
     return tsd_mutation_rootward_moments(
         in[0], in[1], in[2], in[3], in[4], out, out + 1);
 }
 
 static int
-adapt_mutation_leafward_moments(const double *in, double *out)
+scalar_mutation_leafward_moments(const double *in, double *out)
 {
     return tsd_mutation_leafward_moments(
         in[0], in[1], in[2], in[3], in[4], out, out + 1);
 }
 
 static int
-adapt_mutation_unphased_moments(const double *in, double *out)
+scalar_mutation_unphased_moments(const double *in, double *out)
 {
     return tsd_mutation_unphased_moments(
         in[0], in[1], in[2], in[3], in[4], in[5], out, out + 1, out + 2);
 }
 
 static int
-adapt_mutation_twin_moments(const double *in, double *out)
+scalar_mutation_twin_moments(const double *in, double *out)
 {
     return tsd_mutation_twin_moments(in[0], in[1], in[2], in[3], out, out + 1, out + 2);
 }
 
 static int
-adapt_mutation_sideways_moments(const double *in, double *out)
+scalar_mutation_sideways_moments(const double *in, double *out)
 {
     return tsd_mutation_sideways_moments(
         in[0], in[1], in[2], in[3], in[4], out, out + 1, out + 2);
 }
 
 static int
-adapt_mutation_edge_moments(const double *in, double *out)
+scalar_mutation_edge_moments(const double *in, double *out)
 {
     return tsd_mutation_edge_moments(in[0], in[1], out, out + 1);
 }
 
 static int
-adapt_mutation_block_moments(const double *in, double *out)
+scalar_mutation_block_moments(const double *in, double *out)
 {
     return tsd_mutation_block_moments(in[0], in[1], out, out + 1, out + 2);
 }
 
 /* approx: mutation projections */
 static int
-adapt_mutation_gamma_projection(const double *in, double *out)
+scalar_mutation_gamma_projection(const double *in, double *out)
 {
     return tsd_mutation_gamma_projection(in, in + 2, in + 4, out, out + 1);
 }
 
 static int
-adapt_mutation_leafward_projection(const double *in, double *out)
+scalar_mutation_leafward_projection(const double *in, double *out)
 {
     return tsd_mutation_leafward_projection(in[0], in + 1, in + 3, out, out + 1);
 }
 
 static int
-adapt_mutation_rootward_projection(const double *in, double *out)
+scalar_mutation_rootward_projection(const double *in, double *out)
 {
     return tsd_mutation_rootward_projection(in[0], in + 1, in + 3, out, out + 1);
 }
 
 static int
-adapt_mutation_edge_projection(const double *in, double *out)
+scalar_mutation_edge_projection(const double *in, double *out)
 {
     return tsd_mutation_edge_projection(in[0], in[1], out, out + 1);
 }
 
 static int
-adapt_mutation_unphased_projection(const double *in, double *out)
+scalar_mutation_unphased_projection(const double *in, double *out)
 {
     return tsd_mutation_unphased_projection(in, in + 2, in + 4, out, out + 1);
 }
 
 static int
-adapt_mutation_twin_projection(const double *in, double *out)
+scalar_mutation_twin_projection(const double *in, double *out)
 {
     return tsd_mutation_twin_projection(in, in + 2, out, out + 1);
 }
 
 static int
-adapt_mutation_sideways_projection(const double *in, double *out)
+scalar_mutation_sideways_projection(const double *in, double *out)
 {
     return tsd_mutation_sideways_projection(in[0], in + 1, in + 3, out, out + 1);
 }
 
 static int
-adapt_mutation_block_projection(const double *in, double *out)
+scalar_mutation_block_projection(const double *in, double *out)
 {
     return tsd_mutation_block_projection(in[0], in[1], out, out + 1);
 }
 
 /* variational: x and y are the natural parameters of two gammas, in `in` */
 static int
-adapt_damp(const double *in, double *out)
+scalar_damp(const double *in, double *out)
 {
     return tsd_damp(in, in + 2, in[4], out);
 }
 
 static int
-adapt_rescale(const double *in, double *out)
+scalar_rescale(const double *in, double *out)
 {
     return tsd_rescale(in, in[2], out);
 }
@@ -424,59 +424,59 @@ adapt_rescale(const double *in, double *out)
 /* clang-format off */
 static const scalar_function_t scalar_functions[] = {
     /* hypergeo */
-    { "digamma", 1, 1, adapt_digamma },
-    { "trigamma", 1, 1, adapt_trigamma },
-    { "betaln", 2, 1, adapt_betaln },
-    { "gammainc_der", 2, 1, adapt_gammainc_der },
-    { "gammainc_inv", 2, 1, adapt_gammainc_inv },
-    { "hyperu_laplace", 3, 2, adapt_hyperu_laplace },
-    { "hyp1f1_laplace", 3, 1, adapt_hyp1f1_laplace },
-    { "hyp2f1_laplace", 4, 1, adapt_hyp2f1_laplace },
+    { "digamma", 1, 1, scalar_digamma },
+    { "trigamma", 1, 1, scalar_trigamma },
+    { "betaln", 2, 1, scalar_betaln },
+    { "gammainc_der", 2, 1, scalar_gammainc_der },
+    { "gammainc_inv", 2, 1, scalar_gammainc_inv },
+    { "hyperu_laplace", 3, 2, scalar_hyperu_laplace },
+    { "hyp1f1_laplace", 3, 1, scalar_hyp1f1_laplace },
+    { "hyp2f1_laplace", 4, 1, scalar_hyp2f1_laplace },
     /* approx: helpers */
-    { "approximate_log_moments", 2, 3, adapt_approximate_log_moments },
-    { "approximate_gamma_kl", 2, 2, adapt_approximate_gamma_kl },
-    { "approximate_gamma_mom", 2, 2, adapt_approximate_gamma_mom },
-    { "approximate_gamma_iqr", 5, 2, adapt_approximate_gamma_iqr },
-    { "valid_moments", 2, 1, adapt_valid_moments },
-    { "valid_gamma", 2, 1, adapt_valid_gamma },
-    { "valid_hyp1f1", 3, 1, adapt_valid_hyp1f1 },
-    { "valid_hyperu", 3, 1, adapt_valid_hyperu },
-    { "valid_hyp2f1", 4, 1, adapt_valid_hyp2f1 },
+    { "approximate_log_moments", 2, 3, scalar_approximate_log_moments },
+    { "approximate_gamma_kl", 2, 2, scalar_approximate_gamma_kl },
+    { "approximate_gamma_mom", 2, 2, scalar_approximate_gamma_mom },
+    { "approximate_gamma_iqr", 5, 2, scalar_approximate_gamma_iqr },
+    { "valid_moments", 2, 1, scalar_valid_moments },
+    { "valid_gamma", 2, 1, scalar_valid_gamma },
+    { "valid_hyp1f1", 3, 1, scalar_valid_hyp1f1 },
+    { "valid_hyperu", 3, 1, scalar_valid_hyperu },
+    { "valid_hyp2f1", 4, 1, scalar_valid_hyp2f1 },
     /* approx: node moments */
-    { "moments", 6, 5, adapt_moments },
-    { "rootward_moments", 5, 3, adapt_rootward_moments },
-    { "leafward_moments", 5, 3, adapt_leafward_moments },
-    { "unphased_moments", 6, 5, adapt_unphased_moments },
-    { "twin_moments", 4, 3, adapt_twin_moments },
-    { "sideways_moments", 5, 3, adapt_sideways_moments },
+    { "moments", 6, 5, scalar_moments },
+    { "rootward_moments", 5, 3, scalar_rootward_moments },
+    { "leafward_moments", 5, 3, scalar_leafward_moments },
+    { "unphased_moments", 6, 5, scalar_unphased_moments },
+    { "twin_moments", 4, 3, scalar_twin_moments },
+    { "sideways_moments", 5, 3, scalar_sideways_moments },
     /* approx: node projections */
-    { "gamma_projection", 6, 5, adapt_gamma_projection },
-    { "leafward_projection", 5, 3, adapt_leafward_projection },
-    { "rootward_projection", 5, 3, adapt_rootward_projection },
-    { "unphased_projection", 6, 5, adapt_unphased_projection },
-    { "twin_projection", 4, 3, adapt_twin_projection },
-    { "sideways_projection", 5, 3, adapt_sideways_projection },
+    { "gamma_projection", 6, 5, scalar_gamma_projection },
+    { "leafward_projection", 5, 3, scalar_leafward_projection },
+    { "rootward_projection", 5, 3, scalar_rootward_projection },
+    { "unphased_projection", 6, 5, scalar_unphased_projection },
+    { "twin_projection", 4, 3, scalar_twin_projection },
+    { "sideways_projection", 5, 3, scalar_sideways_projection },
     /* approx: mutation moments */
-    { "mutation_moments", 6, 2, adapt_mutation_moments },
-    { "mutation_rootward_moments", 5, 2, adapt_mutation_rootward_moments },
-    { "mutation_leafward_moments", 5, 2, adapt_mutation_leafward_moments },
-    { "mutation_unphased_moments", 6, 3, adapt_mutation_unphased_moments },
-    { "mutation_twin_moments", 4, 3, adapt_mutation_twin_moments },
-    { "mutation_sideways_moments", 5, 3, adapt_mutation_sideways_moments },
-    { "mutation_edge_moments", 2, 2, adapt_mutation_edge_moments },
-    { "mutation_block_moments", 2, 3, adapt_mutation_block_moments },
+    { "mutation_moments", 6, 2, scalar_mutation_moments },
+    { "mutation_rootward_moments", 5, 2, scalar_mutation_rootward_moments },
+    { "mutation_leafward_moments", 5, 2, scalar_mutation_leafward_moments },
+    { "mutation_unphased_moments", 6, 3, scalar_mutation_unphased_moments },
+    { "mutation_twin_moments", 4, 3, scalar_mutation_twin_moments },
+    { "mutation_sideways_moments", 5, 3, scalar_mutation_sideways_moments },
+    { "mutation_edge_moments", 2, 2, scalar_mutation_edge_moments },
+    { "mutation_block_moments", 2, 3, scalar_mutation_block_moments },
     /* approx: mutation projections */
-    { "mutation_gamma_projection", 6, 3, adapt_mutation_gamma_projection },
-    { "mutation_leafward_projection", 5, 3, adapt_mutation_leafward_projection },
-    { "mutation_rootward_projection", 5, 3, adapt_mutation_rootward_projection },
-    { "mutation_edge_projection", 2, 3, adapt_mutation_edge_projection },
-    { "mutation_unphased_projection", 6, 3, adapt_mutation_unphased_projection },
-    { "mutation_twin_projection", 4, 3, adapt_mutation_twin_projection },
-    { "mutation_sideways_projection", 5, 3, adapt_mutation_sideways_projection },
-    { "mutation_block_projection", 2, 3, adapt_mutation_block_projection },
+    { "mutation_gamma_projection", 6, 3, scalar_mutation_gamma_projection },
+    { "mutation_leafward_projection", 5, 3, scalar_mutation_leafward_projection },
+    { "mutation_rootward_projection", 5, 3, scalar_mutation_rootward_projection },
+    { "mutation_edge_projection", 2, 3, scalar_mutation_edge_projection },
+    { "mutation_unphased_projection", 6, 3, scalar_mutation_unphased_projection },
+    { "mutation_twin_projection", 4, 3, scalar_mutation_twin_projection },
+    { "mutation_sideways_projection", 5, 3, scalar_mutation_sideways_projection },
+    { "mutation_block_projection", 2, 3, scalar_mutation_block_projection },
     /* variational: x0, x1, [y0, y1,] s */
-    { "damp", 5, 1, adapt_damp },
-    { "rescale", 3, 1, adapt_rescale },
+    { "damp", 5, 1, scalar_damp },
+    { "rescale", 3, 1, scalar_rescale },
 };
 /* clang-format on */
 
@@ -649,8 +649,8 @@ out:
 }
 
 /*
- * Phasing, utilities and prior: array-level functions. Each takes the arguments of the
- * numba function it replaces. Size checks that numba asserted raise ValueError.
+ * Phasing, utilities and prior: array-level functions. Each takes the arguments of its
+ * oracle in tests/oracle; array sizes and shapes are checked here and raise ValueError.
  */
 
 #define MAX_ARRAYS 10
@@ -1262,8 +1262,8 @@ out:
 }
 
 /*
- * Rescaling functions (lib/rescaling.c). The checks of array sizes and shapes that the
- * numba code made with assert are made here and raise ValueError.
+ * Rescaling functions (lib/rescaling.c). Array sizes and shapes are checked here and
+ * raise ValueError.
  */
 
 /* A one-dimensional array of tsd_id_t (int32), copied from `data`. */

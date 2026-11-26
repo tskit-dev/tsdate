@@ -23,7 +23,7 @@
  */
 
 /*
- * Utilities for the tree sequence tables, ported from tsdate/util.py (numba): splitting
+ * Utilities for the tree sequence tables: splitting
  * nodes that are disconnected along the sequence, relabelling mutations accordingly,
  * constraining node ages, and a test for unary nodes.
  */

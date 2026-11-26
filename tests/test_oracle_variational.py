@@ -1,5 +1,5 @@
 """
-Equivalence of each implementation of ``tsdate.variational`` with its oracle: the
+Equivalence of the C implementation of ``tsdate.variational`` with its oracle: the
 EP helpers (``EPFactors``, ``_damp``, ``_rescale``, ``_rescale_factors``,
 ``_check_valid_constraints``) and the passes ``propagate_likelihood``,
 ``propagate_prior`` and ``propagate_mutations``, plus whole sweeps.
@@ -7,8 +7,8 @@ EP helpers (``EPFactors``, ``_damp``, ``_rescale``, ``_rescale_factors``,
 Inputs are snapshots of real EP state (``oracle.ep_state``) on the session fixtures,
 with constraints edited to force branches, one-edge snapshots for each branch, and
 tables of boundary and failure cases. Expected values always come from the oracle.
-Where compiled code raises ``ZeroDivisionError`` and the oracle does not, the
-implementation alone is checked (the C port reports an error code there).
+Where the C library reports a division by zero and the oracle does not raise, the
+implementation alone is checked.
 """
 
 from functools import partial
@@ -501,7 +501,7 @@ class TestPropagateLikelihood:
     )
     def test_invalid_parameters(self, impl, snaps, kwargs):
         # reachable from user input (`max_shape`, `min_step` of `iterate`/`infer`):
-        # parameter errors in the C port, not internal asserts
+        # parameter errors in the C library, not internal asserts
         snap = snaps["small_ts"]
         order = snap.edge_order[:10]
         assert_run_kind(

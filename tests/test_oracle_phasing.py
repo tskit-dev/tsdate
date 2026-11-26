@@ -1,5 +1,5 @@
 """
-Parity of the jitted functions in ``tsdate.phasing`` with their oracles: random
+Parity of the phasing functions of ``_tsdate`` with their oracles: random
 inputs built as in ``ExpectationPropagation``, degenerate inputs, and every
 ``assert``.
 """

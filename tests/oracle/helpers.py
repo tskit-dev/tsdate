@@ -78,7 +78,7 @@ def log_uniform(rng, lo, hi, size=None):
     return float(x) if size is None else x
 
 
-# Exceptions of the oracle (and numba) that the C library reports as a LibraryError.
+# Exceptions of the oracle that the C library reports as a LibraryError.
 _LIBRARY_ERROR_NAMES = (
     "ZeroDivisionError",
     "AssertionError",
@@ -89,10 +89,10 @@ _LIBRARY_ERROR_NAMES = (
 
 def expected_error(exc_type):
     """
-    The exceptions an implementation may raise where numba raises ``exc_type``
+    The exceptions an implementation may raise where the oracle raises ``exc_type``
     (``ZeroDivisionError``, ``AssertionError``, ...), for ``pytest.raises``. The C
     library reports these as ``_tsdate.LibraryError``, and its argument checks raise
-    ``ValueError`` where numba asserts on array shapes and sizes.
+    ``ValueError`` where the oracle asserts on array shapes and sizes.
     """
     allowed = (exc_type,)
     if LibraryError is not None and exc_type.__name__ in _LIBRARY_ERROR_NAMES:
@@ -127,7 +127,7 @@ def _copy_arg(x):
     if isinstance(x, np.ndarray):
         return x.copy()
     if isinstance(x, np.floating):
-        # numba treats scalars as Python floats (division by zero raises)
+        # the oracles expect Python floats (division by zero raises)
         return float(x)
     return x
 
@@ -136,7 +136,7 @@ def outcome(func, *args, **kwargs):
     """
     Call ``func`` on copies of ``args`` and return an `Outcome`. NumPy floating
     scalars are converted to ``float``; NumPy warnings (which the oracle emits where
-    numba is silent) are suppressed.
+    C is silent) are suppressed.
     """
     copies = [_copy_arg(x) for x in args]
     try:
@@ -150,14 +150,13 @@ def outcome(func, *args, **kwargs):
 def errors_match(actual, expected, check_message=True):
     """
     Whether exception ``actual`` (from an implementation) matches ``expected`` (from
-    the oracle): the same type and, if ``check_message``, the same message. The
-    message of a ``ZeroDivisionError`` comes from the runtime, not from tsdate (numba
-    says "division by zero", Python "float division by zero"), so it is not compared.
-    A ``_tsdate.LibraryError`` (or, for an ``AssertionError``, a ``ValueError`` from
-    the module's shape checks) is accepted in place of the exceptions of
-    `expected_error`; its message is compared only with those of the tsdate-authored,
-    user-facing errors (``KLMinimizationFailedError`` and ``ValueError``), as the
-    messages of the others (assertions, divisions) are not part of the interface.
+    the oracle): the same type and, if ``check_message``, the same message (never for
+    a ``ZeroDivisionError``). A ``_tsdate.LibraryError`` (or, for an
+    ``AssertionError``, a ``ValueError`` from the module's shape checks) is accepted
+    in place of the exceptions of `expected_error`; its message is compared only with
+    those of the tsdate-authored, user-facing errors (``KLMinimizationFailedError``
+    and ``ValueError``), as the messages of the others (assertions, divisions) are not
+    part of the interface.
     """
     if not isinstance(actual, expected_error(type(expected))):
         return False

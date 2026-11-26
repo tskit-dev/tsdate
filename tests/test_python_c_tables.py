@@ -160,5 +160,5 @@ class TestPrior:
             _tsdate.conditional_coalescent_variance(num_tips)
 
     def test_variance_one_tip(self):
-        # numba reads out of bounds here; the result is unused
+        # the result is unused by tsdate
         assert _tsdate.conditional_coalescent_variance(1).tolist() == [0.0, 0.0]

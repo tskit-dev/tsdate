@@ -1,12 +1,12 @@
-"""Oracles for the jitted functions in ``tsdate.rescaling``."""
+"""Oracles for the rescaling functions (``lib/rescaling.c``)."""
 
 from math import inf
 
 import numpy as np
 import tskit
 
-# oracle: plain `math.log` raises on 0, where compiled numba gives -inf; numba's
-# np.sum accumulates sequentially, whereas numpy sums pairwise (`seq_sum`).
+# oracle: plain `math.log` raises on 0, where C gives -inf; C sums sequentially,
+# whereas numpy sums pairwise (`seq_sum`).
 from ._libm import log, seq_sum
 from .approx import approximate_gamma_iqr
 from .hypergeo import _gammainc_inv as gammainc_inv
@@ -347,16 +347,17 @@ def piecewise_scale_posterior(
     # reproject posteriors using inter-quantile range
     new_posteriors = np.full(posteriors.shape, np.nan)
     for i in np.flatnonzero(freed):
-        # oracle: in numba, a float division by zero raises `ZeroDivisionError`,
-        # where numpy scalars give inf. `approximate_gamma_iqr` divides by its `x1`
-        # argument (`x2 / x1`, or `... / x` in `upper_bound`) in every branch that
-        # doesn't raise earlier, so a zero lower quantile raises there.
+        # oracle: the library reports a float division by zero here (as
+        # `ZeroDivisionError` in the oracle), where numpy scalars give inf.
+        # `approximate_gamma_iqr` divides by its `x1` argument (`x2 / x1`, or `... / x`
+        # in `upper_bound`) in every branch that doesn't raise earlier, so a zero lower
+        # quantile raises there.
         if lower[i] == 0.0:
             raise ZeroDivisionError("division by zero")
         alpha, beta = approximate_gamma_iqr(
             quant_lower, quant_upper, lower[i], upper[i], max_shape
         )
-        if midpt[i] == 0.0:  # oracle: as above, numba raises
+        if midpt[i] == 0.0:  # oracle: as above
             raise ZeroDivisionError("division by zero")
         beta = (alpha + 1) / midpt[i]  # choose rate so as to keep mean
         new_posteriors[i] = alpha, beta

@@ -1,5 +1,5 @@
 """
-Parity of the jitted functions in ``tsdate.rescaling`` with their oracles: random
+Parity of the rescaling functions of ``_tsdate`` with their oracles: random
 inputs, inputs from ``ExpectationPropagation.rescale`` on simulated tree sequences,
 degenerate inputs, and every ``assert``/``raise``.
 """
@@ -695,7 +695,7 @@ POSTERIOR_CASES = [
         )
     ],
     # NOTE: current behaviour, possibly a bug: for a shape this close
-    # to -1 the lower quantile underflows to zero and numba raises ZeroDivisionError
+    # to -1 the lower quantile underflows to zero and the division by it is an error
     # (IEEE would give inf), rather than KLMinimizationFailedError
     *[
         pytest.param([row], {}, ZeroDivisionError, id=f"shape_near_minus_one_{i}")

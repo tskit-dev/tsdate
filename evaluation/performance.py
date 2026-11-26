@@ -2,8 +2,8 @@
 Time and memory of tsdate.variational_gamma. Each case runs in a fresh (spawned)
 process so that memory is not polluted by earlier cases. Memory is the increase in
 resident set size (RSS) during dating over the level just before it, sampled from
-the parent process (the process itself would be starved by jitted code holding the
-GIL). Writes results/performance.csv; use plot.py to make figures.
+the parent process (the process itself would be starved by C code holding the GIL).
+Writes results/performance.csv; use plot.py to make figures.
 
 Example:
   python evaluation/performance.py --sizes 10 50 100 500 1000 --lengths 1e6 1e7

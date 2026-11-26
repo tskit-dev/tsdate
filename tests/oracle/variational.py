@@ -1,4 +1,4 @@
-"""Oracles for the jitted functions in ``tsdate.variational``."""
+"""Oracles for the expectation propagation passes (``lib/variational.c``)."""
 
 import numpy as np
 import tskit
@@ -15,21 +15,16 @@ from tsdate.variational import (
 
 from . import approx
 
-# oracle: numba's np.mean accumulates sequentially, whereas numpy sums pairwise,
-# which differs in the last bits; `seq_mean` sums sequentially.
+# oracle: C sums sequentially, whereas numpy sums pairwise, which differs in the last
+# bits; `seq_mean` sums sequentially.
 from ._libm import seq_mean
 
 
-# oracle: the numba version is a `jitclass`; this is a plain class with the same
-# fields (arrays are created with the same dtypes) and constructor.
 class EPFactors:
     """
     Mutable state of the EP algorithm, that is the factors associated
     with each edge likelihood / block likelihood / prior factor, that
     together form the posterior.
-
-    Because of constraints on numba's AOT compilation of jitclass,
-    this is a dataclass (no intrinsic methods).
     """
 
     def __init__(

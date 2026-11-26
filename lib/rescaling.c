@@ -23,9 +23,9 @@
  */
 
 /*
- * Rescaling of time so that the mutation rate is constant, ported from
- * tsdate/rescaling.py (numba). Operation order and libm calls follow the numba code so
- * that results agree to the last bit or two.
+ * Rescaling of time so that the mutation rate is constant. Operation order and libm
+ * calls match the oracles in tests/oracle, which the tests compare to the last bit or
+ * two.
  *
  * Arrays whose size is not known beforehand are allocated with room for one more
  * element than needed, so that empty inputs still give valid pointers.
@@ -87,9 +87,8 @@ less_equal(double a, double key)
 
 /*
  * The first index in [min_idx, max_idx] at which the sorted array `a` exceeds `key`
- * (the search of np.searchsorted(a, key, "right"), which numba reproduces): the number
- * of entries less than or equal to `key` if the range contains it. As in numba, NaN is
- * greater than every number.
+ * (the search of np.searchsorted(a, key, "right")): the number of entries less than or
+ * equal to `key` if the range contains it. NaN is greater than every number.
  */
 static tsd_size_t
 bisect_right(const double *a, double key, tsd_size_t min_idx, tsd_size_t max_idx)
@@ -194,8 +193,8 @@ tsd_fixed_changepoints(tsd_size_t num_counts, const double *counts, int64_t epoc
         cumulative[j] = cumulative[j] / total;
     }
     /*
-     * Equally spaced quantiles, as np.linspace(0, 1, epochs + 1), searched for as
-     * numba does: the quantiles increase, so each search starts from the last result.
+     * Equally spaced quantiles, as np.linspace(0, 1, epochs + 1). The quantiles
+     * increase, so each search starts from the last result.
      */
     step = 1.0 / (double) epochs;
     last_z = 0.0;
@@ -770,7 +769,7 @@ tsd_piecewise_scale_point_estimate(tsd_size_t num_points, const double *point_es
         x = point_estimate[j];
         idx = (int64_t) searchsorted_right(num_breaks, original_breaks, x) - 1;
         if (idx < 0) {
-            /* as in numba, a time before the first breakpoint wraps to the last */
+            /* a time before the first breakpoint wraps to the last */
             idx += (int64_t) num_breaks;
         }
         rescaled[j] = rescale_piece(
@@ -836,7 +835,7 @@ tsd_piecewise_scale_posterior(tsd_size_t num_posteriors, const double *posterior
         }
     }
     if (num_posteriors == 0) {
-        /* numba raises this from reducing an empty array: pinned by the tests */
+        /* no posterior to reduce */
         ret = tsd_trace_error(TSD_ERR_NO_POSTERIORS);
         goto out;
     }

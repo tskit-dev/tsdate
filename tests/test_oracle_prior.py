@@ -99,8 +99,7 @@ class TestSingleTip:
     def test_called_with_one_tip(self, monkeypatch):
         # NOTE: current behaviour, possibly a bug: a tree with one
         # attached sample (with `allow_unary`) calls
-        # `conditional_coalescent_variance(1)`, whose result is unused. That call is
-        # replaced here, because in numba it reads and writes out of bounds.
+        # `conditional_coalescent_variance(1)`, whose result is unused.
         tables = tskit.TableCollection(1000.0)
         for _ in range(3):
             tables.nodes.add_row(flags=tskit.NODE_IS_SAMPLE, time=0)
@@ -115,8 +114,6 @@ class TestSingleTip:
 
         def record(num_tips):
             called.append(int(num_tips))
-            if num_tips == 1:
-                return np.zeros(2)
             return original(num_tips)
 
         monkeypatch.setattr(tsdate_prior, "conditional_coalescent_variance", record)

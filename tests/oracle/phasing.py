@@ -1,4 +1,4 @@
-"""Oracles for the jitted functions in ``tsdate.phasing``."""
+"""Oracles for the phasing functions (``lib/phasing.c``)."""
 
 import numpy as np
 import tskit

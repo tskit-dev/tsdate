@@ -1,6 +1,6 @@
 """
 Plain-Python reference implementations ("oracles") of the functions of the C
-extension ``_tsdate``, made from the numba code that the extension replaced.
+extension ``_tsdate``.
 
 Each function has an oracle in the module of the same name here, e.g.
 ``oracle.approx.moments``. Equivalence tests compare the C implementation
@@ -8,9 +8,11 @@ Each function has an oracle in the module of the same name here, e.g.
 
 Rules:
 
-* An oracle is the numba source with the decorators stripped. Change the body only
-  where plain Python differs from compiled numba (e.g. division by zero raising
-  instead of giving inf/nan, numpy scalar semantics), and put a comment on each change.
+* An oracle is written as array code in plain Python with the operation order of the
+  C library. Where plain Python semantics differ from C (e.g. division by zero
+  raising instead of giving inf/nan, numpy scalar semantics), a comment marks the
+  line that compensates.
 * Oracles call other oracles, never the C implementation.
-* Names and signatures match the numba functions they were made from.
+* Names and signatures are those of ``tsdate``'s functions of the same names, where
+  they exist.
 """

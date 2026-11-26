@@ -41,9 +41,9 @@ typedef uint64_t tsd_size_t;
 /*
  * Scalar special functions (hypergeo.c). Functions that can fail return 0 or a
  * negative TSD_ERR_* code and write their results to the trailing output pointers;
- * those that cannot fail return the result. As in the numba code they replace, NaN
- * and infinite results are in-band (not errors): only violated domain assertions
- * (TSD_ERR_INVALID_HYPERGEO) and divisions by zero (TSD_ERR_ZERO_DIVISION) fail.
+ * those that cannot fail return the result. NaN and infinite results are in-band (not
+ * errors): only violated domain assertions (TSD_ERR_INVALID_HYPERGEO) and divisions by
+ * zero (TSD_ERR_ZERO_DIVISION) fail.
  */
 int tsd_digamma(double x, double *out);
 int tsd_trigamma(double x, double *out);
@@ -56,7 +56,7 @@ int tsd_hyp2f1_laplace(double a, double b, double c, double x, double *out);
 /*
  * The inverse of the regularised lower incomplete gamma function, x such that
  * gammainc(a, x) = p, is not implemented in the library: SciPy's gammaincinv is
- * called, as the numba code did. The caller (the Python module) supplies it, and
+ * called. The caller (the Python module) supplies it, and
  * library functions that need it (the approx and rescaling functions) take a
  * parameter of this type, so that the library has no global state and no dependency
  * on SciPy. The function returns NaN, 0 or infinity (not an error) for arguments
@@ -72,32 +72,31 @@ typedef double (*tsd_gammaincinv_fn)(double a, double p);
  * proportional to t^(a - 1) exp(-b t), or as "natural parameters" (a - 1, b); the
  * latter are what the gamma_* approximation functions and the projections return and
  * take. Errors are as for the special functions above, plus the TSD_ERR_* codes of
- * the approximations whose messages are those of numba's KLMinimizationFailedError.
+ * the approximations.
  *
  * Convention for the moment and projection functions (sections of approx.c):
  *
  *  - A function that can fail returns int: 0 or a negative TSD_ERR_* code. Results
  *    are written through trailing output pointers, which are written only on
  *    success (return 0) and must not alias the inputs.
- *  - Moment functions take, in the order of the numba arguments, ages (`t_i`, `t_j`:
+ *  - Moment functions take, in the order of the oracles' arguments, ages (`t_i`, `t_j`:
  *    a fixed parent or child) and gamma SHAPE and rate (`a_i`, `b_i`, `a_j`, `b_j`:
  *    not natural parameters), the mutation count `y_ij` and the rate `mu_ij`. They
- *    write the values that numba returns, in the same order: the log normalising
+ *    write the values that the oracles return, in the same order: the log normalising
  *    constant (`logl`) or the phase probability (`pr_m`), then means and variances.
- *    A result that numba returns as NaN (an invalid hypergeometric domain) is
- *    returned as NaN in every output, with return value 0.
+ *    An invalid hypergeometric domain gives NaN in every output, with return value 0.
  *  - Projection functions take the natural parameters of the cavity gammas as
  *    `const double pars_i[2]`, `pars_j[2]` and the edge data as `pars_ij[2]`
  *    (`y_ij`, `mu_ij`), or ages as in the moment functions. They write the log
  *    normalising constant (`*logl`, or `*pr_m` for mutation projections) and the
  *    projected natural parameters through `double proj_i[2]`, `proj_j[2]` (or
- *    `proj_m[2]`). Where numba returns the input parameters because the moments are
- *    unusable, `*logl` is NaN and `proj_*` is a copy of `pars_*`; mutation
- *    projections write NaN to `*pr_m` and to both entries of `proj_m`.
- *  - Functions of the gamma approximations that numba returns as a pair of natural
- *    parameters write them through `double out[2]`.
+ *    `proj_m[2]`). Where the moments are unusable, `*logl` is NaN and `proj_*` is
+ *    a copy of `pars_*`; mutation projections write NaN to `*pr_m` and to both
+ *    entries of `proj_m`.
+ *  - Functions of the gamma approximations that give a pair of natural parameters
+ *    write them through `double out[2]`.
  *  - The `tsd_valid_*` predicates return 1 if the arguments are usable and 0 if not;
- *    a failure is in-band (numba returned False), not an error.
+ *    a failure is in-band, not an error.
  */
 int tsd_approximate_log_moments(
     double mean, double variance, double *logx, double *xlogx, double *logx2);
@@ -239,8 +238,8 @@ int tsd_conditional_coalescent_variance(tsd_size_t num_tips, double *variance);
  * row-major with two columns per edge (mutation count, mutational span). The
  * functions that return arrays whose size is not known beforehand allocate them
  * with malloc, and the caller frees them (tsd_safe_free, tsd_epoch_stats_free).
- * Array sizes are the caller's responsibility (tsd_bug_assert); the numerical
- * preconditions that numba asserted are reported as errors.
+ * Array sizes are the caller's responsibility (tsd_bug_assert); violated numerical
+ * preconditions are reported as errors.
  */
 
 /* Per-epoch results of tsd_mutational_area; every array has `num_epochs` entries. */
@@ -296,8 +295,8 @@ int tsd_piecewise_scale_posterior(tsd_size_t num_posteriors, const double *poste
  * edge (block), the factor to the parent (first block node) and to the child
  * (second), each of two natural parameters; for each node, the mixture prior and the
  * constraint. Array sizes are the caller's responsibility (tsd_bug_assert); errors are
- * those of the numerical preconditions that numba asserted (parameters, improper
- * posteriors), and of the projections.
+ * violated numerical preconditions (parameters, improper posteriors) and those of the
+ * projections.
  */
 typedef struct {
     tsd_size_t num_nodes;
