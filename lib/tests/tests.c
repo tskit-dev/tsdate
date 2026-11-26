@@ -313,9 +313,8 @@ test_hyp2f1_laplace_errors(void)
 }
 
 /*
- * A placeholder for the gamma quantile function that ignores the shape. Quantiles
- * x1, x2 in the ratio q2 / q1 match it for any shape, so that the Newton iteration of
- * the interquantile fit stops after one step; other ratios fail.
+ * The library takes gammaincinv as a parameter (the Python module passes SciPy's).
+ * These tests check return codes only, so a placeholder that ignores the shape will do.
  */
 static double
 test_gammaincinv(double a, double p)
