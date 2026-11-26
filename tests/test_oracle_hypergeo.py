@@ -261,6 +261,14 @@ GAMMAINC_INV_EDGES = [
     # derivatives overflows, in the complemented inversion
     (0.0018725572425875394, 0.93432222410629528),
     (1.4851015014453666e-07, 0.99989259056538193),
+    # a subnormal shape: cephes log1p in log1pmx (complemented inversion), and a NaN
+    # Halley iterate reaching igam
+    (9.9999999999999694e-311, 0.95988221384026817),
+    (9.9999999999999694e-311, 0.56112084484672486),
+    # the Taylor series of lgam1p at zero
+    (1.0, 0.64358723829337949),
+    # erfc of a negative argument in the asymptotic series
+    (1.3693230946091463e32, 0.84677972577643534),
 ]
 
 
