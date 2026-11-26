@@ -1,7 +1,6 @@
 import msprime
 import numpy as np
 import pytest
-from oracle.implementations import C
 
 
 def pytest_addoption(parser):
@@ -35,14 +34,6 @@ def pytest_configure(config):
     config.addinivalue_line(
         "markers", "makefiles: mark test to run only when --make-files option given"
     )
-
-
-@pytest.fixture(scope="session")
-def impl():
-    """
-    The C implementation, with the signatures of the oracles.
-    """
-    return C
 
 
 @pytest.fixture

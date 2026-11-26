@@ -3,6 +3,7 @@ Parity of ``_marginalize_over_ancestors`` and ``conditional_coalescent_variance`
 with their oracles, and a pin of how ``tsdate`` calls the latter with a single tip.
 """
 
+import _tsdate
 import numpy as np
 import pytest
 import tskit
@@ -42,55 +43,55 @@ MARGINALIZE_EDGE_CASES = [
 class TestMarginalizeOverAncestors:
     @pytest.mark.parametrize("num_tips", [2, 3, 10, 60, 200])
     @pytest.mark.parametrize("seed", range(2))
-    def test_random(self, impl, seed, num_tips):
+    def test_random(self, seed, num_tips):
         rng = np.random.default_rng(seed)
         val = rng.uniform(0.1, 10.0, (num_tips, 2))
         result = compare(
-            impl.prior._marginalize_over_ancestors,
+            _tsdate.marginalize_over_ancestors,
             prior._marginalize_over_ancestors,
             val,
         )
         assert result.value.shape == (num_tips + 1, 2)
 
     @pytest.mark.parametrize("num_columns", [1, 3])
-    def test_number_of_moments(self, impl, num_columns):
+    def test_number_of_moments(self, num_columns):
         val = np.random.default_rng(0).uniform(0.1, 10.0, (12, num_columns))
         compare(
-            impl.prior._marginalize_over_ancestors,
+            _tsdate.marginalize_over_ancestors,
             prior._marginalize_over_ancestors,
             val,
         )
 
     @pytest.mark.parametrize("num_tips", [3, 10, 100])
-    def test_coalescent_moments(self, impl, num_tips):
+    def test_coalescent_moments(self, num_tips):
         compare(
-            impl.prior._marginalize_over_ancestors,
+            _tsdate.marginalize_over_ancestors,
             prior._marginalize_over_ancestors,
             coalescent_moments(num_tips),
         )
 
     @pytest.mark.parametrize(("val", "expected_kind"), MARGINALIZE_EDGE_CASES)
-    def test_edge_cases(self, impl, val, expected_kind):
+    def test_edge_cases(self, val, expected_kind):
         assert_outcome(
-            impl.prior._marginalize_over_ancestors,
+            _tsdate.marginalize_over_ancestors,
             prior._marginalize_over_ancestors,
             (val,),
             expected_kind,
         )
 
-    def test_input_not_modified(self, impl):
+    def test_input_not_modified(self):
         # `compare` passes copies, so call directly
         val = np.random.default_rng(0).uniform(0.1, 10.0, (8, 2))
         copy = val.copy()
-        impl.prior._marginalize_over_ancestors(val)
+        _tsdate.marginalize_over_ancestors(val)
         assert np.array_equal(val, copy)
 
 
 class TestConditionalCoalescentVariance:
     @pytest.mark.parametrize("num_tips", [2, 3, 5, 20, 100, 250])
-    def test_variance(self, impl, num_tips):
+    def test_variance(self, num_tips):
         result = compare(
-            impl.prior.conditional_coalescent_variance,
+            _tsdate.conditional_coalescent_variance,
             prior.conditional_coalescent_variance,
             num_tips,
         )

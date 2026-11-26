@@ -3,6 +3,7 @@ Parity of the tree sequence utilities of ``_tsdate`` with their oracles: simulat
 sequences, degenerate inputs, and every ``assert``.
 """
 
+import _tsdate
 import numpy as np
 import pytest
 import tskit
@@ -64,24 +65,24 @@ SPLIT_CASES = [
 
 class TestSplitDisjointNodes:
     @staticmethod
-    def compare(impl, *args):
-        return compare(impl.util._split_disjoint_nodes, util._split_disjoint_nodes, *args)
+    def compare(*args):
+        return compare(_tsdate.split_disjoint_nodes, util._split_disjoint_nodes, *args)
 
     @pytest.mark.parametrize(
         ("parent", "child", "left", "right", "excluded", "expected"), SPLIT_CASES
     )
-    def test_edge_cases(self, impl, parent, child, left, right, excluded, expected):
+    def test_edge_cases(self, parent, child, left, right, excluded, expected):
         args = (i32(*parent), i32(*child), f64(*left), f64(*right), b1(*excluded))
-        _, _, _, split_nodes = self.compare(impl, *args).value
+        _, _, _, split_nodes = self.compare(*args).value
         assert split_nodes.tolist() == expected
 
     @pytest.mark.parametrize(("index", "size"), [(1, 1), (2, 1), (3, 1)])
-    def test_size_mismatch(self, impl, index, size):
+    def test_size_mismatch(self, index, size):
         args = [i32(2, 2), i32(0, 1), f64(0, 0), f64(10, 10), b1(1, 1, 0)]
-        result = self.compare(impl, *shrink(args, index, size))
+        result = self.compare(*shrink(args, index, size))
         assert result.error is AssertionError
 
-    def test_simulated(self, impl, sim_ts):
+    def test_simulated(self, sim_ts):
         ts = sim_ts
         args = (
             ts.edges_parent,
@@ -90,9 +91,9 @@ class TestSplitDisjointNodes:
             ts.edges_right,
             sample_flags(ts),
         )
-        result = self.compare(impl, *args)
+        result = self.compare(*args)
         # also the dtypes, which `compare` ignores
-        actual = impl.util._split_disjoint_nodes(*args)
+        actual = _tsdate.split_disjoint_nodes(*args)
         assert all(a.dtype == e.dtype == np.int32 for a, e in zip(actual, result.value))
 
 
@@ -149,38 +150,38 @@ RELABEL_CASES = [
 
 class TestRelabelMutationsNode:
     @staticmethod
-    def compare(impl, args):
+    def compare(args):
         return compare(
-            impl.util._relabel_mutations_node, util._relabel_mutations_node, *args
+            _tsdate.relabel_mutations_node, util._relabel_mutations_node, *args
         )
 
     @pytest.mark.parametrize(
         ("nodes", "edges", "mutations", "length", "expected_error"), RELABEL_CASES
     )
-    def test_edge_cases(self, impl, nodes, edges, mutations, length, expected_error):
+    def test_edge_cases(self, nodes, edges, mutations, length, expected_error):
         ts = make_ts(nodes, edges, mutations, length)
-        result = self.compare(impl, relabel_args(ts))
+        result = self.compare(relabel_args(ts))
         assert result.error is expected_error
 
-    def test_mutations_on_split_nodes(self, impl):
+    def test_mutations_on_split_nodes(self):
         mutations = [(0.5, 0), (1, 2), (2, 3), (5, 0), (7, 2), (8, 3)]
         ts = make_ts(GAP_NODES, GAP_EDGES, mutations, 10.0)
-        result = self.compare(impl, relabel_args(ts))
+        result = self.compare(relabel_args(ts))
         # right-hand pieces of nodes 2 and 3 are the new nodes 4 and 5; the mutation
         # at 5 is in the gap, on the (unsplit) sample 0
         assert result.value.tolist() == [0, 2, 3, 0, 4, 5]
 
     @pytest.mark.parametrize(("index", "size"), [(4, 2), (7, 2), (1, 1)])
-    def test_size_mismatch(self, impl, index, size):
+    def test_size_mismatch(self, index, size):
         ts = make_ts(GAP_NODES, GAP_EDGES, [(1, 2), (7, 2)], 10.0)
-        result = self.compare(impl, shrink(relabel_args(ts), index, size))
+        result = self.compare(shrink(relabel_args(ts), index, size))
         assert result.error is AssertionError
 
-    def test_simulated(self, impl, sim_ts):
+    def test_simulated(self, sim_ts):
         args = relabel_args(sim_ts)
-        result = self.compare(impl, args)
+        result = self.compare(args)
         # also the dtype, which `compare` ignores
-        actual = impl.util._relabel_mutations_node(*args)
+        actual = _tsdate.relabel_mutations_node(*args)
         assert actual.dtype == result.value.dtype == np.int32
 
 
@@ -241,23 +242,23 @@ class TestConstrainAges:
         )
 
     @staticmethod
-    def compare(impl, args):
-        return compare(impl.util._constrain_ages, util._constrain_ages, *args)
+    def compare(args):
+        return compare(_tsdate.constrain_ages, util._constrain_ages, *args)
 
     @pytest.mark.parametrize("max_iterations", [0, 1, 1000])
     @pytest.mark.parametrize("epsilon", [0.0, 1e-6, 0.5])
-    def test_violation(self, impl, epsilon, max_iterations):
-        self.compare(impl, self.args(*VIOLATED, epsilon, max_iterations))
+    def test_violation(self, epsilon, max_iterations):
+        self.compare(self.args(*VIOLATED, epsilon, max_iterations))
 
     @pytest.mark.parametrize(
         ("times", "fixed", "parents", "children", "epsilon", "max_iterations", "kind"),
         CONSTRAIN_EDGE_CASES,
     )
     def test_edge_cases(
-        self, impl, times, fixed, parents, children, epsilon, max_iterations, kind
+        self, times, fixed, parents, children, epsilon, max_iterations, kind
     ):
         args = self.args(times, fixed, parents, children, epsilon, max_iterations)
-        assert_outcome(impl.util._constrain_ages, util._constrain_ages, args, kind)
+        assert_outcome(_tsdate.constrain_ages, util._constrain_ages, args, kind)
 
     @pytest.mark.parametrize(
         "args",
@@ -266,15 +267,15 @@ class TestConstrainAges:
             pytest.param(([0, 1], [1, 0], [1], [0, 0]), id="children"),
         ],
     )
-    def test_size_mismatch(self, impl, args):
-        result = self.compare(impl, self.args(*args, 0.1, 3))
+    def test_size_mismatch(self, args):
+        result = self.compare(self.args(*args, 0.1, 3))
         assert result.error is AssertionError
 
-    def test_input_not_modified(self, impl):
+    def test_input_not_modified(self):
         # `compare` passes copies, so call directly
         times = f64(*VIOLATED[0])
         copy = times.copy()
-        out = impl.util._constrain_ages(
+        out = _tsdate.constrain_ages(
             times, b1(*VIOLATED[1]), i32(2, 3), i32(0, 2), 1e-6, 5
         )
         assert np.array_equal(times, copy)
@@ -282,7 +283,7 @@ class TestConstrainAges:
 
     @pytest.mark.parametrize("mode", ["iterated", "forced"])
     @pytest.mark.parametrize("seed", range(2))
-    def test_simulated(self, impl, sim_ts, seed, mode):
+    def test_simulated(self, sim_ts, seed, mode):
         ts = sim_ts
         rng = np.random.default_rng(seed)
         fixed = sample_flags(ts)
@@ -300,7 +301,7 @@ class TestConstrainAges:
             epsilon,
             max_iterations,
         )
-        self.compare(impl, args)
+        self.compare(args)
 
 
 # nodes, edges, expected for (samples skipped, samples not skipped)
@@ -358,9 +359,9 @@ UNARY_CASES = [
 
 class TestContainsUnaryNodes:
     @staticmethod
-    def compare(impl, ts, mask):
+    def compare(ts, mask):
         return compare(
-            impl.util._contains_unary_nodes,
+            _tsdate.contains_unary_nodes,
             util._contains_unary_nodes,
             mask,
             ts.edges_parent,
@@ -380,23 +381,23 @@ class TestContainsUnaryNodes:
         return mask
 
     @pytest.mark.parametrize(("nodes", "edges", "skipped", "not_skipped"), UNARY_CASES)
-    def test_hand_built(self, impl, nodes, edges, skipped, not_skipped):
+    def test_hand_built(self, nodes, edges, skipped, not_skipped):
         ts = make_ts(nodes, edges, [], 10.0)
-        result = self.compare(impl, ts, self.mask(ts, True))
+        result = self.compare(ts, self.mask(ts, True))
         assert bool(result.value) is skipped
-        result = self.compare(impl, ts, self.mask(ts, False))
+        result = self.compare(ts, self.mask(ts, False))
         assert bool(result.value) is not_skipped
 
-    def test_all_nodes_masked(self, impl):
+    def test_all_nodes_masked(self):
         nodes = [(1, 0), (0, 1), (0, 2)]
         ts = make_ts(nodes, [(0, 10, 1, 0), (0, 10, 2, 1)], [], 10.0)
-        result = self.compare(impl, ts, np.full(ts.num_nodes, True))
+        result = self.compare(ts, np.full(ts.num_nodes, True))
         assert not result.value
 
     @pytest.mark.parametrize("skip_samples", [True, False])
     @pytest.mark.parametrize("keep", [None, 3, 20])
-    def test_simulated(self, impl, sim_ts, keep, skip_samples):
+    def test_simulated(self, sim_ts, keep, skip_samples):
         ts = sim_ts
         if keep is not None:
             ts = ts.simplify(ts.samples()[:keep], keep_unary=True)
-        self.compare(impl, ts, self.mask(ts, skip_samples))
+        self.compare(ts, self.mask(ts, skip_samples))

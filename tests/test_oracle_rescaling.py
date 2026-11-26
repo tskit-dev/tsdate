@@ -4,6 +4,7 @@ inputs, inputs from ``ExpectationPropagation.rescale`` on simulated tree sequenc
 degenerate inputs, and every ``assert``/``raise``.
 """
 
+import _tsdate
 import numpy as np
 import pytest
 from oracle import approx as oracle_approx
@@ -120,9 +121,9 @@ FIXED_CHANGEPOINT_CASES = [
 
 class TestFixedChangepoints:
     @staticmethod
-    def compare(impl, counts, epochs):
+    def compare(counts, epochs):
         return compare(
-            impl.rescaling._fixed_changepoints,
+            _tsdate.fixed_changepoints,
             rescaling._fixed_changepoints,
             np.asarray(counts, dtype=float),
             epochs,
@@ -131,9 +132,9 @@ class TestFixedChangepoints:
     @pytest.mark.parametrize(
         ("counts", "epochs", "expected_kind"), FIXED_CHANGEPOINT_CASES
     )
-    def test_edge_cases(self, impl, counts, epochs, expected_kind):
+    def test_edge_cases(self, counts, epochs, expected_kind):
         assert_outcome(
-            impl.rescaling._fixed_changepoints,
+            _tsdate.fixed_changepoints,
             rescaling._fixed_changepoints,
             (np.asarray(counts, dtype=float), epochs),
             expected_kind,
@@ -141,7 +142,7 @@ class TestFixedChangepoints:
 
     @pytest.mark.parametrize("mode", ["typical", "zeros"])
     @pytest.mark.parametrize("seed", range(3))
-    def test_random(self, impl, seed, mode):
+    def test_random(self, seed, mode):
         rng = np.random.default_rng(seed)
         size = int(rng.integers(3, 300))
         counts = rng.exponential(1.0, size)
@@ -150,9 +151,9 @@ class TestFixedChangepoints:
             counts *= rng.random(size) < 0.6
             counts[0] += 1.0
             epochs = int(rng.integers(1, 120))
-        result = self.compare(impl, counts, epochs)
+        result = self.compare(counts, epochs)
         # also the dtype, which `compare` ignores
-        actual = impl.rescaling._fixed_changepoints(counts, epochs)
+        actual = _tsdate.fixed_changepoints(counts, epochs)
         assert actual.dtype == result.value.dtype == np.int32
 
 
@@ -203,11 +204,11 @@ class TestPoissonChangepoints:
         POISSON_CASES,
     )
     def test_edge_cases(
-        self, impl, counts, offset, penalty, min_counts, min_offset, expected_kind
+        self, counts, offset, penalty, min_counts, min_offset, expected_kind
     ):
         args = (f64(*counts), f64(*offset), penalty, min_counts, min_offset)
         assert_outcome(
-            impl.rescaling._poisson_changepoints,
+            _tsdate.poisson_changepoints,
             rescaling._poisson_changepoints,
             args,
             expected_kind,
@@ -215,7 +216,7 @@ class TestPoissonChangepoints:
 
     @pytest.mark.parametrize("mode", ["typical", "extreme"])
     @pytest.mark.parametrize("seed", range(3))
-    def test_random(self, impl, seed, mode):
+    def test_random(self, seed, mode):
         rng = np.random.default_rng(seed)
         size = int(rng.integers(8, 45))
         if mode == "typical":
@@ -225,12 +226,12 @@ class TestPoissonChangepoints:
             counts, offset = piecewise_rates(rng, size, 4, (0.2, 3.0), (0.2, 30.0))
             args = (counts, offset, float(rng.choice([1.0, 50.0])), 10.0, 0.5)
         result = compare(
-            impl.rescaling._poisson_changepoints,
+            _tsdate.poisson_changepoints,
             rescaling._poisson_changepoints,
             *args,
         )
         # also the dtype, which `compare` ignores
-        actual = impl.rescaling._poisson_changepoints(*args)
+        actual = _tsdate.poisson_changepoints(*args)
         assert actual.dtype == result.value.dtype == np.int32
 
 
@@ -271,50 +272,50 @@ COUNT_CASES = [
 
 class TestCountMutations:
     @staticmethod
-    def compare(impl, args):
-        return compare(impl.rescaling._count_mutations, rescaling._count_mutations, *args)
+    def compare(args):
+        return compare(_tsdate.count_mutations, rescaling._count_mutations, *args)
 
     @pytest.mark.parametrize("size_biased", [False, True])
     @pytest.mark.parametrize(("nodes", "edges", "mutations", "length"), COUNT_CASES)
-    def test_edge_cases(self, impl, nodes, edges, mutations, length, size_biased):
+    def test_edge_cases(self, nodes, edges, mutations, length, size_biased):
         ts = make_ts(nodes, edges, mutations, length)
-        self.compare(impl, count_args(ts, size_biased))
+        self.compare(count_args(ts, size_biased))
 
-    def test_mutation_edges(self, impl):
+    def test_mutation_edges(self):
         # a mutation at a breakpoint belongs to the tree to its right; none above
         # the root; the edge id of a mutation is NULL if no edge covers it
         mutations = [(1, 0), (2, 0), (3, 1), (5, 2)]
         ts = make_ts(COUNT_NODES, COUNT_EDGES, mutations, 10.0)
-        _, mutation_edge = self.compare(impl, count_args(ts, False)).value
+        _, mutation_edge = self.compare(count_args(ts, False)).value
         assert mutation_edge.tolist() == [0, 0, 1, -1]
 
     @pytest.mark.parametrize("size_biased", [False, True])
-    def test_no_samples_flagged(self, impl, size_biased):
+    def test_no_samples_flagged(self, size_biased):
         ts = make_ts(COUNT_NODES, COUNT_EDGES, [(1, 0)], 10.0)
         none = np.full(ts.num_nodes, False)
-        self.compare(impl, count_args(ts, size_biased, node_is_sample=none))
+        self.compare(count_args(ts, size_biased, node_is_sample=none))
 
-    def test_unsorted_mutations(self, impl):
+    def test_unsorted_mutations(self):
         mutations = [(1, 0), (2, 1), (6, 0), (8, 1), (9, 2)]
         ts = make_ts(COUNT_NODES, BREAKPOINT, mutations, 10.0)
         args = count_args(ts, False)
         order = np.array([3, 0, 4, 1, 2])
         args[1], args[2] = args[1][order], args[2][order]
-        self.compare(impl, args)
+        self.compare(args)
 
     @pytest.mark.parametrize(("index", "size"), [(4, 1), (7, 1), (2, 1)])
-    def test_size_mismatch(self, impl, index, size):
+    def test_size_mismatch(self, index, size):
         ts = make_ts(COUNT_NODES, COUNT_EDGES, [(1, 0), (2, 1)], 10.0)
         args = shrink(count_args(ts, False), index, size)
-        result = self.compare(impl, args)
+        result = self.compare(args)
         assert result.error is AssertionError
 
     @pytest.mark.parametrize("size_biased", [False, True])
-    def test_simulated(self, impl, sim_ts, size_biased):
+    def test_simulated(self, sim_ts, size_biased):
         args = count_args(sim_ts, size_biased)
-        result = self.compare(impl, args)
+        result = self.compare(args)
         # also the dtype, which `compare` ignores
-        actual = impl.rescaling._count_mutations(*args)
+        actual = _tsdate.count_mutations(*args)
         assert actual[1].dtype == result.value[1].dtype == np.int32
 
 
@@ -378,35 +379,33 @@ AREA_CASES = [
 
 class TestMutationalArea:
     @staticmethod
-    def compare(impl, *args):
-        return compare(impl.rescaling.mutational_area, rescaling.mutational_area, *args)
+    def compare(*args):
+        return compare(_tsdate.mutational_area, rescaling.mutational_area, *args)
 
     @pytest.mark.parametrize(
         ("nodes_time", "likelihoods", "parents", "children", "expected_error"), AREA_CASES
     )
-    def test_edge_cases(
-        self, impl, nodes_time, likelihoods, parents, children, expected_error
-    ):
+    def test_edge_cases(self, nodes_time, likelihoods, parents, children, expected_error):
         args = area_args(nodes_time, likelihoods, parents, children)
-        result = self.compare(impl, *args)
+        result = self.compare(*args)
         assert result.error is expected_error
 
     @pytest.mark.parametrize("seed", range(2))
-    def test_random(self, impl, sim_ts, seed):
+    def test_random(self, sim_ts, seed):
         ts = sim_ts
         rng = np.random.default_rng(seed)
         times = ts.nodes_time * rng.uniform(0.8, 1.2, ts.num_nodes)
         times[ts.samples()] = ts.nodes_time[ts.samples()]
         likelihoods = rng.uniform(0, 5, (ts.num_edges, 2))
         args = (times, likelihoods, ts.edges_parent, ts.edges_child)
-        result = self.compare(impl, *args)
+        result = self.compare(*args)
         # also the dtype, which `compare` ignores
-        actual = impl.rescaling.mutational_area(*args)
+        actual = _tsdate.mutational_area(*args)
         assert actual[3].dtype == result.value[3].dtype == np.int32
 
-    def test_simulated(self, impl, ep):
+    def test_simulated(self, ep):
         nodes_time, likelihoods, _, parents, children = rescale_inputs(ep)
-        self.compare(impl, nodes_time, likelihoods, parents, children)
+        self.compare(nodes_time, likelihoods, parents, children)
 
 
 def timescale_args(nodes_time, likelihoods, nodes_fixed, parents, children, k):
@@ -505,28 +504,28 @@ TIMESCALE_CASES = [
 
 class TestMutationalTimescale:
     @staticmethod
-    def compare(impl, *args):
+    def compare(*args):
         return compare(
-            impl.rescaling.mutational_timescale, rescaling.mutational_timescale, *args
+            _tsdate.mutational_timescale, rescaling.mutational_timescale, *args
         )
 
     @pytest.mark.parametrize(("args", "expected"), TIMESCALE_CASES)
-    def test_edge_cases(self, impl, args, expected):
+    def test_edge_cases(self, args, expected):
         assert_outcome(
-            impl.rescaling.mutational_timescale,
+            _tsdate.mutational_timescale,
             rescaling.mutational_timescale,
             args,
             expected,
         )
 
-    def test_zero_edge_span_message(self, impl):
+    def test_zero_edge_span_message(self):
         # the message is compared as well as the type
         args = timescale_args([0, 0, 1.0], [[2, 0], [1, 0]], [1, 1, 0], [2, 2], [0, 1], 1)
-        result = self.compare(impl, *args)
+        result = self.compare(*args)
         assert "Zero edge span in interval" in str(result.exception)
 
     @pytest.mark.parametrize("which", ["fixed", "parents", "likelihood_rows", "columns"])
-    def test_size_mismatch(self, impl, which):
+    def test_size_mismatch(self, which):
         args = list(chain(2))
         if which == "fixed":
             args[2] = b1(1, 1)
@@ -536,12 +535,12 @@ class TestMutationalTimescale:
             args[1] = np.ones((2, 2))
         else:
             args[1] = np.ones((3, 3))
-        result = self.compare(impl, *args)
+        result = self.compare(*args)
         assert result.error is AssertionError
 
     @pytest.mark.parametrize("max_intervals", [3, 1000])
     @pytest.mark.parametrize("seed", range(2))
-    def test_random(self, impl, sim_ts, seed, max_intervals):
+    def test_random(self, sim_ts, seed, max_intervals):
         ts = sim_ts
         rng = np.random.default_rng(seed)
         times = ts.nodes_time * rng.uniform(0.9, 1.1, ts.num_nodes)
@@ -555,11 +554,11 @@ class TestMutationalTimescale:
         fixed = np.full(ts.num_nodes, False)
         fixed[ts.samples()] = True
         args = (times, likelihoods, fixed, ts.edges_parent, ts.edges_child, max_intervals)
-        self.compare(impl, *args)
+        self.compare(*args)
 
     @pytest.mark.parametrize("max_intervals", [1, 10, 1000])
-    def test_simulated(self, impl, ep, max_intervals):
-        self.compare(impl, *rescale_inputs(ep), max_intervals)
+    def test_simulated(self, ep, max_intervals):
+        self.compare(*rescale_inputs(ep), max_intervals)
 
 
 ORIGINAL = [0.0, 1.0, 3.0]
@@ -615,29 +614,29 @@ class TestPiecewiseScalePointEstimate:
         ("estimate", "fixed", "original", "rescaled", "expected_kind"),
         POINT_ESTIMATE_CASES,
     )
-    def test_edge_cases(self, impl, estimate, fixed, original, rescaled, expected_kind):
+    def test_edge_cases(self, estimate, fixed, original, rescaled, expected_kind):
         estimate = f64(*estimate)
         fixed = np.full(estimate.size, False) if fixed is None else b1(*fixed)
         args = (estimate, fixed, f64(*original), f64(*rescaled))
         assert_outcome(
-            impl.rescaling.piecewise_scale_point_estimate,
+            _tsdate.piecewise_scale_point_estimate,
             rescaling.piecewise_scale_point_estimate,
             args,
             expected_kind,
         )
 
-    def test_breaks_message(self, impl):
+    def test_breaks_message(self):
         # the message names the offending option, and is compared as well as the type
         args = (f64(0.5), b1(0), f64(0.0, 1.0, 1.0), f64(0.0, 2.0, 3.0))
         result = compare(
-            impl.rescaling.piecewise_scale_point_estimate,
+            _tsdate.piecewise_scale_point_estimate,
             rescaling.piecewise_scale_point_estimate,
             *args,
         )
         assert BREAKS_MSG in str(result.exception)
 
     @pytest.mark.parametrize("seed", range(3))
-    def test_random(self, impl, seed):
+    def test_random(self, seed):
         rng = np.random.default_rng(seed)
         k = int(rng.integers(2, 12))
         original = np.concatenate(([0.0], np.cumsum(rng.uniform(0.1, 5.0, k))))
@@ -645,7 +644,7 @@ class TestPiecewiseScalePointEstimate:
         estimate = rng.uniform(0, original[-1] * 1.2, 40)
         fixed = rng.random(40) < 0.2
         compare(
-            impl.rescaling.piecewise_scale_point_estimate,
+            _tsdate.piecewise_scale_point_estimate,
             rescaling.piecewise_scale_point_estimate,
             estimate,
             fixed,
@@ -653,13 +652,13 @@ class TestPiecewiseScalePointEstimate:
             rescaled,
         )
 
-    def test_simulated(self, impl, ep):
+    def test_simulated(self, ep):
         nodes_time, likelihoods, nodes_fixed, parents, children = rescale_inputs(ep)
         original, rescaled = rescaling.mutational_timescale(
             nodes_time, likelihoods, nodes_fixed, parents, children, 10
         )
         compare(
-            impl.rescaling.piecewise_scale_point_estimate,
+            _tsdate.piecewise_scale_point_estimate,
             rescaling.piecewise_scale_point_estimate,
             nodes_time,
             nodes_fixed,
@@ -789,17 +788,17 @@ def posterior_args(
 
 class TestPiecewiseScalePosterior:
     @pytest.mark.parametrize(("posteriors", "kwargs", "expected"), POSTERIOR_CASES)
-    def test_edge_cases(self, impl, posteriors, kwargs, expected):
+    def test_edge_cases(self, posteriors, kwargs, expected):
         args = posterior_args(posteriors, **kwargs)
         assert_outcome(
-            impl.rescaling.piecewise_scale_posterior,
+            _tsdate.piecewise_scale_posterior,
             rescaling.piecewise_scale_posterior,
             args,
             expected,
         )
 
     @pytest.mark.parametrize("seed", range(3))
-    def test_random(self, impl, seed):
+    def test_random(self, seed):
         rng = np.random.default_rng(seed)
         k = int(rng.integers(2, 10))
         original = np.concatenate(([0.0], np.cumsum(rng.uniform(0.1, 5.0, k))))
@@ -815,19 +814,19 @@ class TestPiecewiseScalePosterior:
             float(rng.choice([2.0, 100.0, 1000.0])),
         )
         compare(
-            impl.rescaling.piecewise_scale_posterior,
+            _tsdate.piecewise_scale_posterior,
             rescaling.piecewise_scale_posterior,
             *args,
         )
 
-    def test_simulated(self, impl, ep):
+    def test_simulated(self, ep):
         nodes_time, likelihoods, nodes_fixed, parents, children = rescale_inputs(ep)
         original, rescaled = rescaling.mutational_timescale(
             nodes_time, likelihoods, nodes_fixed, parents, children, 10
         )
         args = (ep.node_posterior, nodes_fixed, original, rescaled, 0.8, 1000.0)
         compare(
-            impl.rescaling.piecewise_scale_posterior,
+            _tsdate.piecewise_scale_posterior,
             rescaling.piecewise_scale_posterior,
             *args,
         )

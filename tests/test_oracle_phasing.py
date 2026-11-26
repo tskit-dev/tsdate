@@ -4,6 +4,7 @@ inputs built as in ``ExpectationPropagation``, degenerate inputs, and every
 ``assert``.
 """
 
+import _tsdate
 import numpy as np
 import pytest
 import tskit
@@ -109,45 +110,45 @@ class TestBlockSingletons:
         return [unphased, ts.nodes_individual, *sweep_args(ts)]
 
     @staticmethod
-    def compare(impl, args):
-        return compare(impl.phasing._block_singletons, phasing._block_singletons, *args)
+    def compare(args):
+        return compare(_tsdate.block_singletons, phasing._block_singletons, *args)
 
     @pytest.mark.parametrize(
         ("nodes", "num_individuals", "edges", "mutations", "unphased", "expected_error"),
         BLOCK_EDGE_CASES,
     )
     def test_edge_cases(
-        self, impl, nodes, num_individuals, edges, mutations, unphased, expected_error
+        self, nodes, num_individuals, edges, mutations, unphased, expected_error
     ):
         ts = make_ts(nodes, edges, mutations, 10.0, num_individuals)
-        result = self.compare(impl, self.args(ts, unphased))
+        result = self.compare(self.args(ts, unphased))
         assert result.error is expected_error
 
     @pytest.mark.parametrize(
         ("edges", "mutations", "unphased", "expected"), BLOCK_NUMBERING
     )
-    def test_block_numbering(self, impl, edges, mutations, unphased, expected):
+    def test_block_numbering(self, edges, mutations, unphased, expected):
         ts = make_ts(NODES, edges, mutations, 10.0, 2)
-        _, _, mutation_block = self.compare(impl, self.args(ts, unphased)).value
+        _, _, mutation_block = self.compare(self.args(ts, unphased)).value
         assert mutation_block.tolist() == expected
 
     @pytest.mark.parametrize(("index", "size"), [(5, 3), (8, 3), (3, 1)])
-    def test_size_mismatch(self, impl, index, size):
+    def test_size_mismatch(self, index, size):
         ts = make_ts(NODES, STAR, [(1, 0), (2, 1)], 10.0, 2)
         args = shrink(self.args(ts, [1, 1]), index, size)
-        result = self.compare(impl, args)
+        result = self.compare(args)
         assert result.error is AssertionError
 
     @pytest.mark.parametrize("fraction", [0.0, 0.5, 1.0])
     @pytest.mark.parametrize("seed", range(2))
-    def test_random(self, impl, small_ts_unphased, seed, fraction):
+    def test_random(self, small_ts_unphased, seed, fraction):
         ts = small_ts_unphased
         rng = np.random.default_rng(seed)
         unphased = rng.random(ts.num_individuals) < fraction
         args = self.args(ts, unphased)
-        result = self.compare(impl, args)
+        result = self.compare(args)
         # also the dtypes, which `compare` ignores, and the public wrapper
-        actual = impl.phasing._block_singletons(*args)
+        actual = _tsdate.block_singletons(*args)
         assert actual[1].dtype == actual[2].dtype == np.int32
         assert_same_values(actual, block_singletons(ts, unphased))
         assert result.value[1].dtype == np.int32
@@ -220,47 +221,45 @@ REALLOCATE_SMALL = [
 
 class TestReallocateUnphased:
     @staticmethod
-    def compare(impl, *args):
-        return compare(
-            impl.phasing.reallocate_unphased, phasing.reallocate_unphased, *args
-        )
+    def compare(*args):
+        return compare(_tsdate.reallocate_unphased, phasing.reallocate_unphased, *args)
 
     @pytest.mark.parametrize(
         ("lik", "phase", "mutation_blocks", "blocks_edges", "expected_error"),
         REALLOCATE_SMALL,
     )
-    def test_small(self, impl, lik, phase, mutation_blocks, blocks_edges, expected_error):
-        result = self.compare(impl, lik, phase, mutation_blocks, blocks_edges)
+    def test_small(self, lik, phase, mutation_blocks, blocks_edges, expected_error):
+        result = self.compare(lik, phase, mutation_blocks, blocks_edges)
         assert result.error is expected_error
 
     @pytest.mark.parametrize("mode", ["fractional", "mixed"])
     @pytest.mark.parametrize("seed", range(3))
-    def test_random(self, impl, blocks, seed, mode):
+    def test_random(self, blocks, seed, mode):
         ts, lik, mutation_blocks, block_edges = blocks
         rng = np.random.default_rng(seed)
         if mode == "fractional":
             phase = rng.uniform(0, 1, ts.num_mutations)
         else:
             phase = rng.choice([0.0, 1.0, 0.5, 0.25], ts.num_mutations)
-        self.compare(impl, lik, phase, mutation_blocks, block_edges)
+        self.compare(lik, phase, mutation_blocks, block_edges)
 
     @pytest.mark.parametrize("value", [1.5, -1e-9, INF, -INF])
-    def test_phase_out_of_range(self, impl, blocks, value):
+    def test_phase_out_of_range(self, blocks, value):
         _, lik, mutation_blocks, block_edges = blocks
         phase = np.full(mutation_blocks.size, 0.5)
         phase[np.flatnonzero(mutation_blocks >= 0)[0]] = value
-        result = self.compare(impl, lik, phase, mutation_blocks, block_edges)
+        result = self.compare(lik, phase, mutation_blocks, block_edges)
         assert result.error is AssertionError
 
     @pytest.mark.parametrize("value", [NAN, 7.0])
-    def test_phase_ignored_without_block(self, impl, blocks, value):
+    def test_phase_ignored_without_block(self, blocks, value):
         _, lik, mutation_blocks, block_edges = blocks
         phase = np.full(mutation_blocks.size, 0.5)
         phase[mutation_blocks == tskit.NULL] = value
-        result = self.compare(impl, lik, phase, mutation_blocks, block_edges)
+        result = self.compare(lik, phase, mutation_blocks, block_edges)
         assert result.error is None
 
-    def test_nan_phase(self, impl, blocks):
+    def test_nan_phase(self, blocks):
         # NOTE: current behaviour, possibly a bug: a NaN phase on a
         # blocked mutation is skipped, leaving its singleton unallocated, so the
         # final `np.isclose` check fails (a bare AssertionError). It only passes if
@@ -268,32 +267,32 @@ class TestReallocateUnphased:
         _, lik, mutation_blocks, block_edges = blocks
         phase = np.full(mutation_blocks.size, 0.5)
         phase[np.flatnonzero(mutation_blocks >= 0)[0]] = NAN
-        result = self.compare(impl, lik, phase, mutation_blocks, block_edges)
+        result = self.compare(lik, phase, mutation_blocks, block_edges)
         assert result.error is AssertionError
         lik = lik.copy()
         lik[block_edges[0, 0], 0] -= 1.0
-        result = self.compare(impl, lik, phase, mutation_blocks, block_edges)
+        result = self.compare(lik, phase, mutation_blocks, block_edges)
         assert result.error is None
 
     @pytest.mark.parametrize("case", ["no_mutations", "all_unblocked"])
-    def test_blocks_without_singletons(self, impl, blocks, case):
+    def test_blocks_without_singletons(self, blocks, case):
         # likelihood mass on the block edges, but no mutation to allocate it
         ts, lik, _, block_edges = blocks
         size = 0 if case == "no_mutations" else ts.num_mutations
         phase = np.full(size, 0.5)
         mutation_blocks = np.full(size, tskit.NULL, dtype=np.int32)
-        result = self.compare(impl, lik, phase, mutation_blocks, block_edges)
+        result = self.compare(lik, phase, mutation_blocks, block_edges)
         assert result.error is AssertionError
 
     @pytest.mark.parametrize("case", ["phase", "blocks_transposed"])
-    def test_size_mismatch(self, impl, blocks, case):
+    def test_size_mismatch(self, blocks, case):
         ts, lik, mutation_blocks, block_edges = blocks
         phase = np.full(ts.num_mutations, 0.5)
         if case == "phase":
             phase = phase[:-1]
         else:
             block_edges = np.ascontiguousarray(block_edges.T)
-        result = self.compare(impl, lik, phase, mutation_blocks, block_edges)
+        result = self.compare(lik, phase, mutation_blocks, block_edges)
         assert result.error is AssertionError
 
 
@@ -323,9 +322,9 @@ def freq_ts():
 
 class TestMutationFrequency:
     @staticmethod
-    def compare(impl, nodes_sample, args):
+    def compare(nodes_sample, args):
         return compare(
-            impl.phasing._mutation_frequency,
+            _tsdate.mutation_frequency,
             phasing._mutation_frequency,
             nodes_sample,
             *args,
@@ -339,47 +338,47 @@ class TestMutationFrequency:
         return nodes_sample
 
     @pytest.mark.parametrize("members", SAMPLE_SETS)
-    def test_sample_sets(self, impl, freq_ts, members):
+    def test_sample_sets(self, freq_ts, members):
         nodes_sample = self.nodes_sample(freq_ts, members)
-        self.compare(impl, nodes_sample, sweep_args(freq_ts))
+        self.compare(nodes_sample, sweep_args(freq_ts))
 
-    def test_no_mutations(self, impl):
+    def test_no_mutations(self):
         ts = make_ts([(1, 0), (0, 1)], [(0, 10, 1, 0)], [], 10.0)
-        self.compare(impl, self.nodes_sample(ts, [[0]]), sweep_args(ts))
+        self.compare(self.nodes_sample(ts, [[0]]), sweep_args(ts))
 
-    def test_no_edges(self, impl):
+    def test_no_edges(self):
         # NOTE: current behaviour, possibly a bug: with no edges the
         # sweep is never entered, so every frequency is zero, even above a member
         ts = make_ts([(1, 0), (0, 1)], [], [(1, 0), (2, 1)], 10.0)
-        self.compare(impl, self.nodes_sample(ts, [[0, 1]]), sweep_args(ts))
+        self.compare(self.nodes_sample(ts, [[0, 1]]), sweep_args(ts))
 
-    def test_mutation_beyond_last_edge(self, impl):
+    def test_mutation_beyond_last_edge(self):
         nodes = [(1, 0), (1, 0), (0, 1)]
         edges = [(0, 5, 2, 0), (0, 5, 2, 1)]
         ts = make_ts(nodes, edges, [(1, 2), (7, 2)], 10.0)
-        self.compare(impl, self.nodes_sample(ts, [[0, 1]]), sweep_args(ts))
+        self.compare(self.nodes_sample(ts, [[0, 1]]), sweep_args(ts))
 
-    def test_mutation_at_breakpoint(self, impl):
+    def test_mutation_at_breakpoint(self):
         # a mutation exactly at a breakpoint belongs to the tree to its right
         ts = make_ts(FREQ_NODES, FREQ_EDGES, [(5, 4)], 10.0)
-        self.compare(impl, self.nodes_sample(ts, [[0, 1, 2]]), sweep_args(ts))
+        self.compare(self.nodes_sample(ts, [[0, 1, 2]]), sweep_args(ts))
 
-    def test_unsorted_mutations(self, impl, freq_ts):
+    def test_unsorted_mutations(self, freq_ts):
         order = np.array([3, 0, 4, 1, 2])
         args = sweep_args(freq_ts)
         args[0], args[1] = args[0][order], args[1][order]
-        self.compare(impl, self.nodes_sample(freq_ts, [[0, 1, 2]]), args)
+        self.compare(self.nodes_sample(freq_ts, [[0, 1, 2]]), args)
 
     @pytest.mark.parametrize(("index", "size"), [(3, 3), (6, 3), (1, 2)])
-    def test_size_mismatch(self, impl, freq_ts, index, size):
+    def test_size_mismatch(self, freq_ts, index, size):
         nodes_sample = np.ones((freq_ts.num_nodes, 1), dtype=bool)
         args = shrink(sweep_args(freq_ts), index, size)
-        result = self.compare(impl, nodes_sample, args)
+        result = self.compare(nodes_sample, args)
         assert result.error is AssertionError
 
     @pytest.mark.parametrize("num_sets", [1, 4])
     @pytest.mark.parametrize("seed", range(2))
-    def test_random(self, impl, small_ts, seed, num_sets):
+    def test_random(self, small_ts, seed, num_sets):
         ts = small_ts
         rng = np.random.default_rng(seed)
         members = [
@@ -389,7 +388,7 @@ class TestMutationFrequency:
             for _ in range(num_sets)
         ]
         nodes_sample = self.nodes_sample(ts, members)
-        result = self.compare(impl, nodes_sample, sweep_args(ts))
+        result = self.compare(nodes_sample, sweep_args(ts))
         # also the dtype, which `compare` ignores
-        actual = impl.phasing._mutation_frequency(nodes_sample, *sweep_args(ts))
+        actual = _tsdate.mutation_frequency(nodes_sample, *sweep_args(ts))
         assert actual.dtype == result.value.dtype == np.int32

@@ -1,8 +1,8 @@
 """
 Expectation propagation state for the equivalence tests of ``tsdate.variational``:
 snapshots of real state from ``ExpectationPropagation`` (editable, so that tests can
-force branches), one-edge snapshots, and runners that call the ``propagate_*``
-functions of a namespace on copies of a snapshot.
+force branches), one-edge snapshots, and runners that call given ``propagate_*``
+functions (the oracles, or adapters of the C functions) on copies of a snapshot.
 """
 
 import numpy as np
@@ -19,6 +19,8 @@ from tsdate.variational import (
     USE_EDGE_LIKELIHOOD,
     ExpectationPropagation,
 )
+
+from .variational import EPFactors
 
 # fixture name -> (singletons_phased, mutation_rate)
 SNAPSHOT_SPECS = {
@@ -51,7 +53,7 @@ _COPIED = (
 class Snapshot:
     """
     Copies of the arrays of an ``ExpectationPropagation`` after some iterations, so
-    that tests can edit them freely and rebuild fresh ``EPFactors`` of any class.
+    that tests can edit them freely and rebuild fresh ``EPFactors``.
     """
 
     def __init__(self, ts, ep):
@@ -74,11 +76,11 @@ class Snapshot:
             setattr(new, k, v)
         return new
 
-    def factors(self, cls):
+    def factors(self):
         """
-        New ``EPFactors`` of class ``cls`` holding a copy of the factors
+        New ``EPFactors`` holding a copy of the factors
         """
-        factors = cls(
+        factors = EPFactors(
             self.node_constraints,
             self.edge_parents,
             self.edge_children,
@@ -257,17 +259,23 @@ def likelihood_args(snap, unphased, order=None, likelihoods=None):
 
 
 def run_likelihood(
-    ns, snap, unphased, max_shape=1000.0, min_step=0.1, order=None, likelihoods=None
+    propagate_likelihood,
+    snap,
+    unphased,
+    max_shape=1000.0,
+    min_step=0.1,
+    order=None,
+    likelihoods=None,
 ):
     """
-    Run `propagate_likelihood` of namespace ``ns`` on copies of ``snap``; return
+    Run ``propagate_likelihood`` on copies of ``snap``; return
     ``(posterior, lognorm, node, edge, block, scale)`` after the pass.
     """
     args, lognorm = likelihood_args(snap, unphased, order, likelihoods)
-    factors = snap.factors(ns.EPFactors)
+    factors = snap.factors()
     posterior = snap.node_posterior.copy()
     lognorm = lognorm.copy()
-    ns.propagate_likelihood(
+    propagate_likelihood(
         *args,
         snap.node_constraints,
         posterior,
@@ -280,22 +288,27 @@ def run_likelihood(
     return (posterior, lognorm, factors.node, factors.edge, factors.block, factors.scale)
 
 
-def run_prior(ns, snap, free, max_shape=1000.0, em_maxitt=10, em_reltol=1e-8):
+def run_prior(
+    propagate_prior, snap, free, max_shape=1000.0, em_maxitt=10, em_reltol=1e-8
+):
     """
-    Run `propagate_prior`; return ``(posterior, node, scale)`` after the pass.
+    Run ``propagate_prior`` on copies of ``snap``; return
+    ``(posterior, node, scale)`` after the pass.
     """
-    factors = snap.factors(ns.EPFactors)
+    factors = snap.factors()
     posterior = snap.node_posterior.copy()
-    ns.propagate_prior(free, posterior, factors, max_shape, em_maxitt, em_reltol)
+    propagate_prior(free, posterior, factors, max_shape, em_maxitt, em_reltol)
     return (posterior, factors.node, factors.scale)
 
 
-def run_mutations(ns, snap, unphased, edges=None, posterior=None, order=None):
+def run_mutations(
+    propagate_mutations, snap, unphased, edges=None, posterior=None, order=None
+):
     """
-    Run `propagate_mutations` on the phased (or unphased) mutations; return
+    Run ``propagate_mutations`` on the phased (or unphased) mutations; return
     ``(mutation_posterior, phase, node, edge, block, scale)``.
     """
-    factors = snap.factors(ns.EPFactors)
+    factors = snap.factors()
     mut_posterior = np.full((snap.num_mutations, 2), np.nan)
     phase = np.ones(snap.num_mutations)
     phased = snap.mutation_blocks == tskit.NULL
@@ -315,7 +328,7 @@ def run_mutations(ns, snap, unphased, edges=None, posterior=None, order=None):
             snap.edge_children,
             snap.edge_likelihoods,
         )
-    ns.propagate_mutations(
+    propagate_mutations(
         order,
         mut_posterior,
         phase,
@@ -335,14 +348,24 @@ def run_mutations(ns, snap, unphased, edges=None, posterior=None, order=None):
     )
 
 
-def run_sweeps(ns, snap, num_sweeps, max_shape=1000.0, min_step=0.1, em_maxitt=10):
+def run_sweeps(
+    propagate_likelihood,
+    propagate_prior,
+    propagate_mutations,
+    rescale_factors,
+    snap,
+    num_sweeps,
+    max_shape=1000.0,
+    min_step=0.1,
+    em_maxitt=10,
+):
     """
     Run EP sweeps (the loop of `ExpectationPropagation.iterate`, then the mutation
-    passes of `infer`) with namespace ``ns`` from a copy of ``snap``. Returns, per
+    passes of `infer`) with the given functions from a copy of ``snap``. Returns, per
     sweep, ``(posterior, edge_logconst, block_logconst)`` copies, and the mutation
     ``(posterior, phase)``.
     """
-    factors = snap.factors(ns.EPFactors)
+    factors = snap.factors()
     posterior = snap.node_posterior.copy()
     edge_logconst = snap.edge_logconst.copy()
     block_logconst = snap.block_logconst.copy()
@@ -351,7 +374,7 @@ def run_sweeps(ns, snap, num_sweeps, max_shape=1000.0, min_step=0.1, em_maxitt=1
     block_nodes = snap.block_nodes
     states = []
     for _ in range(num_sweeps):
-        ns.propagate_likelihood(
+        propagate_likelihood(
             snap.block_order,
             block_nodes[ROOTWARD],
             block_nodes[LEAFWARD],
@@ -364,7 +387,7 @@ def run_sweeps(ns, snap, num_sweeps, max_shape=1000.0, min_step=0.1, em_maxitt=1
             min_step,
             USE_BLOCK_LIKELIHOOD,
         )
-        ns.propagate_likelihood(
+        propagate_likelihood(
             snap.edge_order,
             snap.edge_parents,
             snap.edge_children,
@@ -377,13 +400,13 @@ def run_sweeps(ns, snap, num_sweeps, max_shape=1000.0, min_step=0.1, em_maxitt=1
             min_step,
             USE_EDGE_LIKELIHOOD,
         )
-        ns.propagate_prior(
+        propagate_prior(
             snap.unconstrained_roots, posterior, factors, max_shape, em_maxitt, 1e-8
         )
-        ns._rescale_factors(factors)
+        rescale_factors(factors)
         states.append((posterior.copy(), edge_logconst.copy(), block_logconst.copy()))
     phased = snap.mutation_blocks == tskit.NULL
-    ns.propagate_mutations(
+    propagate_mutations(
         snap.mutation_order[~phased],
         mut_posterior,
         mut_phase,
@@ -396,7 +419,7 @@ def run_sweeps(ns, snap, num_sweeps, max_shape=1000.0, min_step=0.1, em_maxitt=1
         factors,
         USE_BLOCK_LIKELIHOOD,
     )
-    ns.propagate_mutations(
+    propagate_mutations(
         snap.mutation_order[phased],
         mut_posterior,
         mut_phase,

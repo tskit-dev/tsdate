@@ -1,6 +1,6 @@
 """
-Parity of the C implementation (``impl``) with the oracles in ``oracle/approx.py`` for
-the gamma approximations: exact values (including NaNs and infinities), and which
+Parity of the gamma approximations of ``_tsdate`` with their oracles in
+``oracle/approx.py``: exact values (including NaNs and infinities), and which
 exception is raised. Expected values always come from the oracle. Tables hold
 deliberate edge cases (boundaries of the ``_valid_*`` checks, degenerate gamma fits,
 regimes of the moment and projection functions); seeded random draws cover ranges
@@ -17,6 +17,7 @@ fit. Accuracy of the approximations is measured in ``evaluation/numerical_accura
 
 import math
 
+import _tsdate
 import numpy as np
 import pytest
 import scipy.special
@@ -38,12 +39,53 @@ MAX = np.finfo(np.float64).max
 TINY = 5e-324
 
 
-def parity(impl, name, args, expected_kind=None):
+def valid_check(func):
     """
-    Compare ``impl.approx.<name>(*args)`` with the oracle (returning the oracle's
-    outcome); optionally check its kind.
+    A ``_valid_*`` C function returning a bool, as its oracle does, instead of a float
     """
-    func = getattr(impl.approx, name)
+
+    def valid(*args):
+        return bool(func(*args))
+
+    return valid
+
+
+def projection(func):
+    """
+    A projection C function with the signature of its oracle. The C function takes
+    flat arguments (the ages, and the entries of the parameter arrays) and returns a
+    flat tuple: the first result, then the pairs of natural parameters; the oracle
+    takes arrays and returns the first result and one array per pair.
+    """
+
+    def project(*args):
+        flat = [float(x) for arg in args for x in np.atleast_1d(arg)]
+        first, *rest = func(*flat)
+        pairs = [np.array(rest[i : i + 2]) for i in range(0, len(rest), 2)]
+        return (first, *pairs)
+
+    return project
+
+
+def c_function(name):
+    """
+    The C function for the oracle ``approx.<name>`` (its name without the leading
+    underscore), with the oracle's signature
+    """
+    func = getattr(_tsdate, name.removeprefix("_"))
+    if name.startswith("_valid_"):
+        return valid_check(func)
+    if name.endswith("_projection"):
+        return projection(func)
+    return func
+
+
+def parity(name, args, expected_kind=None):
+    """
+    Compare the C function for the oracle ``approx.<name>`` with the oracle on
+    ``args`` (returning the oracle's outcome); optionally check its kind.
+    """
+    func = c_function(name)
     oracle = getattr(approx, name)
     if expected_kind is None:
         return compare(func, oracle, *args)
@@ -194,8 +236,8 @@ class TestValidChecks:
         ("name", "args", "expected"),
         [pytest.param(*row, id=f"{row[0]}{row[1]}") for row in VALID],
     )
-    def test_valid(self, impl, name, args, expected):
-        result = parity(impl, name, args)
+    def test_valid(self, name, args, expected):
+        result = parity(name, args)
         assert bool(result.value) is expected
 
 
@@ -343,25 +385,25 @@ GAMMA_DOMAIN = (
 
 class TestGammaApproximations:
     @pytest.mark.parametrize(("name", "args", "expected"), GAMMA_DOMAIN)
-    def test_domain(self, impl, name, args, expected):
-        parity(impl, name, args, expected)
+    def test_domain(self, name, args, expected):
+        parity(name, args, expected)
 
     @pytest.mark.parametrize(
         ("name", "args", "expected"),
         [p for p in GAMMA_DOMAIN if p.values[2] is KLMinimizationFailedError],
     )
-    def test_error_messages(self, impl, name, args, expected):
+    def test_error_messages(self, name, args, expected):
         # the messages distinguish the failure modes
-        func = getattr(impl.approx, name)
+        func = c_function(name)
         with pytest.raises(expected_error(KLMinimizationFailedError)):
             func(*args)
         compare(func, getattr(approx, name), *args)
 
     @pytest.mark.parametrize("gap", [1e-17, 1e-10, 4e-5, 4.99e-5, 5e-5, 6e-5, 1e-3])
-    def test_kl_asymptotic_threshold(self, impl, gap):
+    def test_kl_asymptotic_threshold(self, gap):
         # for alpha > 1e4 (gap < 5e-5) the lower bound alpha = 0.5 / gap is returned
         # without iterating; above, Newton's iteration refines it
-        result = parity(impl, "approximate_gamma_kl", (1.0, -gap), "finite")
+        result = parity("approximate_gamma_kl", (1.0, -gap), "finite")
         shape = result.value[0]
         if gap < 5e-5:
             assert shape + 1.0 == 0.5 / gap
@@ -369,17 +411,17 @@ class TestGammaApproximations:
             assert shape + 1.0 != 0.5 / gap
 
     @pytest.mark.parametrize(("shape", "max_shape"), GAMMA_IQR_FITS, ids=repr)
-    def test_iqr_fits(self, impl, shape, max_shape):
+    def test_iqr_fits(self, shape, max_shape):
         args = (*gamma_quantiles(shape, 0.001), max_shape)
-        parity(impl, "approximate_gamma_iqr", args, "finite")
+        parity("approximate_gamma_iqr", args, "finite")
 
 
 class TestAverageGammas:
     @pytest.mark.parametrize("label", list(AVERAGE_GAMMAS))
-    def test_cases(self, impl, label):
+    def test_cases(self, label):
         shapes, rates, expected = AVERAGE_GAMMAS[label]
         args = np.array(shapes, dtype=float), np.array(rates, dtype=float)
-        parity(impl, "average_gammas", args, expected)
+        parity("average_gammas", args, expected)
 
 
 # --- moments and projections --- #
@@ -587,7 +629,7 @@ def is_valid(mean, variance, prob=None):
     return bool(np.isfinite(mean) and np.isfinite(variance) and mean > 0 and variance > 0)
 
 
-def check_projection(impl, name, args):
+def check_projection(name, args):
     """
     Compare a projection with the oracle, and check the contract on the oracle's
     result: the projection raises as its moment function does; otherwise it is NaN
@@ -597,7 +639,7 @@ def check_projection(impl, name, args):
     """
     moments, pairs, prob_index = PROJECTIONS[name]
     proj_args = projection_args(name, args)
-    result = parity(impl, name, proj_args)
+    result = parity(name, proj_args)
     moment_result = outcome(getattr(approx, moments), *moment_args(name, proj_args))
     if moment_result.exception is not None:
         assert type(result.exception) is type(moment_result.exception)
@@ -632,27 +674,28 @@ PROJECTION_REGIMES = [
 
 class TestMoments:
     @pytest.mark.parametrize(("name", "label"), MOMENT_REGIMES)
-    def test_regimes(self, impl, name, label):
-        parity(impl, name, floats(REGIMES[name][label]))
+    def test_regimes(self, name, label):
+        parity(name, floats(REGIMES[name][label]))
 
 
 class TestProjections:
     @pytest.mark.parametrize(("name", "label"), PROJECTION_REGIMES)
-    def test_regimes(self, impl, name, label):
+    def test_regimes(self, name, label):
         moments = PROJECTIONS[name][0]
-        check_projection(impl, name, floats(REGIMES[moments][label]))
+        check_projection(name, floats(REGIMES[moments][label]))
 
     @pytest.mark.parametrize("name", list(PROJECTIONS))
-    def test_inputs_are_not_modified(self, impl, name):
+    def test_inputs_are_not_modified(self, name):
         moments = PROJECTIONS[name][0]
         first_regime = next(iter(REGIMES[moments].values()))
         proj_args = projection_args(name, floats(first_regime))
         copies = [a.copy() if isinstance(a, np.ndarray) else a for a in proj_args]
-        getattr(impl.approx, name)(*proj_args)
+        func = c_function(name)
+        func(*proj_args)
         for arg, copy in zip(proj_args, copies):
             np.testing.assert_array_equal(arg, copy)
 
-    def test_unphased_probability_out_of_range(self, impl):
+    def test_unphased_probability_out_of_range(self):
         # NOTE: current behaviour, possibly a bug: the Laplace
         # approximation can give a probability above one for finite mean and variance,
         # which the projection turns into NaN
@@ -664,9 +707,9 @@ class TestProjections:
             1.0,
             4.811169071413665e-07,
         )
-        parity(impl, "mutation_unphased_moments", args, "finite")
+        parity("mutation_unphased_moments", args, "finite")
         name = "mutation_unphased_projection"
-        parity(impl, name, projection_args(name, args), "nan")
+        parity(name, projection_args(name, args), "nan")
 
 
 # --- seeded random draws --- #
@@ -809,7 +852,7 @@ class TestRandomDraws:
 
     @pytest.mark.parametrize("seed", [1, 2, 3])
     @pytest.mark.parametrize(("name", "mode"), DRAWS)
-    def test_random_draws(self, impl, name, mode, seed):
+    def test_random_draws(self, name, mode, seed):
         rng = np.random.default_rng(seed)
         extreme = mode == "extreme"
         for i in range(30):
@@ -823,6 +866,6 @@ class TestRandomDraws:
                 args = DRAW_GEOMETRY[name](rng, extreme)
                 check = parity
             try:
-                check(impl, name, args)
+                check(name, args)
             except AssertionError as e:
                 raise AssertionError(f"draw {i}: {name}{args}: {e}") from None

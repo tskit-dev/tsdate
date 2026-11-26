@@ -1,19 +1,23 @@
 """
-Equivalence of the C implementation of ``tsdate.variational`` with its oracle: the
-EP helpers (``EPFactors``, ``_damp``, ``_rescale``, ``_rescale_factors``,
-``_constraints_are_consistent``) and the passes ``propagate_likelihood``,
-``propagate_prior`` and ``propagate_mutations``, plus whole sweeps.
+Equivalence of the expectation propagation functions of ``_tsdate`` with the oracle of
+``tsdate.variational``: the EP helpers (``EPFactors``, ``_damp``, ``_rescale``,
+``_rescale_factors``, ``_constraints_are_consistent``) and the passes
+``propagate_likelihood``, ``propagate_prior`` and ``propagate_mutations``, plus whole
+sweeps. The ``c_*`` adapters give the C functions the signatures of the oracles: the
+EP state stays in the numpy arrays of an oracle ``EPFactors``, which the C functions
+take as a tuple and update in place.
 
 Inputs are snapshots of real EP state (``oracle.ep_state``) on the session fixtures,
 with constraints edited to force branches, one-edge snapshots for each branch, and
 tables of boundary and failure cases. Expected values always come from the oracle.
-Where the C library reports a division by zero and the oracle does not raise, the
-implementation alone is checked.
+Where the C library reports a division by zero and the oracle does not raise, the C
+function alone is checked.
 """
 
 import re
 from functools import partial
 
+import _tsdate
 import numpy as np
 import pytest
 import tskit
@@ -48,6 +52,115 @@ INCONSISTENT_MESSAGE = (
 )
 
 
+def factor_arrays(factors):
+    """
+    The arrays of an ``EPFactors`` that the C functions take, as a tuple
+    """
+    return (
+        factors.node,
+        factors.edge,
+        factors.block,
+        factors.scale,
+        factors._p,
+        factors._c,
+        factors._j,
+        factors._k,
+    )
+
+
+def check_size_two(*arrays):
+    if any(a.size != 2 for a in arrays):
+        raise ValueError("Natural parameters must have two entries")
+
+
+def c_damp(x, y, s):
+    check_size_two(x, y)
+    return _tsdate.damp(x[0], x[1], y[0], y[1], s)
+
+
+def c_rescale(x, s):
+    check_size_two(x)
+    return _tsdate.rescale(x[0], x[1], s)
+
+
+def c_rescale_factors(factors):
+    _tsdate.rescale_factors(factor_arrays(factors))
+
+
+def c_assemble_factors(factors):
+    return _tsdate.assemble_factors(factor_arrays(factors))
+
+
+def c_propagate_likelihood(
+    edge_order,
+    edges_parent,
+    edges_child,
+    likelihoods,
+    constraints,
+    posterior,
+    factors,
+    lognorm,
+    max_shape,
+    min_step,
+    unphased,
+):
+    _tsdate.propagate_likelihood(
+        edge_order,
+        edges_parent,
+        edges_child,
+        likelihoods,
+        constraints,
+        posterior,
+        factor_arrays(factors),
+        lognorm,
+        max_shape,
+        min_step,
+        unphased,
+    )
+
+
+def c_propagate_prior(free, posterior, factors, max_shape, em_maxitt, em_reltol):
+    _tsdate.propagate_prior(
+        free, posterior, factor_arrays(factors), max_shape, em_maxitt, em_reltol
+    )
+
+
+def c_propagate_mutations(
+    mutations_order,
+    mutations_posterior,
+    mutations_phase,
+    mutations_edge,
+    edges_parent,
+    edges_child,
+    likelihoods,
+    constraints,
+    posterior,
+    factors,
+    unphased,
+):
+    _tsdate.propagate_mutations(
+        mutations_order,
+        mutations_posterior,
+        mutations_phase,
+        mutations_edge,
+        edges_parent,
+        edges_child,
+        likelihoods,
+        constraints,
+        posterior,
+        factor_arrays(factors),
+        unphased,
+    )
+
+
+# the C function and the oracle of the pass that each runner of ``ep_state`` calls
+PASSES = {
+    ep_state.run_likelihood: (c_propagate_likelihood, variational.propagate_likelihood),
+    ep_state.run_prior: (c_propagate_prior, variational.propagate_prior),
+    ep_state.run_mutations: (c_propagate_mutations, variational.propagate_mutations),
+}
+
+
 @pytest.fixture(scope="module")
 def snaps(small_ts, small_ts_unphased, small_ts_historical):
     """
@@ -75,21 +188,23 @@ def scaled_snap(snaps):
     ``small_ts`` after a likelihood pass with a small cap, so that scales are not 1
     """
     snap = snaps["small_ts"]
-    state = ep_state.run_likelihood(variational, snap, False, max_shape=3.0)
+    propagate = variational.propagate_likelihood
+    state = ep_state.run_likelihood(propagate, snap, False, max_shape=3.0)
     return snap.after_pass(state)
 
 
-def compare_runs(runner, impl, snap, *args, **kwargs):
+def compare_runs(runner, snap, *args, **kwargs):
     """
-    Run ``runner`` (an ``ep_state.run_*``) with the implementation and the oracle
+    Run ``runner`` (an ``ep_state.run_*``) with the C function and with the oracle
     """
-    actual = partial(runner, impl.variational)
-    expected = partial(runner, variational)
+    c_pass, oracle_pass = PASSES[runner]
+    actual = partial(runner, c_pass)
+    expected = partial(runner, oracle_pass)
     return compare(actual, expected, snap, *args, **kwargs)
 
 
-def assert_run_kind(runner, impl, snap, expected_kind, *args, **kwargs):
-    result = compare_runs(runner, impl, snap, *args, **kwargs)
+def assert_run_kind(runner, snap, expected_kind, *args, **kwargs):
+    result = compare_runs(runner, snap, *args, **kwargs)
     assert kind(result) == expected_kind
 
 
@@ -98,10 +213,10 @@ def unphased_name(ts_name):
 
 
 class TestEPFactors:
-    def test_constructor(self, impl, snaps):
+    def test_constructor(self, snaps):
         snap = snaps["small_ts"]
-        actual = snap.factors(impl.variational.EPFactors)
-        expected = snap.factors(variational.EPFactors)
+        actual = snap.factors()
+        expected = snap.factors()
         for field in ("node", "edge", "block", "scale"):
             a, e = getattr(actual, field), getattr(expected, field)
             assert a.dtype == e.dtype
@@ -117,39 +232,37 @@ class TestEPFactors:
 class TestRescaleFactors:
     @pytest.mark.parametrize("ts_name", ["small_ts", "small_ts_unphased"])
     @pytest.mark.parametrize("scale", ["seed0", "seed1", 1e-160, 1e100])
-    def test_rescale_factors(self, impl, snaps, ts_name, scale):
+    def test_rescale_factors(self, snaps, ts_name, scale):
         snap = snaps[ts_name].copy()
         num_nodes = snap.node_posterior.shape[0]
         if isinstance(scale, str):
             rng = np.random.default_rng(int(scale[-1]))
             scale = rng.uniform(0.5, 2.0, num_nodes)
         snap.fields["scale"][:] = scale
-        actual = snap.factors(impl.variational.EPFactors)
-        expected = snap.factors(variational.EPFactors)
-        impl.variational._rescale_factors(actual)
+        actual = snap.factors()
+        expected = snap.factors()
+        c_rescale_factors(actual)
         variational._rescale_factors(expected)
         fields = ("node", "edge", "block", "scale")
         assert_same_values(
             [getattr(actual, f) for f in fields], [getattr(expected, f) for f in fields]
         )
 
-    def test_rescale_factors_twice(self, impl, snaps):
+    def test_rescale_factors_twice(self, snaps):
         # the scale is reset to 1, so a second call changes nothing
         snap = snaps["small_ts"]
-        factors = snap.factors(impl.variational.EPFactors)
-        impl.variational._rescale_factors(factors)
+        factors = snap.factors()
+        c_rescale_factors(factors)
         once = [factors.node.copy(), factors.edge.copy(), factors.block.copy()]
-        impl.variational._rescale_factors(factors)
+        c_rescale_factors(factors)
         for before, after in zip(once, (factors.node, factors.edge, factors.block)):
             assert np.array_equal(before, after)
 
     @pytest.mark.parametrize("ts_name", TS_NAMES)
-    def test_assemble_factors(self, impl, snaps, scaled_snap, ts_name):
+    def test_assemble_factors(self, snaps, scaled_snap, ts_name):
         snap = scaled_snap if ts_name == "small_ts" else snaps[ts_name]
-        actual = impl.variational._assemble_factors(
-            snap.factors(impl.variational.EPFactors)
-        )
-        expected = variational._assemble_factors(snap.factors(variational.EPFactors))
+        actual = c_assemble_factors(snap.factors())
+        expected = variational._assemble_factors(snap.factors())
         assert_same_outcome(outcome(lambda: actual), outcome(lambda: expected))
 
 
@@ -238,26 +351,26 @@ class TestDamp:
         ("x", "y", "s", "expected_kind"),
         [pytest.param(*row[1:], id=row[0]) for row in DAMP_TABLE],
     )
-    def test_table(self, impl, x, y, s, expected_kind):
-        result = compare(impl.variational._damp, variational._damp, x, y, s)
+    def test_table(self, x, y, s, expected_kind):
+        result = compare(c_damp, variational._damp, x, y, s)
         assert kind(result) == expected_kind
 
     @pytest.mark.parametrize("seed", range(8))
-    def test_random(self, impl, seed):
+    def test_random(self, seed):
         rng = np.random.default_rng(seed)
         x = f64(rng.uniform(-0.9, 30), log_uniform(rng, -4, -1))
         y = f64(rng.uniform(-5, 30), log_uniform(rng, -4, -1))
         s = float(rng.uniform(0.05, 0.95))
-        compare(impl.variational._damp, variational._damp, x, y, s)
+        compare(c_damp, variational._damp, x, y, s)
 
     @pytest.mark.parametrize("which", [0, 1])
-    def test_infinite_posterior_zero_message(self, impl, which):
+    def test_infinite_posterior_zero_message(self, which):
         # Compiled code divides inf by 0.0 and raises; the oracle returns d = 1. Needs
         # an infinite posterior, which is unreachable without a prior failure.
         x = f64(1, 1)
         x[which] = INF
         with pytest.raises(expected_error(ZeroDivisionError)):
-            impl.variational._damp(x, f64(0, 0), 0.5)
+            c_damp(x, f64(0, 0), 0.5)
 
 
 class TestRescale:
@@ -265,33 +378,33 @@ class TestRescale:
         ("x", "s", "expected_kind"),
         [pytest.param(*row[1:], id=row[0]) for row in RESCALE_TABLE],
     )
-    def test_table(self, impl, x, s, expected_kind):
-        result = compare(impl.variational._rescale, variational._rescale, x, s)
+    def test_table(self, x, s, expected_kind):
+        result = compare(c_rescale, variational._rescale, x, s)
         assert kind(result) == expected_kind
 
     @pytest.mark.parametrize("seed", range(8))
-    def test_random(self, impl, seed):
+    def test_random(self, seed):
         rng = np.random.default_rng(seed)
         x = f64(rng.uniform(-0.9, 3000), log_uniform(rng, -4, -1))
         s = float(rng.choice([10.0, 100.0, 1000.0]))
-        compare(impl.variational._rescale, variational._rescale, x, s)
+        compare(c_rescale, variational._rescale, x, s)
 
-    def test_zero_shape_offset_cap_below_one(self, impl):
+    def test_zero_shape_offset_cap_below_one(self):
         # Compiled code divides by zero and raises; the oracle returns -inf. Direct
         # call only: `propagate_*` assert `max_shape >= 1`.
         with pytest.raises(expected_error(ZeroDivisionError)):
-            impl.variational._rescale(f64(0, 1), 0.5)
+            c_rescale(f64(0, 1), 0.5)
 
 
 class TestConstraintsAreConsistent:
     @staticmethod
-    def check(impl, constraints, parents, children, valid):
+    def check(constraints, parents, children, valid):
         args = (
             np.array(constraints, dtype=np.float64),
             np.array(parents, dtype=np.int32),
             np.array(children, dtype=np.int32),
         )
-        func = impl.variational._constraints_are_consistent
+        func = _tsdate.constraints_are_consistent
         result = compare(func, variational._constraints_are_consistent, *args)
         assert result.value is valid
 
@@ -329,12 +442,12 @@ class TestConstraintsAreConsistent:
             ]
         ],
     )
-    def test_table(self, impl, constraints, parents, children, valid):
-        self.check(impl, constraints, parents, children, valid)
+    def test_table(self, constraints, parents, children, valid):
+        self.check(constraints, parents, children, valid)
 
     @pytest.mark.parametrize("ts_name", ["small_ts", "small_ts_historical"])
     @pytest.mark.parametrize("gap", ["equal", "one_ulp"])
-    def test_real_edges(self, impl, snaps, ts_name, gap):
+    def test_real_edges(self, snaps, ts_name, gap):
         # the lower bound of a child equals the upper bound of its parent, or exceeds it
         snap = snaps[ts_name]
         constraints = snap.node_constraints.copy()
@@ -342,7 +455,7 @@ class TestConstraintsAreConsistent:
         constraints[c, LOWER] = 500.0
         constraints[p, UPPER] = 500.0 if gap == "equal" else up(500.0, 0.0)
         valid = gap == "equal"
-        self.check(impl, constraints, snap.edge_parents, snap.edge_children, valid)
+        self.check(constraints, snap.edge_parents, snap.edge_children, valid)
 
     def test_production_raises(self):
         constraints = np.array([[10.0, 10.0], [0.0, 0.0]])
@@ -367,22 +480,24 @@ class TestPropagateLikelihoodBranches:
 
     @pytest.mark.parametrize("case", CASES)
     @pytest.mark.parametrize("branch", [b for b in BRANCHES if "both_fixed" not in b])
-    def test_single_edge(self, impl, branch, case):
+    def test_single_edge(self, branch, case):
         snap = tiny_snapshot(branch, **self.CASES[case])
         kwargs = dict(max_shape=1e300)  # no posterior rescaling
         if "sideways" in branch and case == "projection_fails":
             # `sideways_moments` divides by zero for an astronomically large mutation
             # target: compiled code raises where the oracle returns NaN and skips.
             with pytest.raises(expected_error(ZeroDivisionError)):
-                ep_state.run_likelihood(impl.variational, snap, snap.unphased, **kwargs)
+                ep_state.run_likelihood(
+                    c_propagate_likelihood, snap, snap.unphased, **kwargs
+                )
         else:
-            compare_runs(ep_state.run_likelihood, impl, snap, snap.unphased, **kwargs)
+            compare_runs(ep_state.run_likelihood, snap, snap.unphased, **kwargs)
 
-    def test_twin_edge_in_phased_pass(self, impl):
+    def test_twin_edge_in_phased_pass(self):
         # p == c is only valid for blocks; `twin_projection` asserts `unphased`.
         # Direct call only: edges never have p == c in a tree sequence.
         snap = tiny_snapshot("twin")
-        result = compare_runs(ep_state.run_likelihood, impl, snap, False)
+        result = compare_runs(ep_state.run_likelihood, snap, False)
         assert kind(result) is AssertionError
         assert str(result.exception) == "Invalid update"
 
@@ -405,7 +520,7 @@ class TestPropagateLikelihood:
             ("small_ts_unphased", 10.0, 0.5),
         ],
     )
-    def test_natural(self, impl, snaps, ts_name, max_shape, min_step):
+    def test_natural(self, snaps, ts_name, max_shape, min_step):
         snap = snaps[ts_name]
         unphased = unphased_name(ts_name)
         counts = snap.branch_counts(unphased)
@@ -413,7 +528,6 @@ class TestPropagateLikelihood:
         assert counts["both_fixed"] == counts["fixed_parent"] == 0
         compare_runs(
             ep_state.run_likelihood,
-            impl,
             snap,
             unphased,
             max_shape=max_shape,
@@ -423,16 +537,16 @@ class TestPropagateLikelihood:
     @pytest.mark.parametrize(
         "ts_name", ["small_ts", "small_ts_unphased", "small_ts_historical"]
     )
-    def test_forced_fixed_nodes(self, impl, snaps, ts_name):
+    def test_forced_fixed_nodes(self, snaps, ts_name):
         # every branch: both nodes fixed (skipped), one fixed, both free
         unphased = unphased_name(ts_name)
         snap = ep_state.fixed_internal_snapshot(snaps[ts_name], unphased)
         counts = snap.branch_counts(unphased)
         assert all(v > 0 for k, v in counts.items() if k != "twin" or unphased)
-        compare_runs(ep_state.run_likelihood, impl, snap, unphased)
+        compare_runs(ep_state.run_likelihood, snap, unphased)
 
     @pytest.mark.parametrize("kind_of_order", ["empty", "partial_and_repeated"])
-    def test_order(self, impl, snaps, kind_of_order):
+    def test_order(self, snaps, kind_of_order):
         # the order array is arbitrary: empty, or any subset with repeats
         snap = snaps["small_ts"]
         if kind_of_order == "empty":
@@ -440,7 +554,7 @@ class TestPropagateLikelihood:
         else:
             order = snap.edge_order[100:140]
             order = np.concatenate((order, order[::-1], order[:5])).astype(np.int32)
-        compare_runs(ep_state.run_likelihood, impl, snap, False, order=order)
+        compare_runs(ep_state.run_likelihood, snap, False, order=order)
 
     @pytest.mark.parametrize(
         "max_shape",
@@ -450,13 +564,12 @@ class TestPropagateLikelihood:
         ids=lambda v: f"max_shape={v:g}",
     )
     @pytest.mark.parametrize("ts_name", ["small_ts", "small_ts_unphased"])
-    def test_max_shape(self, impl, snaps, ts_name, max_shape):
+    def test_max_shape(self, snaps, ts_name, max_shape):
         snap = snaps[ts_name]
         unphased = unphased_name(ts_name)
         order = self.order(snap, unphased, self.SUBSET)
         compare_runs(
             ep_state.run_likelihood,
-            impl,
             snap,
             unphased,
             max_shape=max_shape,
@@ -469,14 +582,13 @@ class TestPropagateLikelihood:
         ids=lambda v: f"min_step={v:g}",
     )
     @pytest.mark.parametrize("ts_name", ["small_ts", "small_ts_unphased"])
-    def test_min_step(self, impl, snaps, ts_name, min_step):
+    def test_min_step(self, snaps, ts_name, min_step):
         snap = snaps[ts_name]
         unphased = unphased_name(ts_name)
         order = self.order(snap, unphased, self.SUBSET)
         # a small cap makes passes difficult, so that damping is exercised
         compare_runs(
             ep_state.run_likelihood,
-            impl,
             snap,
             unphased,
             min_step=min_step,
@@ -485,7 +597,7 @@ class TestPropagateLikelihood:
         )
 
     @pytest.mark.parametrize("multiplier", [1e12, 1e300], ids=lambda v: f"y*{v:g}")
-    def test_extreme_counts(self, impl, snaps, multiplier):
+    def test_extreme_counts(self, snaps, multiplier):
         # 1e12: projection failures are skipped (NaN lognorm). 1e300: a posterior
         # becomes NaN and the next `_damp` asserts `0 < x[0] + 1`,
         # reachable from real data (~1e300 mutations on an edge).
@@ -494,7 +606,6 @@ class TestPropagateLikelihood:
         order = snap.edge_order[: self.SUBSET.stop]
         compare_runs(
             ep_state.run_likelihood,
-            impl,
             snap,
             False,
             order=order,
@@ -514,14 +625,13 @@ class TestPropagateLikelihood:
             pytest.param(dict(min_step=NAN), id="min_step_nan"),
         ],
     )
-    def test_invalid_parameters(self, impl, snaps, kwargs):
+    def test_invalid_parameters(self, snaps, kwargs):
         # reachable from user input (`max_shape`, `min_step` of `iterate`/`infer`):
         # parameter errors in the C library, not internal asserts
         snap = snaps["small_ts"]
         order = snap.edge_order[:10]
         assert_run_kind(
             ep_state.run_likelihood,
-            impl,
             snap,
             AssertionError,
             False,
@@ -533,7 +643,7 @@ class TestPropagateLikelihood:
         "change",
         ["children", "likelihoods", "constraints", "factors_larger"],
     )
-    def test_shape_mismatches(self, impl, snaps, change):
+    def test_shape_mismatches(self, snaps, change):
         # direct calls only: these are checked while parsing arguments in C
         snap = snaps["small_ts"]
         args, lognorm = ep_state.likelihood_args(snap, False)
@@ -549,22 +659,25 @@ class TestPropagateLikelihood:
             parents, children = parents[:-1], children[:-1]
             likelihoods = likelihoods[:-1]
 
-        def call(ns):
-            ns.propagate_likelihood(
+        def call(propagate_likelihood):
+            propagate_likelihood(
                 order,
                 parents,
                 children,
                 likelihoods,
                 constraints,
                 snap.node_posterior.copy(),
-                snap.factors(ns.EPFactors),
+                snap.factors(),
                 lognorm.copy(),
                 1000.0,
                 0.1,
                 ep_state.USE_EDGE_LIKELIHOOD,
             )
 
-        result = compare(lambda: call(impl.variational), lambda: call(variational))
+        result = compare(
+            lambda: call(c_propagate_likelihood),
+            lambda: call(variational.propagate_likelihood),
+        )
         assert kind(result) is AssertionError
 
 
@@ -607,12 +720,12 @@ class TestPropagateLikelihoodTinyScale:
             "parent-above",
         ],
     )
-    def test_threshold(self, impl, snaps, role, scale):
+    def test_threshold(self, snaps, role, scale):
         snap = self.shrunk(snaps["small_ts"], role, scale)
         order = snap.edge_order[: len(snap.edge_order) // 2]
-        compare_runs(ep_state.run_likelihood, impl, snap, False, order=order)
+        compare_runs(ep_state.run_likelihood, snap, False, order=order)
 
-    def test_skipped_fixed_edge(self, impl, snaps):
+    def test_skipped_fixed_edge(self, snaps):
         # a fixed sample with a tiny scale whose edge is skipped (both nodes fixed)
         base = snaps["small_ts_historical"].copy()
         sample = np.flatnonzero(base.fixed)[0]
@@ -620,15 +733,15 @@ class TestPropagateLikelihoodTinyScale:
         base.fix_nodes([base.edge_parents[edge]])
         assert base.branch_counts(False)["both_fixed"] > 0
         base.unscale([sample], TINY / 1e6)
-        compare_runs(ep_state.run_likelihood, impl, base, False)
+        compare_runs(ep_state.run_likelihood, base, False)
 
 
 class TestPropagatePrior:
     @pytest.mark.parametrize("ts_name", TS_NAMES)
-    def test_natural(self, impl, snaps, ts_name):
+    def test_natural(self, snaps, ts_name):
         snap = snaps[ts_name]
         assert snap.unconstrained_roots.any()
-        compare_runs(ep_state.run_prior, impl, snap, snap.unconstrained_roots)
+        compare_runs(ep_state.run_prior, snap, snap.unconstrained_roots)
 
     @pytest.mark.parametrize(
         ("scaled", "em_maxitt", "em_reltol"),
@@ -639,11 +752,10 @@ class TestPropagatePrior:
         + [(True, 0, 1e-8), (True, 3, 1e-8), (True, 1000, 0.5)],
         ids=lambda v: f"{v}" if isinstance(v, bool) else f"{v:g}",
     )
-    def test_em(self, impl, snaps, scaled_snap, scaled, em_maxitt, em_reltol):
+    def test_em(self, snaps, scaled_snap, scaled, em_maxitt, em_reltol):
         snap = scaled_snap if scaled else snaps["small_ts"]
         compare_runs(
             ep_state.run_prior,
-            impl,
             snap,
             snap.unconstrained_roots,
             em_maxitt=em_maxitt,
@@ -659,11 +771,10 @@ class TestPropagatePrior:
         [1.0, 1.5, 1e300],
         ids=lambda v: f"max_shape={v:g}",
     )
-    def test_max_shape(self, impl, snaps, ts_name, max_shape):
+    def test_max_shape(self, snaps, ts_name, max_shape):
         snap = snaps[ts_name]
         compare_runs(
             ep_state.run_prior,
-            impl,
             snap,
             snap.unconstrained_roots,
             max_shape=max_shape,
@@ -681,14 +792,14 @@ class TestPropagatePrior:
         ],
         ids=["single_root", "internal", "none", "none_odd_arguments"],
     )
-    def test_free_nodes(self, impl, snaps, ts_name, free, kwargs):
+    def test_free_nodes(self, snaps, ts_name, free, kwargs):
         snap = snaps[ts_name]
         mask = np.zeros(snap.node_posterior.shape[0], dtype=bool)
         if free == "single_root":
             mask[np.flatnonzero(snap.unconstrained_roots)[0]] = True
         elif free == "internal":
             mask = ~snap.fixed & ~snap.roots | snap.unconstrained_roots
-        compare_runs(ep_state.run_prior, impl, snap, mask, **kwargs)
+        compare_runs(ep_state.run_prior, snap, mask, **kwargs)
 
     @staticmethod
     def zero_posterior(snap):
@@ -723,7 +834,7 @@ class TestPropagatePrior:
             "free_too_long",
         ],
     )
-    def test_assertions(self, impl, snaps, case):
+    def test_assertions(self, snaps, case):
         snap = snaps["small_ts"]
         free = snap.unconstrained_roots
         kwargs = {}
@@ -745,9 +856,9 @@ class TestPropagatePrior:
             free = free[:-1]
         else:
             free = np.append(free, True)
-        assert_run_kind(ep_state.run_prior, impl, snap, AssertionError, free, **kwargs)
+        assert_run_kind(ep_state.run_prior, snap, AssertionError, free, **kwargs)
 
-    def test_penalty_assert_reachable_from_ep(self, impl, fresh):
+    def test_penalty_assert_reachable_from_ep(self, fresh):
         # NOTE: current behaviour, possibly a bug: a likelihood pass in
         # which every update is skipped (a huge mutational target) leaves the roots
         # with a zero posterior, so that `iterate(regularise=True)` fails the
@@ -755,12 +866,15 @@ class TestPropagatePrior:
         base = fresh["small_ts"].copy()
         base.edge_likelihoods = base.edge_likelihoods * [1.0, 1e300]
 
-        def run(ns):
-            state = ep_state.run_likelihood(ns, base, False)
+        def run(propagate_likelihood, propagate_prior):
+            state = ep_state.run_likelihood(propagate_likelihood, base, False)
             step = base.after_pass(state)
-            return ep_state.run_prior(ns, step, step.unconstrained_roots)
+            return ep_state.run_prior(propagate_prior, step, step.unconstrained_roots)
 
-        result = compare(lambda: run(impl.variational), lambda: run(variational))
+        result = compare(
+            lambda: run(c_propagate_likelihood, c_propagate_prior),
+            lambda: run(variational.propagate_likelihood, variational.propagate_prior),
+        )
         assert kind(result) is AssertionError
 
 
@@ -774,8 +888,8 @@ class TestPropagateMutations:
             ("small_ts_unphased", True),
         ],
     )
-    def test_natural(self, impl, snaps, ts_name, unphased):
-        compare_runs(ep_state.run_mutations, impl, snaps[ts_name], unphased)
+    def test_natural(self, snaps, ts_name, unphased):
+        compare_runs(ep_state.run_mutations, snaps[ts_name], unphased)
 
     @pytest.mark.parametrize(
         ("ts_name", "unphased"),
@@ -785,15 +899,15 @@ class TestPropagateMutations:
             ("small_ts_unphased", True),
         ],
     )
-    def test_forced_fixed_nodes(self, impl, snaps, ts_name, unphased):
+    def test_forced_fixed_nodes(self, snaps, ts_name, unphased):
         # mutations on edges of every kind: both nodes fixed, one of the two fixed
         snap = ep_state.fixed_internal_snapshot(snaps[ts_name], unphased)
         counts = snap.branch_counts(unphased)
         assert all(counts[k] > 0 for k in ("both_fixed", "fixed_parent", "fixed_child"))
-        compare_runs(ep_state.run_mutations, impl, snap, unphased)
+        compare_runs(ep_state.run_mutations, snap, unphased)
 
     @pytest.mark.parametrize("case", ["null_edges", "order_subset_and_repeats"])
-    def test_mutation_selection(self, impl, snaps, case):
+    def test_mutation_selection(self, snaps, case):
         # mutations above the root have edge NULL and are skipped; the order is any
         # subset of the mutations, with repeats
         snap = snaps["small_ts"]
@@ -804,7 +918,7 @@ class TestPropagateMutations:
             kwargs["edges"] = edges
         else:
             kwargs["order"] = np.array([5, 3, 3, 100, 5], dtype=np.int32)
-        compare_runs(ep_state.run_mutations, impl, snap, False, **kwargs)
+        compare_runs(ep_state.run_mutations, snap, False, **kwargs)
 
     @pytest.mark.parametrize(
         ("branch", "case"),
@@ -816,7 +930,7 @@ class TestPropagateMutations:
             if not (c == "projection_fails" and "both_fixed" in b)
         ],
     )
-    def test_single_edge(self, impl, branch, case):
+    def test_single_edge(self, branch, case):
         # NOTE: current behaviour, possibly a bug: a mutation whose
         # projection fails gets NaN posterior and phase, silently left in the result.
         fails = case == "projection_fails"
@@ -825,16 +939,16 @@ class TestPropagateMutations:
         if fails and "sideways" in branch:
             # as in propagate_likelihood: compiled `*_sideways_moments` raises
             with pytest.raises(expected_error(ZeroDivisionError)):
-                ep_state.run_mutations(impl.variational, snap, snap.unphased)
+                ep_state.run_mutations(c_propagate_mutations, snap, snap.unphased)
         else:
-            compare_runs(ep_state.run_mutations, impl, snap, snap.unphased)
+            compare_runs(ep_state.run_mutations, snap, snap.unphased)
 
-    def test_twin_in_phased_pass(self, impl):
+    def test_twin_in_phased_pass(self):
         # unlike propagate_likelihood, there is no `unphased` assert for p == c; the
         # twin projection is used as is (direct call only: edges never have p == c)
         snap = tiny_snapshot("twin")
         snap.mutation_blocks[:] = tskit.NULL
-        assert_run_kind(ep_state.run_mutations, impl, snap, "finite", False)
+        assert_run_kind(ep_state.run_mutations, snap, "finite", False)
 
     @pytest.mark.parametrize(
         ("ages", "expected_kind"),
@@ -849,22 +963,20 @@ class TestPropagateMutations:
             pytest.param([[10, 10], [0, 0]], "finite", id="inverted_ages"),
         ],
     )
-    def test_fixed_edge_ages(self, impl, ages, expected_kind):
+    def test_fixed_edge_ages(self, ages, expected_kind):
         snap = tiny_snapshot("both_fixed")
         snap.node_constraints[:] = ages
-        assert_run_kind(ep_state.run_mutations, impl, snap, expected_kind, False)
+        assert_run_kind(ep_state.run_mutations, snap, expected_kind, False)
 
     @pytest.mark.parametrize("change", ["edges_size", "posterior_size"])
-    def test_shape_mismatches(self, impl, snaps, change):
+    def test_shape_mismatches(self, snaps, change):
         # direct calls only: checked while parsing arguments in C
         snap = snaps["small_ts"]
         if change == "edges_size":
             kwargs = dict(edges=snap.mutation_edges[:-1])
         else:
             kwargs = dict(posterior=snap.node_posterior[:-1])
-        assert_run_kind(
-            ep_state.run_mutations, impl, snap, AssertionError, False, **kwargs
-        )
+        assert_run_kind(ep_state.run_mutations, snap, AssertionError, False, **kwargs)
 
 
 class TestMultiSweep:
@@ -883,12 +995,28 @@ class TestMultiSweep:
     }
 
     @pytest.mark.parametrize("case", CASES)
-    def test_sweeps(self, impl, fresh, case):
+    def test_sweeps(self, fresh, case):
         name, kwargs = self.CASES[case]
         snap = fresh[name]
         sweeps = 4
-        actual = ep_state.run_sweeps(impl.variational, snap, sweeps, **kwargs)
-        expected = ep_state.run_sweeps(variational, snap, sweeps, **kwargs)
+        actual = ep_state.run_sweeps(
+            c_propagate_likelihood,
+            c_propagate_prior,
+            c_propagate_mutations,
+            c_rescale_factors,
+            snap,
+            sweeps,
+            **kwargs,
+        )
+        expected = ep_state.run_sweeps(
+            variational.propagate_likelihood,
+            variational.propagate_prior,
+            variational.propagate_mutations,
+            variational._rescale_factors,
+            snap,
+            sweeps,
+            **kwargs,
+        )
         for a, e in zip(actual[0], expected[0]):
             for x, y in zip(a, e):  # node posterior, edge and block lognorm
                 np.testing.assert_array_equal(x, y)

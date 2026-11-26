@@ -1,6 +1,6 @@
 """
-Parity of the C implementation (``impl``) with the oracles in ``oracle/hypergeo.py``
-for the special functions: exact values (including NaNs and infinities), and which
+Parity of the special functions of ``_tsdate`` with their oracles in
+``oracle/hypergeo.py``: exact values (including NaNs and infinities), and which
 exception is raised (``AssertionError`` for the domain checks,
 ``ZeroDivisionError`` for float division by zero). Expected values always come from the
 oracle. Tables hold deliberate edge cases (poles, domain boundaries, both sides of a
@@ -8,6 +8,7 @@ branch switch); grids and seeded random draws cover the interior and extreme ran
 Accuracy of the approximations is measured in ``evaluation/numerical_accuracy.py``.
 """
 
+import _tsdate
 import numpy as np
 import pytest
 from oracle import hypergeo
@@ -24,11 +25,12 @@ from oracle.helpers import (
 nextafter = np.nextafter
 
 
-def parity(impl, name, args, expected_kind=None):
+def parity(name, args, expected_kind=None):
     """
-    Compare ``impl.hypergeo.<name>(*args)`` with the oracle; optionally check kind.
+    Compare the C function for the oracle ``hypergeo.<name>`` (its name without the
+    leading underscore) with the oracle on ``args``; optionally check the kind.
     """
-    func = getattr(impl.hypergeo, name)
+    func = getattr(_tsdate, name.removeprefix("_"))
     oracle = getattr(hypergeo, name)
     if expected_kind is None:
         return compare(func, oracle, *args)
@@ -119,15 +121,15 @@ TRIGAMMA_KINDS = [
 class TestPolygamma:
     @pytest.mark.parametrize("name", ["_digamma", "_trigamma"])
     @pytest.mark.parametrize("x", DIGAMMA_POINTS, ids=repr)
-    def test_matches_oracle(self, impl, name, x):
-        parity(impl, name, (x,))
+    def test_matches_oracle(self, name, x):
+        parity(name, (x,))
 
     @pytest.mark.parametrize(
         ("name", "args", "expected"),
         table("_digamma", POLYGAMMA_KINDS) + table("_trigamma", TRIGAMMA_KINDS),
     )
-    def test_poles_and_nonfinite(self, impl, name, args, expected):
-        parity(impl, name, args, expected)
+    def test_poles_and_nonfinite(self, name, args, expected):
+        parity(name, args, expected)
 
 
 BETALN_POINTS = [
@@ -160,8 +162,8 @@ BETALN_POINTS = [
 
 class TestBetaln:
     @pytest.mark.parametrize(("p", "q"), BETALN_POINTS, ids=repr)
-    def test_matches_oracle(self, impl, p, q):
-        parity(impl, "_betaln", (p, q))
+    def test_matches_oracle(self, p, q):
+        parity("_betaln", (p, q))
 
 
 # `_gammainc_der(p, x)`: regimes are x == 0, x > 1e8, p > 1e3 (gaussian),
@@ -230,14 +232,14 @@ GAMMAINC_DER_DOMAIN = [
 
 class TestGammaincDer:
     @pytest.mark.parametrize(("p", "x"), GAMMAINC_DER_POINTS, ids=repr)
-    def test_matches_oracle(self, impl, p, x):
-        parity(impl, "_gammainc_der", (p, x))
+    def test_matches_oracle(self, p, x):
+        parity("_gammainc_der", (p, x))
 
     @pytest.mark.parametrize(
         ("name", "args", "expected"), table("_gammainc_der", GAMMAINC_DER_DOMAIN)
     )
-    def test_domain(self, impl, name, args, expected):
-        parity(impl, name, args, expected)
+    def test_domain(self, name, args, expected):
+        parity(name, args, expected)
 
 
 def gammainc_inv_grid():
@@ -257,8 +259,8 @@ class TestGammaincInv:
     """
 
     @pytest.mark.parametrize(("a", "q"), gammainc_inv_grid(), ids=repr)
-    def test_matches_oracle(self, impl, a, q):
-        parity(impl, "_gammainc_inv", (a, q))
+    def test_matches_oracle(self, a, q):
+        parity("_gammainc_inv", (a, q))
 
 
 HYPERU_DOMAIN = [
@@ -476,8 +478,8 @@ class TestLaplaceDomain:
         ("name", "args", "expected"),
         [p for name, rows in LAPLACE.items() for p in table(name, rows)],
     )
-    def test_domain(self, impl, name, args, expected):
-        parity(impl, name, args, expected)
+    def test_domain(self, name, args, expected):
+        parity(name, args, expected)
 
     @pytest.mark.parametrize(
         ("name", "args"),
@@ -487,8 +489,8 @@ class TestLaplaceDomain:
             for args in laplace_grid(name)
         ],
     )
-    def test_grid(self, impl, name, args):
-        parity(impl, name, args)
+    def test_grid(self, name, args):
+        parity(name, args)
 
 
 class TestHyp2f1Unity:
@@ -497,23 +499,23 @@ class TestHyp2f1Unity:
     """
 
     @pytest.mark.parametrize("args", UNITY_CASES, ids=repr)
-    def test_unity_branches(self, impl, args):
+    def test_unity_branches(self, args):
         a, b, c, z = args
         mapped = z / (z - 1) if z < 0 else z
         assert np.isclose(mapped, 1.0), "case must take the unity branch"
-        result = parity(impl, "_hyp2f1_laplace", args)
+        result = parity("_hyp2f1_laplace", args)
         assert_same_values(result.value, unity_formula(a, b, c, z))
 
     @pytest.mark.parametrize("sign", ["positive", "negative"])
     @pytest.mark.parametrize("side", ["not_close", "close"])
-    def test_switch_point(self, impl, sign, side):
+    def test_switch_point(self, sign, side):
         # the unity formula is used from the first np.isclose argument onwards
         if sign == "positive":
             not_close, close = unity_threshold()
         else:
             not_close, close = negative_unity_threshold()
         z = close if side == "close" else not_close
-        parity(impl, "_hyp2f1_laplace", (5.0, 7.0, 9.0, z), "finite")
+        parity("_hyp2f1_laplace", (5.0, 7.0, 9.0, z), "finite")
 
 
 def draw_polygamma(rng, extreme):
@@ -606,11 +608,11 @@ class TestRandomDraws:
     @pytest.mark.parametrize("seed", [1, 2, 3])
     @pytest.mark.parametrize("mode", ["typical", "extreme"])
     @pytest.mark.parametrize("name", list(DRAWS))
-    def test_random_draws(self, impl, name, mode, seed):
+    def test_random_draws(self, name, mode, seed):
         rng = np.random.default_rng(seed)
         for i in range(40):
             args = DRAWS[name](rng, mode == "extreme")
             try:
-                parity(impl, name, args)
+                parity(name, args)
             except AssertionError as e:
                 raise AssertionError(f"draw {i}: {name}{args}: {e}") from None
