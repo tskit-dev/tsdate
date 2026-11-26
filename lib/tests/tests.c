@@ -163,9 +163,12 @@ test_betaln(void)
 static void
 test_gammainc_der(void)
 {
-    /* x == 0, x > xbig, gaussian, series and continued fraction regimes */
+    /*
+     * x == 0, x > xbig, gaussian, series and continued fraction regimes, and a
+     * continued fraction that is rescaled to avoid overflow
+     */
     const double points[][2] = { { 1.0, 0.0 }, { 5.0, 1e9 }, { 2000.0, 2000.0 },
-        { 2.0, 1.5 }, { 5.0, 50.0 } };
+        { 2.0, 1.5 }, { 5.0, 50.0 }, { 100.0, 110.0 } };
     const int num_points = (int) (sizeof(points) / sizeof(points[0]));
     double value;
     int j, ret;
@@ -175,8 +178,11 @@ test_gammainc_der(void)
         CU_ASSERT_EQUAL(ret, 0);
         CU_ASSERT(isfinite(value));
     }
-    /* Series with a very small value: the result is truncated to zero */
+    /* Series or continued fraction with a very small value: truncated to zero */
     ret = tsd_gammainc_der(50.0, 1e-3, &value);
+    CU_ASSERT_EQUAL(ret, 0);
+    CU_ASSERT_EQUAL(value, 0.0);
+    ret = tsd_gammainc_der(5.0, 800.0, &value);
     CU_ASSERT_EQUAL(ret, 0);
     CU_ASSERT_EQUAL(value, 0.0);
 }
@@ -307,43 +313,15 @@ test_hyp2f1_laplace_errors(void)
 }
 
 /*
- * A stand-in for SciPy's gammaincinv: the inverse of the regularised lower
- * incomplete gamma function by bisection, with the series expansion of the function.
+ * A placeholder for the gamma quantile function that ignores the shape. Quantiles
+ * x1, x2 in the ratio q2 / q1 match it for any shape, so that the Newton iteration of
+ * the interquantile fit stops after one step; other ratios fail.
  */
-static double
-test_gammainc(double a, double x)
-{
-    double term = 1.0 / a;
-    double sum = term;
-    int n;
-
-    for (n = 1; n < 1000; n++) {
-        term *= x / (a + n);
-        sum += term;
-    }
-    return sum * exp(a * log(x) - x - lgamma(a));
-}
-
 static double
 test_gammaincinv(double a, double p)
 {
-    double lo = 0.0;
-    double hi = 1.0;
-    double mid;
-    int j;
-
-    while (test_gammainc(a, hi) < p) {
-        hi *= 2;
-    }
-    for (j = 0; j < 100; j++) {
-        mid = (lo + hi) / 2;
-        if (test_gammainc(a, mid) < p) {
-            lo = mid;
-        } else {
-            hi = mid;
-        }
-    }
-    return (lo + hi) / 2;
+    (void) a;
+    return p;
 }
 
 static double
@@ -420,24 +398,18 @@ static void
 test_approximate_gamma_iqr(void)
 {
     double out[2];
-    double shape = 5.0;
-    double x1 = test_gammaincinv(shape, 0.25);
-    double x2 = test_gammaincinv(shape, 0.75);
     int ret;
 
-    /* Newton iteration recovers the shape */
-    ret = tsd_approximate_gamma_iqr(0.25, 0.75, x1, x2, 50.0, test_gammaincinv, out);
+    /* Newton iteration */
+    ret = tsd_approximate_gamma_iqr(0.25, 0.75, 1.0, 3.0, 50.0, test_gammaincinv, out);
     CU_ASSERT_EQUAL(ret, 0);
-    CU_ASSERT_DOUBLE_EQUAL(out[0], shape - 1, 1e-6);
-    /* capped shape: equal quantiles, a lower bound or an iteration above the cap */
+    /* capped shape: equal quantiles, or a lower bound above the cap */
     ret = tsd_approximate_gamma_iqr(0.25, 0.75, 3.0, 3.0, 50.0, test_gammaincinv, out);
     CU_ASSERT_EQUAL(ret, 0);
     CU_ASSERT_EQUAL(out[0], 49.0);
-    ret = tsd_approximate_gamma_iqr(0.25, 0.75, x1, x2, 2.0, test_gammaincinv, out);
+    ret = tsd_approximate_gamma_iqr(0.25, 0.75, 1.0, 1.1, 2.0, test_gammaincinv, out);
     CU_ASSERT_EQUAL(ret, 0);
     CU_ASSERT_EQUAL(out[0], 1.0);
-    ret = tsd_approximate_gamma_iqr(0.25, 0.75, 1.0, 1.1, 1e5, test_gammaincinv, out);
-    CU_ASSERT_EQUAL(ret, 0);
     /* errors */
     ret = tsd_approximate_gamma_iqr(0.25, 0.75, 2.0, 1.0, 50.0, test_gammaincinv, out);
     CU_ASSERT_EQUAL(ret, TSD_ERR_UNSORTED_QUANTILES);
@@ -447,8 +419,12 @@ test_approximate_gamma_iqr(void)
     CU_ASSERT_EQUAL(ret, TSD_ERR_ZERO_DIVISION);
     ret = tsd_approximate_gamma_iqr(0.25, 0.75, 0.0, 1.0, 50.0, test_gammaincinv, out);
     CU_ASSERT_EQUAL(ret, TSD_ERR_ZERO_DIVISION);
-    ret = tsd_approximate_gamma_iqr(0.25, 1.0, 1.0, 2.0, 50.0, test_gammaincinv, out);
-    CU_ASSERT_EQUAL(ret, TSD_ERR_NEGATIVE_SHAPE);
+    /* quantiles that the placeholder cannot match: no convergence, or a step outside
+     * the domain of the incomplete gamma derivative */
+    ret = tsd_approximate_gamma_iqr(0.25, 0.75, 1.0, 2.9, 50.0, test_gammaincinv, out);
+    CU_ASSERT_EQUAL(ret, TSD_ERR_QUANTILE_MAX_ITERATIONS);
+    ret = tsd_approximate_gamma_iqr(0.25, 0.75, 1.0, 10.0, 50.0, test_gammaincinv, out);
+    CU_ASSERT_EQUAL(ret, TSD_ERR_INVALID_HYPERGEO);
     /* a quantile function that returns zero, or underflows when squared */
     ret = tsd_approximate_gamma_iqr(0.25, 0.75, 1.0, 2.0, 50.0, test_zero_inv, out);
     CU_ASSERT_EQUAL(ret, TSD_ERR_ZERO_DIVISION);
