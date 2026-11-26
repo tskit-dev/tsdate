@@ -49,7 +49,8 @@ def _block_singletons(
     sequence_length,
 ):
     """
-    TODO
+    Blocks of the singleton mutations of unphased individuals: ``(blocks_stats,
+    blocks_edges, mutations_block)``.
     """
     assert edges_parent.size == edges_child.size == edges_left.size == edges_right.size
     assert indexes_insert.size == indexes_remove.size == edges_parent.size
@@ -157,7 +158,8 @@ def _mutation_frequency(
     sequence_length,
 ):
     """
-    TODO
+    The number of samples of each sample set below each mutation, as an array of
+    shape ``(num_mutations, num_sample_sets)``.
     """
     assert edges_parent.size == edges_child.size == edges_left.size == edges_right.size
     assert indexes_insert.size == indexes_remove.size == edges_parent.size

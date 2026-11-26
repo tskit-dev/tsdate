@@ -327,7 +327,10 @@ out:
     return ret;
 }
 
-/* The number of members of each sample set below each mutation, for each tree. */
+/*
+ * For each mutation and each sample set, the number of members of the set below the
+ * mutation's node in the tree at the mutation's position.
+ */
 int
 tsd_mutation_frequency(tsd_size_t num_nodes, tsd_size_t num_sample_sets,
     tsd_size_t num_edges, tsd_size_t num_mutations, const uint8_t *nodes_sample,

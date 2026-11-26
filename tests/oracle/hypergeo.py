@@ -75,6 +75,7 @@ def _trigamma(x):
 
 
 def _betaln(p, q):
+    """Log of the beta function."""
     return lgamma(p) + lgamma(q) - lgamma(p + q)
 
 

@@ -182,6 +182,7 @@ def _contains_unary_nodes(
     sequence_length,
     num_nodes,
 ):
+    """Whether a node outside ``nodes_mask`` has exactly one child in some tree."""
     assert edges_parent.size == edges_left.size == edges_right.size
     assert indexes_insert.size == indexes_remove.size == edges_parent.size
 

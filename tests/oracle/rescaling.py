@@ -88,6 +88,10 @@ def _count_mutations(
     sequence_length,
     size_biased,
 ):
+    """
+    The mutations on each edge and the edge's span, weighted by the number of samples
+    below the edge if ``size_biased``, as ``(edges_stats, mutations_edge)``.
+    """
     assert edges_parent.size == edges_child.size == edges_left.size == edges_right.size
     assert indexes_insert.size == indexes_remove.size == edges_parent.size
     assert mutations_node.size == mutations_position.size
@@ -371,6 +375,10 @@ def piecewise_scale_point_estimate(
     original_breaks,
     rescaled_breaks,
 ):
+    """
+    Node ages mapped piecewise linearly from ``original_breaks`` to
+    ``rescaled_breaks``; ages where ``point_fixed`` are unchanged.
+    """
     if not np.all(np.diff(rescaled_breaks) > 0):
         raise ValueError(
             "Rescaling produced non-increasing time breakpoints. "

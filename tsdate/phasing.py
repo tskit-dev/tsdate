@@ -36,7 +36,20 @@ _block_singletons = _tsdate.block_singletons
 
 def block_singletons(ts, individuals_unphased):
     """
-    TODO
+    Group the singleton mutations of unphased individuals into blocks: the regions
+    over which both edges above an individual's two nodes are unchanged. The
+    unphased individuals must be diploid and contemporary.
+
+    :param tskit.TreeSequence ts: The tree sequence.
+    :param numpy.ndarray individuals_unphased: Boolean array, one entry per
+        individual, true for the individuals whose singletons are blocked.
+    :return: A tuple ``(blocks_stats, blocks_edges, mutations_block)``:
+        ``blocks_stats`` has one row per block, the number of singletons in the
+        block and its span; ``blocks_edges`` has one row per block, the two edges of
+        the block; ``mutations_block`` gives the block of each mutation, or
+        ``tskit.NULL`` for mutations outside the unphased individuals.
+    :raises ValueError: If an unphased individual is not diploid or not
+        contemporary.
     """
     for i in ts.individuals():
         if individuals_unphased[i.id]:
@@ -66,7 +79,14 @@ _mutation_frequency = _tsdate.mutation_frequency
 
 def mutation_frequency(ts, sample_sets=None):
     """
-    TODO
+    The number of samples of each sample set that carry each mutation, that is the
+    samples below the mutation's node in the tree at its position.
+
+    :param tskit.TreeSequence ts: The tree sequence.
+    :param list sample_sets: A list of lists of sample node ids (default: one set of
+        all samples).
+    :return: An integer array of shape ``(num_mutations, num_sample_sets)``, with
+        dimensions of size one removed (so 1-d for a single sample set).
     """
     if sample_sets is None:
         sample_sets = [list(ts.samples())]
