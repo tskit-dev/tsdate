@@ -804,7 +804,7 @@ int
 tsd_piecewise_scale_posterior(tsd_size_t num_posteriors, const double *posteriors,
     const uint8_t *posteriors_fixed, tsd_size_t num_breaks,
     const double *original_breaks, const double *rescaled_breaks, double quantile_width,
-    double max_shape, tsd_gammaincinv_fn gammaincinv, double *new_posteriors)
+    double max_shape, double *new_posteriors)
 {
     int ret = 0;
     double *lower = NULL;
@@ -851,8 +851,8 @@ tsd_piecewise_scale_posterior(tsd_size_t num_posteriors, const double *posterior
         if (!posteriors_fixed[j]) {
             alpha = posteriors[2 * j];
             beta = posteriors[2 * j + 1];
-            lower[j] = gammaincinv(alpha + 1, quant_lower) / beta;
-            upper[j] = gammaincinv(alpha + 1, quant_upper) / beta;
+            lower[j] = tsd_gammaincinv(alpha + 1, quant_lower) / beta;
+            upper[j] = tsd_gammaincinv(alpha + 1, quant_upper) / beta;
             midpt[j] = (alpha + 1) / beta;
         }
     }
@@ -887,8 +887,8 @@ tsd_piecewise_scale_posterior(tsd_size_t num_posteriors, const double *posterior
             ret = tsd_trace_error(TSD_ERR_ZERO_DIVISION);
             goto out;
         }
-        ret = tsd_approximate_gamma_iqr(quant_lower, quant_upper, lower[j], upper[j],
-            max_shape, gammaincinv, gamma_pars);
+        ret = tsd_approximate_gamma_iqr(
+            quant_lower, quant_upper, lower[j], upper[j], max_shape, gamma_pars);
         if (ret != 0) {
             goto out;
         }

@@ -35,13 +35,6 @@
 
 static PyObject *TsdLibraryError;
 
-/*
- * SciPy's gammaincinv, taken from the C API of scipy.special.cython_special at module
- * initialisation. The third argument is Cython's __pyx_skip_dispatch.
- */
-typedef double (*cython_gammaincinv_fn)(double a, double p, int skip_dispatch);
-static cython_gammaincinv_fn scipy_gammaincinv;
-
 static void
 handle_library_error(int err)
 {
@@ -126,17 +119,10 @@ scalar_gammainc_der(const double *in, double *out)
     return tsd_gammainc_der(in[0], in[1], out);
 }
 
-/* A tsd_gammaincinv_fn: this is what is passed to library functions that need it. */
-static double
-gammaincinv(double a, double p)
-{
-    return scipy_gammaincinv(a, p, 0);
-}
-
 static int
 scalar_gammainc_inv(const double *in, double *out)
 {
-    out[0] = gammaincinv(in[0], in[1]);
+    out[0] = tsd_gammaincinv(in[0], in[1]);
     return 0;
 }
 
@@ -181,8 +167,7 @@ scalar_approximate_gamma_mom(const double *in, double *out)
 static int
 scalar_approximate_gamma_iqr(const double *in, double *out)
 {
-    return tsd_approximate_gamma_iqr(
-        in[0], in[1], in[2], in[3], in[4], gammaincinv, out);
+    return tsd_approximate_gamma_iqr(in[0], in[1], in[2], in[3], in[4], out);
 }
 
 static int
@@ -1756,7 +1741,7 @@ tsdate_piecewise_scale_posterior(PyObject *Py_UNUSED(self), PyObject *args)
     Py_BEGIN_ALLOW_THREADS
     err = tsd_piecewise_scale_posterior(ARRAY_LEN(posteriors), DOUBLES(posteriors),
         FLAGS(posteriors_fixed), ARRAY_LEN(original_breaks), DOUBLES(original_breaks),
-        DOUBLES(rescaled_breaks), quantile_width, max_shape, gammaincinv,
+        DOUBLES(rescaled_breaks), quantile_width, max_shape,
         (double *) PyArray_DATA(new_posteriors));
     Py_END_ALLOW_THREADS
     if (err != 0) {
@@ -2266,52 +2251,6 @@ static PyMethodDef tsdate_methods[] = {
 static struct PyModuleDef tsdatemodule = { PyModuleDef_HEAD_INIT, "_tsdate", MODULE_DOC,
     -1, tsdate_methods, NULL, NULL, NULL, NULL };
 
-/*
- * Look up scipy.special.cython_special.gammaincinv through its Cython C API capsule.
- * The capsule's name is its C signature, which is used as given to get the pointer.
- */
-static int
-load_scipy_gammaincinv(void)
-{
-    int ret = -1;
-    PyObject *cython_special = NULL;
-    PyObject *capi = NULL;
-    PyObject *capsule = NULL;
-    const char *name;
-    void *ptr;
-
-    cython_special = PyImport_ImportModule("scipy.special.cython_special");
-    if (cython_special == NULL) {
-        PyErr_SetString(
-            PyExc_ImportError, "_tsdate requires scipy.special.cython_special");
-        goto out;
-    }
-    capi = PyObject_GetAttrString(cython_special, "__pyx_capi__");
-    if (capi == NULL) {
-        goto out;
-    }
-    capsule = PyDict_GetItemString(capi, "gammaincinv"); /* borrowed */
-    if (capsule == NULL || !PyCapsule_CheckExact(capsule)) {
-        PyErr_SetString(PyExc_ImportError,
-            "scipy.special.cython_special does not provide gammaincinv");
-        goto out;
-    }
-    name = PyCapsule_GetName(capsule);
-    if (name == NULL) {
-        goto out;
-    }
-    ptr = PyCapsule_GetPointer(capsule, name);
-    if (ptr == NULL) {
-        goto out;
-    }
-    scipy_gammaincinv = (cython_gammaincinv_fn) ptr;
-    ret = 0;
-out:
-    Py_XDECREF(cython_special);
-    Py_XDECREF(capi);
-    return ret;
-}
-
 PyObject *
 PyInit__tsdate(void)
 {
@@ -2327,10 +2266,6 @@ PyInit__tsdate(void)
     Py_INCREF(TsdLibraryError);
     PyModule_AddObject(module, "LibraryError", TsdLibraryError);
 
-    if (load_scipy_gammaincinv() != 0) {
-        Py_DECREF(module);
-        return NULL;
-    }
     if (add_scalar_functions(module) != 0) {
         Py_DECREF(module);
         return NULL;

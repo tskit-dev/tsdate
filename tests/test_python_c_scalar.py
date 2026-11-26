@@ -85,8 +85,8 @@ class TestScalarErrors:
 
 class TestGammaincInv:
     """
-    ``gammainc_inv`` calls SciPy's ``gammaincinv`` through its Cython C API, so it is
-    identical to ``scipy.special.gammaincinv``, including outside the domain.
+    ``gammainc_inv`` is a port of SciPy's ``gammaincinv``, identical to
+    ``scipy.special.gammaincinv``, including outside the domain.
     """
 
     @pytest.mark.parametrize(
@@ -110,14 +110,13 @@ class TestGammaincInv:
 
 
 class TestScipyDependency:
-    def test_import_fails_without_scipy_cython_api(self):
+    def test_import_without_scipy(self):
         code = (
-            "import sys; sys.modules['scipy.special.cython_special'] = None\n"
-            "import _tsdate"
+            "import sys; sys.modules['scipy'] = None\n"
+            "import _tsdate; print(_tsdate.gammainc_inv(2.0, 0.5))"
         )
         result = subprocess.run(
             [sys.executable, "-c", code], capture_output=True, text=True
         )
-        assert result.returncode != 0
-        assert "ImportError" in result.stderr
-        assert "cython_special" in result.stderr
+        assert result.returncode == 0, result.stderr
+        assert float(result.stdout) == scipy.special.gammaincinv(2.0, 0.5)

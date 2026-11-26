@@ -254,18 +254,60 @@ class TestGammaincDer:
         parity(name, args, expected)
 
 
+GAMMAINC_INV_EDGES = [
+    # shapes outside the domain reach the poles, the reflection formula and Stirling's
+    # formula in the gamma function of the initial approximation
+    (-40.0, 0.5),
+    (-1e-10, 0.5),
+    (-46.752919088367761, -0.92813118104822934),
+    (-39.271336710778996, -5.5046762376648753e-13),
+    (-640.33633048902459, 0.13827951904386282),
+    (-150.91834423637511, 1.0674574812874198),
+    (-63.911108928063285, -0.68496137764304876),
+    # the gamma function's recurrence lands on 2 exactly
+    (nextafter(1.0, 0), 0.5),
+    # the series of igamc for small arguments, and a Newton step where the ratio of the
+    # derivatives overflows, in the complemented inversion
+    (0.0018725572425875394, 0.93432222410629528),
+    (1.4851015014453666e-07, 0.99989259056538193),
+]
+
+
 def gammainc_inv_grid():
     shapes = [1e-300, 1e-100, 1e-10, 1e-3, 0.1, 0.5, 1.0, 2.0, 10.0, 100.0]
     shapes += [1e3, 1e4, 1e5, 1e6, 1e8, 1e10, 1e15, 1e300, INF, 0.0, -1.0, NAN]
     quantiles = [0.0, 5e-324, 1e-300, 1e-100, 1e-20, 1e-10, 1e-3, 0.5, 0.999]
     quantiles += [1 - 1e-10, nextafter(1.0, 0), 1.0, nextafter(1.0, 2), -0.1, NAN]
-    return [(a, q) for a in shapes for q in quantiles]
+    grid = [(a, q) for a in shapes for q in quantiles]
+    return grid + GAMMAINC_INV_EDGES
+
+
+def gammainc_inv_random():
+    rng = np.random.default_rng(5)
+    n = 1000
+    specials = [0.0, 5e-324, 1e-300, nextafter(1.0, 0), 1.0, -0.1, 1.1, NAN]
+    invalid_shapes = [0.0, -0.0, -1e-3, -0.5, -1.0, -1.5, -40.5, -INF, INF, NAN]
+    shapes = [
+        log_uniform(rng, -3, 5, 2 * n),
+        log_uniform(rng, -3, 5, n),
+        log_uniform(rng, -3, 5, n // 2),
+        log_uniform(rng, -3, 5, n // 4),
+        rng.choice(invalid_shapes, n // 4),
+    ]
+    quantiles = [
+        rng.uniform(0, 1, 2 * n),
+        log_uniform(rng, -300, 0, n),
+        1 - log_uniform(rng, -16, -1, n // 2),
+        rng.choice(specials, n // 4),
+        rng.uniform(-0.5, 1.5, n // 4),
+    ]
+    return np.concatenate(shapes), np.concatenate(quantiles)
 
 
 class TestGammaincInv:
     """
-    `_gammainc_inv` is SciPy's ``gammaincinv`` (cephes ``igami``), which the C
-    library calls; checked exactly, including away from the interior of the
+    `_gammainc_inv` is SciPy's ``gammaincinv`` (cephes ``igami``), of which the C
+    library's is a port; checked exactly, including away from the interior of the
     domain (the result is a NaN, 0 or inf for invalid shapes and quantiles, with no
     exception).
     """
@@ -273,6 +315,17 @@ class TestGammaincInv:
     @pytest.mark.parametrize(("a", "q"), gammainc_inv_grid(), ids=repr)
     def test_matches_oracle(self, a, q):
         parity("_gammainc_inv", (a, q))
+
+    def test_matches_oracle_random(self):
+        """
+        Seeded draws of log-uniform shapes with quantiles that are uniform, tiny, close
+        to one (the complemented inversion), special values or outside [0, 1], and of
+        shapes outside the domain.
+        """
+        shapes, quantiles = gammainc_inv_random()
+        actual = [_tsdate.gammainc_inv(a, q) for a, q in zip(shapes, quantiles)]
+        desired = [hypergeo._gammainc_inv(a, q) for a, q in zip(shapes, quantiles)]
+        assert_same_values(np.array(actual), np.array(desired))
 
 
 HYPERU_DOMAIN = [

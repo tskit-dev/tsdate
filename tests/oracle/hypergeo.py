@@ -20,12 +20,12 @@ import scipy.special
 from ._libm import erf, exp, ipow, lgamma, log, pow, sin, sqrt, tan  # noqa: A004
 
 
-# The C library calls SciPy's Cython gammaincinv, which is
-# `scipy.special.gammaincinv`. The ufunc returns an `np.float64`, which is converted
-# so that callers divide by it with Python semantics (ZeroDivisionError).
+# The C library's gammaincinv is a port of `scipy.special.gammaincinv`, which is the
+# reference. The ufunc returns an `np.float64`, which is converted so that callers
+# divide by it with Python semantics (ZeroDivisionError).
 def _gammainc_inv(a, x):
     """
-    scipy.special.cython_special.gammaincinv
+    scipy.special.gammaincinv
     """
     return float(scipy.special.gammaincinv(a, x))
 

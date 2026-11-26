@@ -11,6 +11,7 @@ includes = [libdir]
 
 tsd_source_files = [
     "err.c",
+    "gammaincinv.c",
     "hypergeo.c",
     "approx.c",
     "rescaling.c",

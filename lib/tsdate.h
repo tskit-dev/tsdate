@@ -54,15 +54,12 @@ int tsd_hyp1f1_laplace(double a, double b, double x, double *out);
 int tsd_hyp2f1_laplace(double a, double b, double c, double x, double *out);
 
 /*
- * The inverse of the regularised lower incomplete gamma function, x such that
- * gammainc(a, x) = p, is not implemented in the library: SciPy's gammaincinv is
- * called. The caller (the Python module) supplies it, and
- * library functions that need it (the approx and rescaling functions) take a
- * parameter of this type, so that the library has no global state and no dependency
- * on SciPy. The function returns NaN, 0 or infinity (not an error) for arguments
- * outside the domain.
+ * The inverse of the regularised lower incomplete gamma function (gammaincinv.c): x
+ * such that gammainc(a, x) = p, identical to scipy.special.gammaincinv. It returns 0
+ * for p = 0, infinity for p = 1 and NaN (not an error) for arguments outside the
+ * domain.
  */
-typedef double (*tsd_gammaincinv_fn)(double a, double p);
+double tsd_gammaincinv(double a, double p);
 
 /*
  * Approximations of gamma distributions and of the moments of the EP updates
@@ -102,8 +99,8 @@ int tsd_approximate_log_moments(
     double mean, double variance, double *logx, double *xlogx, double *logx2);
 int tsd_approximate_gamma_kl(double x, double logx, double out[2]);
 int tsd_approximate_gamma_mom(double mean, double variance, double out[2]);
-int tsd_approximate_gamma_iqr(double q1, double q2, double x1, double x2,
-    double max_shape, tsd_gammaincinv_fn gammaincinv, double out[2]);
+int tsd_approximate_gamma_iqr(
+    double q1, double q2, double x1, double x2, double max_shape, double out[2]);
 /* The natural parameters of the gamma whose mean and mean log are the averages of
  * those of `num_gammas` gammas given by natural parameters `alpha`, `beta`. */
 int tsd_average_gammas(
@@ -284,7 +281,7 @@ int tsd_piecewise_scale_point_estimate(tsd_size_t num_points,
 int tsd_piecewise_scale_posterior(tsd_size_t num_posteriors, const double *posteriors,
     const uint8_t *posteriors_fixed, tsd_size_t num_breaks,
     const double *original_breaks, const double *rescaled_breaks, double quantile_width,
-    double max_shape, tsd_gammaincinv_fn gammaincinv, double *new_posteriors);
+    double max_shape, double *new_posteriors);
 
 /*
  * Expectation propagation passes (variational.c).

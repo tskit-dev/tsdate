@@ -162,8 +162,7 @@ out:
 
 /* The gamma with shape `max_shape` whose q-quantile is x. */
 static int
-gamma_iqr_upper_bound(
-    double q, double x, double max_shape, tsd_gammaincinv_fn gammaincinv, double out[2])
+gamma_iqr_upper_bound(double q, double x, double max_shape, double out[2])
 {
     int ret = 0;
 
@@ -172,7 +171,7 @@ gamma_iqr_upper_bound(
         goto out;
     }
     out[0] = max_shape - 1;
-    out[1] = gammaincinv(max_shape, q) / x;
+    out[1] = tsd_gammaincinv(max_shape, q) / x;
 out:
     return ret;
 }
@@ -182,14 +181,14 @@ out:
  * Updates alpha and writes the step to delta.
  */
 static int
-gamma_iqr_newton_step(double q1, double q2, double x1, double x2,
-    tsd_gammaincinv_fn gammaincinv, double *alpha, double *delta)
+gamma_iqr_newton_step(
+    double q1, double q2, double x1, double x2, double *alpha, double *delta)
 {
     int ret = 0;
     double y1, y2, obj, inv_1, inv_2, der_1, der_2, gra_1, gra_2, y1_sq, gra;
 
-    y1 = gammaincinv(*alpha, q1);
-    y2 = gammaincinv(*alpha, q2);
+    y1 = tsd_gammaincinv(*alpha, q1);
+    y2 = tsd_gammaincinv(*alpha, q2);
     if (y1 == 0.0) {
         ret = tsd_trace_error(TSD_ERR_ZERO_DIVISION);
         goto out;
@@ -228,15 +227,15 @@ out:
  * x1, x2 the corresponding quantiles. The shape is capped at max_shape.
  */
 int
-tsd_approximate_gamma_iqr(double q1, double q2, double x1, double x2, double max_shape,
-    tsd_gammaincinv_fn gammaincinv, double out[2])
+tsd_approximate_gamma_iqr(
+    double q1, double q2, double x1, double x2, double max_shape, double out[2])
 {
     int ret = 0;
     int itt = 0;
     double alpha, delta, ratio_q, ratio_x;
 
     if (x2 == x1) {
-        ret = gamma_iqr_upper_bound(q1, x1, max_shape, gammaincinv, out);
+        ret = gamma_iqr_upper_bound(q1, x1, max_shape, out);
         goto out;
     }
     if (!(q2 > q1 && x2 > x1)) {
@@ -251,7 +250,7 @@ tsd_approximate_gamma_iqr(double q1, double q2, double x1, double x2, double max
     ratio_x = x2 / x1;
     alpha = log(ratio_q) / log(ratio_x); /* lower bound */
     if (alpha > max_shape) {
-        ret = gamma_iqr_upper_bound(q1, x1, max_shape, gammaincinv, out);
+        ret = gamma_iqr_upper_bound(q1, x1, max_shape, out);
         goto out;
     }
     /* refine with Newton iteration */
@@ -261,7 +260,7 @@ tsd_approximate_gamma_iqr(double q1, double q2, double x1, double x2, double max
             ret = tsd_trace_error(TSD_ERR_QUANTILE_MAX_ITERATIONS);
             goto out;
         }
-        ret = gamma_iqr_newton_step(q1, q2, x1, x2, gammaincinv, &alpha, &delta);
+        ret = gamma_iqr_newton_step(q1, q2, x1, x2, &alpha, &delta);
         if (ret != 0) {
             goto out;
         }
@@ -272,11 +271,11 @@ tsd_approximate_gamma_iqr(double q1, double q2, double x1, double x2, double max
         goto out;
     }
     if (alpha > max_shape) {
-        ret = gamma_iqr_upper_bound(q1, x1, max_shape, gammaincinv, out);
+        ret = gamma_iqr_upper_bound(q1, x1, max_shape, out);
         goto out;
     }
     out[0] = alpha - 1;
-    out[1] = gammaincinv(alpha, q1) / x1;
+    out[1] = tsd_gammaincinv(alpha, q1) / x1;
 out:
     return ret;
 }

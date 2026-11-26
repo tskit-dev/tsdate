@@ -312,27 +312,21 @@ test_hyp2f1_laplace_errors(void)
     CU_ASSERT_EQUAL(ret, TSD_ERR_ZERO_DIVISION);
 }
 
-/*
- * The library takes gammaincinv as a parameter (the Python module passes SciPy's).
- * These tests check return codes only, so a placeholder that ignores the shape will do.
- */
-static double
-test_gammaincinv(double a, double p)
+static void
+test_gammaincinv(void)
 {
-    (void) a;
-    return p;
-}
-
-static double
-test_zero_inv(double a, double p)
-{
-    return a * 0.0 * p;
-}
-
-static double
-test_tiny_inv(double a, double p)
-{
-    return 1e-200 * a * p;
+    CU_ASSERT(isfinite(tsd_gammaincinv(0.5, 0.25)));
+    CU_ASSERT(isfinite(tsd_gammaincinv(1.0, 0.5)));
+    CU_ASSERT(isfinite(tsd_gammaincinv(3.0, 0.95)));
+    CU_ASSERT(isfinite(tsd_gammaincinv(1e4, 1e-10)));
+    CU_ASSERT_EQUAL(tsd_gammaincinv(2.0, 0.0), 0.0);
+    CU_ASSERT(isinf(tsd_gammaincinv(2.0, 1.0)));
+    /* p ** (1 / a) underflows */
+    CU_ASSERT_EQUAL(tsd_gammaincinv(1e-4, 0.25), 0.0);
+    CU_ASSERT(isnan(tsd_gammaincinv(NAN, 0.5)));
+    CU_ASSERT(isnan(tsd_gammaincinv(2.0, NAN)));
+    CU_ASSERT(isnan(tsd_gammaincinv(-1.0, 0.5)));
+    CU_ASSERT(isnan(tsd_gammaincinv(2.0, 1.5)));
 }
 
 static void
@@ -400,34 +394,38 @@ test_approximate_gamma_iqr(void)
     int ret;
 
     /* Newton iteration */
-    ret = tsd_approximate_gamma_iqr(0.25, 0.75, 1.0, 3.0, 50.0, test_gammaincinv, out);
+    ret = tsd_approximate_gamma_iqr(0.25, 0.75, 1.0, 3.0, 50.0, out);
     CU_ASSERT_EQUAL(ret, 0);
+    CU_ASSERT(isfinite(out[0]) && isfinite(out[1]));
     /* capped shape: equal quantiles, or a lower bound above the cap */
-    ret = tsd_approximate_gamma_iqr(0.25, 0.75, 3.0, 3.0, 50.0, test_gammaincinv, out);
+    ret = tsd_approximate_gamma_iqr(0.25, 0.75, 3.0, 3.0, 50.0, out);
     CU_ASSERT_EQUAL(ret, 0);
     CU_ASSERT_EQUAL(out[0], 49.0);
-    ret = tsd_approximate_gamma_iqr(0.25, 0.75, 1.0, 1.1, 2.0, test_gammaincinv, out);
+    ret = tsd_approximate_gamma_iqr(0.25, 0.75, 1.0, 1.1, 2.0, out);
     CU_ASSERT_EQUAL(ret, 0);
     CU_ASSERT_EQUAL(out[0], 1.0);
     /* errors */
-    ret = tsd_approximate_gamma_iqr(0.25, 0.75, 2.0, 1.0, 50.0, test_gammaincinv, out);
+    ret = tsd_approximate_gamma_iqr(0.25, 0.75, 2.0, 1.0, 50.0, out);
     CU_ASSERT_EQUAL(ret, TSD_ERR_UNSORTED_QUANTILES);
-    ret = tsd_approximate_gamma_iqr(0.25, 0.75, 0.0, 0.0, 50.0, test_gammaincinv, out);
+    ret = tsd_approximate_gamma_iqr(0.25, 0.75, 0.0, 0.0, 50.0, out);
     CU_ASSERT_EQUAL(ret, TSD_ERR_ZERO_DIVISION);
-    ret = tsd_approximate_gamma_iqr(0.0, 0.75, 1.0, 2.0, 50.0, test_gammaincinv, out);
+    ret = tsd_approximate_gamma_iqr(0.0, 0.75, 1.0, 2.0, 50.0, out);
     CU_ASSERT_EQUAL(ret, TSD_ERR_ZERO_DIVISION);
-    ret = tsd_approximate_gamma_iqr(0.25, 0.75, 0.0, 1.0, 50.0, test_gammaincinv, out);
+    ret = tsd_approximate_gamma_iqr(0.25, 0.75, 0.0, 1.0, 50.0, out);
     CU_ASSERT_EQUAL(ret, TSD_ERR_ZERO_DIVISION);
-    /* quantiles that the placeholder cannot match: no convergence, or a step outside
-     * the domain of the incomplete gamma derivative */
-    ret = tsd_approximate_gamma_iqr(0.25, 0.75, 1.0, 2.9, 50.0, test_gammaincinv, out);
+    /* no convergence, or a step outside the domain of the incomplete gamma
+     * derivative */
+    ret = tsd_approximate_gamma_iqr(1e-200, 0.99, 1.0, 1.2, 1e300, out);
     CU_ASSERT_EQUAL(ret, TSD_ERR_QUANTILE_MAX_ITERATIONS);
-    ret = tsd_approximate_gamma_iqr(0.25, 0.75, 1.0, 10.0, 50.0, test_gammaincinv, out);
+    ret = tsd_approximate_gamma_iqr(1e-250, 0.5, 1.0, 1e100, 1e300, out);
     CU_ASSERT_EQUAL(ret, TSD_ERR_INVALID_HYPERGEO);
-    /* a quantile function that returns zero, or underflows when squared */
-    ret = tsd_approximate_gamma_iqr(0.25, 0.75, 1.0, 2.0, 50.0, test_zero_inv, out);
+    /* the lower quantile is zero, or underflows when squared */
+    ret = tsd_approximate_gamma_iqr(1e-10, 0.01, 1.0, 1e300, 50.0, out);
     CU_ASSERT_EQUAL(ret, TSD_ERR_ZERO_DIVISION);
-    ret = tsd_approximate_gamma_iqr(0.25, 0.75, 1.0, 2.0, 50.0, test_tiny_inv, out);
+    ret = tsd_approximate_gamma_iqr(1e-200, 0.5, 1.0, 5e199, 50.0, out);
+    CU_ASSERT_EQUAL(ret, TSD_ERR_ZERO_DIVISION);
+    /* the gradient is zero */
+    ret = tsd_approximate_gamma_iqr(0.1, 0.9, 1.0, 1.0000001, 1e20, out);
     CU_ASSERT_EQUAL(ret, TSD_ERR_ZERO_DIVISION);
 }
 
@@ -1085,42 +1083,43 @@ test_piecewise_scale_posterior(void)
     const double bad_posteriors[] = { -1.0, 1.0, 1.0, 1.0 };
     const double zero_rate[] = { 1.0, INFINITY };
     const double near_pole[] = { -0.9999, 1.0 };
+    const double large_shape[] = { 1e8, 1e8 };
     double out[8];
     int ret;
 
     ret = tsd_piecewise_scale_posterior(
-        4, posteriors, fixed, 3, original, rescaled, 0.5, 1000.0, test_gammaincinv, out);
+        4, posteriors, fixed, 3, original, rescaled, 0.5, 1000.0, out);
     CU_ASSERT_EQUAL(ret, 0);
     CU_ASSERT(isnan(out[4]));
     CU_ASSERT(isfinite(out[0]) && isfinite(out[1]));
-    ret = tsd_piecewise_scale_posterior(4, posteriors, none_fixed, 3, original, rescaled,
-        0.5, 1000.0, test_gammaincinv, out);
+    ret = tsd_piecewise_scale_posterior(
+        4, posteriors, none_fixed, 3, original, rescaled, 0.5, 1000.0, out);
     CU_ASSERT_EQUAL(ret, 0);
     ret = tsd_piecewise_scale_posterior(
-        4, posteriors, fixed, 3, original, rescaled, 1.0, 1000.0, test_gammaincinv, out);
+        4, posteriors, fixed, 3, original, rescaled, 1.0, 1000.0, out);
     CU_ASSERT_EQUAL(ret, TSD_ERR_INVALID_QUANTILE_WIDTH);
     ret = tsd_piecewise_scale_posterior(
-        4, posteriors, fixed, 3, original, flat, 0.5, 1000.0, test_gammaincinv, out);
+        4, posteriors, fixed, 3, original, flat, 0.5, 1000.0, out);
     CU_ASSERT_EQUAL(ret, TSD_ERR_NON_INCREASING_BREAKPOINTS);
-    ret = tsd_piecewise_scale_posterior(2, bad_posteriors, none_fixed, 3, original,
-        rescaled, 0.5, 1000.0, test_gammaincinv, out);
+    ret = tsd_piecewise_scale_posterior(
+        2, bad_posteriors, none_fixed, 3, original, rescaled, 0.5, 1000.0, out);
     CU_ASSERT_EQUAL(ret, TSD_ERR_INVALID_POSTERIOR);
-    ret = tsd_piecewise_scale_posterior(4, posteriors, fixed, 3, late_original, rescaled,
-        0.5, 1000.0, test_gammaincinv, out);
+    ret = tsd_piecewise_scale_posterior(
+        4, posteriors, fixed, 3, late_original, rescaled, 0.5, 1000.0, out);
     CU_ASSERT_EQUAL(ret, TSD_ERR_TIME_BELOW_FIRST_BREAKPOINT);
     ret = tsd_piecewise_scale_posterior(
-        0, posteriors, fixed, 3, original, rescaled, 0.5, 1000.0, test_gammaincinv, out);
+        0, posteriors, fixed, 3, original, rescaled, 0.5, 1000.0, out);
     CU_ASSERT_EQUAL(ret, TSD_ERR_NO_POSTERIORS);
-    /* an infinite rate gives a zero lower quantile, and a zero rate a zero mean */
-    ret = tsd_piecewise_scale_posterior(1, zero_rate, none_fixed, 3, original, rescaled,
-        0.5, 1000.0, test_gammaincinv, out);
+    /* an infinite rate, or a shape close to zero, gives a zero lower quantile */
+    ret = tsd_piecewise_scale_posterior(
+        1, zero_rate, none_fixed, 3, original, rescaled, 0.5, 1000.0, out);
     CU_ASSERT_EQUAL(ret, TSD_ERR_ZERO_DIVISION);
-    ret = tsd_piecewise_scale_posterior(1, near_pole, none_fixed, 3, original, rescaled,
-        0.5, 1000.0, test_zero_inv, out);
+    ret = tsd_piecewise_scale_posterior(
+        1, near_pole, none_fixed, 3, original, rescaled, 0.5, 1000.0, out);
     CU_ASSERT_EQUAL(ret, TSD_ERR_ZERO_DIVISION);
     /* failures of the interquantile approximation are passed on */
-    ret = tsd_piecewise_scale_posterior(1, posteriors, none_fixed, 3, original, rescaled,
-        0.5, 1000.0, test_zero_inv, out);
+    ret = tsd_piecewise_scale_posterior(
+        1, large_shape, none_fixed, 3, original, rescaled, 0.5, 1e300, out);
     CU_ASSERT_EQUAL(ret, TSD_ERR_ZERO_DIVISION);
 }
 
@@ -1455,6 +1454,7 @@ main(int argc, char **argv)
         { "test_hyp1f1_laplace_errors", test_hyp1f1_laplace_errors },
         { "test_hyp2f1_laplace", test_hyp2f1_laplace },
         { "test_hyp2f1_laplace_errors", test_hyp2f1_laplace_errors },
+        { "test_gammaincinv", test_gammaincinv },
         { "test_approximate_log_moments", test_approximate_log_moments },
         { "test_approximate_gamma_kl", test_approximate_gamma_kl },
         { "test_approximate_gamma_mom", test_approximate_gamma_mom },
