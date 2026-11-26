@@ -6,6 +6,9 @@ import numpy as np
 import tskit
 from _tsdate import LibraryError
 
+from . import errors
+from .errors import library_error
+
 
 def _flatten(x, path=""):
     """
@@ -49,30 +52,6 @@ def log_uniform(rng, lo, hi, size=None):
     return float(x) if size is None else x
 
 
-# Exceptions of the oracle that the C library reports as a LibraryError.
-_LIBRARY_ERROR_NAMES = (
-    "ZeroDivisionError",
-    "AssertionError",
-    "KLMinimizationFailedError",
-    "ValueError",
-)
-
-
-def expected_error(exc_type):
-    """
-    The exceptions an implementation may raise where the oracle raises ``exc_type``
-    (``ZeroDivisionError``, ``AssertionError``, ...), for ``pytest.raises``. The C
-    library reports these as ``_tsdate.LibraryError``, and its argument checks raise
-    ``ValueError`` where the oracle asserts on array shapes and sizes.
-    """
-    allowed = (exc_type,)
-    if exc_type.__name__ in _LIBRARY_ERROR_NAMES:
-        allowed += (LibraryError,)
-    if exc_type is AssertionError:
-        allowed += (ValueError,)
-    return allowed
-
-
 class Outcome:
     """
     What calling a function did: ``value`` (its return value) or ``exception``, and
@@ -86,7 +65,15 @@ class Outcome:
 
     @property
     def error(self):
-        return None if self.exception is None else type(self.exception)
+        """
+        ``None`` if the call returned, the error code (an `errors` constant) if it
+        raised a ``_tsdate.LibraryError``, else the class of the exception.
+        """
+        if self.exception is None:
+            return None
+        if isinstance(self.exception, LibraryError):
+            return errors.code_of(self.exception)
+        return type(self.exception)
 
     def __repr__(self):
         if self.exception is None:
@@ -118,27 +105,19 @@ def outcome(func, *args, **kwargs):
     return Outcome(value=value, args=copies)
 
 
-def errors_match(actual, expected, check_message=True):
+def errors_match(actual, expected):
     """
     Whether exception ``actual`` (from an implementation) matches ``expected`` (from
-    the oracle): the same type and, if ``check_message``, the same message (never for
-    a ``ZeroDivisionError``). A ``_tsdate.LibraryError`` (or, for an
-    ``AssertionError``, a ``ValueError`` from the module's shape checks) is accepted
-    in place of the exceptions of `expected_error`; its message is compared only with
-    those of the tsdate-authored, user-facing errors (``KLMinimizationFailedError``
-    and ``ValueError``), as the messages of the others (assertions, divisions) are not
-    part of the interface.
+    the oracle): the same type and message. An oracle ``ZeroDivisionError`` stands for
+    the library's ``TSD_ERR_ZERO_DIVISION``, and matches the ``_tsdate.LibraryError``
+    that reports it.
     """
-    if not isinstance(actual, expected_error(type(expected))):
-        return False
     if isinstance(expected, ZeroDivisionError):
-        return True
-    if isinstance(expected, AssertionError) and not isinstance(actual, AssertionError):
-        return True
-    return not check_message or str(actual) == str(expected)
+        expected = library_error(errors.ZERO_DIVISION)
+    return type(actual) is type(expected) and str(actual) == str(expected)
 
 
-def assert_same_outcome(actual, expected, check_message=True):
+def assert_same_outcome(actual, expected):
     """
     Assert that two `Outcome` objects agree: both raise matching exceptions, or both
     return the same values and leave array arguments the same.
@@ -148,7 +127,7 @@ def assert_same_outcome(actual, expected, check_message=True):
             f"implementation returned {actual.value!r}, oracle raised "
             f"{expected.exception!r}"
         )
-        assert errors_match(actual.exception, expected.exception, check_message), (
+        assert errors_match(actual.exception, expected.exception), (
             f"implementation raised {actual.exception!r}, oracle raised "
             f"{expected.exception!r}"
         )
@@ -167,25 +146,25 @@ def assert_same_outcome(actual, expected, check_message=True):
                 ) from None
 
 
-def compare(impl_func, oracle_func, *args, check_message=True, **kwargs):
+def compare(impl_func, oracle_func, *args, **kwargs):
     """
     Call the implementation and the oracle on copies of ``args``, assert that their
     outcomes agree (`assert_same_outcome`), and return the oracle's `Outcome`.
     """
     expected = outcome(oracle_func, *args, **kwargs)
     actual = outcome(impl_func, *args, **kwargs)
-    assert_same_outcome(actual, expected, check_message=check_message)
+    assert_same_outcome(actual, expected)
     return expected
 
 
 def kind(result):
     """
-    Classify an `Outcome`: the exception class if it raised, ``None`` if it returned
+    Classify an `Outcome`: its `Outcome.error` if it raised, ``None`` if it returned
     ``None`` (an in-place update), else ``"nan"`` if any returned value is NaN,
     ``"finite"`` if all are finite, otherwise ``"nonfinite"``.
     """
     if result.exception is not None:
-        return type(result.exception)
+        return result.error
     if result.value is None:
         return None
     values = [leaf for _, leaf in _flatten(result.value)]

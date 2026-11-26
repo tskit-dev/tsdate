@@ -9,10 +9,11 @@ typical of expectation propagation (EP) and extreme ones.
 Conventions pinned here: a NaN result (not an exception) signals a
 parameter outside the valid region of the hypergeometric function; the ``*_projection``
 functions then return NaN and, except for the ``mutation_*`` ones, their input
-parameters unchanged; ``AssertionError`` signals a violated precondition (a fixed node
-age that is not positive, or a Laplace root on the boundary); ``ZeroDivisionError``
-signals float division by zero; ``KLMinimizationFailedError`` signals a failed gamma
-fit. Accuracy of the approximations is measured in ``evaluation/numerical_accuracy.py``.
+parameters unchanged; errors are those of the library, as error codes (a violated
+precondition such as a fixed node age that is not positive or a Laplace root on the
+boundary, or a failed gamma fit), with ``ZeroDivisionError`` in the oracle for the
+library's float division by zero. Accuracy of the approximations is measured in
+``evaluation/numerical_accuracy.py``.
 """
 
 import math
@@ -22,7 +23,15 @@ import numpy as np
 import pytest
 import scipy.special
 from oracle import approx
-from oracle.approx import KLMinimizationFailedError
+from oracle.errors import (
+    INVALID_HYPERGEO,
+    JENSEN_VIOLATION,
+    NEGATIVE_SHAPE,
+    NONPOSITIVE_CENTRAL_MOMENTS,
+    NONPOSITIVE_MOMENTS,
+    NONPOSITIVE_OR_NONFINITE_MOMENTS,
+    UNSORTED_QUANTILES,
+)
 from oracle.helpers import (
     INF,
     NAN,
@@ -201,12 +210,12 @@ LOG_MOMENTS = [
     ((1.0, 1.0), "finite"),
     ((1e300, 1e300), "finite"),
     ((1e-100, 1e-100), "finite"),
-    ((0.0, 1.0), AssertionError),
-    ((1.0, 0.0), AssertionError),
-    ((-1.0, 1.0), AssertionError),
-    ((1.0, -1.0), AssertionError),
-    ((NAN, 1.0), AssertionError),
-    ((1.0, NAN), AssertionError),
+    ((0.0, 1.0), NONPOSITIVE_MOMENTS),
+    ((1.0, 0.0), NONPOSITIVE_MOMENTS),
+    ((-1.0, 1.0), NONPOSITIVE_MOMENTS),
+    ((1.0, -1.0), NONPOSITIVE_MOMENTS),
+    ((NAN, 1.0), NONPOSITIVE_MOMENTS),
+    ((1.0, NAN), NONPOSITIVE_MOMENTS),
     ((INF, 1.0), "nan"),
     ((1.0, INF), "nonfinite"),
     ((1e-300, 1e-300), ZeroDivisionError),  # mean**2 underflows
@@ -216,7 +225,7 @@ LOG_MOMENTS = [
 
 GAMMA_KL = [
     # (x, logx, expected kind); `gap` = log(x) - logx must be positive (Jensen)
-    ((1.0, 0.0), KLMinimizationFailedError),  # gap == 0
+    ((1.0, 0.0), JENSEN_VIOLATION),  # gap == 0
     ((1.0, nextafter(0.0, -1.0)), "nonfinite"),  # smallest gap: alpha, rate overflow
     ((1.0, -1e-300), "finite"),
     ((1.0, -1e-17), "finite"),
@@ -229,16 +238,16 @@ GAMMA_KL = [
     ((1.0, -1e160), "finite"),
     ((1.0, -1e164), ZeroDivisionError),  # shape bound ~1e-164: trigamma divides by 0
     ((1.0, -1e300), ZeroDivisionError),
-    ((1.0, -INF), KLMinimizationFailedError),
-    ((1.0, INF), KLMinimizationFailedError),
-    ((1.0, NAN), KLMinimizationFailedError),  # not (log x > nan)
-    ((0.0, -1.0), KLMinimizationFailedError),
-    ((-1.0, -1.0), KLMinimizationFailedError),
-    ((-0.0, -1.0), KLMinimizationFailedError),
-    ((NAN, -1.0), KLMinimizationFailedError),
+    ((1.0, -INF), NONPOSITIVE_OR_NONFINITE_MOMENTS),
+    ((1.0, INF), NONPOSITIVE_OR_NONFINITE_MOMENTS),
+    ((1.0, NAN), JENSEN_VIOLATION),  # not (log x > nan)
+    ((0.0, -1.0), NONPOSITIVE_OR_NONFINITE_MOMENTS),
+    ((-1.0, -1.0), NONPOSITIVE_OR_NONFINITE_MOMENTS),
+    ((-0.0, -1.0), NONPOSITIVE_OR_NONFINITE_MOMENTS),
+    ((NAN, -1.0), JENSEN_VIOLATION),
     ((INF, -1.0), ZeroDivisionError),  # alpha = 0.5 / inf = 0
-    ((INF, INF), KLMinimizationFailedError),
-    ((1e-300, -1.0), KLMinimizationFailedError),  # log x = -690 < logx
+    ((INF, INF), NONPOSITIVE_OR_NONFINITE_MOMENTS),
+    ((1e-300, -1.0), JENSEN_VIOLATION),  # log x = -690 < logx
     ((1e-300, -700.0), "finite"),
     ((TINY, -745.0), "nonfinite"),  # rate = alpha / x overflows
     ((1e300, 1.0), "finite"),
@@ -252,13 +261,13 @@ GAMMA_KL = [
 
 GAMMA_MOM = [
     ((1.0, 1.0), "finite"),
-    ((1.0, 0.0), KLMinimizationFailedError),
-    ((0.0, 1.0), KLMinimizationFailedError),
-    ((-0.0, 1.0), KLMinimizationFailedError),
-    ((-1.0, 1.0), KLMinimizationFailedError),
-    ((1.0, -1.0), KLMinimizationFailedError),
-    ((NAN, 1.0), KLMinimizationFailedError),
-    ((1.0, NAN), KLMinimizationFailedError),
+    ((1.0, 0.0), NONPOSITIVE_CENTRAL_MOMENTS),
+    ((0.0, 1.0), NONPOSITIVE_CENTRAL_MOMENTS),
+    ((-0.0, 1.0), NONPOSITIVE_CENTRAL_MOMENTS),
+    ((-1.0, 1.0), NONPOSITIVE_CENTRAL_MOMENTS),
+    ((1.0, -1.0), NONPOSITIVE_CENTRAL_MOMENTS),
+    ((NAN, 1.0), NONPOSITIVE_CENTRAL_MOMENTS),
+    ((1.0, NAN), NONPOSITIVE_CENTRAL_MOMENTS),
     ((TINY, TINY), "finite"),
     ((1.0, 1e-300), "finite"),  # shape 1e300
     ((1.0, TINY), "nonfinite"),  # shape overflows
@@ -276,16 +285,16 @@ GAMMA_MOM = [
 
 
 GAMMA_IQR_ERRORS = [
-    ((0.25, 0.75, 2.0, 1.0, 50.0), KLMinimizationFailedError),  # x unsorted
-    ((0.75, 0.25, 1.0, 2.0, 50.0), KLMinimizationFailedError),  # q unsorted
-    ((0.25, 0.25, 1.0, 2.0, 50.0), KLMinimizationFailedError),  # q equal
-    ((0.25, 0.75, 1.0, NAN, 50.0), KLMinimizationFailedError),
-    ((NAN, 0.75, 1.0, 2.0, 50.0), KLMinimizationFailedError),
+    ((0.25, 0.75, 2.0, 1.0, 50.0), UNSORTED_QUANTILES),  # x unsorted
+    ((0.75, 0.25, 1.0, 2.0, 50.0), UNSORTED_QUANTILES),  # q unsorted
+    ((0.25, 0.25, 1.0, 2.0, 50.0), UNSORTED_QUANTILES),  # q equal
+    ((0.25, 0.75, 1.0, NAN, 50.0), UNSORTED_QUANTILES),
+    ((NAN, 0.75, 1.0, 2.0, 50.0), UNSORTED_QUANTILES),
     ((0.25, 0.75, 0.0, 1.0, 50.0), ZeroDivisionError),  # log(x2 / 0)
     ((0.0, 0.75, 1.0, 2.0, 50.0), ZeroDivisionError),  # log(q2 / 0)
-    ((0.25, 0.75, -1.0, 1.0, 50.0), KLMinimizationFailedError),
-    ((0.25, 1.0, 1.0, 2.0, 50.0), KLMinimizationFailedError),  # q2 == 1: negative shape
-    ((0.25, 0.75, 1.0, INF, 50.0), AssertionError),
+    ((0.25, 0.75, -1.0, 1.0, 50.0), NEGATIVE_SHAPE),
+    ((0.25, 1.0, 1.0, 2.0, 50.0), NEGATIVE_SHAPE),  # q2 == 1: negative shape
+    ((0.25, 0.75, 1.0, INF, 50.0), INVALID_HYPERGEO),
     ((0.25, 0.75, 0.0, 0.0, 50.0), ZeroDivisionError),  # x1 == x2 == 0
     # the shape is capped at max_shape when x1 == x2, when the lower bound exceeds it
     # or when Newton's iteration ends above it
@@ -320,13 +329,13 @@ AVERAGE_GAMMAS = {
     "wide rates": ([1.0, 2.0], [1e-300, 1e300], "finite"),
     "shape+1 near zero": ([-1.0 + 1e-10, 4.0], [1.0, 2.0], "finite"),
     "shape+1 zero": ([-1.0], [1.0], ZeroDivisionError),  # digamma pole
-    "shape+1 negative": ([-2.0], [1.0], KLMinimizationFailedError),
+    "shape+1 negative": ([-2.0], [1.0], NONPOSITIVE_OR_NONFINITE_MOMENTS),
     "zero rate": ([1.0], [0.0], ZeroDivisionError),
-    "negative rate": ([1.0], [-1.0], KLMinimizationFailedError),
-    "nan shape": ([NAN], [1.0], KLMinimizationFailedError),
-    "inf shape": ([INF], [1.0], KLMinimizationFailedError),
+    "negative rate": ([1.0], [-1.0], NONPOSITIVE_OR_NONFINITE_MOMENTS),
+    "nan shape": ([NAN], [1.0], JENSEN_VIOLATION),
+    "inf shape": ([INF], [1.0], NONPOSITIVE_OR_NONFINITE_MOMENTS),
     "empty": ([], [], ZeroDivisionError),
-    "size mismatch": ([1.0], [1.0, 2.0], AssertionError),
+    "size mismatch": ([1.0], [1.0, 2.0], ValueError),
 }
 
 GAMMA_DOMAIN = (

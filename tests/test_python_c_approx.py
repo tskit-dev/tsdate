@@ -12,7 +12,7 @@ import pytest
 from oracle import approx
 from oracle.helpers import compare
 
-# error code: the message of the oracle's KLMinimizationFailedError (or assertion)
+# error code: message
 APPROX_ERRORS = {
     -6: "Nonpositive or nonfinite moments",
     -7: "log E[t] <= E[log t] violates Jensen's inequality",
@@ -49,10 +49,6 @@ class TestAverageGammas:
             np.array([1.0, 2.0]), np.array([1.0, 2.0])
         )
 
-    def test_size_mismatch(self):
-        with pytest.raises(ValueError, match="Array sizes are not equal"):
-            _tsdate.average_gammas(np.ones(2), np.ones(3))
-
     @pytest.mark.parametrize("shape", [(), (2, 2)])
     def test_wrong_dimension(self, shape):
         with pytest.raises(ValueError):
@@ -69,10 +65,6 @@ class TestAverageGammas:
     def test_wrong_number_of_arguments(self):
         with pytest.raises(TypeError):
             _tsdate.average_gammas(np.ones(2))
-
-    def test_library_error(self):
-        with pytest.raises(_tsdate.LibraryError, match="division by zero"):
-            _tsdate.average_gammas(np.array([]), np.array([]))
 
 
 # Failures of the quantile fit (found by random search), each at a different step of

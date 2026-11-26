@@ -8,6 +8,7 @@ import _tsdate
 import numpy as np
 import pytest
 from oracle import rescaling
+from oracle.errors import TIME_BELOW_FIRST_BREAKPOINT
 from oracle.helpers import compare
 
 NODES_TIME = np.array([0.0, 0.0, 1.0, 2.0])
@@ -58,30 +59,6 @@ class TestArguments:
                 1.0,
             )
 
-    def test_poisson_sizes(self):
-        with pytest.raises(ValueError, match="same size"):
-            _tsdate.poisson_changepoints(np.ones(3), np.ones(2), 2.0, 0.0, 0.0)
-
-    def test_count_mutations_sizes(self):
-        args = [
-            np.zeros(2, dtype=bool),
-            np.zeros(1, dtype=np.int32),
-            np.zeros(1),
-            np.zeros(1, dtype=np.int32),
-            np.zeros(1, dtype=np.int32),
-            np.zeros(1),
-            np.zeros(1),
-            np.zeros(1, dtype=np.int32),
-            np.zeros(1, dtype=np.int32),
-            1.0,
-            False,
-        ]
-        for index in [4, 7, 2]:
-            bad = list(args)
-            bad[index] = np.zeros(2, dtype=bad[index].dtype)
-            with pytest.raises(ValueError, match="same size|one entry per edge"):
-                _tsdate.count_mutations(*bad)
-
 
 class TestOutsideTreeSequences:
     def test_nan_node_times(self):
@@ -128,7 +105,7 @@ class TestOutsideTreeSequences:
         result = compare(
             _tsdate.piecewise_scale_posterior, rescaling.piecewise_scale_posterior, *args
         )
-        assert isinstance(result.exception, AssertionError)
+        assert result.error == TIME_BELOW_FIRST_BREAKPOINT
 
     def test_fixed_posteriors_below_first_breakpoint(self):
         # the rescaled quantiles of fixed posteriors are zero, and are checked too
@@ -143,4 +120,4 @@ class TestOutsideTreeSequences:
         result = compare(
             _tsdate.piecewise_scale_posterior, rescaling.piecewise_scale_posterior, *args
         )
-        assert isinstance(result.exception, AssertionError)
+        assert result.error == TIME_BELOW_FIRST_BREAKPOINT

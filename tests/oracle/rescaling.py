@@ -7,10 +7,13 @@ from math import inf
 import numpy as np
 import tskit
 
+from . import errors
+
 # Plain `math.log` raises on 0, where C gives -inf; C sums sequentially,
 # whereas numpy sums pairwise (`seq_sum`).
 from ._libm import log, seq_sum
 from .approx import approximate_gamma_iqr
+from .errors import library_error
 from .hypergeo import gammainc_inv
 
 
@@ -18,7 +21,8 @@ def fixed_changepoints(counts, epochs):
     """
     Find breakpoints such that `counts` is divided roughly equally across `epochs`
     """
-    assert epochs > 0
+    if not (epochs > 0):
+        raise library_error(errors.NONPOSITIVE_INTERVALS)
     Y = np.append(0.0, np.cumsum(counts))
     Z = Y / Y[-1]
     z = np.linspace(0, 1, epochs + 1)
@@ -40,10 +44,10 @@ def poisson_changepoints(counts, offset, penalty, min_counts, min_offset):
     (https://doi.org/10.1080/01621459.2012.737745)
     """
 
-    assert counts.size == offset.size
-    assert min_counts >= 0
-    assert min_offset >= 0
-    assert penalty >= 0
+    if counts.size != offset.size:
+        raise ValueError("counts and offset must have the same size")
+    if not (min_counts >= 0 and min_offset >= 0 and penalty >= 0):
+        raise library_error(errors.NEGATIVE_CHANGEPOINT_PARAMETER)
 
     N = np.append(0, np.cumsum(offset))
     Y = np.append(0, np.cumsum(counts))
@@ -94,9 +98,12 @@ def count_mutations(
     The mutations on each edge and the edge's span, weighted by the number of samples
     below the edge if ``size_biased``, as ``(edges_stats, mutations_edge)``.
     """
-    assert edges_parent.size == edges_child.size == edges_left.size == edges_right.size
-    assert indexes_insert.size == indexes_remove.size == edges_parent.size
-    assert mutations_node.size == mutations_position.size
+    if not (edges_parent.size == edges_child.size == edges_left.size == edges_right.size):
+        raise ValueError("Edge arrays must have the same size")
+    if not (indexes_insert.size == indexes_remove.size == edges_parent.size):
+        raise ValueError("Edge index arrays must have one entry per edge")
+    if mutations_node.size != mutations_position.size:
+        raise ValueError("Mutation arrays must have the same size")
 
     num_mutations = mutations_node.size
     num_edges = edges_parent.size
@@ -189,8 +196,10 @@ def mutational_area(
     :param np.ndarray edges_weight: a weight for each edge
     """
 
-    assert edges_parent.size == edges_child.size
-    assert likelihoods.shape == (edges_parent.size, 2)
+    if edges_parent.size != edges_child.size:
+        raise ValueError("Edge arrays must have the same size")
+    if likelihoods.shape != (edges_parent.size, 2):
+        raise ValueError("Likelihoods must have one row of two columns per edge")
 
     # index node by unique time breaks
     nodes_order = np.argsort(nodes_time)
@@ -250,11 +259,14 @@ def mutational_timescale(
         estimate the time scaling
     """
 
-    assert edges_parent.size == edges_child.size
-    assert likelihoods.shape[0] == edges_parent.size
-    assert likelihoods.shape[1] == 2
-    assert nodes_fixed.size == nodes_time.size
-    assert max_intervals > 0
+    if edges_parent.size != edges_child.size:
+        raise ValueError("Edge arrays must have the same size")
+    if likelihoods.shape != (edges_parent.size, 2):
+        raise ValueError("Likelihoods must have one row of two columns per edge")
+    if nodes_fixed.size != nodes_time.size:
+        raise ValueError("nodes_fixed and nodes_time must have the same size")
+    if not (max_intervals > 0):
+        raise library_error(errors.NONPOSITIVE_INTERVALS)
 
     counts, offset, duration, indexes = mutational_area(
         nodes_time,
@@ -279,7 +291,8 @@ def mutational_timescale(
         n = seq_sum(offset[i:j])
         y = seq_sum(counts[i:j])
         z = seq_sum(duration[i:j])
-        assert n > 0, "Zero edge span in interval"
+        if not (n > 0):
+            raise library_error(errors.ZERO_EDGE_SPAN)
         adjust[k + 1] = z * y / n
         k += 1
 
@@ -303,29 +316,27 @@ def piecewise_scale_posterior(
         rescaled shape parameter, e.g. 0.5 uses interquartile range
     """
 
-    assert posteriors_fixed.size == posteriors.shape[0]
-    assert original_breaks.size == rescaled_breaks.size
-    assert 1 > quantile_width > 0
+    if not (posteriors.shape[1] == 2 and posteriors_fixed.size == posteriors.shape[0]):
+        raise ValueError("Posteriors must have two columns and one row per fixed flag")
+    if not (original_breaks.size == rescaled_breaks.size and original_breaks.size > 0):
+        raise ValueError("Breakpoints must be non-empty and of the same size")
+    if not (1 > quantile_width > 0):
+        raise library_error(errors.INVALID_QUANTILE_WIDTH)
 
-    if not np.all(np.diff(rescaled_breaks) > 0):
-        raise ValueError(
-            "Rescaling produced non-increasing time breakpoints. "
-            "Try setting `rescaling_intervals` to a smaller value "
-            "(e.g. half its current value)."
-        )
-    if not np.all(np.diff(original_breaks) > 0):
-        raise ValueError(
-            "Rescaling produced non-increasing time breakpoints. "
-            "Try setting `rescaling_intervals` to a smaller value "
-            "(e.g. half its current value)."
-        )
+    if not (
+        np.all(np.diff(rescaled_breaks) > 0) and np.all(np.diff(original_breaks) > 0)
+    ):
+        raise library_error(errors.NON_INCREASING_BREAKPOINTS)
 
     dim = posteriors.shape[0]
     quant_lower = quantile_width / 2
     quant_upper = 1 - quantile_width / 2
 
     freed = ~posteriors_fixed
-    assert np.all(np.logical_and(posteriors[freed, 0] > -1, posteriors[freed, 1] > 0))
+    if not np.all(np.logical_and(posteriors[freed, 0] > -1, posteriors[freed, 1] > 0)):
+        raise library_error(errors.INVALID_POSTERIOR)
+    if dim == 0:
+        raise library_error(errors.NO_POSTERIORS)
 
     # use posterior mean as a point estimate
     lower = np.zeros(dim)
@@ -342,8 +353,9 @@ def piecewise_scale_posterior(
 
     def rescale(x):
         i = np.searchsorted(original_breaks, x, "right") - 1
-        assert i.min() >= 0  # DEBUG
-        assert i.max() < scalings.size  # DEBUG
+        if not (i.min() >= 0):
+            raise library_error(errors.TIME_BELOW_FIRST_BREAKPOINT)
+        assert i.max() < scalings.size
         return rescaled_breaks[i] + scalings[i] * (x - original_breaks[i])
 
     midpt = rescale(midpt)
@@ -381,18 +393,10 @@ def piecewise_scale_point_estimate(
     Node ages mapped piecewise linearly from ``original_breaks`` to
     ``rescaled_breaks``; ages where ``point_fixed`` are unchanged.
     """
-    if not np.all(np.diff(rescaled_breaks) > 0):
-        raise ValueError(
-            "Rescaling produced non-increasing time breakpoints. "
-            "Try setting `rescaling_intervals` to a smaller value "
-            "(e.g. half its current value)."
-        )
-    if not np.all(np.diff(original_breaks) > 0):
-        raise ValueError(
-            "Rescaling produced non-increasing time breakpoints. "
-            "Try setting `rescaling_intervals` to a smaller value "
-            "(e.g. half its current value)."
-        )
+    if not (
+        np.all(np.diff(rescaled_breaks) > 0) and np.all(np.diff(original_breaks) > 0)
+    ):
+        raise library_error(errors.NON_INCREASING_BREAKPOINTS)
     scalings = np.append(np.diff(rescaled_breaks) / np.diff(original_breaks), 0)
     idx = np.searchsorted(original_breaks, point_estimate, "right") - 1
     rescaled_estimate = rescaled_breaks[idx] + \

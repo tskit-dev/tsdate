@@ -20,11 +20,12 @@ from tsdate.variational import (
     UPPER,
 )
 
-from . import approx
+from . import approx, errors
 
 # C sums sequentially, whereas numpy sums pairwise, which differs in the last
 # bits; `seq_mean` sums sequentially.
 from ._libm import seq_mean
+from .errors import library_error
 
 
 def rescale_factors(factors):
@@ -77,13 +78,15 @@ def damp(x0, x1, y0, y1, s):
     """
     if y0 == 0.0 and y1 == 0.0 and x0 == 0.0 and x1 == 0.0:
         return 1.0
-    assert 0 < s < 1
-    assert 0.0 < x0 + 1
-    assert 0.0 < x1
+    if not (0 < s < 1):
+        raise library_error(errors.INVALID_MIN_STEP)
+    if not (0.0 < x0 + 1 and 0.0 < x1):
+        raise library_error(errors.INVALID_NODE_POSTERIOR)
     a = 1.0 if (1 + x0 - y0 > (1 + x0) * s) else (1 - s) * (1 + x0) / y0
     b = 1.0 if (x1 - y1 > x1 * s) else (1 - s) * x1 / y1
     d = min(a, b)
-    assert 0.0 < d <= 1.0
+    if not (0.0 < d <= 1.0):
+        raise library_error(errors.INVALID_DAMPING)
     return d
 
 
@@ -93,8 +96,8 @@ def rescale(x0, x1, s):
     """
     if x0 == 0.0 and x1 == 0.0:
         return 1.0
-    assert 0 < x0 + 1
-    assert 0 < x1
+    if not (0 < x0 + 1 and 0 < x1):
+        raise library_error(errors.INVALID_NODE_POSTERIOR)
     if 1 + x0 > s:
         return (s - 1) / x0
     elif 1 + x0 < 1 / s:
@@ -146,11 +149,27 @@ def propagate_likelihood(
     # :param bool unphased: if True, edges are treated as blocks of unphased
     #     singletons in contemporary individuals
 
-    assert constraints.shape == posterior.shape
-    assert edges_child.size == edges_parent.size
-    assert likelihoods.shape == (edges_parent.size, 2)
-    assert max_shape >= 1.0
-    assert 0.0 < min_step < 1.0
+    node, edge, block, scale, *_ = factors
+    factor = block if unphased else edge
+    num_nodes = node.shape[0]
+    if factor.shape[1:] != (2, 2):
+        raise ValueError("Factors must have shape (n, 2, 2)")
+    if edges_child.size != edges_parent.size:
+        raise ValueError("Edge arrays must have the same size")
+    if likelihoods.shape != (edges_parent.size, 2):
+        raise ValueError("Likelihoods must have shape (edges, 2)")
+    if constraints.shape != (num_nodes, 2):
+        raise ValueError("Constraints must have shape (nodes, 2)")
+    if posterior.shape != (num_nodes, 2):
+        raise ValueError("Posterior must have the same shape as constraints")
+    if lognorm.size != edges_parent.size:
+        raise ValueError("Lognorm must have one entry per edge")
+    if factor.shape[0] != edges_parent.size:
+        raise ValueError("Factors must have one entry per edge")
+    if not (max_shape >= 1.0):
+        raise library_error(errors.INVALID_MAX_SHAPE)
+    if not (0.0 < min_step < 1.0):
+        raise library_error(errors.INVALID_MIN_STEP)
 
     def cavity_damping(x, y):
         return damp(x[0], x[1], y[0], y[1], min_step)
@@ -178,15 +197,12 @@ def propagate_likelihood(
         return logl, proj[:2], proj[2:]
 
     def twin_projection(x, y):
-        assert unphased, "Invalid update"
+        if not unphased:
+            raise library_error(errors.TWIN_EDGE_IN_PHASED_PASS)
         logl, *proj = approx.twin_projection(*map(float, x), *map(float, y))
         return logl, proj
 
     fixed = constraints[:, LOWER] == constraints[:, UPPER]
-
-    node, edge, block, scale, *_ = factors
-    factor = block if unphased else edge
-    assert factor.shape == (edges_parent.size, 2, 2)
 
     for i in edge_order:
         p, c = edges_parent[i], edges_child[i]
@@ -292,19 +308,24 @@ def propagate_prior(free, posterior, factors, max_shape, em_maxitt, em_reltol):
     # :param int em_reltol: the termination criterion for relative change in
     #     log-likelihood.
 
-    assert free.size == posterior.shape[0]
-    assert max_shape >= 1.0
+    node, edge, block, scale, *_ = factors
+    factor = node
+    if factor.shape[1:] != (2, 2):
+        raise ValueError("Factors must have shape (n, 2, 2)")
+    if scale.size != factor.shape[0]:
+        raise ValueError("Factor arrays have inconsistent sizes")
+    if not (free.size == factor.shape[0] and posterior.shape == (free.size, 2)):
+        raise ValueError(
+            "The free nodes, posterior and factors must have one entry per node"
+        )
+    if not (max_shape >= 1.0):
+        raise library_error(errors.INVALID_MAX_SHAPE)
 
     def posterior_damping(x):
         return rescale(x[0], x[1], max_shape)
 
     if not np.any(free):
         return
-
-    node, edge, block, scale, *_ = factors
-    factor = node
-    assert factor.shape == (free.size, 2, 2)
-    assert scale.size == free.size
 
     # fit an exponential to cavity distributions for unconstrained nodes
     cavity = posterior - factor[:, MIXPRIOR] * scale[:, np.newaxis]
@@ -317,7 +338,8 @@ def propagate_prior(free, posterior, factors, max_shape, em_maxitt, em_reltol):
         delta = 1 / seq_mean(shape / (rate + penalty)) - penalty
         penalty += delta
         itt += 1
-    assert penalty > 0
+    if not (penalty > 0):
+        raise library_error(errors.NONPOSITIVE_PENALTY)
 
     # update posteriors and rescale to keep shape bounded
     posterior[free, 1] = cavity[free, 1] + penalty
@@ -367,12 +389,25 @@ def propagate_mutations(
     # TODO: scale should be 1.0, can we delete
     # TODO: we don't seem to need to damp?
 
-    # TODO: assert more stuff here?
-    assert mutations_phase.size == mutations_edge.size
-    assert mutations_posterior.shape == (mutations_phase.size, 2)
-    assert constraints.shape == posterior.shape
-    assert edges_child.size == edges_parent.size
-    assert likelihoods.shape == (edges_parent.size, 2)
+    node, edge, block, scale, *_ = factors
+    factor = block if unphased else edge
+    num_nodes = node.shape[0]
+    if factor.shape[1:] != (2, 2):
+        raise ValueError("Factors must have shape (n, 2, 2)")
+    if mutations_edge.size != mutations_phase.size:
+        raise ValueError("Mutation arrays must have the same size")
+    if mutations_posterior.shape != (mutations_phase.size, 2):
+        raise ValueError("Mutation posterior must have shape (mutations, 2)")
+    if edges_child.size != edges_parent.size:
+        raise ValueError("Edge arrays must have the same size")
+    if likelihoods.shape != (edges_parent.size, 2):
+        raise ValueError("Likelihoods must have shape (edges, 2)")
+    if constraints.shape != (num_nodes, 2):
+        raise ValueError("Constraints must have shape (nodes, 2)")
+    if posterior.shape != (num_nodes, 2):
+        raise ValueError("Posterior must have the same shape as constraints")
+    if factor.shape[0] != edges_parent.size:
+        raise ValueError("Factors must have one entry per edge")
 
     # the projections take the entries of the cavities and of the edge likelihood
     # as floats, and return the phase and the natural parameters of the mutation
@@ -414,10 +449,6 @@ def propagate_mutations(
         return phase, proj
 
     fixed = constraints[:, LOWER] == constraints[:, UPPER]
-
-    node, edge, block, scale, *_ = factors
-    factor = block if unphased else edge
-    assert factor.shape == (edges_parent.size, 2, 2)
 
     for m in mutations_order:
         i = mutations_edge[m]

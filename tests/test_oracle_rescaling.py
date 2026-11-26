@@ -1,14 +1,24 @@
 """
 Parity of the rescaling functions of ``_tsdate`` with their oracles: random
 inputs, inputs from ``ExpectationPropagation.rescale`` on simulated tree sequences,
-degenerate inputs, and every ``assert``/``raise``.
+degenerate inputs, and every error.
 """
 
 import _tsdate
 import numpy as np
 import pytest
-from oracle import approx as oracle_approx
 from oracle import rescaling
+from oracle.errors import (
+    INVALID_POSTERIOR,
+    INVALID_QUANTILE_WIDTH,
+    NEGATIVE_CHANGEPOINT_PARAMETER,
+    NO_POSTERIORS,
+    NON_INCREASING_BREAKPOINTS,
+    NONPOSITIVE_INTERVALS,
+    TIME_BELOW_FIRST_BREAKPOINT,
+    UNSORTED_QUANTILES,
+    ZERO_EDGE_SPAN,
+)
 from oracle.helpers import (
     INF,
     NAN,
@@ -24,7 +34,6 @@ from oracle.helpers import (
 from tsdate.variational import ExpectationPropagation
 
 BREAKS_MSG = "non-increasing time breakpoints"
-KLFailed = oracle_approx.KLMinimizationFailedError
 
 
 @pytest.fixture(params=["small_ts_unphased", "small_ts_historical"])
@@ -109,8 +118,8 @@ FIXED_CHANGEPOINT_CASES = [
     pytest.param([0.0, 5.0, 0.0, 5.0, 0.0], 3, "finite", id="zeros_in_middle"),
     pytest.param([1.0] * 4, 4, "finite", id="quantiles_exact"),
     pytest.param([1.0] * 4, 2, "finite", id="quantiles_exact_half"),
-    pytest.param([1.0, 2.0], 0, AssertionError, id="zero_epochs"),
-    pytest.param([1.0, 2.0], -1, AssertionError, id="negative_epochs"),
+    pytest.param([1.0, 2.0], 0, NONPOSITIVE_INTERVALS, id="zero_epochs"),
+    pytest.param([1.0, 2.0], -1, NONPOSITIVE_INTERVALS, id="negative_epochs"),
     # NOTE: current behaviour, possibly a bug: with no counts the
     # cumulative distribution is 0 / 0 = NaN, which `searchsorted` places last, so
     # every breakpoint but the last is -1
@@ -190,11 +199,37 @@ POISSON_CASES = [
     # log(0) is -inf and 0 * -inf is NaN, so the loss is NaN
     pytest.param([0.0] * 3, [1.0] * 3, 0.0, 0.0, 0.0, "finite", id="zero_counts"),
     pytest.param([0.0] * 3, [1.0] * 3, 2.0, 1.0, 0.0, "finite", id="zero_counts_min"),
-    pytest.param(COUNTS, ONES, -1.0, 0.0, 0.0, AssertionError, id="negative_penalty"),
-    pytest.param(COUNTS, ONES, NAN, 0.0, 0.0, AssertionError, id="nan_penalty"),
-    pytest.param(COUNTS, ONES, 2.0, -1.0, 0.0, AssertionError, id="negative_min_counts"),
-    pytest.param(COUNTS, ONES, 2.0, 0.0, -1.0, AssertionError, id="negative_min_offset"),
-    pytest.param(COUNTS, ONES[:3], 2.0, 0.0, 0.0, AssertionError, id="size_mismatch"),
+    pytest.param(
+        COUNTS,
+        ONES,
+        -1.0,
+        0.0,
+        0.0,
+        NEGATIVE_CHANGEPOINT_PARAMETER,
+        id="negative_penalty",
+    ),
+    pytest.param(
+        COUNTS, ONES, NAN, 0.0, 0.0, NEGATIVE_CHANGEPOINT_PARAMETER, id="nan_penalty"
+    ),
+    pytest.param(
+        COUNTS,
+        ONES,
+        2.0,
+        -1.0,
+        0.0,
+        NEGATIVE_CHANGEPOINT_PARAMETER,
+        id="negative_min_counts",
+    ),
+    pytest.param(
+        COUNTS,
+        ONES,
+        2.0,
+        0.0,
+        -1.0,
+        NEGATIVE_CHANGEPOINT_PARAMETER,
+        id="negative_min_offset",
+    ),
+    pytest.param(COUNTS, ONES[:3], 2.0, 0.0, 0.0, ValueError, id="size_mismatch"),
 ]
 
 
@@ -308,7 +343,7 @@ class TestCountMutations:
         ts = make_ts(COUNT_NODES, COUNT_EDGES, [(1, 0), (2, 1)], 10.0)
         args = shrink(count_args(ts, False), index, size)
         result = self.compare(args)
-        assert result.error is AssertionError
+        assert result.error is ValueError
 
     @pytest.mark.parametrize("size_biased", [False, True])
     def test_simulated(self, sim_ts, size_biased):
@@ -362,16 +397,16 @@ AREA_CASES = [
         None,
         id="ties_and_unsorted_times",
     ),
-    pytest.param([0, 0, 1], LIK, [2], [0, 1], AssertionError, id="parents_mismatch"),
+    pytest.param([0, 0, 1], LIK, [2], [0, 1], ValueError, id="parents_mismatch"),
     pytest.param(
-        [0, 0, 1], [[1, 1]] * 3, [2, 2], [0, 1], AssertionError, id="likelihood_rows"
+        [0, 0, 1], [[1, 1]] * 3, [2, 2], [0, 1], ValueError, id="likelihood_rows"
     ),
     pytest.param(
         [0, 0, 1],
         [[1, 1, 1]] * 2,
         [2, 2],
         [0, 1],
-        AssertionError,
+        ValueError,
         id="likelihood_columns",
     ),
 ]
@@ -449,8 +484,8 @@ TIMESCALE_CASES = [
     pytest.param(chain(2), "finite", id="two_intervals"),
     pytest.param(chain(3), "finite", id="as_many_as_epochs"),
     pytest.param(chain(10000), "finite", id="more_than_epochs"),
-    pytest.param(chain(0), AssertionError, id="zero_intervals"),
-    pytest.param(chain(-1), AssertionError, id="negative_intervals"),
+    pytest.param(chain(0), NONPOSITIVE_INTERVALS, id="zero_intervals"),
+    pytest.param(chain(-1), NONPOSITIVE_INTERVALS, id="negative_intervals"),
     # NOTE: current behaviour, possibly a bug: `nodes_fixed` is only
     # size-checked, so which nodes are fixed does not matter
     pytest.param(chain(3, [0, 0, 0, 0]), "finite", id="no_fixed_nodes"),
@@ -488,15 +523,15 @@ TIMESCALE_CASES = [
     # interval has zero span (a zero mutation rate) or there are no edges
     pytest.param(
         timescale_args([0, 0, 1.0], [[2, 0], [1, 0]], [1, 1, 0], [2, 2], [0, 1], 1),
-        AssertionError,
+        ZERO_EDGE_SPAN,
         id="zero_edge_span",
     ),
     pytest.param(
-        timescale_args([0.0, 1.0], [], [1, 1], [], [], 1), AssertionError, id="no_edges"
+        timescale_args([0.0, 1.0], [], [1, 1], [], [], 1), ZERO_EDGE_SPAN, id="no_edges"
     ),
     pytest.param(
         timescale_args([0.0, 0.0, 0.0], [[1, 10], [1, 10]], [1, 1, 1], [2, 2], [0, 1], 1),
-        AssertionError,
+        ZERO_EDGE_SPAN,
         id="all_nodes_at_time_zero",
     ),
 ]
@@ -530,7 +565,7 @@ class TestMutationalTimescale:
         else:
             args[1] = np.ones((3, 3))
         result = self.compare(*args)
-        assert result.error is AssertionError
+        assert result.error is ValueError
 
     @pytest.mark.parametrize("max_intervals", [3, 1000])
     @pytest.mark.parametrize("seed", range(2))
@@ -583,22 +618,52 @@ POINT_ESTIMATE_CASES = [
     pytest.param([0.0, 0.5, 7.0], None, [0.0], [2.0], "finite", id="single_scaled"),
     pytest.param([0.0, 0.3, 1.0], None, [0.0, 5.0], [0.0, 5.0], "finite", id="identity"),
     pytest.param(
-        [0.5], None, [0.0, 1.0, 3.0], [0.0, 2.0, 2.0], ValueError, id="flat_rescaled"
+        [0.5],
+        None,
+        [0.0, 1.0, 3.0],
+        [0.0, 2.0, 2.0],
+        NON_INCREASING_BREAKPOINTS,
+        id="flat_rescaled",
     ),
     pytest.param(
-        [0.5], None, [0.0, 1.0, 3.0], [0.0, 2.0, 1.0], ValueError, id="decreasing"
+        [0.5],
+        None,
+        [0.0, 1.0, 3.0],
+        [0.0, 2.0, 1.0],
+        NON_INCREASING_BREAKPOINTS,
+        id="decreasing",
     ),
     pytest.param(
-        [0.5], None, [0.0, 1.0, 1.0], [0.0, 2.0, 3.0], ValueError, id="flat_original"
+        [0.5],
+        None,
+        [0.0, 1.0, 1.0],
+        [0.0, 2.0, 3.0],
+        NON_INCREASING_BREAKPOINTS,
+        id="flat_original",
     ),
     pytest.param(
-        [0.5], None, [0.0, 2.0, 1.0], [0.0, 1.0, 2.0], ValueError, id="decr_original"
+        [0.5],
+        None,
+        [0.0, 2.0, 1.0],
+        [0.0, 1.0, 2.0],
+        NON_INCREASING_BREAKPOINTS,
+        id="decr_original",
     ),
     pytest.param(
-        [0.5], None, [0.0, 1.0, NAN], [0.0, 1.0, 2.0], ValueError, id="nan_original"
+        [0.5],
+        None,
+        [0.0, 1.0, NAN],
+        [0.0, 1.0, 2.0],
+        NON_INCREASING_BREAKPOINTS,
+        id="nan_original",
     ),
     pytest.param(
-        [0.5], None, [0.0, 1.0, 2.0], [0.0, 1.0, NAN], ValueError, id="nan_rescaled"
+        [0.5],
+        None,
+        [0.0, 1.0, 2.0],
+        [0.0, 1.0, NAN],
+        NON_INCREASING_BREAKPOINTS,
+        id="nan_rescaled",
     ),
 ]
 
@@ -664,7 +729,9 @@ POSTERIOR_CASES = [
         POSTERIORS, {"quantile_width": 1 - 1e-9}, "finite", id="widest_quantile"
     ),
     *[
-        pytest.param(POSTERIORS, {"quantile_width": w}, AssertionError, id=f"width_{w}")
+        pytest.param(
+            POSTERIORS, {"quantile_width": w}, INVALID_QUANTILE_WIDTH, id=f"width_{w}"
+        )
         for w in [0.0, 1.0, -0.1, 1.5, NAN, INF]
     ],
     pytest.param(POSTERIORS, {"fixed": [1, 0, 1, 0]}, "nan", id="some_fixed"),
@@ -674,9 +741,9 @@ POSTERIOR_CASES = [
         [[-5.0, -5.0], [1.0, 1.0]], {"fixed": [1, 0]}, "nan", id="fixed_negative"
     ),
     pytest.param([[NAN, NAN], [1.0, 1.0]], {"fixed": [1, 0]}, "nan", id="fixed_nan"),
-    # NOTE: current behaviour, possibly a bug: no posteriors raises
-    # numpy's "zero-size array" ValueError from a debug assertion
-    pytest.param(np.zeros((0, 2)), {"fixed": []}, ValueError, id="no_posteriors"),
+    # NOTE: current behaviour, possibly a bug: no posteriors is an error,
+    # with numpy's "zero-size array" message
+    pytest.param(np.zeros((0, 2)), {"fixed": []}, NO_POSTERIORS, id="no_posteriors"),
     *[
         pytest.param([row], {}, "finite", id=f"valid_{i}")
         for i, row in enumerate(
@@ -685,7 +752,7 @@ POSTERIOR_CASES = [
     ],
     # NOTE: current behaviour, possibly a bug: for a shape this close
     # to -1 the lower quantile underflows to zero and the division by it is an error
-    # (IEEE would give inf), rather than KLMinimizationFailedError
+    # (IEEE would give inf), rather than a failed gamma fit
     *[
         pytest.param([row], {}, ZeroDivisionError, id=f"shape_near_minus_one_{i}")
         for i, row in enumerate([[-0.9999, 1.0], [-1 + 1e-12, 1.0], [-0.9999999, 2.0]])
@@ -693,9 +760,9 @@ POSTERIOR_CASES = [
     pytest.param([[1.0, INF]], {}, ZeroDivisionError, id="infinite_rate"),
     # NOTE: current behaviour, possibly a bug: the error leaks out of
     # `approximate_gamma_iqr`
-    pytest.param([[INF, 1.0]], {}, KLFailed, id="infinite_shape"),
+    pytest.param([[INF, 1.0]], {}, UNSORTED_QUANTILES, id="infinite_shape"),
     *[
-        pytest.param([row], {}, AssertionError, id=f"invalid_{i}")
+        pytest.param([row], {}, INVALID_POSTERIOR, id=f"invalid_{i}")
         for i, row in enumerate(
             [[-1.0, 1.0], [1.0, 0.0], [1.0, -1.0], [NAN, 1.0], [1.0, NAN], [-INF, 1.0]]
         )
@@ -703,13 +770,16 @@ POSTERIOR_CASES = [
     pytest.param(
         [[1.0, 1.0], [2.0, 3.0], [0.0, 1.0], [-1.0, 2.0]],
         {},
-        AssertionError,
+        INVALID_POSTERIOR,
         id="one_invalid",
     ),
     # all quantiles map to one point beyond the last break: zero interquantile range
     pytest.param([[1.0, 0.001], [1.0, 1e-9]], {}, "finite", id="beyond_last_break"),
     pytest.param(
-        POSTERIORS, {"original": [0.5, 1.0, 3.0]}, AssertionError, id="below_first"
+        POSTERIORS,
+        {"original": [0.5, 1.0, 3.0]},
+        TIME_BELOW_FIRST_BREAKPOINT,
+        id="below_first",
     ),
     # NOTE: current behaviour, possibly a bug: `max_shape=0` gives
     # shape -1 (improper) and zero rate
@@ -720,7 +790,12 @@ POSTERIOR_CASES = [
     pytest.param(POSTERIORS, {"max_shape": INF}, "finite", id="max_shape_inf"),
     pytest.param(POSTERIORS, {"max_shape": NAN}, "finite", id="max_shape_nan"),
     *[
-        pytest.param(POSTERIORS, {"original": o, "rescaled": r}, ValueError, id=i)
+        pytest.param(
+            POSTERIORS,
+            {"original": o, "rescaled": r},
+            NON_INCREASING_BREAKPOINTS,
+            id=i,
+        )
         for i, o, r in [
             ("original_flat", [0.0, 1.0, 1.0], RESCALED),
             ("rescaled_flat", ORIGINAL, [0.0, 2.0, 2.0]),
@@ -732,7 +807,7 @@ POSTERIOR_CASES = [
     pytest.param(
         [[-5.0, 1.0]],
         {"original": [0.0, 0.0], "rescaled": [0.0, 1.0]},
-        ValueError,
+        NON_INCREASING_BREAKPOINTS,
         id="bad_breaks_before_posteriors",
     ),
     # a single (zero-length) interval: everything is beyond the last break
@@ -745,11 +820,11 @@ POSTERIOR_CASES = [
     pytest.param(
         POSTERIORS, {"original": [0.0], "rescaled": [4.0]}, "finite", id="single_break"
     ),
-    pytest.param(POSTERIORS, {"fixed": [0] * 3}, AssertionError, id="fixed_mismatch"),
+    pytest.param(POSTERIORS, {"fixed": [0] * 3}, ValueError, id="fixed_mismatch"),
     pytest.param(
         POSTERIORS,
         {"original": [0.0, 1.0], "rescaled": RESCALED},
-        AssertionError,
+        ValueError,
         id="breaks_mismatch",
     ),
 ]

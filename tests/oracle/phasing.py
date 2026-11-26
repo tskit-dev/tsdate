@@ -5,14 +5,19 @@ Oracles for the phasing functions (``lib/phasing.c``).
 import numpy as np
 import tskit
 
+from . import errors
+from .errors import library_error
+
 
 def reallocate_unphased(edges_likelihood, mutations_phase, mutations_block, blocks_edges):
     """
     Add a proportion of each unphased singleton mutation to one of the two
     edges to which it maps
     """
-    assert mutations_phase.size == mutations_block.size
-    assert blocks_edges.shape[1] == 2
+    if mutations_phase.size != mutations_block.size:
+        raise ValueError("Array sizes are not equal")
+    if blocks_edges.shape[1] != 2:
+        raise ValueError("Arrays must have two columns")
 
     num_edges = edges_likelihood.shape[0]
     edges_unphased = np.full(num_edges, False)
@@ -25,16 +30,18 @@ def reallocate_unphased(edges_likelihood, mutations_phase, mutations_block, bloc
         if b == tskit.NULL:
             continue
         i, j = blocks_edges[b]
-        assert tskit.NULL < i < num_edges
+        if not (tskit.NULL < i < num_edges and tskit.NULL < j < num_edges):
+            raise library_error(errors.BLOCK_OUT_OF_RANGE)
         assert edges_unphased[i]
-        assert tskit.NULL < j < num_edges
         assert edges_unphased[j]
         if np.isnan(mutations_phase[m]):  # TODO: fix rare numerical issue
             continue
-        assert 0.0 <= mutations_phase[m] <= 1.0
+        if not (0.0 <= mutations_phase[m] <= 1.0):
+            raise library_error(errors.PHASE_OUT_OF_RANGE)
         edges_likelihood[i, 0] += mutations_phase[m]
         edges_likelihood[j, 0] += 1 - mutations_phase[m]
-    assert np.isclose(num_unphased, np.sum(edges_likelihood[edges_unphased, 0]))
+    if not np.isclose(num_unphased, np.sum(edges_likelihood[edges_unphased, 0])):
+        raise library_error(errors.UNPHASED_LIKELIHOOD_NOT_CONSERVED)
 
 
 def block_singletons(
@@ -54,9 +61,17 @@ def block_singletons(
     Blocks of the singleton mutations of unphased individuals: ``(blocks_stats,
     blocks_edges, mutations_block)``.
     """
-    assert edges_parent.size == edges_child.size == edges_left.size == edges_right.size
-    assert indexes_insert.size == indexes_remove.size == edges_parent.size
-    assert mutations_node.size == mutations_position.size
+    if not (
+        edges_parent.size
+        == edges_child.size
+        == edges_left.size
+        == edges_right.size
+        == indexes_insert.size
+        == indexes_remove.size
+    ):
+        raise ValueError("Array sizes are not equal")
+    if mutations_node.size != mutations_position.size:
+        raise ValueError("Array sizes are not equal")
 
     num_mutations = mutations_node.size
     num_edges = edges_parent.size
@@ -107,7 +122,8 @@ def block_singletons(
             i = nodes_individual[c]
             if i != tskit.NULL and individuals_unphased[i]:
                 u, v = individuals_edges[i]
-                assert u == tskit.NULL or v == tskit.NULL
+                if u != tskit.NULL and v != tskit.NULL:
+                    raise library_error(errors.UNPHASED_INDIVIDUAL_EDGES)
                 individuals_edges[i] = [e, max(u, v)]
                 individuals_position[i] = left
                 if individuals_block[i] == tskit.NULL:
@@ -137,7 +153,9 @@ def block_singletons(
     blocks_span = np.array(blocks_span)
     blocks_order = np.array(blocks_order)
     blocks_stats = np.column_stack((blocks_singletons, blocks_span))
-    assert num_blocks == blocks_edges.shape[0] == blocks_stats.shape[0]
+    # every block must have been completed
+    if num_blocks != blocks_edges.shape[0]:
+        raise library_error(errors.UNPHASED_INDIVIDUAL_EDGES)
 
     # sort block arrays so that mutations_block points to correct row
     blocks_order = np.argsort(blocks_order)
@@ -163,9 +181,17 @@ def mutation_frequency(
     The number of samples of each sample set below each mutation, as an array of
     shape ``(num_mutations, num_sample_sets)``.
     """
-    assert edges_parent.size == edges_child.size == edges_left.size == edges_right.size
-    assert indexes_insert.size == indexes_remove.size == edges_parent.size
-    assert mutations_node.size == mutations_position.size
+    if not (
+        edges_parent.size
+        == edges_child.size
+        == edges_left.size
+        == edges_right.size
+        == indexes_insert.size
+        == indexes_remove.size
+    ):
+        raise ValueError("Array sizes are not equal")
+    if mutations_node.size != mutations_position.size:
+        raise ValueError("Array sizes are not equal")
 
     num_nodes, num_sample_sets = nodes_sample.shape
     num_mutations = mutations_node.size

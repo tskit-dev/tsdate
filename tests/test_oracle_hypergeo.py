@@ -1,10 +1,11 @@
 """
 Parity of the special functions of ``_tsdate`` with their oracles in
 ``oracle/hypergeo.py``: exact values (including NaNs and infinities), and which
-exception is raised (``AssertionError`` for the domain checks,
-``ZeroDivisionError`` for float division by zero). Expected values always come from the
-oracle. Tables hold deliberate edge cases (poles, domain boundaries, both sides of a
-branch switch); grids and seeded random draws cover the interior and extreme ranges.
+error is raised (``INVALID_HYPERGEO`` for the domain checks, ``ZeroDivisionError`` in
+the oracle for the library's float division by zero). Expected values always come
+from the oracle. Tables hold deliberate edge cases (poles, domain boundaries, both
+sides of a branch switch); grids and seeded random draws cover the interior and extreme
+ranges.
 Accuracy of the approximations is measured in ``evaluation/numerical_accuracy.py``.
 """
 
@@ -15,6 +16,7 @@ import numpy as np
 import pytest
 import scipy.special
 from oracle import hypergeo
+from oracle.errors import INVALID_HYPERGEO
 from oracle.helpers import (
     INF,
     NAN,
@@ -221,13 +223,13 @@ GAMMAINC_DER_POINTS = [
 ]
 
 GAMMAINC_DER_DOMAIN = [
-    ((-1.0, 1.0), AssertionError),
-    ((0.0, 1.0), AssertionError),
-    ((-0.0, 1.0), AssertionError),
-    ((1.0, -1.0), AssertionError),
-    ((1.0, -5e-324), AssertionError),
-    ((NAN, 1.0), AssertionError),
-    ((1.0, NAN), AssertionError),
+    ((-1.0, 1.0), INVALID_HYPERGEO),
+    ((0.0, 1.0), INVALID_HYPERGEO),
+    ((-0.0, 1.0), INVALID_HYPERGEO),
+    ((1.0, -1.0), INVALID_HYPERGEO),
+    ((1.0, -5e-324), INVALID_HYPERGEO),
+    ((NAN, 1.0), INVALID_HYPERGEO),
+    ((1.0, NAN), INVALID_HYPERGEO),
 ]
 
 
@@ -343,18 +345,18 @@ class TestGammaincInv:
 
 HYPERU_DOMAIN = [
     ((1.0, 1.0, 1.0), "finite"),  # b == a is allowed
-    ((1.0, nextafter(1.0, 0), 1.0), AssertionError),  # b < a
-    ((0.0, 1.0, 1.0), AssertionError),
-    ((-0.0, 1.0, 1.0), AssertionError),
-    ((-1.0, 1.0, 1.0), AssertionError),
+    ((1.0, nextafter(1.0, 0), 1.0), INVALID_HYPERGEO),  # b < a
+    ((0.0, 1.0, 1.0), INVALID_HYPERGEO),
+    ((-0.0, 1.0, 1.0), INVALID_HYPERGEO),
+    ((-1.0, 1.0, 1.0), INVALID_HYPERGEO),
     ((5e-324, 1.0, 1.0), "finite"),
-    ((1.0, 2.0, 0.0), AssertionError),
-    ((1.0, 2.0, -0.0), AssertionError),
-    ((1.0, 2.0, -1.0), AssertionError),
+    ((1.0, 2.0, 0.0), INVALID_HYPERGEO),
+    ((1.0, 2.0, -0.0), INVALID_HYPERGEO),
+    ((1.0, 2.0, -1.0), INVALID_HYPERGEO),
     ((1.0, 2.0, 1.0), "finite"),
-    ((NAN, 2.0, 1.0), AssertionError),
-    ((1.0, NAN, 1.0), AssertionError),
-    ((1.0, 2.0, NAN), AssertionError),
+    ((NAN, 2.0, 1.0), INVALID_HYPERGEO),
+    ((1.0, NAN, 1.0), INVALID_HYPERGEO),
+    ((1.0, 2.0, NAN), INVALID_HYPERGEO),
     ((INF, INF, 1.0), "nan"),
     ((1.0, INF, 1.0), "nan"),
     # the Laplace root divides by zero when the square root equals t in floating point
@@ -375,13 +377,13 @@ HYP1F1_DOMAIN = [
     ((1.0, 2.0, -0.0), "finite"),
     # NOTE: current behaviour, possibly a bug: b == a is allowed by `valid_hyp1f1`
     # (in approx) but asserted against here
-    ((1.0, 1.0, 1.0), AssertionError),
-    ((1.0, 0.5, 1.0), AssertionError),
-    ((0.0, 1.0, 1.0), AssertionError),
-    ((0.0, 1.0, 0.0), AssertionError),  # asserted before the x == 0 shortcut
-    ((-1.0, 1.0, 0.0), AssertionError),
-    ((NAN, 2.0, 1.0), AssertionError),
-    ((1.0, NAN, 1.0), AssertionError),
+    ((1.0, 1.0, 1.0), INVALID_HYPERGEO),
+    ((1.0, 0.5, 1.0), INVALID_HYPERGEO),
+    ((0.0, 1.0, 1.0), INVALID_HYPERGEO),
+    ((0.0, 1.0, 0.0), INVALID_HYPERGEO),  # asserted before the x == 0 shortcut
+    ((-1.0, 1.0, 0.0), INVALID_HYPERGEO),
+    ((NAN, 2.0, 1.0), INVALID_HYPERGEO),
+    ((1.0, NAN, 1.0), INVALID_HYPERGEO),
     ((5e-324, 1.0, 0.0), "finite"),
     ((1.0, nextafter(1.0, 2), 1.0), "nonfinite"),
     ((1.0, 2.0, NAN), "nan"),
@@ -406,34 +408,34 @@ HYP2F1_DOMAIN = [
     ((1.0, 0.5, 1.5, 0.5), "finite"),
     ((0.0, 1.0, 1.0, 0.0), "finite"),  # z == 0 is checked after the assertions
     ((1.0, 2.0, 3.0, -0.0), "finite"),
-    ((0.0, 1.0, 1.0, 0.5), AssertionError),  # a = 0: root on boundary
-    ((0.0, 1.0, 1.0, -0.5), AssertionError),
-    ((0.0, 0.0, 1.0, 0.5), AssertionError),
-    ((1.0, 0.0, 1.0, 0.5), AssertionError),  # b = 0, c = a
+    ((0.0, 1.0, 1.0, 0.5), INVALID_HYPERGEO),  # a = 0: root on boundary
+    ((0.0, 1.0, 1.0, -0.5), INVALID_HYPERGEO),
+    ((0.0, 0.0, 1.0, 0.5), INVALID_HYPERGEO),
+    ((1.0, 0.0, 1.0, 0.5), INVALID_HYPERGEO),  # b = 0, c = a
     ((1.0, 0.0, 2.0, 0.5), "finite"),  # b = 0 is fine when c > a
-    ((1.0, 2.0, 1.0, 0.5), AssertionError),  # c == a: root on boundary
-    ((1.0, 1.0, 1.0, 0.5), AssertionError),
-    ((1.0, 2.0, nextafter(1.0, 0), 0.5), AssertionError),  # c < a
-    ((1.0, 2.0, 0.0, 0.5), AssertionError),
-    ((1.0, 2.0, -1.0, 0.5), AssertionError),
-    ((-1.0, 2.0, 3.0, 0.5), AssertionError),  # a < 0
-    ((1.0, -1.0, 3.0, 0.5), AssertionError),  # b < 0
-    ((1.0, 2.0, 3.0, 1.0), AssertionError),  # z >= 1
-    ((1.0, 2.0, 3.0, nextafter(1.0, 2)), AssertionError),
-    ((1.0, 2.0, 3.0, 1.5), AssertionError),
+    ((1.0, 2.0, 1.0, 0.5), INVALID_HYPERGEO),  # c == a: root on boundary
+    ((1.0, 1.0, 1.0, 0.5), INVALID_HYPERGEO),
+    ((1.0, 2.0, nextafter(1.0, 0), 0.5), INVALID_HYPERGEO),  # c < a
+    ((1.0, 2.0, 0.0, 0.5), INVALID_HYPERGEO),
+    ((1.0, 2.0, -1.0, 0.5), INVALID_HYPERGEO),
+    ((-1.0, 2.0, 3.0, 0.5), INVALID_HYPERGEO),  # a < 0
+    ((1.0, -1.0, 3.0, 0.5), INVALID_HYPERGEO),  # b < 0
+    ((1.0, 2.0, 3.0, 1.0), INVALID_HYPERGEO),  # z >= 1
+    ((1.0, 2.0, 3.0, nextafter(1.0, 2)), INVALID_HYPERGEO),
+    ((1.0, 2.0, 3.0, 1.5), INVALID_HYPERGEO),
     ((1.0, 2.0, 3.0, nextafter(1.0, 0)), "finite"),
-    ((1.0, 2.0, 3.0, NAN), AssertionError),
-    ((NAN, 2.0, 3.0, 0.5), AssertionError),
-    ((1.0, 2.0, 3.0, -INF), AssertionError),
-    ((1.0, 2.0, 3.0, -1e300), AssertionError),  # z / (z - 1) rounds to 1.0
-    ((1.0, 2.0, 3.0, -1e16), AssertionError),
+    ((1.0, 2.0, 3.0, NAN), INVALID_HYPERGEO),
+    ((NAN, 2.0, 3.0, 0.5), INVALID_HYPERGEO),
+    ((1.0, 2.0, 3.0, -INF), INVALID_HYPERGEO),
+    ((1.0, 2.0, 3.0, -1e300), INVALID_HYPERGEO),  # z / (z - 1) rounds to 1.0
+    ((1.0, 2.0, 3.0, -1e16), INVALID_HYPERGEO),
     ((1.0, 2.0, 3.0, -9e15), "finite"),
     ((0.0, 1.0, 1e-300, 0.5), ZeroDivisionError),
     ((1e-300, 1.0, 1.0, 0.5), "finite"),
-    ((1.0, 1e-300, 1.0, 0.5), AssertionError),
-    ((1e300, 1e300, 1e300, 0.5), AssertionError),
-    ((1.0, 2.0, 1e300, 0.5), AssertionError),
-    ((1.0, 1e300, 2.0, 0.5), AssertionError),
+    ((1.0, 1e-300, 1.0, 0.5), INVALID_HYPERGEO),
+    ((1e300, 1e300, 1e300, 0.5), INVALID_HYPERGEO),
+    ((1.0, 2.0, 1e300, 0.5), INVALID_HYPERGEO),
+    ((1.0, 1e300, 2.0, 0.5), INVALID_HYPERGEO),
 ]
 
 

@@ -6,7 +6,7 @@ from math import inf, nan
 
 import numpy as np
 
-from . import hypergeo
+from . import errors, hypergeo
 
 # Plain `math` raises on log(0), exp overflow etc., where C gives -inf, inf or
 # nan; `_libm` gives the C results.
@@ -20,14 +20,11 @@ from . import hypergeo
 # For the same reason, elements unpacked from a NumPy array are converted with
 # `float`.
 from ._libm import exp, ipow, lgamma, log
+from .errors import library_error
 
 # the tolerances of the KL minimisation, as in the library
 _KLMIN_MAXITT = 100
 _KLMIN_RELTOL = np.sqrt(np.finfo(np.float64).eps)
-
-
-class KLMinimizationFailedError(Exception):
-    pass
 
 
 def approximate_log_moments(mean, variance):
@@ -39,8 +36,8 @@ def approximate_log_moments(mean, variance):
 
     Returns approximations to E[log x], E[x log x], E[(log x)^2]
     """
-    assert mean > 0
-    assert variance > 0
+    if not (mean > 0 and variance > 0):
+        raise library_error(errors.NONPOSITIVE_MOMENTS)
     logx = log(mean) - 0.5 * variance / ipow(mean, 2)
     xlogx = mean * log(mean) + 0.5 * variance / mean
     logx2 = ipow(log(mean), 2) + (1 - log(mean)) * variance / ipow(mean, 2)
@@ -57,11 +54,9 @@ def approximate_gamma_kl(x, logx):
     Returns the shape and rate of the approximating gamma.
     """
     if x <= 0.0 or np.isinf(logx):
-        raise KLMinimizationFailedError("Nonpositive or nonfinite moments")
+        raise library_error(errors.NONPOSITIVE_OR_NONFINITE_MOMENTS)
     if not log(x) > logx:
-        raise KLMinimizationFailedError(
-            "log E[t] <= E[log t] violates Jensen's inequality"
-        )
+        raise library_error(errors.JENSEN_VIOLATION)
     alpha = 0.5 / (log(x) - logx)  # lower bound on alpha
     # asymptotically the lower bound becomes sharp
     if 1.0 / alpha < 1e-4:
@@ -72,15 +67,13 @@ def approximate_gamma_kl(x, logx):
     # some small value (e.g. square root of machine precision)
     while np.abs(delta) > np.abs(alpha) * _KLMIN_RELTOL:
         if itt > _KLMIN_MAXITT:
-            raise KLMinimizationFailedError(
-                "Maximum iterations reached in KL minimization"
-            )
+            raise library_error(errors.KL_MAX_ITERATIONS)
         delta = hypergeo.digamma(alpha) - log(alpha) + log(x) - logx
         delta /= hypergeo.trigamma(alpha) - 1 / alpha
         alpha -= delta
         itt += 1
     if not np.isfinite(alpha) or alpha <= 0:
-        raise KLMinimizationFailedError("Invalid shape parameter in KL minimization")
+        raise library_error(errors.KL_INVALID_SHAPE)
     return alpha - 1.0, alpha / x
 
 
@@ -90,7 +83,7 @@ def approximate_gamma_mom(mean, variance):
     same mean and variance, returning natural parameters
     """
     if not (mean > 0.0 and variance > 0.0):
-        raise KLMinimizationFailedError("Nonpositive central moments")
+        raise library_error(errors.NONPOSITIVE_CENTRAL_MOMENTS)
     shape = ipow(mean, 2) / variance
     rate = mean / variance
     return shape - 1.0, rate
@@ -108,7 +101,7 @@ def approximate_gamma_iqr(q1, q2, x1, x2, max_shape):
     if x2 == x1:
         return upper_bound(q1, x1)
     if not (q2 > q1 and x2 > x1):
-        raise KLMinimizationFailedError("Quantiles must be sorted")
+        raise library_error(errors.UNSORTED_QUANTILES)
     alpha = log(q2 / q1) / log(x2 / x1)  # lower bound
     if alpha > max_shape:
         return upper_bound(q1, x1)
@@ -118,9 +111,7 @@ def approximate_gamma_iqr(q1, q2, x1, x2, max_shape):
     itt = 0
     while abs(delta) > abs(alpha) * _KLMIN_RELTOL:
         if itt > _KLMIN_MAXITT:
-            raise KLMinimizationFailedError(
-                "Maximum iterations reached in quantile matching"
-            )
+            raise library_error(errors.QUANTILE_MAX_ITERATIONS)
         y1 = hypergeo.gammainc_inv(alpha, q1)
         y2 = hypergeo.gammainc_inv(alpha, q2)
         obj = y2 / y1 - x2 / x1
@@ -135,7 +126,7 @@ def approximate_gamma_iqr(q1, q2, x1, x2, max_shape):
         itt += 1
 
     if not alpha > 0:
-        raise KLMinimizationFailedError("Negative shape parameter")
+        raise library_error(errors.NEGATIVE_SHAPE)
     if alpha > max_shape:
         return upper_bound(q1, x1)
     beta = hypergeo.gammainc_inv(alpha, q1) / x1
@@ -148,7 +139,8 @@ def average_gammas(alpha, beta):
     statistics so as to get a "global" gamma, returning natural
     parameters
     """
-    assert alpha.size == beta.size, "Array sizes are not equal"
+    if alpha.size != beta.size:
+        raise ValueError("Array sizes are not equal")
     avg_x = 0.0
     avg_logx = 0.0
     for shape, rate in zip(map(float, alpha + 1.0), map(float, beta)):
@@ -268,7 +260,8 @@ def rootward_moments(t_j, a_i, b_i, y_ij, mu_ij):
     Returns normalizing constant, E[t_i], V[t_i].
     """
 
-    assert t_j >= 0.0
+    if not (t_j >= 0.0):
+        raise library_error(errors.INVALID_FIXED_AGE)
 
     s = a_i + y_ij
     r = mu_ij + b_i
@@ -309,7 +302,8 @@ def leafward_moments(t_i, a_j, b_j, y_ij, mu_ij):
     Returns normalizing constant, E[t_j], V[t_j].
     """
 
-    assert t_i > 0.0
+    if not (t_i > 0.0):
+        raise library_error(errors.INVALID_FIXED_AGE)
 
     a = a_j
     b = a_j + y_ij + 1
@@ -399,7 +393,8 @@ def sideways_moments(t_i, a_j, b_j, y_ij, mu_ij):
     Returns normalizing constant, E[t_j], V[t_j].
     """
 
-    assert t_i > 0.0
+    if not (t_i > 0.0):
+        raise library_error(errors.INVALID_FIXED_AGE)
 
     a = a_j
     b = a_j + y_ij + 1
@@ -577,7 +572,8 @@ def mutation_sideways_moments(t_i, a_j, b_j, y_ij, mu_ij):
     Returns P[m under i], E[t_m], V[t_m].
     """
 
-    assert t_i > 0
+    if not (t_i > 0):
+        raise library_error(errors.INVALID_FIXED_AGE)
 
     # Conditioning on ages of parents:
     #   P[x under i | t_i, t_j] = t_i / (t_i + t_j)
@@ -640,8 +636,8 @@ def mutation_block_moments(t_i, t_j):
     Returns P[m under i], E[t_m], V[t_m].
     """
 
-    assert t_i > 0
-    assert t_j > 0
+    if not (t_i > 0 and t_j > 0):
+        raise library_error(errors.INVALID_FIXED_AGE)
 
     pr_m = t_i / (t_i + t_j)
     mn_m = pr_m * t_i / 2 + (1 - pr_m) * t_j / 2

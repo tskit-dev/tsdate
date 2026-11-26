@@ -1,7 +1,7 @@
 """
 Parity of the phasing functions of ``_tsdate`` with their oracles: random
 inputs built as in ``ExpectationPropagation``, degenerate inputs, and every
-``assert``.
+error.
 """
 
 import _tsdate
@@ -9,6 +9,12 @@ import numpy as np
 import pytest
 import tskit
 from oracle import phasing
+from oracle.errors import (
+    BLOCK_OUT_OF_RANGE,
+    PHASE_OUT_OF_RANGE,
+    UNPHASED_INDIVIDUAL_EDGES,
+    UNPHASED_LIKELIHOOD_NOT_CONSERVED,
+)
 from oracle.helpers import INF, NAN, compare, make_ts, shrink
 
 from tsdate.phasing import block_singletons
@@ -68,14 +74,14 @@ BLOCK_EDGE_CASES = [
     ),
     # NOTE: current behaviour, possibly a bug: reachable from real data
     # (one haplotype of an unphased individual missing over a region); its block is
-    # never flushed and the final consistency check fails with a bare AssertionError
+    # never flushed and the final consistency check fails
     pytest.param(
         NODES,
         2,
         [(0, 10, 4, 0), (0, 10, 4, 2), (0, 10, 4, 3)],
         [(1, 0)],
         [1, 1],
-        AssertionError,
+        UNPHASED_INDIVIDUAL_EDGES,
         id="one_haplotype_edge_missing",
     ),
 ]
@@ -122,7 +128,7 @@ class TestBlockSingletons:
     ):
         ts = make_ts(nodes, edges, mutations, 10.0, num_individuals)
         result = self.compare(self.args(ts, unphased))
-        assert result.error is expected_error
+        assert result.error == expected_error
 
     @pytest.mark.parametrize(
         ("edges", "mutations", "unphased", "expected"), BLOCK_NUMBERING
@@ -137,7 +143,7 @@ class TestBlockSingletons:
         ts = make_ts(NODES, STAR, [(1, 0), (2, 1)], 10.0, 2)
         args = shrink(self.args(ts, [1, 1]), index, size)
         result = self.compare(args)
-        assert result.error is AssertionError
+        assert result.error is ValueError
 
     @pytest.mark.parametrize("fraction", [0.0, 0.5, 1.0])
     @pytest.mark.parametrize("seed", range(2))
@@ -211,7 +217,7 @@ REALLOCATE_SMALL = [
         np.array([0.5]),
         np.array([0], dtype=np.int32),
         np.array([[0, -1]], dtype=np.int32),
-        AssertionError,
+        BLOCK_OUT_OF_RANGE,
         id="null_edge_in_block",
     ),
 ]
@@ -228,7 +234,7 @@ class TestReallocateUnphased:
     )
     def test_small(self, lik, phase, mutation_blocks, blocks_edges, expected_error):
         result = self.compare(lik, phase, mutation_blocks, blocks_edges)
-        assert result.error is expected_error
+        assert result.error == expected_error
 
     @pytest.mark.parametrize("mode", ["fractional", "mixed"])
     @pytest.mark.parametrize("seed", range(3))
@@ -247,7 +253,7 @@ class TestReallocateUnphased:
         phase = np.full(mutation_blocks.size, 0.5)
         phase[np.flatnonzero(mutation_blocks >= 0)[0]] = value
         result = self.compare(lik, phase, mutation_blocks, block_edges)
-        assert result.error is AssertionError
+        assert result.error == PHASE_OUT_OF_RANGE
 
     @pytest.mark.parametrize("value", [NAN, 7.0])
     def test_phase_ignored_without_block(self, blocks, value):
@@ -260,13 +266,13 @@ class TestReallocateUnphased:
     def test_nan_phase(self, blocks):
         # NOTE: current behaviour, possibly a bug: a NaN phase on a
         # blocked mutation is skipped, leaving its singleton unallocated, so the
-        # final `np.isclose` check fails (a bare AssertionError). It only passes if
-        # the likelihoods happen to total one less
+        # final `np.isclose` check fails. It only passes if the likelihoods happen to
+        # total one less
         _, lik, mutation_blocks, block_edges = blocks
         phase = np.full(mutation_blocks.size, 0.5)
         phase[np.flatnonzero(mutation_blocks >= 0)[0]] = NAN
         result = self.compare(lik, phase, mutation_blocks, block_edges)
-        assert result.error is AssertionError
+        assert result.error == UNPHASED_LIKELIHOOD_NOT_CONSERVED
         lik = lik.copy()
         lik[block_edges[0, 0], 0] -= 1.0
         result = self.compare(lik, phase, mutation_blocks, block_edges)
@@ -280,7 +286,7 @@ class TestReallocateUnphased:
         phase = np.full(size, 0.5)
         mutation_blocks = np.full(size, tskit.NULL, dtype=np.int32)
         result = self.compare(lik, phase, mutation_blocks, block_edges)
-        assert result.error is AssertionError
+        assert result.error == UNPHASED_LIKELIHOOD_NOT_CONSERVED
 
     @pytest.mark.parametrize("case", ["phase", "blocks_transposed"])
     def test_size_mismatch(self, blocks, case):
@@ -291,7 +297,7 @@ class TestReallocateUnphased:
         else:
             block_edges = np.ascontiguousarray(block_edges.T)
         result = self.compare(lik, phase, mutation_blocks, block_edges)
-        assert result.error is AssertionError
+        assert result.error is ValueError
 
 
 # samples 0, 1, 2 (time 0), internal nodes 3 (time 1) and 4 (time 2); node 3 is a
@@ -372,7 +378,7 @@ class TestMutationFrequency:
         nodes_sample = np.ones((freq_ts.num_nodes, 1), dtype=bool)
         args = shrink(sweep_args(freq_ts), index, size)
         result = self.compare(nodes_sample, args)
-        assert result.error is AssertionError
+        assert result.error is ValueError
 
     @pytest.mark.parametrize("num_sets", [1, 4])
     @pytest.mark.parametrize("seed", range(2))

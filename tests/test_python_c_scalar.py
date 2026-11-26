@@ -1,7 +1,7 @@
 """
 Tests of the generic scalar-function wrapper of the low-level _tsdate module: argument
-handling, return types, and the mapping of library errors to exceptions. Numerical
-values are tested against the oracles in test_oracle_*.py.
+handling and return types. Numerical values and library errors are tested against the
+oracles in test_oracle_*.py.
 """
 
 import math
@@ -65,19 +65,6 @@ class TestScalarFunctions:
 
 
 class TestScalarErrors:
-    def test_zero_division(self):
-        with pytest.raises(_tsdate.LibraryError, match="division by zero"):
-            _tsdate.digamma(0.0)
-
-    def test_invalid_hypergeo(self):
-        with pytest.raises(_tsdate.LibraryError, match="domain of the hypergeometric"):
-            _tsdate.hyp2f1_laplace(1.0, 2.0, 3.0, 1.0)
-
-    def test_messages_match_strerror(self):
-        with pytest.raises(_tsdate.LibraryError) as exc_info:
-            _tsdate.gammainc_der(-1.0, 1.0)
-        assert str(exc_info.value) == _tsdate.strerror(-5)
-
     def test_nan_is_not_an_error(self):
         assert math.isnan(_tsdate.gammainc_inv(math.nan, 0.5))
 

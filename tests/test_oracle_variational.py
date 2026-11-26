@@ -21,13 +21,21 @@ import pytest
 import tskit
 from oracle import ep_state, variational
 from oracle.ep_state import BRANCHES, SNAPSHOT_SPECS, tiny_snapshot
+from oracle.errors import (
+    INVALID_DAMPING,
+    INVALID_MAX_SHAPE,
+    INVALID_MIN_STEP,
+    INVALID_NODE_POSTERIOR,
+    NONPOSITIVE_PENALTY,
+    TWIN_EDGE_IN_PHASED_PASS,
+    ZERO_DIVISION,
+)
 from oracle.helpers import (
     INF,
     NAN,
     assert_same_outcome,
     assert_same_values,
     compare,
-    expected_error,
     f64,
     kind,
     log_uniform,
@@ -99,6 +107,14 @@ def unphased_name(ts_name):
     return ts_name == "small_ts_unphased"
 
 
+def raises_zero_division():
+    """
+    ``pytest.raises`` for the library's float division by zero
+    """
+    message = _tsdate.strerror(ZERO_DIVISION)
+    return pytest.raises(_tsdate.LibraryError, match=re.escape(message))
+
+
 class TestRescaleFactors:
     @pytest.mark.parametrize("ts_name", ["small_ts", "small_ts_unphased"])
     @pytest.mark.parametrize("scale", ["seed0", "seed1", 1e-160, 1e100])
@@ -163,21 +179,21 @@ DAMP_TABLE = [
     ("y1_nan_a_damped", f64(1, 1), f64(8, NAN), 0.5, "finite"),
     ("y0_minus_inf", f64(1, 1), f64(-INF, 0), 0.5, "finite"),
     ("y1_minus_inf", f64(1, 1), f64(0, -INF), 0.5, "finite"),
-    # asserts: `s` is checked by the callers (direct calls only)
-    ("s_zero", f64(1, 1), f64(0, 0), 0.0, AssertionError),
-    ("s_one", f64(1, 1), f64(0, 0), 1.0, AssertionError),
-    ("s_negative", f64(1, 1), f64(0, 0), -0.5, AssertionError),
-    ("s_nan", f64(1, 1), f64(0, 0), NAN, AssertionError),
+    # `s` is checked by the callers (direct calls only)
+    ("s_zero", f64(1, 1), f64(0, 0), 0.0, INVALID_MIN_STEP),
+    ("s_one", f64(1, 1), f64(0, 0), 1.0, INVALID_MIN_STEP),
+    ("s_negative", f64(1, 1), f64(0, 0), -0.5, INVALID_MIN_STEP),
+    ("s_nan", f64(1, 1), f64(0, 0), NAN, INVALID_MIN_STEP),
     # `0 < x[0] + 1` and `0 < x[1]`: reachable from improper or NaN posteriors
-    ("x0_minus_one", f64(-1, 1), f64(0, 0), 0.5, AssertionError),
-    ("x0_nan", f64(NAN, 1), f64(0, 0), 0.5, AssertionError),
-    ("x1_zero", f64(1, 0), f64(0, 0), 0.5, AssertionError),
-    ("x1_negative", f64(1, -1), f64(0, 0), 0.5, AssertionError),
-    ("x1_nan", f64(1, NAN), f64(0, 0), 0.5, AssertionError),
-    ("x_zero_y_not", f64(0, 0), f64(1, 1), 0.5, AssertionError),
+    ("x0_minus_one", f64(-1, 1), f64(0, 0), 0.5, INVALID_NODE_POSTERIOR),
+    ("x0_nan", f64(NAN, 1), f64(0, 0), 0.5, INVALID_NODE_POSTERIOR),
+    ("x1_zero", f64(1, 0), f64(0, 0), 0.5, INVALID_NODE_POSTERIOR),
+    ("x1_negative", f64(1, -1), f64(0, 0), 0.5, INVALID_NODE_POSTERIOR),
+    ("x1_nan", f64(1, NAN), f64(0, 0), 0.5, INVALID_NODE_POSTERIOR),
+    ("x_zero_y_not", f64(0, 0), f64(1, 1), 0.5, INVALID_NODE_POSTERIOR),
     # `0 < d` fails when d underflows or y[0] is NaN
-    ("d_underflow", f64(1, 1e-300), f64(0, 1e300), 0.5, AssertionError),
-    ("y0_nan", f64(1, 1), f64(NAN, 0), 0.5, AssertionError),
+    ("d_underflow", f64(1, 1e-300), f64(0, 1e300), 0.5, INVALID_DAMPING),
+    ("y0_nan", f64(1, 1), f64(NAN, 0), 0.5, INVALID_DAMPING),
 ]
 RESCALE_TABLE = [
     # (id, x, s, kind); branches `1 + x0 > s` and `1 + x0 < 1 / s`
@@ -196,16 +212,16 @@ RESCALE_TABLE = [
     ("infinite_rate", f64(99, INF), 10.0, "finite"),
     ("infinite_shape", f64(INF, 1), 10.0, "finite"),
     # NOTE: current behaviour, possibly a bug: with `max_shape = 1`
-    # (allowed by the asserts in `propagate_*`) the factor is 0 and wipes out the
+    # (allowed by the checks in `propagate_*`) the factor is 0 and wipes out the
     # posterior.
     ("s_one_upper", f64(1, 1), 1.0, "finite"),
     ("s_one_lower", f64(-0.5, 1), 1.0, "finite"),
-    # asserts (reachable as for `damp`)
-    ("x0_minus_one", f64(-1, 1), 10.0, AssertionError),
-    ("x0_nan", f64(NAN, 1), 10.0, AssertionError),
-    ("x1_zero", f64(1, 0), 10.0, AssertionError),
-    ("x1_negative", f64(1, -1), 10.0, AssertionError),
-    ("x1_nan", f64(1, NAN), 10.0, AssertionError),
+    # reachable as for `damp`
+    ("x0_minus_one", f64(-1, 1), 10.0, INVALID_NODE_POSTERIOR),
+    ("x0_nan", f64(NAN, 1), 10.0, INVALID_NODE_POSTERIOR),
+    ("x1_zero", f64(1, 0), 10.0, INVALID_NODE_POSTERIOR),
+    ("x1_negative", f64(1, -1), 10.0, INVALID_NODE_POSTERIOR),
+    ("x1_nan", f64(1, NAN), 10.0, INVALID_NODE_POSTERIOR),
 ]
 # fmt: on
 
@@ -234,7 +250,7 @@ class TestDamp:
         # unreachable without a prior failure.
         x = f64(1, 1)
         x[which] = INF
-        with pytest.raises(expected_error(ZeroDivisionError)):
+        with raises_zero_division():
             _tsdate.damp(*x, 0.0, 0.0, 0.5)
 
 
@@ -256,8 +272,8 @@ class TestRescale:
 
     def test_zero_shape_offset_cap_below_one(self):
         # C reports the division by zero; the oracle, on NumPy scalars, returns
-        # -inf. Direct call only: `propagate_*` assert `max_shape >= 1`.
-        with pytest.raises(expected_error(ZeroDivisionError)):
+        # -inf. Direct call only: `propagate_*` check `max_shape >= 1`.
+        with raises_zero_division():
             _tsdate.rescale(0.0, 1.0, 0.5)
 
 
@@ -351,17 +367,17 @@ class TestPropagateLikelihoodBranches:
         if "sideways" in branch and case == "projection_fails":
             # `sideways_moments` divides by zero for an astronomically large mutation
             # target: C reports it where the oracle returns NaN and skips.
-            with pytest.raises(expected_error(ZeroDivisionError)):
+            with raises_zero_division():
                 ep_state.run_likelihood(_tsdate, snap, snap.unphased, **kwargs)
         else:
             compare_runs(ep_state.run_likelihood, snap, snap.unphased, **kwargs)
 
     def test_twin_edge_in_phased_pass(self):
-        # p == c is only valid for blocks; `twin_projection` asserts `unphased`.
+        # p == c is only valid for blocks; `twin_projection` checks `unphased`.
         # Direct call only: edges never have p == c in a tree sequence.
         snap = tiny_snapshot("twin")
         result = compare_runs(ep_state.run_likelihood, snap, False)
-        assert kind(result) is AssertionError
+        assert kind(result) == TWIN_EDGE_IN_PHASED_PASS
 
 
 class TestPropagateLikelihood:
@@ -461,7 +477,7 @@ class TestPropagateLikelihood:
     @pytest.mark.parametrize("multiplier", [1e12, 1e300], ids=lambda v: f"y*{v:g}")
     def test_extreme_counts(self, snaps, multiplier):
         # 1e12: projection failures are skipped (NaN lognorm). 1e300: a posterior
-        # becomes NaN and the next `damp` asserts `0 < x[0] + 1`,
+        # becomes NaN and the next `damp` fails its check `0 < x[0] + 1`,
         # reachable from real data (~1e300 mutations on an edge).
         snap = snaps["small_ts"]
         likelihoods = snap.edge_likelihoods * [multiplier, 1.0]
@@ -475,27 +491,29 @@ class TestPropagateLikelihood:
         )
 
     @pytest.mark.parametrize(
-        "kwargs",
+        ("kwargs", "expected"),
         [
-            pytest.param(dict(max_shape=up(1.0, 0.0)), id="max_shape_below_one"),
-            pytest.param(dict(max_shape=0.0), id="max_shape_zero"),
-            pytest.param(dict(max_shape=NAN), id="max_shape_nan"),
-            pytest.param(dict(min_step=0.0), id="min_step_zero"),
-            pytest.param(dict(min_step=1.0), id="min_step_one"),
-            pytest.param(dict(min_step=-0.1), id="min_step_negative"),
-            pytest.param(dict(min_step=1.5), id="min_step_above_one"),
-            pytest.param(dict(min_step=NAN), id="min_step_nan"),
+            pytest.param(
+                dict(max_shape=up(1.0, 0.0)), INVALID_MAX_SHAPE, id="max_shape_below_one"
+            ),
+            pytest.param(dict(max_shape=0.0), INVALID_MAX_SHAPE, id="max_shape_zero"),
+            pytest.param(dict(max_shape=NAN), INVALID_MAX_SHAPE, id="max_shape_nan"),
+            pytest.param(dict(min_step=0.0), INVALID_MIN_STEP, id="min_step_zero"),
+            pytest.param(dict(min_step=1.0), INVALID_MIN_STEP, id="min_step_one"),
+            pytest.param(dict(min_step=-0.1), INVALID_MIN_STEP, id="min_step_negative"),
+            pytest.param(dict(min_step=1.5), INVALID_MIN_STEP, id="min_step_above_one"),
+            pytest.param(dict(min_step=NAN), INVALID_MIN_STEP, id="min_step_nan"),
         ],
     )
-    def test_invalid_parameters(self, snaps, kwargs):
+    def test_invalid_parameters(self, snaps, kwargs, expected):
         # reachable from user input (`max_shape`, `min_step` of `iterate`/`infer`):
-        # parameter errors in the C library, not internal asserts
+        # parameter errors in the C library, not internal invariants
         snap = snaps["small_ts"]
         order = snap.edge_order[:10]
         assert_run_kind(
             ep_state.run_likelihood,
             snap,
-            AssertionError,
+            expected,
             False,
             order=order,
             **kwargs,
@@ -540,7 +558,7 @@ class TestPropagateLikelihood:
             lambda: call(_tsdate),
             lambda: call(variational),
         )
-        assert kind(result) is AssertionError
+        assert kind(result) is ValueError
 
 
 class TestPropagateLikelihoodTinyScale:
@@ -677,26 +695,25 @@ class TestPropagatePrior:
         snap.fields["node"][free, MIXPRIOR, 1] = snap.node_posterior[free, 1] + 1.0
         return snap
 
-    @pytest.mark.parametrize(
-        "case",
-        [
-            # `assert penalty > 0` fails when the mean of shape / rate is infinite or
-            # negative: free nodes whose cavity has zero rate (fixed leaves, or a root
-            # where every update was skipped) or negative rate
-            "all_nodes",
-            "leaves",
-            "zero_posterior",
-            "negative_cavity_rate",
-            # reachable from user input
-            "max_shape_below_one",
-            "max_shape_zero",
-            "max_shape_nan",
-            # direct calls only
-            "free_too_short",
-            "free_too_long",
-        ],
-    )
-    def test_assertions(self, snaps, case):
+    ERRORS = {
+        # `penalty > 0` fails when the mean of shape / rate is infinite or negative:
+        # free nodes whose cavity has zero rate (fixed leaves, or a root where every
+        # update was skipped) or negative rate
+        "all_nodes": NONPOSITIVE_PENALTY,
+        "leaves": NONPOSITIVE_PENALTY,
+        "zero_posterior": NONPOSITIVE_PENALTY,
+        "negative_cavity_rate": NONPOSITIVE_PENALTY,
+        # reachable from user input
+        "max_shape_below_one": INVALID_MAX_SHAPE,
+        "max_shape_zero": INVALID_MAX_SHAPE,
+        "max_shape_nan": INVALID_MAX_SHAPE,
+        # direct calls only
+        "free_too_short": ValueError,
+        "free_too_long": ValueError,
+    }
+
+    @pytest.mark.parametrize("case", ERRORS)
+    def test_errors(self, snaps, case):
         snap = snaps["small_ts"]
         free = snap.unconstrained_roots
         kwargs = {}
@@ -718,13 +735,13 @@ class TestPropagatePrior:
             free = free[:-1]
         else:
             free = np.append(free, True)
-        assert_run_kind(ep_state.run_prior, snap, AssertionError, free, **kwargs)
+        assert_run_kind(ep_state.run_prior, snap, self.ERRORS[case], free, **kwargs)
 
-    def test_penalty_assert_reachable_from_ep(self, fresh):
+    def test_penalty_error_reachable_from_ep(self, fresh):
         # NOTE: current behaviour, possibly a bug: a likelihood pass in
         # which every update is skipped (a huge mutational target) leaves the roots
         # with a zero posterior, so that `iterate(regularise=True)` fails the
-        # `penalty > 0` assert (an AssertionError, not NaN).
+        # `penalty > 0` check (an error, not NaN).
         base = fresh["small_ts"].copy()
         base.edge_likelihoods = base.edge_likelihoods * [1.0, 1e300]
 
@@ -734,7 +751,7 @@ class TestPropagatePrior:
             return ep_state.run_prior(module, step, step.unconstrained_roots)
 
         result = compare(lambda: run(_tsdate), lambda: run(variational))
-        assert kind(result) is AssertionError
+        assert kind(result) == NONPOSITIVE_PENALTY
 
 
 class TestPropagateMutations:
@@ -798,13 +815,13 @@ class TestPropagateMutations:
         if fails and "sideways" in branch:
             # as in propagate_likelihood: C reports a division by zero in
             # `*_sideways_moments`
-            with pytest.raises(expected_error(ZeroDivisionError)):
+            with raises_zero_division():
                 ep_state.run_mutations(_tsdate, snap, snap.unphased)
         else:
             compare_runs(ep_state.run_mutations, snap, snap.unphased)
 
     def test_twin_in_phased_pass(self):
-        # unlike propagate_likelihood, there is no `unphased` assert for p == c; the
+        # unlike propagate_likelihood, there is no `unphased` check for p == c; the
         # twin projection is used as is (direct call only: edges never have p == c)
         snap = tiny_snapshot("twin")
         snap.mutation_blocks[:] = tskit.NULL
@@ -836,7 +853,7 @@ class TestPropagateMutations:
             kwargs = dict(edges=snap.mutation_edges[:-1])
         else:
             kwargs = dict(posterior=snap.node_posterior[:-1])
-        assert_run_kind(ep_state.run_mutations, snap, AssertionError, False, **kwargs)
+        assert_run_kind(ep_state.run_mutations, snap, ValueError, False, **kwargs)
 
 
 class TestMultiSweep:

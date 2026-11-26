@@ -6,6 +6,8 @@ that passed everything would make every parity test vacuous.
 import _tsdate
 import numpy as np
 import pytest
+from oracle import errors
+from oracle.errors import library_error
 from oracle.helpers import (
     INF,
     NAN,
@@ -14,10 +16,9 @@ from oracle.helpers import (
     assert_same_values,
     compare,
     errors_match,
+    kind,
     outcome,
 )
-
-KLFailed = type("KLMinimizationFailedError", (Exception,), {})
 
 
 def returns(value, modify=None):
@@ -101,21 +102,59 @@ class TestAssertSameOutcome:
             assert_outcome(returns(1.0), returns(1.0), (np.zeros(1),), "nan")
 
 
-class TestLibraryError:
+class TestErrorsMatch:
     """
-    The C library reports the oracle's ZeroDivisionError, AssertionError,
-    KLMinimizationFailedError and ValueError as ``_tsdate.LibraryError``; messages are
-    compared only for the last two.
+    Exceptions match if they have the same type and message; an oracle
+    ``ZeroDivisionError`` matches the library's error for a float division by zero.
     """
 
-    @pytest.mark.parametrize("oracle_type", [ValueError, KLFailed])
-    def test_messages_compared(self, oracle_type):
-        assert errors_match(_tsdate.LibraryError("a"), oracle_type("a"))
-        assert not errors_match(_tsdate.LibraryError("b"), oracle_type("a"))
+    def test_same_library_error(self):
+        error = library_error(errors.INVALID_HYPERGEO)
+        assert errors_match(library_error(errors.INVALID_HYPERGEO), error)
 
-    @pytest.mark.parametrize("oracle_exc", [KeyError("a"), IndexError("a")], ids=type)
-    def test_other_oracle_errors_rejected(self, oracle_exc):
-        assert not errors_match(_tsdate.LibraryError("a"), oracle_exc)
+    def test_library_error_code_differs(self):
+        error = library_error(errors.INVALID_HYPERGEO)
+        assert not errors_match(library_error(errors.ZERO_DIVISION), error)
 
-    def test_value_error_rejected_for_zero_division(self):
-        assert not errors_match(ValueError("a"), ZeroDivisionError("a"))
+    def test_type_differs(self):
+        message = _tsdate.strerror(errors.INVALID_MAX_SHAPE)
+        assert not errors_match(_tsdate.LibraryError(message), ValueError(message))
+        assert not errors_match(ValueError(message), _tsdate.LibraryError(message))
+
+    def test_value_error_message_differs(self):
+        assert not errors_match(ValueError("b"), ValueError("a"))
+
+    def test_zero_division(self):
+        actual = library_error(errors.ZERO_DIVISION)
+        assert errors_match(actual, ZeroDivisionError("division by zero"))
+
+    @pytest.mark.parametrize(
+        "actual",
+        [
+            library_error(errors.INVALID_HYPERGEO),
+            ValueError(_tsdate.strerror(errors.ZERO_DIVISION)),
+            ZeroDivisionError("division by zero"),
+        ],
+        ids=repr,
+    )
+    def test_zero_division_rejects(self, actual):
+        assert not errors_match(actual, ZeroDivisionError("division by zero"))
+
+
+class TestErrors:
+    """
+    The error codes of ``oracle.errors`` are those of the library.
+    """
+
+    def test_every_code_has_a_distinct_message(self):
+        messages = {_tsdate.strerror(code) for code in errors.CODES}
+        assert len(messages) == len(errors.CODES)
+        assert "Unknown error" not in messages
+
+    def test_no_further_codes(self):
+        code = errors.CODES[0] - 1
+        assert _tsdate.strerror(code) == "Unknown error"
+
+    def test_kind_is_the_code(self):
+        result = outcome(raises(library_error(errors.NO_POSTERIORS)), np.zeros(1))
+        assert kind(result) == errors.NO_POSTERIORS

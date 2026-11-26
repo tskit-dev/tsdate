@@ -5,6 +5,9 @@ Oracles for the tree sequence utilities (``lib/util.c``).
 import numpy as np
 import tskit
 
+from . import errors
+from .errors import library_error
+
 
 def split_disjoint_nodes(
     edges_parent, edges_child, edges_left, edges_right, node_excluded
@@ -15,7 +18,8 @@ def split_disjoint_nodes(
     Returns updated edges_parent, edges_child, mutations_node, and indices indicating
     from which original node the new nodes are derived.
     """
-    assert edges_parent.size == edges_child.size == edges_left.size == edges_right.size
+    if not (edges_parent.size == edges_child.size == edges_left.size == edges_right.size):
+        raise ValueError("Array sizes are not equal")
     num_edges = edges_parent.size
     num_nodes = node_excluded.size
 
@@ -79,9 +83,17 @@ def relabel_mutations_node(
     Traverse trees, maintaining a mapping between old and new node IDs in the
     current tree.  Update `mutations_node` to reflect new IDs.
     """
-    assert edges_parent.size == edges_child.size == edges_left.size == edges_right.size
-    assert edges_parent.size == insert_index.size == remove_index.size
-    assert mutations_position.size == mutations_node.size
+    if not (
+        edges_parent.size
+        == edges_child.size
+        == edges_left.size
+        == edges_right.size
+        == insert_index.size
+        == remove_index.size
+    ):
+        raise ValueError("Array sizes are not equal")
+    if mutations_position.size != mutations_node.size:
+        raise ValueError("Array sizes are not equal")
 
     num_nodes = nodes_order.size
     num_edges = edges_parent.size
@@ -114,7 +126,8 @@ def relabel_mutations_node(
         left = right
 
         while m < num_mutations and mutations_position[m] < right:
-            assert nodes_map[mutations_node[m]] != tskit.NULL
+            if nodes_map[mutations_node[m]] == tskit.NULL:
+                raise library_error(errors.MUTATION_NODE_NOT_IN_TREE)
             output[m] = nodes_map[mutations_node[m]]
             m += 1
 
@@ -132,8 +145,10 @@ def constrain_ages(
     Dykstra RL, "An algorithm for restricted least squares regression", JASA
     1983
     """
-    assert nodes_time.size == nodes_fixed.size
-    assert edges_parent.size == edges_child.size
+    if nodes_time.size != nodes_fixed.size:
+        raise ValueError("Array sizes are not equal")
+    if edges_parent.size != edges_child.size:
+        raise ValueError("Array sizes are not equal")
 
     num_edges = edges_parent.size
     nodes_time = nodes_time.copy()
@@ -148,7 +163,8 @@ def constrain_ages(
             adjustment = nodes_time[c] - nodes_time[p]  # + epsilon
             edges_cavity[e, :] = 0.0
             if adjustment > 0:
-                assert not (nodes_fixed[c] and nodes_fixed[p])
+                if nodes_fixed[c] and nodes_fixed[p]:
+                    raise library_error(errors.FIXED_NODES_VIOLATE_CONSTRAINT)
                 if not nodes_fixed[c] and not nodes_fixed[p]:
                     edges_cavity[e, 0] = -adjustment / 2
                     edges_cavity[e, 1] = adjustment / 2
@@ -187,8 +203,14 @@ def contains_unary_nodes(
     """
     Whether a node outside ``nodes_mask`` has exactly one child in some tree.
     """
-    assert edges_parent.size == edges_left.size == edges_right.size
-    assert indexes_insert.size == indexes_remove.size == edges_parent.size
+    if not (
+        edges_parent.size
+        == edges_left.size
+        == edges_right.size
+        == indexes_insert.size
+        == indexes_remove.size
+    ):
+        raise ValueError("Array sizes are not equal")
 
     num_edges = edges_parent.size
     nodes_children = np.zeros(num_nodes, dtype=np.int32)

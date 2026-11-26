@@ -7,6 +7,8 @@ from math import pi
 import _tsdate
 import numpy as np
 
+from . import errors
+
 # Plain `math` raises on log(0), exp overflow etc., where C gives -inf, inf or
 # nan; `_libm` gives the C results.
 # C computes `x ** n` for integer constants `n` by repeated squaring, whereas
@@ -18,6 +20,7 @@ import numpy as np
 # SIMD loops may differ from libm. Logs, tangents, sines and powers are the `_libm`
 # versions (libm functions on Python floats).
 from ._libm import erf, exp, ipow, lgamma, log, pow, sin, sqrt, tan  # noqa: A004
+from .errors import library_error
 
 # gammaincinv is a primitive of the oracles, as the libm functions are: the C library's
 # port of `scipy.special.gammaincinv`, which `TestGammaincInv` compares with SciPy.
@@ -89,8 +92,10 @@ def hyperu_laplace(a, b, x):
     TODO: details
     """
 
-    assert b >= a > 0.0
-    assert x > 0.0
+    if not (b >= a > 0.0):
+        raise library_error(errors.INVALID_HYPERGEO)
+    if not (x > 0.0):
+        raise library_error(errors.INVALID_HYPERGEO)
 
     t = b - x - 1
     u = 2 * a / (sqrt(ipow(t, 2) + 4 * x * a) - t)
@@ -114,7 +119,8 @@ def hyp1f1_laplace(a, b, x):
     TODO: details
     """
 
-    assert b > a > 0.0
+    if not (b > a > 0.0):
+        raise library_error(errors.INVALID_HYPERGEO)
 
     if x == 0.0:
         return 0.0
@@ -153,7 +159,8 @@ def hyp2f1_laplace(a, b, c, x):
         hypergeometric series of unit argument"
         """
         assert np.isclose(x, 1.0)
-        assert x < 1.0
+        if not (x < 1.0):
+            raise library_error(errors.INVALID_HYPERGEO)
 
         g = c - a - b
 
@@ -167,11 +174,8 @@ def hyp2f1_laplace(a, b, c, x):
             return log(-log(1 - x)) + lgamma(a + b) - lgamma(a) - lgamma(b)
 
     # TODO: simplify, we can safely assume a,b > 0?
-    assert c > 0.0
-    assert a >= 0.0
-    assert b >= 0.0
-    assert c >= a
-    assert x < 1.0
+    if not (c > 0.0 and a >= 0.0 and b >= 0.0 and c >= a and x < 1.0):
+        raise library_error(errors.INVALID_HYPERGEO)
 
     if x == 0.0:
         return 0.0
@@ -189,7 +193,8 @@ def hyp2f1_laplace(a, b, c, x):
     u = sqrt(ipow(t, 2) - 4 * a * x * (c - b)) - t
     y = 2 * a / u
 
-    assert 0 < y < 1, "Root on boundary"
+    if not (0 < y < 1):  # root on boundary
+        raise library_error(errors.INVALID_HYPERGEO)
 
     yy = ipow(y, 2) / a
     my = ipow(1 - y, 2) / (c - a)
@@ -220,8 +225,8 @@ def gammainc_der(p, x):
     tol = 1.0e-14
     xbig = 1.0e8
 
-    assert x >= 0.0
-    assert p > 0.0
+    if not (x >= 0.0 and p > 0.0):
+        raise library_error(errors.INVALID_HYPERGEO)
 
     if x == 0:
         value, grad = 0.0, 0.0

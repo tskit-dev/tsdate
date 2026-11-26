@@ -122,27 +122,6 @@ class TestUtil:
                 ts.num_nodes,
             )
 
-    def test_relabel_mutation_node_not_in_tree(self):
-        # node 4 has no edges
-        nodes = THREE_HAPLOTYPES + [(0, 2, -1)]
-        ts = make_ts(nodes, STAR, [(1, 4)], 10.0, 1)
-        with pytest.raises(_tsdate.LibraryError, match="not in any tree"):
-            _tsdate.relabel_mutations_node(
-                ts.mutations_node,
-                f64(1.0),
-                i32(0, 1, 2, 3, 4),
-                ts.edges_parent,
-                ts.edges_child,
-                ts.edges_left,
-                ts.edges_right,
-                ts.indexes_edge_insertion_order,
-                ts.indexes_edge_removal_order,
-            )
-
-    def test_constrain_ages_fixed_nodes(self):
-        with pytest.raises(_tsdate.LibraryError, match="two fixed nodes"):
-            _tsdate.constrain_ages(f64(0, 1), b1(1, 1), i32(0), i32(1), 0.1, 3)
-
 
 class TestPrior:
     def test_marginalize_over_ancestors_one_tip(self):

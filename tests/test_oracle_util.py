@@ -1,6 +1,6 @@
 """
 Parity of the tree sequence utilities of ``_tsdate`` with their oracles: simulated tree
-sequences, degenerate inputs, and every ``assert``.
+sequences, degenerate inputs, and every error.
 """
 
 import _tsdate
@@ -8,6 +8,7 @@ import numpy as np
 import pytest
 import tskit
 from oracle import util
+from oracle.errors import FIXED_NODES_VIOLATE_CONSTRAINT, MUTATION_NODE_NOT_IN_TREE
 from oracle.helpers import NAN, assert_outcome, b1, compare, f64, i32, make_ts, shrink
 
 
@@ -80,7 +81,7 @@ class TestSplitDisjointNodes:
     def test_size_mismatch(self, index, size):
         args = [i32(2, 2), i32(0, 1), f64(0, 0), f64(10, 10), b1(1, 1, 0)]
         result = self.compare(*shrink(args, index, size))
-        assert result.error is AssertionError
+        assert result.error is ValueError
 
     def test_simulated(self, sim_ts):
         ts = sim_ts
@@ -143,7 +144,12 @@ RELABEL_CASES = [
         GAP_NODES, GAP_EDGES, [(1, 2), (10.0, 2)], 20.0, None, id="beyond_last_edge"
     ),
     pytest.param(
-        GAP_NODES, BINARY_EDGES, [(1, 3)], 10.0, AssertionError, id="node_not_in_tree"
+        GAP_NODES,
+        BINARY_EDGES,
+        [(1, 3)],
+        10.0,
+        MUTATION_NODE_NOT_IN_TREE,
+        id="node_not_in_tree",
     ),
 ]
 
@@ -159,7 +165,7 @@ class TestRelabelMutationsNode:
     def test_edge_cases(self, nodes, edges, mutations, length, expected_error):
         ts = make_ts(nodes, edges, mutations, length)
         result = self.compare(relabel_args(ts))
-        assert result.error is expected_error
+        assert result.error == expected_error
 
     def test_mutations_on_split_nodes(self):
         mutations = [(0.5, 0), (1, 2), (2, 3), (5, 0), (7, 2), (8, 3)]
@@ -173,7 +179,7 @@ class TestRelabelMutationsNode:
     def test_size_mismatch(self, index, size):
         ts = make_ts(GAP_NODES, GAP_EDGES, [(1, 2), (7, 2)], 10.0)
         result = self.compare(shrink(relabel_args(ts), index, size))
-        assert result.error is AssertionError
+        assert result.error is ValueError
 
     def test_simulated(self, sim_ts):
         args = relabel_args(sim_ts)
@@ -200,10 +206,19 @@ CONSTRAIN_EDGE_CASES = [
     pytest.param([0.0, 1.0], [1, 0], [0], [1], 0.1, 100, "finite", id="fixed_parent"),
     pytest.param([0.0, 1.0], [0, 1], [0], [1], 0.1, 100, "finite", id="fixed_child"),
     # NOTE: current behaviour, possibly a bug: two fixed nodes on a
-    # violated edge fail an assertion (reachable via `constrain_ages` with
+    # violated edge are an error (reachable via `constrain_ages` with
     # inconsistent ancient sample ages); with no iterations the forcing step
     # silently changes the age of a fixed node
-    pytest.param([0.0, 1.0], [1, 1], [0], [1], 0.1, 100, AssertionError, id="both_fixed"),
+    pytest.param(
+        [0.0, 1.0],
+        [1, 1],
+        [0],
+        [1],
+        0.1,
+        100,
+        FIXED_NODES_VIOLATE_CONSTRAINT,
+        id="both_fixed",
+    ),
     pytest.param([0.0, 1.0], [1, 1], [0], [1], 0.1, 0, "finite", id="both_fixed_forced"),
     pytest.param([0.0, 1.0], [1, 0], [], [], 0.1, 10, "finite", id="no_edges"),
     pytest.param([], [], [], [], 0.1, 10, "finite", id="no_nodes"),
@@ -267,7 +282,7 @@ class TestConstrainAges:
     )
     def test_size_mismatch(self, args):
         result = self.compare(self.args(*args, 0.1, 3))
-        assert result.error is AssertionError
+        assert result.error is ValueError
 
     @pytest.mark.parametrize("mode", ["iterated", "forced"])
     @pytest.mark.parametrize("seed", range(2))
