@@ -6,7 +6,7 @@ import numpy as np
 import tskit
 
 
-def _split_disjoint_nodes(
+def split_disjoint_nodes(
     edges_parent, edges_child, edges_left, edges_right, node_excluded
 ):
     """
@@ -64,7 +64,7 @@ def _split_disjoint_nodes(
     return edges_parent, edges_child, nodes_order, split_nodes
 
 
-def _relabel_mutations_node(
+def relabel_mutations_node(
     mutations_node,
     mutations_position,
     nodes_order,
@@ -121,7 +121,7 @@ def _relabel_mutations_node(
     return output
 
 
-def _constrain_ages(
+def constrain_ages(
     nodes_time, nodes_fixed, edges_parent, edges_child, epsilon, max_iterations
 ):
     """
@@ -174,7 +174,7 @@ def _constrain_ages(
     return nodes_time
 
 
-def _contains_unary_nodes(
+def contains_unary_nodes(
     nodes_mask,
     edges_parent,
     edges_left,

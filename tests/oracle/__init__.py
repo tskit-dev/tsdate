@@ -3,9 +3,9 @@ Plain-Python reference implementations ("oracles") of the functions of the C
 extension ``_tsdate``.
 
 Each function has an oracle in the module of the same name here, e.g.
-``oracle.approx.moments``. Equivalence tests (``tests/test_oracle_*.py``) call the
-``_tsdate`` functions, through small adapters where the C signature differs, and
-compare them against the oracles.
+``oracle.approx.moments`` for ``_tsdate.moments``. Equivalence tests
+(``tests/test_oracle_*.py``) call the ``_tsdate`` functions and the oracles with the
+same arguments and compare the outcomes.
 
 Rules:
 
@@ -14,8 +14,10 @@ Rules:
   raising instead of giving inf/nan, numpy scalar semantics), a comment explains the
   compensation, once in the module header where it applies throughout.
 * Oracles call other oracles, never ``_tsdate``, except for ``gammaincinv``
-  (``hypergeo._gammainc_inv``), which they take from the C library as they take libm,
+  (``hypergeo.gammainc_inv``), which they take from the C library as they take libm,
   and which is compared with SciPy instead.
-* Names and signatures are those of ``tsdate``'s functions of the same names, where
-  they exist.
+* Names, arguments and results are those of ``_tsdate``'s functions: the same
+  argument lists, and results of the same types and layout (floats where ``_tsdate``
+  returns floats, the same tuples). The EP state is the tuple of factor arrays that
+  ``_tsdate`` takes.
 """

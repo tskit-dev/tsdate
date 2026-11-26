@@ -1,11 +1,9 @@
 """
 Equivalence of the expectation propagation functions of ``_tsdate`` with the oracle of
-``tsdate.variational``: the EP helpers (``_damp``, ``_rescale``,
-``_rescale_factors``, ``_constraints_are_consistent``) and the passes
+``tsdate.variational``: the EP helpers (``damp``, ``rescale``,
+``rescale_factors``, ``constraints_are_consistent``) and the passes
 ``propagate_likelihood``, ``propagate_prior`` and ``propagate_mutations``, plus whole
-sweeps. The ``c_*`` adapters give the C functions the signatures of the oracles: the
-EP state stays in the numpy arrays of an oracle ``EPFactors``, which the C functions
-take as a tuple and update in place.
+sweeps. The EP state is a tuple of factor arrays, which the passes update in place.
 
 Inputs are snapshots of real EP state (``oracle.ep_state``) on the session fixtures,
 with constraints edited to force branches, one-edge snapshots for each branch, and
@@ -52,108 +50,6 @@ INCONSISTENT_MESSAGE = (
 )
 
 
-def factor_arrays(factors):
-    """
-    The arrays of an ``EPFactors`` that the C functions take, as a tuple
-    """
-    return (
-        factors.node,
-        factors.edge,
-        factors.block,
-        factors.scale,
-        factors._p,
-        factors._c,
-        factors._j,
-        factors._k,
-    )
-
-
-def c_damp(x, y, s):
-    return _tsdate.damp(x[0], x[1], y[0], y[1], s)
-
-
-def c_rescale(x, s):
-    return _tsdate.rescale(x[0], x[1], s)
-
-
-def c_rescale_factors(factors):
-    _tsdate.rescale_factors(factor_arrays(factors))
-
-
-def c_assemble_factors(factors):
-    return _tsdate.assemble_factors(factor_arrays(factors))
-
-
-def c_propagate_likelihood(
-    edge_order,
-    edges_parent,
-    edges_child,
-    likelihoods,
-    constraints,
-    posterior,
-    factors,
-    lognorm,
-    max_shape,
-    min_step,
-    unphased,
-):
-    _tsdate.propagate_likelihood(
-        edge_order,
-        edges_parent,
-        edges_child,
-        likelihoods,
-        constraints,
-        posterior,
-        factor_arrays(factors),
-        lognorm,
-        max_shape,
-        min_step,
-        unphased,
-    )
-
-
-def c_propagate_prior(free, posterior, factors, max_shape, em_maxitt, em_reltol):
-    _tsdate.propagate_prior(
-        free, posterior, factor_arrays(factors), max_shape, em_maxitt, em_reltol
-    )
-
-
-def c_propagate_mutations(
-    mutations_order,
-    mutations_posterior,
-    mutations_phase,
-    mutations_edge,
-    edges_parent,
-    edges_child,
-    likelihoods,
-    constraints,
-    posterior,
-    factors,
-    unphased,
-):
-    _tsdate.propagate_mutations(
-        mutations_order,
-        mutations_posterior,
-        mutations_phase,
-        mutations_edge,
-        edges_parent,
-        edges_child,
-        likelihoods,
-        constraints,
-        posterior,
-        factor_arrays(factors),
-        unphased,
-    )
-
-
-# the C function and the oracle of the pass that each runner of ``ep_state`` calls
-PASSES = {
-    ep_state.run_likelihood: (c_propagate_likelihood, variational.propagate_likelihood),
-    ep_state.run_prior: (c_propagate_prior, variational.propagate_prior),
-    ep_state.run_mutations: (c_propagate_mutations, variational.propagate_mutations),
-}
-
-
 @pytest.fixture(scope="module")
 def snaps(small_ts, small_ts_unphased, small_ts_historical):
     """
@@ -181,18 +77,16 @@ def scaled_snap(snaps):
     ``small_ts`` after a likelihood pass with a small cap, so that scales are not 1
     """
     snap = snaps["small_ts"]
-    propagate = variational.propagate_likelihood
-    state = ep_state.run_likelihood(propagate, snap, False, max_shape=3.0)
+    state = ep_state.run_likelihood(variational, snap, False, max_shape=3.0)
     return snap.after_pass(state)
 
 
 def compare_runs(runner, snap, *args, **kwargs):
     """
-    Run ``runner`` (an ``ep_state.run_*``) with the C function and with the oracle
+    Run ``runner`` (an ``ep_state.run_*``) with ``_tsdate`` and with the oracle
     """
-    c_pass, oracle_pass = PASSES[runner]
-    actual = partial(runner, c_pass)
-    expected = partial(runner, oracle_pass)
+    actual = partial(runner, _tsdate)
+    expected = partial(runner, variational)
     return compare(actual, expected, snap, *args, **kwargs)
 
 
@@ -217,28 +111,25 @@ class TestRescaleFactors:
         snap.fields["scale"][:] = scale
         actual = snap.factors()
         expected = snap.factors()
-        c_rescale_factors(actual)
-        variational._rescale_factors(expected)
-        fields = ("node", "edge", "block", "scale")
-        assert_same_values(
-            [getattr(actual, f) for f in fields], [getattr(expected, f) for f in fields]
-        )
+        _tsdate.rescale_factors(actual)
+        variational.rescale_factors(expected)
+        assert_same_values(actual[:4], expected[:4])
 
     def test_rescale_factors_twice(self, snaps):
         # the scale is reset to 1, so a second call changes nothing
         snap = snaps["small_ts"]
         factors = snap.factors()
-        c_rescale_factors(factors)
-        once = [factors.node.copy(), factors.edge.copy(), factors.block.copy()]
-        c_rescale_factors(factors)
-        for before, after in zip(once, (factors.node, factors.edge, factors.block)):
+        _tsdate.rescale_factors(factors)
+        once = [f.copy() for f in factors[:3]]
+        _tsdate.rescale_factors(factors)
+        for before, after in zip(once, factors[:3]):
             assert np.array_equal(before, after)
 
     @pytest.mark.parametrize("ts_name", TS_NAMES)
     def test_assemble_factors(self, snaps, scaled_snap, ts_name):
         snap = scaled_snap if ts_name == "small_ts" else snaps[ts_name]
-        actual = c_assemble_factors(snap.factors())
-        expected = variational._assemble_factors(snap.factors())
+        actual = _tsdate.assemble_factors(snap.factors())
+        expected = variational.assemble_factors(snap.factors())
         assert_same_outcome(outcome(lambda: actual), outcome(lambda: expected))
 
 
@@ -309,7 +200,7 @@ RESCALE_TABLE = [
     # posterior.
     ("s_one_upper", f64(1, 1), 1.0, "finite"),
     ("s_one_lower", f64(-0.5, 1), 1.0, "finite"),
-    # asserts (reachable as for `_damp`)
+    # asserts (reachable as for `damp`)
     ("x0_minus_one", f64(-1, 1), 10.0, AssertionError),
     ("x0_nan", f64(NAN, 1), 10.0, AssertionError),
     ("x1_zero", f64(1, 0), 10.0, AssertionError),
@@ -325,7 +216,7 @@ class TestDamp:
         [pytest.param(*row[1:], id=row[0]) for row in DAMP_TABLE],
     )
     def test_table(self, x, y, s, expected_kind):
-        result = compare(c_damp, variational._damp, x, y, s)
+        result = compare(_tsdate.damp, variational.damp, *x, *y, s)
         assert kind(result) == expected_kind
 
     @pytest.mark.parametrize("seed", range(8))
@@ -334,16 +225,17 @@ class TestDamp:
         x = f64(rng.uniform(-0.9, 30), log_uniform(rng, -4, -1))
         y = f64(rng.uniform(-5, 30), log_uniform(rng, -4, -1))
         s = float(rng.uniform(0.05, 0.95))
-        compare(c_damp, variational._damp, x, y, s)
+        compare(_tsdate.damp, variational.damp, *x, *y, s)
 
     @pytest.mark.parametrize("which", [0, 1])
     def test_infinite_posterior_zero_message(self, which):
-        # C reports the division of inf by 0.0; the oracle returns d = 1. Needs
-        # an infinite posterior, which is unreachable without a prior failure.
+        # C reports the division of inf by 0.0; the oracle, on the NumPy scalars of
+        # the passes, returns d = 1. Needs an infinite posterior, which is
+        # unreachable without a prior failure.
         x = f64(1, 1)
         x[which] = INF
         with pytest.raises(expected_error(ZeroDivisionError)):
-            c_damp(x, f64(0, 0), 0.5)
+            _tsdate.damp(*x, 0.0, 0.0, 0.5)
 
 
 class TestRescale:
@@ -352,7 +244,7 @@ class TestRescale:
         [pytest.param(*row[1:], id=row[0]) for row in RESCALE_TABLE],
     )
     def test_table(self, x, s, expected_kind):
-        result = compare(c_rescale, variational._rescale, x, s)
+        result = compare(_tsdate.rescale, variational.rescale, *x, s)
         assert kind(result) == expected_kind
 
     @pytest.mark.parametrize("seed", range(8))
@@ -360,13 +252,13 @@ class TestRescale:
         rng = np.random.default_rng(seed)
         x = f64(rng.uniform(-0.9, 3000), log_uniform(rng, -4, -1))
         s = float(rng.choice([10.0, 100.0, 1000.0]))
-        compare(c_rescale, variational._rescale, x, s)
+        compare(_tsdate.rescale, variational.rescale, *x, s)
 
     def test_zero_shape_offset_cap_below_one(self):
-        # C reports the division by zero; the oracle returns -inf. Direct
-        # call only: `propagate_*` assert `max_shape >= 1`.
+        # C reports the division by zero; the oracle, on NumPy scalars, returns
+        # -inf. Direct call only: `propagate_*` assert `max_shape >= 1`.
         with pytest.raises(expected_error(ZeroDivisionError)):
-            c_rescale(f64(0, 1), 0.5)
+            _tsdate.rescale(0.0, 1.0, 0.5)
 
 
 class TestConstraintsAreConsistent:
@@ -378,7 +270,7 @@ class TestConstraintsAreConsistent:
             np.array(children, dtype=np.int32),
         )
         func = _tsdate.constraints_are_consistent
-        result = compare(func, variational._constraints_are_consistent, *args)
+        result = compare(func, variational.constraints_are_consistent, *args)
         assert result.value is valid
 
     @pytest.mark.parametrize(
@@ -460,9 +352,7 @@ class TestPropagateLikelihoodBranches:
             # `sideways_moments` divides by zero for an astronomically large mutation
             # target: C reports it where the oracle returns NaN and skips.
             with pytest.raises(expected_error(ZeroDivisionError)):
-                ep_state.run_likelihood(
-                    c_propagate_likelihood, snap, snap.unphased, **kwargs
-                )
+                ep_state.run_likelihood(_tsdate, snap, snap.unphased, **kwargs)
         else:
             compare_runs(ep_state.run_likelihood, snap, snap.unphased, **kwargs)
 
@@ -572,7 +462,7 @@ class TestPropagateLikelihood:
     @pytest.mark.parametrize("multiplier", [1e12, 1e300], ids=lambda v: f"y*{v:g}")
     def test_extreme_counts(self, snaps, multiplier):
         # 1e12: projection failures are skipped (NaN lognorm). 1e300: a posterior
-        # becomes NaN and the next `_damp` asserts `0 < x[0] + 1`,
+        # becomes NaN and the next `damp` asserts `0 < x[0] + 1`,
         # reachable from real data (~1e300 mutations on an edge).
         snap = snaps["small_ts"]
         likelihoods = snap.edge_likelihoods * [multiplier, 1.0]
@@ -632,8 +522,8 @@ class TestPropagateLikelihood:
             parents, children = parents[:-1], children[:-1]
             likelihoods = likelihoods[:-1]
 
-        def call(propagate_likelihood):
-            propagate_likelihood(
+        def call(module):
+            module.propagate_likelihood(
                 order,
                 parents,
                 children,
@@ -648,15 +538,15 @@ class TestPropagateLikelihood:
             )
 
         result = compare(
-            lambda: call(c_propagate_likelihood),
-            lambda: call(variational.propagate_likelihood),
+            lambda: call(_tsdate),
+            lambda: call(variational),
         )
         assert kind(result) is AssertionError
 
 
 class TestPropagateLikelihoodTinyScale:
     """
-    `propagate_likelihood` calls `_rescale_factors` (mid-pass) whenever the scale of
+    `propagate_likelihood` calls `rescale_factors` (mid-pass) whenever the scale of
     either node of the next edge is below `TINY` (strict), even if the edge is skipped
     because both nodes are fixed.
     """
@@ -839,15 +729,12 @@ class TestPropagatePrior:
         base = fresh["small_ts"].copy()
         base.edge_likelihoods = base.edge_likelihoods * [1.0, 1e300]
 
-        def run(propagate_likelihood, propagate_prior):
-            state = ep_state.run_likelihood(propagate_likelihood, base, False)
+        def run(module):
+            state = ep_state.run_likelihood(module, base, False)
             step = base.after_pass(state)
-            return ep_state.run_prior(propagate_prior, step, step.unconstrained_roots)
+            return ep_state.run_prior(module, step, step.unconstrained_roots)
 
-        result = compare(
-            lambda: run(c_propagate_likelihood, c_propagate_prior),
-            lambda: run(variational.propagate_likelihood, variational.propagate_prior),
-        )
+        result = compare(lambda: run(_tsdate), lambda: run(variational))
         assert kind(result) is AssertionError
 
 
@@ -913,7 +800,7 @@ class TestPropagateMutations:
             # as in propagate_likelihood: C reports a division by zero in
             # `*_sideways_moments`
             with pytest.raises(expected_error(ZeroDivisionError)):
-                ep_state.run_mutations(c_propagate_mutations, snap, snap.unphased)
+                ep_state.run_mutations(_tsdate, snap, snap.unphased)
         else:
             compare_runs(ep_state.run_mutations, snap, snap.unphased)
 
@@ -973,24 +860,8 @@ class TestMultiSweep:
         name, kwargs = self.CASES[case]
         snap = fresh[name]
         sweeps = 4
-        actual = ep_state.run_sweeps(
-            c_propagate_likelihood,
-            c_propagate_prior,
-            c_propagate_mutations,
-            c_rescale_factors,
-            snap,
-            sweeps,
-            **kwargs,
-        )
-        expected = ep_state.run_sweeps(
-            variational.propagate_likelihood,
-            variational.propagate_prior,
-            variational.propagate_mutations,
-            variational._rescale_factors,
-            snap,
-            sweeps,
-            **kwargs,
-        )
+        actual = ep_state.run_sweeps(_tsdate, snap, sweeps, **kwargs)
+        expected = ep_state.run_sweeps(variational, snap, sweeps, **kwargs)
         for a, e in zip(actual[0], expected[0]):
             for x, y in zip(a, e):  # node posterior, edge and block lognorm
                 np.testing.assert_array_equal(x, y)

@@ -66,7 +66,7 @@ SPLIT_CASES = [
 class TestSplitDisjointNodes:
     @staticmethod
     def compare(*args):
-        return compare(_tsdate.split_disjoint_nodes, util._split_disjoint_nodes, *args)
+        return compare(_tsdate.split_disjoint_nodes, util.split_disjoint_nodes, *args)
 
     @pytest.mark.parametrize(
         ("parent", "child", "left", "right", "excluded", "expected"), SPLIT_CASES
@@ -99,9 +99,9 @@ class TestSplitDisjointNodes:
 
 def relabel_args(ts):
     """
-    Arguments of `_relabel_mutations_node`, with the nodes split as by `util`
+    Arguments of `relabel_mutations_node`, with the nodes split as by `util`
     """
-    parent, child, order, _ = util._split_disjoint_nodes(
+    parent, child, order, _ = util.split_disjoint_nodes(
         ts.edges_parent,
         ts.edges_child,
         ts.edges_left,
@@ -151,9 +151,7 @@ RELABEL_CASES = [
 class TestRelabelMutationsNode:
     @staticmethod
     def compare(args):
-        return compare(
-            _tsdate.relabel_mutations_node, util._relabel_mutations_node, *args
-        )
+        return compare(_tsdate.relabel_mutations_node, util.relabel_mutations_node, *args)
 
     @pytest.mark.parametrize(
         ("nodes", "edges", "mutations", "length", "expected_error"), RELABEL_CASES
@@ -243,7 +241,7 @@ class TestConstrainAges:
 
     @staticmethod
     def compare(args):
-        return compare(_tsdate.constrain_ages, util._constrain_ages, *args)
+        return compare(_tsdate.constrain_ages, util.constrain_ages, *args)
 
     @pytest.mark.parametrize("max_iterations", [0, 1, 1000])
     @pytest.mark.parametrize("epsilon", [0.0, 1e-6, 0.5])
@@ -258,7 +256,7 @@ class TestConstrainAges:
         self, times, fixed, parents, children, epsilon, max_iterations, kind
     ):
         args = self.args(times, fixed, parents, children, epsilon, max_iterations)
-        assert_outcome(_tsdate.constrain_ages, util._constrain_ages, args, kind)
+        assert_outcome(_tsdate.constrain_ages, util.constrain_ages, args, kind)
 
     @pytest.mark.parametrize(
         "args",
@@ -362,7 +360,7 @@ class TestContainsUnaryNodes:
     def compare(ts, mask):
         return compare(
             _tsdate.contains_unary_nodes,
-            util._contains_unary_nodes,
+            util.contains_unary_nodes,
             mask,
             ts.edges_parent,
             ts.edges_left,

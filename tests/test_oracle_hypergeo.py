@@ -27,24 +27,13 @@ from oracle.helpers import (
 
 nextafter = np.nextafter
 
-# The C function for each oracle in ``hypergeo``
-C_FUNCTIONS = {
-    "_digamma": _tsdate.digamma,
-    "_trigamma": _tsdate.trigamma,
-    "_betaln": _tsdate.betaln,
-    "_gammainc_der": _tsdate.gammainc_der,
-    "_hyperu_laplace": _tsdate.hyperu_laplace,
-    "_hyp1f1_laplace": _tsdate.hyp1f1_laplace,
-    "_hyp2f1_laplace": _tsdate.hyp2f1_laplace,
-}
-
 
 def parity(name, args, expected_kind=None):
     """
-    Compare the C function for the oracle ``hypergeo.<name>`` with the oracle on
-    ``args``; optionally check the kind.
+    Compare ``_tsdate.<name>`` with the oracle ``hypergeo.<name>`` on ``args``;
+    optionally check the kind.
     """
-    func = C_FUNCTIONS[name]
+    func = getattr(_tsdate, name)
     oracle = getattr(hypergeo, name)
     if expected_kind is None:
         return compare(func, oracle, *args)
@@ -133,14 +122,14 @@ TRIGAMMA_KINDS = [
 
 
 class TestPolygamma:
-    @pytest.mark.parametrize("name", ["_digamma", "_trigamma"])
+    @pytest.mark.parametrize("name", ["digamma", "trigamma"])
     @pytest.mark.parametrize("x", DIGAMMA_POINTS, ids=repr)
     def test_matches_oracle(self, name, x):
         parity(name, (x,))
 
     @pytest.mark.parametrize(
         ("name", "args", "expected"),
-        table("_digamma", POLYGAMMA_KINDS) + table("_trigamma", TRIGAMMA_KINDS),
+        table("digamma", POLYGAMMA_KINDS) + table("trigamma", TRIGAMMA_KINDS),
     )
     def test_poles_and_nonfinite(self, name, args, expected):
         parity(name, args, expected)
@@ -177,10 +166,10 @@ BETALN_POINTS = [
 class TestBetaln:
     @pytest.mark.parametrize(("p", "q"), BETALN_POINTS, ids=repr)
     def test_matches_oracle(self, p, q):
-        parity("_betaln", (p, q))
+        parity("betaln", (p, q))
 
 
-# `_gammainc_der(p, x)`: regimes are x == 0, x > 1e8, p > 1e3 (gaussian),
+# `gammainc_der(p, x)`: regimes are x == 0, x > 1e8, p > 1e3 (gaussian),
 # x <= 1 or x < p (series) and otherwise a continued fraction.
 GAMMAINC_DER_POINTS = [
     (1.0, 0.0),
@@ -247,10 +236,10 @@ GAMMAINC_DER_DOMAIN = [
 class TestGammaincDer:
     @pytest.mark.parametrize(("p", "x"), GAMMAINC_DER_POINTS, ids=repr)
     def test_matches_oracle(self, p, x):
-        parity("_gammainc_der", (p, x))
+        parity("gammainc_der", (p, x))
 
     @pytest.mark.parametrize(
-        ("name", "args", "expected"), table("_gammainc_der", GAMMAINC_DER_DOMAIN)
+        ("name", "args", "expected"), table("gammainc_der", GAMMAINC_DER_DOMAIN)
     )
     def test_domain(self, name, args, expected):
         parity(name, args, expected)
@@ -386,7 +375,7 @@ HYPERU_DOMAIN = [
 HYP1F1_DOMAIN = [
     ((1.0, 2.0, 0.0), "finite"),
     ((1.0, 2.0, -0.0), "finite"),
-    # NOTE: current behaviour, possibly a bug: b == a is allowed by `_valid_hyp1f1`
+    # NOTE: current behaviour, possibly a bug: b == a is allowed by `valid_hyp1f1`
     # (in approx) but asserted against here
     ((1.0, 1.0, 1.0), AssertionError),
     ((1.0, 0.5, 1.0), AssertionError),
@@ -451,14 +440,14 @@ HYP2F1_DOMAIN = [
 
 
 def laplace_grid(name):
-    if name == "_hyperu_laplace":
+    if name == "hyperu_laplace":
         return [
             (a, a + db, x)
             for a in [1e-10, 1e-3, 1.0, 50.0, 1e5]
             for db in [0.0, 1e-10, 1.0, 1e3, 1e10]
             for x in [1e-12, 1e-3, 1.0, 1e3, 1e8, 1e15]
         ]
-    if name == "_hyp1f1_laplace":
+    if name == "hyp1f1_laplace":
         return [
             (a, a + db, x)
             for a in [1e-10, 1e-3, 1.0, 50.0, 1e5]
@@ -472,15 +461,15 @@ def laplace_grid(name):
 
 
 LAPLACE = {
-    "_hyperu_laplace": HYPERU_DOMAIN,
-    "_hyp1f1_laplace": HYP1F1_DOMAIN,
-    "_hyp2f1_laplace": HYP2F1_DOMAIN,
+    "hyperu_laplace": HYPERU_DOMAIN,
+    "hyp1f1_laplace": HYP1F1_DOMAIN,
+    "hyp2f1_laplace": HYP2F1_DOMAIN,
 }
 
 
 def unity_formula(a, b, c, z):
     """
-    The result of `_hyp2f1_laplace` in the unity limit, written out. See DLMF 15.4:
+    The result of `hyp2f1_laplace` in the unity limit, written out. See DLMF 15.4:
     the sign of ``g = c - a - b`` selects the limit, and negative ``z`` is mapped to
     ``z / (z - 1)`` close to one by Pfaff's transformation.
     """
@@ -529,7 +518,7 @@ def negative_unity_threshold():
 
 def unity_args_from_ep(a_i, b_i, a_j, b_j, y, mu):
     """
-    Arguments of `_hyp2f1_laplace` in the edge update of EP, for hugely negative z
+    Arguments of `hyp2f1_laplace` in the edge update of EP, for hugely negative z
     """
     return a_j, a_i + a_j + y, a_j + y + 1, (mu - b_j) / (mu + b_i)
 
@@ -560,7 +549,7 @@ UNITY_CASES = [
 
 class TestLaplaceDomain:
     """
-    Edge cases of `_hyperu_laplace`, `_hyp1f1_laplace` and `_hyp2f1_laplace`: the
+    Edge cases of `hyperu_laplace`, `hyp1f1_laplace` and `hyp2f1_laplace`: the
     domain assertions, the zero shortcuts (``x == 0`` returns 0 after the checks), the
     division by zero when a Laplace root cancels, and overflow.
     """
@@ -594,7 +583,7 @@ class TestHyp2f1Unity:
         a, b, c, z = args
         mapped = z / (z - 1) if z < 0 else z
         assert np.isclose(mapped, 1.0), "case must take the unity branch"
-        result = parity("_hyp2f1_laplace", args)
+        result = parity("hyp2f1_laplace", args)
         assert_same_values(result.value, unity_formula(a, b, c, z))
 
     @pytest.mark.parametrize("sign", ["positive", "negative"])
@@ -606,7 +595,7 @@ class TestHyp2f1Unity:
         else:
             not_close, close = negative_unity_threshold()
         z = close if side == "close" else not_close
-        parity("_hyp2f1_laplace", (5.0, 7.0, 9.0, z), "finite")
+        parity("hyp2f1_laplace", (5.0, 7.0, 9.0, z), "finite")
 
 
 def draw_polygamma(rng, extreme):
@@ -672,13 +661,13 @@ def draw_hyp2f1(rng, extreme):
 
 
 DRAWS = {
-    "_digamma": draw_polygamma,
-    "_trigamma": draw_polygamma,
-    "_betaln": draw_betaln,
-    "_gammainc_der": draw_gammainc_der,
-    "_hyperu_laplace": draw_hyperu,
-    "_hyp1f1_laplace": draw_hyp1f1,
-    "_hyp2f1_laplace": draw_hyp2f1,
+    "digamma": draw_polygamma,
+    "trigamma": draw_polygamma,
+    "betaln": draw_betaln,
+    "gammainc_der": draw_gammainc_der,
+    "hyperu_laplace": draw_hyperu,
+    "hyp1f1_laplace": draw_hyp1f1,
+    "hyp2f1_laplace": draw_hyp2f1,
 }
 
 

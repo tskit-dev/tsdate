@@ -124,7 +124,7 @@ class TestFixedChangepoints:
     def compare(counts, epochs):
         return compare(
             _tsdate.fixed_changepoints,
-            rescaling._fixed_changepoints,
+            rescaling.fixed_changepoints,
             np.asarray(counts, dtype=float),
             epochs,
         )
@@ -135,7 +135,7 @@ class TestFixedChangepoints:
     def test_edge_cases(self, counts, epochs, expected_kind):
         assert_outcome(
             _tsdate.fixed_changepoints,
-            rescaling._fixed_changepoints,
+            rescaling.fixed_changepoints,
             (np.asarray(counts, dtype=float), epochs),
             expected_kind,
         )
@@ -209,7 +209,7 @@ class TestPoissonChangepoints:
         args = (f64(*counts), f64(*offset), penalty, min_counts, min_offset)
         assert_outcome(
             _tsdate.poisson_changepoints,
-            rescaling._poisson_changepoints,
+            rescaling.poisson_changepoints,
             args,
             expected_kind,
         )
@@ -227,7 +227,7 @@ class TestPoissonChangepoints:
             args = (counts, offset, float(rng.choice([1.0, 50.0])), 10.0, 0.5)
         result = compare(
             _tsdate.poisson_changepoints,
-            rescaling._poisson_changepoints,
+            rescaling.poisson_changepoints,
             *args,
         )
         # also the dtype, which `compare` ignores
@@ -273,7 +273,7 @@ COUNT_CASES = [
 class TestCountMutations:
     @staticmethod
     def compare(args):
-        return compare(_tsdate.count_mutations, rescaling._count_mutations, *args)
+        return compare(_tsdate.count_mutations, rescaling.count_mutations, *args)
 
     @pytest.mark.parametrize("size_biased", [False, True])
     @pytest.mark.parametrize(("nodes", "edges", "mutations", "length"), COUNT_CASES)

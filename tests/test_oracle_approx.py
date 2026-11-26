@@ -2,7 +2,7 @@
 Parity of the gamma approximations of ``_tsdate`` with their oracles in
 ``oracle/approx.py``: exact values (including NaNs and infinities), and which
 exception is raised. Expected values always come from the oracle. Tables hold
-deliberate edge cases (boundaries of the ``_valid_*`` checks, degenerate gamma fits,
+deliberate edge cases (boundaries of the ``valid_*`` checks, degenerate gamma fits,
 regimes of the moment and projection functions); seeded random draws cover ranges
 typical of expectation propagation (EP) and extreme ones.
 
@@ -39,83 +39,12 @@ MAX = np.finfo(np.float64).max
 TINY = 5e-324
 
 
-def valid_check(func):
-    """
-    A ``_valid_*`` C function returning a bool, as its oracle does, instead of a float
-    """
-
-    def valid(*args):
-        return bool(func(*args))
-
-    return valid
-
-
-def projection(func):
-    """
-    A projection C function with the signature of its oracle. The C function takes
-    flat arguments (the ages, and the entries of the parameter arrays) and returns a
-    flat tuple: the first result, then the pairs of natural parameters; the oracle
-    takes arrays and returns the first result and one array per pair.
-    """
-
-    def project(*args):
-        flat = [float(x) for arg in args for x in np.atleast_1d(arg)]
-        first, *rest = func(*flat)
-        pairs = [np.array(rest[i : i + 2]) for i in range(0, len(rest), 2)]
-        return (first, *pairs)
-
-    return project
-
-
-# The C function for each oracle in ``approx``, with the oracle's signature
-C_FUNCTIONS = {
-    "approximate_log_moments": _tsdate.approximate_log_moments,
-    "approximate_gamma_kl": _tsdate.approximate_gamma_kl,
-    "approximate_gamma_mom": _tsdate.approximate_gamma_mom,
-    "approximate_gamma_iqr": _tsdate.approximate_gamma_iqr,
-    "average_gammas": _tsdate.average_gammas,
-    "moments": _tsdate.moments,
-    "rootward_moments": _tsdate.rootward_moments,
-    "leafward_moments": _tsdate.leafward_moments,
-    "unphased_moments": _tsdate.unphased_moments,
-    "twin_moments": _tsdate.twin_moments,
-    "sideways_moments": _tsdate.sideways_moments,
-    "mutation_moments": _tsdate.mutation_moments,
-    "mutation_rootward_moments": _tsdate.mutation_rootward_moments,
-    "mutation_leafward_moments": _tsdate.mutation_leafward_moments,
-    "mutation_unphased_moments": _tsdate.mutation_unphased_moments,
-    "mutation_twin_moments": _tsdate.mutation_twin_moments,
-    "mutation_sideways_moments": _tsdate.mutation_sideways_moments,
-    "mutation_edge_moments": _tsdate.mutation_edge_moments,
-    "mutation_block_moments": _tsdate.mutation_block_moments,
-    "_valid_moments": valid_check(_tsdate.valid_moments),
-    "_valid_gamma": valid_check(_tsdate.valid_gamma),
-    "_valid_hyp1f1": valid_check(_tsdate.valid_hyp1f1),
-    "_valid_hyperu": valid_check(_tsdate.valid_hyperu),
-    "_valid_hyp2f1": valid_check(_tsdate.valid_hyp2f1),
-    "gamma_projection": projection(_tsdate.gamma_projection),
-    "leafward_projection": projection(_tsdate.leafward_projection),
-    "rootward_projection": projection(_tsdate.rootward_projection),
-    "unphased_projection": projection(_tsdate.unphased_projection),
-    "twin_projection": projection(_tsdate.twin_projection),
-    "sideways_projection": projection(_tsdate.sideways_projection),
-    "mutation_gamma_projection": projection(_tsdate.mutation_gamma_projection),
-    "mutation_leafward_projection": projection(_tsdate.mutation_leafward_projection),
-    "mutation_rootward_projection": projection(_tsdate.mutation_rootward_projection),
-    "mutation_edge_projection": projection(_tsdate.mutation_edge_projection),
-    "mutation_unphased_projection": projection(_tsdate.mutation_unphased_projection),
-    "mutation_twin_projection": projection(_tsdate.mutation_twin_projection),
-    "mutation_sideways_projection": projection(_tsdate.mutation_sideways_projection),
-    "mutation_block_projection": projection(_tsdate.mutation_block_projection),
-}
-
-
 def parity(name, args, expected_kind=None):
     """
-    Compare the C function for the oracle ``approx.<name>`` with the oracle on
-    ``args`` (returning the oracle's outcome); optionally check its kind.
+    Compare ``_tsdate.<name>`` with the oracle ``approx.<name>`` on ``args``
+    (returning the oracle's outcome); optionally check its kind.
     """
-    func = C_FUNCTIONS[name]
+    func = getattr(_tsdate, name)
     oracle = getattr(approx, name)
     if expected_kind is None:
         return compare(func, oracle, *args)
@@ -137,7 +66,7 @@ def natural(shape, rate):
     """
     Natural parameters of a gamma
     """
-    return np.array([shape - 1.0, rate])
+    return shape - 1.0, rate
 
 
 def gamma_quantiles(shape, rate, q1=0.25, q2=0.75):
@@ -219,7 +148,7 @@ def z_below_one(z):
 
 def hyp2f1_rows():
     """
-    ``(args, expected)`` for ``_valid_hyp2f1``: a, b, c positive and finite, z < 1
+    ``(args, expected)`` for ``valid_hyp2f1``: a, b, c positive and finite, z < 1
     """
     rows = [((1.0, 1.0, 1.0, 0.0), True), ((10.0, 1.0, 1.0, 0.5), True)]  # a > c is ok
     for i in range(3):
@@ -245,20 +174,16 @@ def hyp2f1_rows():
 
 
 VALID = (
-    [
-        (n, args, v)
-        for n in ["_valid_moments", "_valid_gamma"]
-        for args, v in MOMENTS_VALID
-    ]
-    + [("_valid_hyp1f1", args, v) for args, v in HYP1F1]
-    + [("_valid_hyperu", args, v) for args, v in HYPERU]
-    + [("_valid_hyp2f1", args, v) for args, v in hyp2f1_rows()]
+    [(n, args, v) for n in ["valid_moments", "valid_gamma"] for args, v in MOMENTS_VALID]
+    + [("valid_hyp1f1", args, v) for args, v in HYP1F1]
+    + [("valid_hyperu", args, v) for args, v in HYPERU]
+    + [("valid_hyp2f1", args, v) for args, v in hyp2f1_rows()]
 )
 
 
 class TestValidChecks:
     """
-    Boundaries of the ``_valid_*`` checks, at and either side. Each of them is the
+    Boundaries of the ``valid_*`` checks, at and either side. Each of them is the
     gate that turns unusable moments or hypergeometric parameters into NaN.
     """
 
@@ -268,7 +193,7 @@ class TestValidChecks:
     )
     def test_valid(self, name, args, expected):
         result = parity(name, args)
-        assert bool(result.value) is expected
+        assert result.value == float(expected)
 
 
 # --- gamma approximations --- #
@@ -378,7 +303,7 @@ GAMMA_IQR_ERRORS = [
     # gamma with tiny shape underflows to zero, so the fit divides by zero
     ((*gamma_quantiles(1e-3, 1.0), 50.0), ZeroDivisionError),
 ]
-# shapes below, at and above the cap, and beyond the range where `_gammainc_der` uses
+# shapes below, at and above the cap, and beyond the range where `gammainc_der` uses
 # its gaussian approximation (shape > 1e3)
 GAMMA_IQR_FITS = [
     (shape, max_shape)
@@ -424,7 +349,7 @@ class TestGammaApproximations:
     )
     def test_error_messages(self, name, args, expected):
         # the messages distinguish the failure modes
-        func = C_FUNCTIONS[name]
+        func = getattr(_tsdate, name)
         with pytest.raises(expected_error(KLMinimizationFailedError)):
             func(*args)
         compare(func, getattr(approx, name), *args)
@@ -519,7 +444,7 @@ ONE_NODE = {
     "a=0": (1000, 0, 0.01, 1, 1e-4),
     "a<0": (1000, -1, 0.01, 1, 1e-4),
     # NOTE: current behaviour, possibly a bug: y = -1 passes
-    # `_valid_hyp1f1` (b == a) but `_hyp1f1_laplace` asserts b > a
+    # `valid_hyp1f1` (b == a) but `hyp1f1_laplace` asserts b > a
     "y=-1": (1000, 10, 0.01, -1, 1e-4),
     "y=-0.5": (1000, 10, 0.01, -0.5, 1e-4),
 }
@@ -625,14 +550,14 @@ def projection_args(name, args):
     moments = PROJECTIONS[name][0]
     if moments in TWO_NODE_MOMENTS:
         a_i, b_i, a_j, b_j, y, mu = args
-        return natural(a_i, b_i), natural(a_j, b_j), np.array([y, mu])
+        return (*natural(a_i, b_i), *natural(a_j, b_j), y, mu)
     if moments in TWIN_MOMENTS:
         a_i, b_i, y, mu = args
-        return natural(a_i, b_i), np.array([y, mu])
+        return (*natural(a_i, b_i), y, mu)
     if moments in TIMES_MOMENTS:
         return tuple(args)
     t, a, b, y, mu = args
-    return t, natural(a, b), np.array([y, mu])
+    return (t, *natural(a, b), y, mu)
 
 
 def moment_args(name, proj_args):
@@ -642,15 +567,25 @@ def moment_args(name, proj_args):
     """
     moments = PROJECTIONS[name][0]
     if moments in TWO_NODE_MOMENTS:
-        pars_i, pars_j, (y, mu) = proj_args
-        return pars_i[0] + 1, pars_i[1], pars_j[0] + 1, pars_j[1], y, mu
+        alpha_i, beta_i, alpha_j, beta_j, y, mu = proj_args
+        return alpha_i + 1, beta_i, alpha_j + 1, beta_j, y, mu
     if moments in TWIN_MOMENTS:
-        pars_i, (y, mu) = proj_args
-        return pars_i[0] + 1, pars_i[1], y, mu
+        alpha_i, beta_i, y, mu = proj_args
+        return alpha_i + 1, beta_i, y, mu
     if moments in TIMES_MOMENTS:
         return proj_args
-    t, pars, (y, mu) = proj_args
-    return t, pars[0] + 1, pars[1], y, mu
+    t, alpha, beta, y, mu = proj_args
+    return t, alpha + 1, beta, y, mu
+
+
+def natural_args(name, proj_args):
+    """
+    The natural parameters among the arguments of a projection
+    """
+    moments = PROJECTIONS[name][0]
+    if moments in ONE_NODE_MOMENTS:
+        return proj_args[1:-2]
+    return proj_args[:-2]
 
 
 def is_valid(mean, variance, prob=None):
@@ -683,11 +618,10 @@ def check_projection(name, args):
         return
     assert np.isnan(result.value[0])
     if name in RETURNS_INPUT:
-        given = [p for p in proj_args if isinstance(p, np.ndarray)]
-        for returned, original in zip(result.value[1:], given):
-            np.testing.assert_array_equal(returned, original)
+        given = natural_args(name, proj_args)
+        np.testing.assert_array_equal(result.value[1:], given)
     else:
-        assert np.isnan(result.value[1]).all()
+        assert np.isnan(result.value[1:]).all()
 
 
 MOMENT_REGIMES = [
@@ -719,11 +653,10 @@ class TestProjections:
         moments = PROJECTIONS[name][0]
         first_regime = next(iter(REGIMES[moments].values()))
         proj_args = projection_args(name, floats(first_regime))
-        copies = [a.copy() if isinstance(a, np.ndarray) else a for a in proj_args]
-        func = C_FUNCTIONS[name]
+        copies = list(proj_args)
+        func = getattr(_tsdate, name)
         func(*proj_args)
-        for arg, copy in zip(proj_args, copies):
-            np.testing.assert_array_equal(arg, copy)
+        assert list(proj_args) == copies
 
     def test_unphased_probability_out_of_range(self):
         # NOTE: current behaviour, possibly a bug: the Laplace

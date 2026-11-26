@@ -9,7 +9,7 @@ import numpy as np
 from ._libm import exp, log
 
 
-def _marginalize_over_ancestors(val):
+def marginalize_over_ancestors(val):
     """
     Integrate an expectation over counts of extant ancestors. In a tree with
     "n" tips, the probability that there are "a" extent ancestors when a
@@ -54,6 +54,6 @@ def conditional_coalescent_variance(num_tips):
         variance[i] += variance[i + 1]
 
     # marginalize over number of ancestors using recursive algorithm
-    moments = _marginalize_over_ancestors(np.stack((mean, variance + mean**2), 1))
+    moments = marginalize_over_ancestors(np.stack((mean, variance + mean**2), 1))
 
     return moments[:, 1] - moments[:, 0] ** 2

@@ -37,7 +37,7 @@ def reallocate_unphased(edges_likelihood, mutations_phase, mutations_block, bloc
     assert np.isclose(num_unphased, np.sum(edges_likelihood[edges_unphased, 0]))
 
 
-def _block_singletons(
+def block_singletons(
     individuals_unphased,
     nodes_individual,
     mutations_node,
@@ -147,7 +147,7 @@ def _block_singletons(
     return blocks_stats, blocks_edges, mutations_block
 
 
-def _mutation_frequency(
+def mutation_frequency(
     nodes_sample,
     mutations_node,
     mutations_position,

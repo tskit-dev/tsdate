@@ -1,5 +1,5 @@
 """
-Parity of ``_marginalize_over_ancestors`` and ``conditional_coalescent_variance``
+Parity of ``marginalize_over_ancestors`` and ``conditional_coalescent_variance``
 with their oracles, and a pin of how ``tsdate`` calls the latter with a single tip.
 """
 
@@ -48,7 +48,7 @@ class TestMarginalizeOverAncestors:
         val = rng.uniform(0.1, 10.0, (num_tips, 2))
         result = compare(
             _tsdate.marginalize_over_ancestors,
-            prior._marginalize_over_ancestors,
+            prior.marginalize_over_ancestors,
             val,
         )
         assert result.value.shape == (num_tips + 1, 2)
@@ -58,7 +58,7 @@ class TestMarginalizeOverAncestors:
         val = np.random.default_rng(0).uniform(0.1, 10.0, (12, num_columns))
         compare(
             _tsdate.marginalize_over_ancestors,
-            prior._marginalize_over_ancestors,
+            prior.marginalize_over_ancestors,
             val,
         )
 
@@ -66,7 +66,7 @@ class TestMarginalizeOverAncestors:
     def test_coalescent_moments(self, num_tips):
         compare(
             _tsdate.marginalize_over_ancestors,
-            prior._marginalize_over_ancestors,
+            prior.marginalize_over_ancestors,
             coalescent_moments(num_tips),
         )
 
@@ -74,7 +74,7 @@ class TestMarginalizeOverAncestors:
     def test_edge_cases(self, val, expected_kind):
         assert_outcome(
             _tsdate.marginalize_over_ancestors,
-            prior._marginalize_over_ancestors,
+            prior.marginalize_over_ancestors,
             (val,),
             expected_kind,
         )

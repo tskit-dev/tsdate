@@ -11,10 +11,10 @@ import tskit
 # whereas numpy sums pairwise (`seq_sum`).
 from ._libm import log, seq_sum
 from .approx import approximate_gamma_iqr
-from .hypergeo import _gammainc_inv as gammainc_inv
+from .hypergeo import gammainc_inv
 
 
-def _fixed_changepoints(counts, epochs):
+def fixed_changepoints(counts, epochs):
     """
     Find breakpoints such that `counts` is divided roughly equally across `epochs`
     """
@@ -30,7 +30,7 @@ def _fixed_changepoints(counts, epochs):
     return e.astype(np.int32)
 
 
-def _poisson_changepoints(counts, offset, penalty, min_counts, min_offset):
+def poisson_changepoints(counts, offset, penalty, min_counts, min_offset):
     """
     Given Poisson counts and offsets for a sequence of observations, find the set
     of changepoints for the Poisson rate that maximizes the profile likelihood
@@ -77,7 +77,7 @@ def _poisson_changepoints(counts, offset, penalty, min_counts, min_offset):
     return breaks
 
 
-def _count_mutations(
+def count_mutations(
     node_is_sample,
     mutations_node,
     mutations_position,
@@ -266,7 +266,7 @@ def mutational_timescale(
     # rescale time such that mutation density is constant between changepoints
     # TODO: use poisson changepoints to further refine
     epoch_breaks = np.append(0.0, np.cumsum(duration))
-    changepoints = _fixed_changepoints(offset * duration, max_intervals)
+    changepoints = fixed_changepoints(offset * duration, max_intervals)
     changepoints = np.unique(changepoints)
     # changepoints = np.union1d(changepoints, indexes[nodes_fixed])
     adjust = np.zeros(changepoints.size)

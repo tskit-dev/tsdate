@@ -75,8 +75,8 @@ def approximate_gamma_kl(x, logx):
             raise KLMinimizationFailedError(
                 "Maximum iterations reached in KL minimization"
             )
-        delta = hypergeo._digamma(alpha) - log(alpha) + log(x) - logx
-        delta /= hypergeo._trigamma(alpha) - 1 / alpha
+        delta = hypergeo.digamma(alpha) - log(alpha) + log(x) - logx
+        delta /= hypergeo.trigamma(alpha) - 1 / alpha
         alpha -= delta
         itt += 1
     if not np.isfinite(alpha) or alpha <= 0:
@@ -102,7 +102,7 @@ def approximate_gamma_iqr(q1, q2, x1, x2, max_shape):
     """
 
     def upper_bound(q, x):  # cap shape parameter
-        beta = hypergeo._gammainc_inv(max_shape, q) / x
+        beta = hypergeo.gammainc_inv(max_shape, q) / x
         return max_shape - 1, beta
 
     if x2 == x1:
@@ -121,14 +121,14 @@ def approximate_gamma_iqr(q1, q2, x1, x2, max_shape):
             raise KLMinimizationFailedError(
                 "Maximum iterations reached in quantile matching"
             )
-        y1 = hypergeo._gammainc_inv(alpha, q1)
-        y2 = hypergeo._gammainc_inv(alpha, q2)
+        y1 = hypergeo.gammainc_inv(alpha, q1)
+        y2 = hypergeo.gammainc_inv(alpha, q2)
         obj = y2 / y1 - x2 / x1
         inv_1 = -exp(y1 + log(y1) * (1 - alpha) + lgamma(alpha))
         inv_2 = -exp(y2 + log(y2) * (1 - alpha) + lgamma(alpha))
         # print(itt, alpha, y1, y2) #DEBUG
-        gra_1 = hypergeo._gammainc_der(alpha, y1) * inv_1
-        gra_2 = hypergeo._gammainc_der(alpha, y2) * inv_2
+        gra_1 = hypergeo.gammainc_der(alpha, y1) * inv_1
+        gra_2 = hypergeo.gammainc_der(alpha, y2) * inv_2
         gra = (gra_2 * y1 - gra_1 * y2) / ipow(y1, 2)
         delta = -obj / gra
         alpha += delta
@@ -138,7 +138,7 @@ def approximate_gamma_iqr(q1, q2, x1, x2, max_shape):
         raise KLMinimizationFailedError("Negative shape parameter")
     if alpha > max_shape:
         return upper_bound(q1, x1)
-    beta = hypergeo._gammainc_inv(alpha, q1) / x1
+    beta = hypergeo.gammainc_inv(alpha, q1) / x1
     return alpha - 1, beta
 
 
@@ -152,70 +152,70 @@ def average_gammas(alpha, beta):
     avg_x = 0.0
     avg_logx = 0.0
     for shape, rate in zip(map(float, alpha + 1.0), map(float, beta)):
-        avg_logx += hypergeo._digamma(shape) - log(rate)
+        avg_logx += hypergeo.digamma(shape) - log(rate)
         avg_x += shape / rate
     avg_x /= alpha.size
     avg_logx /= alpha.size
     return approximate_gamma_kl(avg_x, avg_logx)
 
 
-def _valid_moments(mn, va):
+def valid_moments(mn, va):
     """
-    Whether a mean and variance are finite and positive.
+    1.0 if a mean and variance are finite and positive, else 0.0.
     """
     if not (np.isfinite(mn) and np.isfinite(va)):
-        return False
+        return 0.0
     if not (mn > 0.0 and va > 0.0):
-        return False
-    return True
+        return 0.0
+    return 1.0
 
 
-def _valid_gamma(s, r):
+def valid_gamma(s, r):
     """
-    Whether a gamma shape and rate are finite and positive.
+    1.0 if a gamma shape and rate are finite and positive, else 0.0.
     """
     if not (np.isfinite(s) and np.isfinite(r)):
-        return False
+        return 0.0
     if s <= 0.0 or r <= 0.0:
-        return False
-    return True
+        return 0.0
+    return 1.0
 
 
-def _valid_hyp1f1(a, b, z):
+def valid_hyp1f1(a, b, z):
     """
-    Whether the arguments are in the domain of `_hyp1f1_laplace`.
+    1.0 if the arguments are in the domain of `hyp1f1_laplace`, else 0.0.
     """
     if not (np.isfinite(a) and np.isfinite(b) and np.isfinite(z)):
-        return False
+        return 0.0
     if not (b >= a > 0.0):
-        return False
-    return True
+        return 0.0
+    return 1.0
 
 
-def _valid_hyperu(a, b, z):
+def valid_hyperu(a, b, z):
     """
-    Whether the arguments are in the domain of `_hyperu_laplace`.
+    1.0 if the arguments are in the domain of `hyperu_laplace`, else 0.0.
     """
     if not (np.isfinite(a) and np.isfinite(b) and np.isfinite(z)):
-        return False
+        return 0.0
     if z <= 0.0:
-        return False
+        return 0.0
     if not (b > a > 0.0):
-        return False
-    return True
+        return 0.0
+    return 1.0
 
 
-def _valid_hyp2f1(a, b, c, z):
+def valid_hyp2f1(a, b, c, z):
     """
-    Whether the arguments are in the domain of `_hyp2f1_laplace`.
+    1.0 if the arguments are in the domain of `hyp2f1_laplace`, else 0.0.
     """
     if not (np.isfinite(a) and np.isfinite(b) and np.isfinite(c)):
-        return False
+        return 0.0
     if not np.isfinite(z) or z >= 1 or z / (z - 1) >= 1:
-        return False
+        return 0.0
     if not (a > 0 and b > 0 and c > 0):
-        return False
-    return True
+        return 0.0
+    return 1.0
 
 
 def moments(a_i, b_i, a_j, b_j, y_ij, mu_ij):
@@ -234,10 +234,10 @@ def moments(a_i, b_i, a_j, b_j, y_ij, mu_ij):
     t = mu_ij + b_i
     z = (mu_ij - b_j) / t if t > 0 else nan
 
-    if not _valid_hyp2f1(a, b, c, z):
+    if not valid_hyp2f1(a, b, c, z):
         return nan, nan, nan, nan, nan
 
-    hyp2f1 = hypergeo._hyp2f1_laplace
+    hyp2f1 = hypergeo.hyp2f1_laplace
     f0 = hyp2f1(a + 0, b + 0, c + 0, z)
     f1 = hyp2f1(a + 1, b + 1, c + 1, z)
     f2 = hyp2f1(a + 2, b + 2, c + 2, z)
@@ -246,7 +246,7 @@ def moments(a_i, b_i, a_j, b_j, y_ij, mu_ij):
     d1 = s1 * exp(f1 - f0)
     d2 = s2 * exp(f2 - f0)
 
-    logl = f0 + hypergeo._betaln(y_ij + 1, a) + lgamma(b) - b * log(t)
+    logl = f0 + hypergeo.betaln(y_ij + 1, a) + lgamma(b) - b * log(t)
 
     mn_j = d1 / t
     sq_j = d2 / ipow(t, 2)
@@ -273,7 +273,7 @@ def rootward_moments(t_j, a_i, b_i, y_ij, mu_ij):
     s = a_i + y_ij
     r = mu_ij + b_i
 
-    if not _valid_gamma(s, r):
+    if not valid_gamma(s, r):
         return nan, nan, nan
 
     if t_j == 0.0:
@@ -286,10 +286,10 @@ def rootward_moments(t_j, a_i, b_i, y_ij, mu_ij):
     b = s + 1
     z = t_j * r
 
-    if not _valid_hyperu(a, b, z):
+    if not valid_hyperu(a, b, z):
         return nan, nan, nan
 
-    hyperu = hypergeo._hyperu_laplace
+    hyperu = hypergeo.hyperu_laplace
     f0, d0 = hyperu(a + 0, b + 0, z)
     f1, d1 = hyperu(a + 1, b + 1, z)
 
@@ -315,17 +315,17 @@ def leafward_moments(t_i, a_j, b_j, y_ij, mu_ij):
     b = a_j + y_ij + 1
     z = t_i * (mu_ij - b_j)
 
-    if not _valid_hyp1f1(a, b, z):
+    if not valid_hyp1f1(a, b, z):
         return nan, nan, nan
 
-    hyp1f1 = hypergeo._hyp1f1_laplace
+    hyp1f1 = hypergeo.hyp1f1_laplace
     f0 = hyp1f1(a + 0, b + 0, z)
     f1 = hyp1f1(a + 1, b + 1, z)
     f2 = hyp1f1(a + 2, b + 2, z)
     d1 = a / b * exp(f1 - f0)
     d2 = a / b * (a + 1) / (b + 1) * exp(f2 - f0)
 
-    logl = f0 - mu_ij * t_i + (b - 1) * log(t_i) + hypergeo._betaln(a, b - a)
+    logl = f0 - mu_ij * t_i + (b - 1) * log(t_i) + hypergeo.betaln(a, b - a)
     mn_j = t_i * d1
     sq_j = ipow(t_i, 2) * d2
     va_j = sq_j - ipow(mn_j, 2)
@@ -349,10 +349,10 @@ def unphased_moments(a_i, b_i, a_j, b_j, y_ij, mu_ij):
     t = mu_ij + b_i
     z = (mu_ij + b_j) / t if t > 0 else nan
 
-    if not _valid_hyp2f1(a, b, c, 1 - z):
+    if not valid_hyp2f1(a, b, c, 1 - z):
         return nan, nan, nan, nan, nan
 
-    hyp2f1 = hypergeo._hyp2f1_laplace
+    hyp2f1 = hypergeo.hyp2f1_laplace
     f0 = hyp2f1(a + 0, b + 0, c + 0, 1 - z)
     f1 = hyp2f1(a + 1, b + 1, c + 1, 1 - z)
     f2 = hyp2f1(a + 2, b + 2, c + 2, 1 - z)
@@ -361,7 +361,7 @@ def unphased_moments(a_i, b_i, a_j, b_j, y_ij, mu_ij):
     d1 = s1 * exp(f1 - f0)
     d2 = s2 * exp(f2 - f0)
 
-    logl = f0 + hypergeo._betaln(a_j, a_i) + lgamma(b) - b * log(t)
+    logl = f0 + hypergeo.betaln(a_j, a_i) + lgamma(b) - b * log(t)
 
     mn_j = d1 / t
     sq_j = d2 / ipow(t, 2)
@@ -405,10 +405,10 @@ def sideways_moments(t_i, a_j, b_j, y_ij, mu_ij):
     b = a_j + y_ij + 1
     z = t_i * (mu_ij + b_j)
 
-    if not _valid_hyperu(a, b, z):
+    if not valid_hyperu(a, b, z):
         return nan, nan, nan
 
-    hyperu = hypergeo._hyperu_laplace
+    hyperu = hypergeo.hyperu_laplace
     f0, d0 = hyperu(a + 0, b + 0, z)
     f1, d1 = hyperu(a + 1, b + 1, z)
 
@@ -436,10 +436,10 @@ def mutation_moments(a_i, b_i, a_j, b_j, y_ij, mu_ij):
     t = mu_ij + b_i
     z = (mu_ij - b_j) / t if t > 0 else nan
 
-    if not _valid_hyp2f1(a, b, c, z):
+    if not valid_hyp2f1(a, b, c, z):
         return nan, nan
 
-    hyp2f1 = hypergeo._hyp2f1_laplace
+    hyp2f1 = hypergeo.hyp2f1_laplace
     f000 = hyp2f1(a + 0, b + 0, c + 0, z)
     f020 = hyp2f1(a + 0, b + 2, c + 0, z)
     f111 = hyp2f1(a + 1, b + 1, c + 1, z)
@@ -522,10 +522,10 @@ def mutation_unphased_moments(a_i, b_i, a_j, b_j, y_ij, mu_ij):
     t = mu_ij + b_i
     z = (mu_ij + b_j) / t if t > 0 else nan
 
-    if not _valid_hyp2f1(a, b, c, 1 - z):
+    if not valid_hyp2f1(a, b, c, 1 - z):
         return nan, nan, nan
 
-    hyp2f1 = hypergeo._hyp2f1_laplace
+    hyp2f1 = hypergeo.hyp2f1_laplace
     f000 = hyp2f1(a + 0, b + 0, c + 0, 1 - z)
     f001 = hyp2f1(a + 0, b + 0, c + 1, 1 - z)
     f012 = hyp2f1(a + 0, b + 1, c + 2, 1 - z)
@@ -591,11 +591,11 @@ def mutation_sideways_moments(t_i, a_j, b_j, y_ij, mu_ij):
     b = a_j + y_ij + 1
     z = t_i * (mu_ij + b_j)
 
-    if not _valid_hyperu(a, b, z):
+    if not valid_hyperu(a, b, z):
         return nan, nan, nan
 
     # direct but unstable:
-    hyperu = hypergeo._hyperu_laplace
+    hyperu = hypergeo.hyperu_laplace
     f00, d00 = hyperu(a + 0, b + 0, z)
     f10, d10 = hyperu(a + 1, b + 0, z)
     f21, d21 = hyperu(a + 2, b + 1, z)
@@ -651,7 +651,13 @@ def mutation_block_moments(t_i, t_j):
     return pr_m, mn_m, va_m
 
 
-def gamma_projection(pars_i, pars_j, pars_ij):
+# The projections take the natural parameters (alpha, beta) = (shape - 1, rate) of the
+# gamma of each free node, and the mutation count and mutational target size
+# (y_ij, mu_ij) of the edge, as flat arguments; they return the first result followed
+# by the natural parameters of each projected gamma.
+
+
+def gamma_projection(alpha_i, beta_i, alpha_j, beta_j, y_ij, mu_ij):
     r"""
     log p(t_i, t_j) := \
         log(t_i - t_j) * y_ij - mu_ij * (t_i - t_j) + \
@@ -660,24 +666,21 @@ def gamma_projection(pars_i, pars_j, pars_ij):
 
     Returns normalizing constant, gamma natural parameters for parent and child ages
     """
-    a_i, b_i = map(float, pars_i)
-    a_j, b_j = map(float, pars_j)
-    y_ij, mu_ij = map(float, pars_ij)
-    a_i += 1
-    a_j += 1
+    a_i = alpha_i + 1
+    a_j = alpha_j + 1
 
-    logl, mn_i, va_i, mn_j, va_j = moments(a_i, b_i, a_j, b_j, y_ij, mu_ij)
+    logl, mn_i, va_i, mn_j, va_j = moments(a_i, beta_i, a_j, beta_j, y_ij, mu_ij)
 
-    if not (_valid_moments(mn_i, va_i) and _valid_moments(mn_j, va_j)):
-        return np.nan, pars_i, pars_j
+    if not (valid_moments(mn_i, va_i) and valid_moments(mn_j, va_j)):
+        return nan, alpha_i, beta_i, alpha_j, beta_j
 
     proj_i = approximate_gamma_mom(mn_i, va_i)
     proj_j = approximate_gamma_mom(mn_j, va_j)
 
-    return logl, np.array(proj_i), np.array(proj_j)
+    return logl, *proj_i, *proj_j
 
 
-def leafward_projection(t_i, pars_j, pars_ij):
+def leafward_projection(t_i, alpha_j, beta_j, y_ij, mu_ij):
     r"""
     log p(t_j) := \
         log(t_i - t_j) * y_ij - mu_ij * (t_i - t_j) + \
@@ -685,21 +688,19 @@ def leafward_projection(t_i, pars_j, pars_ij):
 
     Returns normalizing constant, gamma natural parameters for child age
     """
-    a_j, b_j = map(float, pars_j)
-    y_ij, mu_ij = map(float, pars_ij)
-    a_j += 1
+    a_j = alpha_j + 1
 
-    logl, mn_j, va_j = leafward_moments(t_i, a_j, b_j, y_ij, mu_ij)
+    logl, mn_j, va_j = leafward_moments(t_i, a_j, beta_j, y_ij, mu_ij)
 
-    if not _valid_moments(mn_j, va_j):
-        return np.nan, pars_j
+    if not valid_moments(mn_j, va_j):
+        return nan, alpha_j, beta_j
 
     proj_j = approximate_gamma_mom(mn_j, va_j)
 
-    return logl, np.array(proj_j)
+    return logl, *proj_j
 
 
-def rootward_projection(t_j, pars_i, pars_ij):
+def rootward_projection(t_j, alpha_i, beta_i, y_ij, mu_ij):
     r"""
     log p(t_i) := \
         log(t_i - t_j) * y_ij - mu_ij * (t_i - t_j) + \
@@ -707,21 +708,19 @@ def rootward_projection(t_j, pars_i, pars_ij):
 
     Returns normalizing constant, gamma natural parameters for parent age
     """
-    a_i, b_i = map(float, pars_i)
-    y_ij, mu_ij = map(float, pars_ij)
-    a_i += 1
+    a_i = alpha_i + 1
 
-    logl, mn_i, va_i = rootward_moments(t_j, a_i, b_i, y_ij, mu_ij)
+    logl, mn_i, va_i = rootward_moments(t_j, a_i, beta_i, y_ij, mu_ij)
 
-    if not _valid_moments(mn_i, va_i):
-        return np.nan, pars_i
+    if not valid_moments(mn_i, va_i):
+        return nan, alpha_i, beta_i
 
     proj_i = approximate_gamma_mom(mn_i, va_i)
 
-    return logl, np.array(proj_i)
+    return logl, *proj_i
 
 
-def unphased_projection(pars_i, pars_j, pars_ij):
+def unphased_projection(alpha_i, beta_i, alpha_j, beta_j, y_ij, mu_ij):
     r"""
     log p(t_i, t_j) := \
         log(t_i + t_j) * y_ij - mu_ij * (t_i + t_j) + \
@@ -730,24 +729,21 @@ def unphased_projection(pars_i, pars_j, pars_ij):
 
     Returns normalizing constant, gamma natural parameters for parent ages
     """
-    a_i, b_i = map(float, pars_i)
-    a_j, b_j = map(float, pars_j)
-    y_ij, mu_ij = map(float, pars_ij)
-    a_i += 1
-    a_j += 1
+    a_i = alpha_i + 1
+    a_j = alpha_j + 1
 
-    logl, mn_i, va_i, mn_j, va_j = unphased_moments(a_i, b_i, a_j, b_j, y_ij, mu_ij)
+    logl, mn_i, va_i, mn_j, va_j = unphased_moments(a_i, beta_i, a_j, beta_j, y_ij, mu_ij)
 
-    if not _valid_moments(mn_i, va_i) or not _valid_moments(mn_j, va_j):
-        return np.nan, pars_i, pars_j
+    if not valid_moments(mn_i, va_i) or not valid_moments(mn_j, va_j):
+        return nan, alpha_i, beta_i, alpha_j, beta_j
 
     proj_i = approximate_gamma_mom(mn_i, va_i)
     proj_j = approximate_gamma_mom(mn_j, va_j)
 
-    return logl, np.array(proj_i), np.array(proj_j)
+    return logl, *proj_i, *proj_j
 
 
-def twin_projection(pars_i, pars_ij):
+def twin_projection(alpha_i, beta_i, y_ij, mu_ij):
     r"""
     log p(t_i) := \
         log(2 * t_i) * y_ij - mu_ij * (2 * t_i) + \
@@ -755,21 +751,19 @@ def twin_projection(pars_i, pars_ij):
 
     Returns normalizing constant, gamma natural parameters for parent ages
     """
-    a_i, b_i = map(float, pars_i)
-    y_ij, mu_ij = map(float, pars_ij)
-    a_i += 1
+    a_i = alpha_i + 1
 
-    logl, mn_i, va_i = twin_moments(a_i, b_i, y_ij, mu_ij)
+    logl, mn_i, va_i = twin_moments(a_i, beta_i, y_ij, mu_ij)
 
-    if not _valid_moments(mn_i, va_i):
-        return np.nan, pars_i
+    if not valid_moments(mn_i, va_i):
+        return nan, alpha_i, beta_i
 
     proj_i = approximate_gamma_mom(mn_i, va_i)
 
-    return logl, np.array(proj_i)
+    return logl, *proj_i
 
 
-def sideways_projection(t_i, pars_j, pars_ij):
+def sideways_projection(t_i, alpha_j, beta_j, y_ij, mu_ij):
     r"""
     log p(t_j) := \
         log(t_i + t_j) * y_ij - mu_ij * (t_i + t_j) + \
@@ -777,21 +771,19 @@ def sideways_projection(t_i, pars_j, pars_ij):
 
     Returns normalizing constant, gamma natural parameters for nonfixed parent age
     """
-    a_j, b_j = map(float, pars_j)
-    y_ij, mu_ij = map(float, pars_ij)
-    a_j += 1
+    a_j = alpha_j + 1
 
-    logl, mn_j, va_j = sideways_moments(t_i, a_j, b_j, y_ij, mu_ij)
+    logl, mn_j, va_j = sideways_moments(t_i, a_j, beta_j, y_ij, mu_ij)
 
-    if not _valid_moments(mn_j, va_j):
-        return np.nan, pars_j
+    if not valid_moments(mn_j, va_j):
+        return nan, alpha_j, beta_j
 
     proj_j = approximate_gamma_mom(mn_j, va_j)
 
-    return logl, np.array(proj_j)
+    return logl, *proj_j
 
 
-def mutation_gamma_projection(pars_i, pars_j, pars_ij):
+def mutation_gamma_projection(alpha_i, beta_i, alpha_j, beta_j, y_ij, mu_ij):
     r"""
     log p(t_m, t_i, t_j) = \
         log(t_i - t_j) * y_ij - mu_ij * (t_i - t_j) + \
@@ -801,23 +793,20 @@ def mutation_gamma_projection(pars_i, pars_j, pars_ij):
 
     Returns phase probability, gamma natural parameters for mutation age
     """
-    a_i, b_i = map(float, pars_i)
-    a_j, b_j = map(float, pars_j)
-    y_ij, mu_ij = map(float, pars_ij)
-    a_i += 1
-    a_j += 1
+    a_i = alpha_i + 1
+    a_j = alpha_j + 1
 
-    mn_m, va_m = mutation_moments(a_i, b_i, a_j, b_j, y_ij, mu_ij)
+    mn_m, va_m = mutation_moments(a_i, beta_i, a_j, beta_j, y_ij, mu_ij)
 
-    if not _valid_moments(mn_m, va_m):
-        return np.nan, np.full(2, np.nan)
+    if not valid_moments(mn_m, va_m):
+        return nan, nan, nan
 
     proj_m = approximate_gamma_mom(mn_m, va_m)
 
-    return 1.0, np.array(proj_m)
+    return 1.0, *proj_m
 
 
-def mutation_leafward_projection(t_i, pars_j, pars_ij):
+def mutation_leafward_projection(t_i, alpha_j, beta_j, y_ij, mu_ij):
     r"""
     log p(t_m, t_j) := \
         log(t_i - t_j) * y_ij - mu_ij * (t_i - t_j) + \
@@ -826,21 +815,19 @@ def mutation_leafward_projection(t_i, pars_j, pars_ij):
 
     Returns phase probability, gamma natural parameters for mutation age
     """
-    a_j, b_j = map(float, pars_j)
-    y_ij, mu_ij = map(float, pars_ij)
-    a_j += 1
+    a_j = alpha_j + 1
 
-    mn_m, va_m = mutation_leafward_moments(t_i, a_j, b_j, y_ij, mu_ij)
+    mn_m, va_m = mutation_leafward_moments(t_i, a_j, beta_j, y_ij, mu_ij)
 
-    if not _valid_moments(mn_m, va_m):
-        return np.nan, np.full(2, np.nan)
+    if not valid_moments(mn_m, va_m):
+        return nan, nan, nan
 
     proj_m = approximate_gamma_mom(mn_m, va_m)
 
-    return 1.0, np.array(proj_m)
+    return 1.0, *proj_m
 
 
-def mutation_rootward_projection(t_j, pars_i, pars_ij):
+def mutation_rootward_projection(t_j, alpha_i, beta_i, y_ij, mu_ij):
     r"""
     log p(t_m, t_i) := \
         log(t_i - t_j) * y_ij - mu_ij * (t_i - t_j) + \
@@ -849,18 +836,16 @@ def mutation_rootward_projection(t_j, pars_i, pars_ij):
 
     Returns phase probability, gamma natural parameters for mutation age
     """
-    a_i, b_i = map(float, pars_i)
-    y_ij, mu_ij = map(float, pars_ij)
-    a_i += 1
+    a_i = alpha_i + 1
 
-    mn_m, va_m = mutation_rootward_moments(t_j, a_i, b_i, y_ij, mu_ij)
+    mn_m, va_m = mutation_rootward_moments(t_j, a_i, beta_i, y_ij, mu_ij)
 
-    if not _valid_moments(mn_m, va_m):
-        return np.nan, np.full(2, np.nan)
+    if not valid_moments(mn_m, va_m):
+        return nan, nan, nan
 
     proj_m = approximate_gamma_mom(mn_m, va_m)
 
-    return 1.0, np.array(proj_m)
+    return 1.0, *proj_m
 
 
 def mutation_edge_projection(t_i, t_j):
@@ -872,15 +857,15 @@ def mutation_edge_projection(t_i, t_j):
     """
     mn_m, va_m = mutation_edge_moments(t_i, t_j)
 
-    if not _valid_moments(mn_m, va_m):
-        return np.nan, np.full(2, np.nan)
+    if not valid_moments(mn_m, va_m):
+        return nan, nan, nan
 
     proj_m = approximate_gamma_mom(mn_m, va_m)
 
-    return 1.0, np.array(proj_m)
+    return 1.0, *proj_m
 
 
-def mutation_unphased_projection(pars_i, pars_j, pars_ij):
+def mutation_unphased_projection(alpha_i, beta_i, alpha_j, beta_j, y_ij, mu_ij):
     r"""
     log p(t_m, t_i, t_j) := \
         log(t_i + t_j) * y_ij - mu_ij * (t_i + t_j) + \
@@ -891,23 +876,20 @@ def mutation_unphased_projection(pars_i, pars_j, pars_ij):
 
     Returns phase probability, gamma natural parameters for mutation age
     """
-    a_i, b_i = map(float, pars_i)
-    a_j, b_j = map(float, pars_j)
-    y_ij, mu_ij = map(float, pars_ij)
-    a_i += 1
-    a_j += 1
+    a_i = alpha_i + 1
+    a_j = alpha_j + 1
 
-    pr_m, mn_m, va_m = mutation_unphased_moments(a_i, b_i, a_j, b_j, y_ij, mu_ij)
+    pr_m, mn_m, va_m = mutation_unphased_moments(a_i, beta_i, a_j, beta_j, y_ij, mu_ij)
 
-    if not _valid_moments(mn_m, va_m) or not (0 <= pr_m <= 1):
-        return np.nan, np.full(2, np.nan)
+    if not valid_moments(mn_m, va_m) or not (0 <= pr_m <= 1):
+        return nan, nan, nan
 
     proj_m = approximate_gamma_mom(mn_m, va_m)
 
-    return pr_m, np.array(proj_m)
+    return pr_m, *proj_m
 
 
-def mutation_twin_projection(pars_i, pars_ij):
+def mutation_twin_projection(alpha_i, beta_i, y_ij, mu_ij):
     r"""
     log p(t_m, t_i) := \
         log(2 * t_i) * y_ij - mu_ij * (2 * t_i) + \
@@ -916,21 +898,19 @@ def mutation_twin_projection(pars_i, pars_ij):
 
     Returns phase probability, gamma natural parameters for mutation age
     """
-    a_i, b_i = map(float, pars_i)
-    y_ij, mu_ij = map(float, pars_ij)
-    a_i += 1
+    a_i = alpha_i + 1
 
-    pr_m, mn_m, va_m = mutation_twin_moments(a_i, b_i, y_ij, mu_ij)
+    pr_m, mn_m, va_m = mutation_twin_moments(a_i, beta_i, y_ij, mu_ij)
 
-    if not _valid_moments(mn_m, va_m) or not (0 <= pr_m <= 1):
-        return np.nan, np.full(2, np.nan)
+    if not valid_moments(mn_m, va_m) or not (0 <= pr_m <= 1):
+        return nan, nan, nan
 
     proj_m = approximate_gamma_mom(mn_m, va_m)
 
-    return pr_m, np.array(proj_m)
+    return pr_m, *proj_m
 
 
-def mutation_sideways_projection(t_i, pars_j, pars_ij):
+def mutation_sideways_projection(t_i, alpha_j, beta_j, y_ij, mu_ij):
     r"""
     log p(t_m, t_j) := \
         log(t_i + t_j) * y_ij - mu_ij * (t_i + t_j) + \
@@ -940,18 +920,16 @@ def mutation_sideways_projection(t_i, pars_j, pars_ij):
 
     Returns phase probability, gamma natural parameters for mutation age
     """
-    a_j, b_j = map(float, pars_j)
-    y_ij, mu_ij = map(float, pars_ij)
-    a_j += 1
+    a_j = alpha_j + 1
 
-    pr_m, mn_m, va_m = mutation_sideways_moments(t_i, a_j, b_j, y_ij, mu_ij)
+    pr_m, mn_m, va_m = mutation_sideways_moments(t_i, a_j, beta_j, y_ij, mu_ij)
 
-    if not _valid_moments(mn_m, va_m) or not (0 <= pr_m <= 1):
-        return np.nan, np.full(2, np.nan)
+    if not valid_moments(mn_m, va_m) or not (0 <= pr_m <= 1):
+        return nan, nan, nan
 
     proj_m = approximate_gamma_mom(mn_m, va_m)
 
-    return pr_m, np.array(proj_m)
+    return pr_m, *proj_m
 
 
 def mutation_block_projection(t_i, t_j):
@@ -964,9 +942,9 @@ def mutation_block_projection(t_i, t_j):
     """
     pr_m, mn_m, va_m = mutation_block_moments(t_i, t_j)
 
-    if not _valid_moments(mn_m, va_m) or not (0 <= pr_m <= 1):
-        return np.nan, np.full(2, np.nan)
+    if not valid_moments(mn_m, va_m) or not (0 <= pr_m <= 1):
+        return nan, nan, nan
 
     proj_m = approximate_gamma_mom(mn_m, va_m)
 
-    return pr_m, np.array(proj_m)
+    return pr_m, *proj_m

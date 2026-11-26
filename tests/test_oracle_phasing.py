@@ -111,7 +111,7 @@ class TestBlockSingletons:
 
     @staticmethod
     def compare(args):
-        return compare(_tsdate.block_singletons, phasing._block_singletons, *args)
+        return compare(_tsdate.block_singletons, phasing.block_singletons, *args)
 
     @pytest.mark.parametrize(
         ("nodes", "num_individuals", "edges", "mutations", "unphased", "expected_error"),
@@ -325,7 +325,7 @@ class TestMutationFrequency:
     def compare(nodes_sample, args):
         return compare(
             _tsdate.mutation_frequency,
-            phasing._mutation_frequency,
+            phasing.mutation_frequency,
             nodes_sample,
             *args,
         )

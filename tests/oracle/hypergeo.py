@@ -21,19 +21,19 @@ from ._libm import erf, exp, ipow, lgamma, log, pow, sin, sqrt, tan  # noqa: A00
 
 # gammaincinv is a primitive of the oracles, as the libm functions are: the C library's
 # port of `scipy.special.gammaincinv`, which `TestGammaincInv` compares with SciPy.
-_gammainc_inv = _tsdate.gammainc_inv
+gammainc_inv = _tsdate.gammainc_inv
 
 
-def _digamma(x):
+def digamma(x):
     """
     Digamma (psi) function, from asymptotic series expansion.
     """
     if x <= 0.0:
-        return _digamma(1 - x) - np.pi / tan(np.pi * x)
+        return digamma(1 - x) - np.pi / tan(np.pi * x)
     if x <= 1e-5:
         return -np.euler_gamma - (1 / x)
     if x < 8.5:
-        return _digamma(1 + x) - 1 / x
+        return digamma(1 + x) - 1 / x
     xpm2 = 1 / ipow(x, 2)
     return (
         log(x)
@@ -47,16 +47,16 @@ def _digamma(x):
     )
 
 
-def _trigamma(x):
+def trigamma(x):
     """
     Trigamma function, from asymptotic series expansion
     """
     if x <= 0.0:
-        return -_trigamma(1 - x) + ipow(np.pi, 2) / ipow(sin(np.pi * x), 2)
+        return -trigamma(1 - x) + ipow(np.pi, 2) / ipow(sin(np.pi * x), 2)
     if x <= 1e-4:
         return 1 / ipow(x, 2)
     if x < 5:
-        return _trigamma(1 + x) + 1 / ipow(x, 2)
+        return trigamma(1 + x) + 1 / ipow(x, 2)
     xpm1 = 1 / x
     xpm2 = 1 / ipow(x, 2)
     return xpm1 * (
@@ -72,14 +72,14 @@ def _trigamma(x):
     )
 
 
-def _betaln(p, q):
+def betaln(p, q):
     """
     Log of the beta function.
     """
     return lgamma(p) + lgamma(q) - lgamma(p + q)
 
 
-def _hyperu_laplace(a, b, x):
+def hyperu_laplace(a, b, x):
     """
     Approximate Tricomi's confluent hypergeometric function with real
     arguments, using Laplace's method with a calibration point.
@@ -106,7 +106,7 @@ def _hyperu_laplace(a, b, x):
     return g - log(r) / 2, (dg - dr) * du - u
 
 
-def _hyp1f1_laplace(a, b, x):
+def hyp1f1_laplace(a, b, x):
     """
     Approximate Kummer's confluent hypergeometric function with real arguments,
     using Laplace's method with a calibration point.
@@ -134,7 +134,7 @@ def _hyp1f1_laplace(a, b, x):
     return g - log(r) / 2
 
 
-def _hyp2f1_laplace(a, b, c, x):
+def hyp2f1_laplace(a, b, c, x):
     r"""
     Approximate a Gaussian hypergeometric function with real arguments,
     using Laplace's method with a calibration point.
@@ -205,7 +205,7 @@ def _hyp2f1_laplace(a, b, c, x):
     return f - log(r) / 2 + s
 
 
-def _gammainc_der(p, x):
+def gammainc_der(p, x):
     """
     Derivative of lower incomplete gamma function with regards to `p`.
 
@@ -251,7 +251,7 @@ def _gammainc_der(p, x):
             grad += dc
             if c <= tol:
                 break
-        darg = exp(arg) * (log(x) - _digamma(p + 1))
+        darg = exp(arg) * (log(x) - digamma(p + 1))
         grad = grad * exp(arg) + value * darg
         arg += log(value)
         if arg >= elimit:
@@ -294,7 +294,7 @@ def _gammainc_der(p, x):
                 dpn2 /= oflo
                 dpn3 /= oflo
                 dpn4 /= oflo
-        darg = exp(arg) * (log(x) - _digamma(p))
+        darg = exp(arg) * (log(x) - digamma(p))
         grad = grad * exp(arg) + value * darg
         arg += log(value)
         if arg >= elimit:
