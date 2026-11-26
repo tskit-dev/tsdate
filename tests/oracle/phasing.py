@@ -1,4 +1,6 @@
-"""Oracles for the phasing functions (``lib/phasing.c``)."""
+"""
+Oracles for the phasing functions (``lib/phasing.c``).
+"""
 
 import numpy as np
 import tskit

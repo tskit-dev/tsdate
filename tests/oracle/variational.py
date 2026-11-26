@@ -1,4 +1,6 @@
-"""Oracles for the expectation propagation passes (``lib/variational.c``)."""
+"""
+Oracles for the expectation propagation passes (``lib/variational.c``).
+"""
 
 import numpy as np
 import tskit

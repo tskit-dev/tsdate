@@ -1,4 +1,6 @@
-"""Comparison helpers shared by the oracle equivalence tests."""
+"""
+Comparison helpers shared by the oracle equivalence tests.
+"""
 
 import numpy as np
 import tskit
@@ -10,7 +12,9 @@ except ImportError:  # the extension has not been built
 
 
 def _flatten(x, path=""):
-    """Yield (path, array) for each leaf of a nested tuple/list of scalars/arrays."""
+    """
+    Yield (path, array) for each leaf of a nested tuple/list of scalars/arrays.
+    """
     if isinstance(x, (tuple, list)):
         for i, item in enumerate(x):
             yield from _flatten(item, f"{path}[{i}]")
@@ -73,7 +77,9 @@ NAN = float("nan")
 
 
 def log_uniform(rng, lo, hi, size=None):
-    """``10 ** U(lo, hi)``: a scalar float if ``size`` is None, else an array."""
+    """
+    ``10 ** U(lo, hi)``: a scalar float if ``size`` is None, else an array.
+    """
     x = 10.0 ** rng.uniform(lo, hi, size)
     return float(x) if size is None else x
 
@@ -225,7 +231,9 @@ def kind(result):
 
 
 def assert_outcome(impl_func, oracle_func, args, expected_kind, **kwargs):
-    """`compare`, then assert the `kind` of the outcome (for edge-case tables)."""
+    """
+    `compare`, then assert the `kind` of the outcome (for edge-case tables).
+    """
     result = compare(impl_func, oracle_func, *args, **kwargs)
     assert kind(result) == expected_kind, f"{args}: {result!r}"
     return result
@@ -279,7 +287,9 @@ def b1(*x):
 
 
 def shrink(args, index, size):
-    """Copy of the argument list with ``args[index]`` truncated to ``size``."""
+    """
+    Copy of the argument list with ``args[index]`` truncated to ``size``.
+    """
     args = list(args)
     args[index] = args[index][:size]
     return args

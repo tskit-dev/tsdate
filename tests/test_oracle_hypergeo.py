@@ -36,7 +36,9 @@ def parity(impl, name, args, expected_kind=None):
 
 
 def table(name, rows):
-    """``pytest.param`` rows of ``(name, args, expected_kind)`` with readable ids"""
+    """
+    ``pytest.param`` rows of ``(name, args, expected_kind)`` with readable ids
+    """
     return [pytest.param(name, args, kind, id=f"{name}{args}") for args, kind in rows]
 
 
@@ -405,7 +407,9 @@ def unity_formula(a, b, c, z):
 
 
 def unity_threshold():
-    """Largest ``x < 1`` for which ``np.isclose(x, 1.0)`` fails, and the next one up"""
+    """
+    Largest ``x < 1`` for which ``np.isclose(x, 1.0)`` fails, and the next one up
+    """
     lo, hi = 0.5, 1.0 - 1e-9  # not close, close
     while nextafter(lo, 1.0) != hi:
         mid = lo + (hi - lo) / 2
@@ -417,7 +421,9 @@ def unity_threshold():
 
 
 def negative_unity_threshold():
-    """As `unity_threshold`, for ``z < 0`` mapped to ``z / (z - 1)``"""
+    """
+    As `unity_threshold`, for ``z < 0`` mapped to ``z / (z - 1)``
+    """
     lo, hi = -1e3, -1e9  # not close, close
     while nextafter(lo, hi) != hi:
         mid = lo + (hi - lo) / 2
@@ -429,7 +435,9 @@ def negative_unity_threshold():
 
 
 def unity_args_from_ep(a_i, b_i, a_j, b_j, y, mu):
-    """Arguments of `_hyp2f1_laplace` in the edge update of EP, for hugely negative z"""
+    """
+    Arguments of `_hyp2f1_laplace` in the edge update of EP, for hugely negative z
+    """
     return a_j, a_i + a_j + y, a_j + y + 1, (mu - b_j) / (mu + b_i)
 
 
@@ -484,7 +492,9 @@ class TestLaplaceDomain:
 
 
 class TestHyp2f1Unity:
-    """The unity limit (`_hyp2f1_unity`, reached when ``z`` is ``np.isclose`` to one)"""
+    """
+    The unity limit (`_hyp2f1_unity`, reached when ``z`` is ``np.isclose`` to one)
+    """
 
     @pytest.mark.parametrize("args", UNITY_CASES, ids=repr)
     def test_unity_branches(self, impl, args):

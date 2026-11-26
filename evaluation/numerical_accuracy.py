@@ -31,7 +31,9 @@ RESULTS = pathlib.Path(__file__).parent / "results"
 
 
 def try_call(func, *args):
-    """The result of ``func``, or None if it raised"""
+    """
+    The result of ``func``, or None if it raised
+    """
     try:
         return func(*args)
     except Exception:  # noqa: BLE001
@@ -43,7 +45,9 @@ def log_uniform(rng, lo, hi, size=None):
 
 
 class Report:
-    """Collects rows of (group, function, regime, metric, value, points, note)"""
+    """
+    Collects rows of (group, function, regime, metric, value, points, note)
+    """
 
     def __init__(self):
         self.rows = []
@@ -52,7 +56,9 @@ class Report:
         self.rows.append((group, function, regime, metric, value, n, note))
 
     def worst(self, group, function, regime, metric, errors, note=""):
-        """Worst of ``errors`` (None marks a call that raised)"""
+        """
+        Worst of ``errors`` (None marks a call that raised)
+        """
         raised = sum(e is None for e in errors)
         finite = [e for e in errors if e is not None and math.isfinite(e)]
         value = max(finite) if finite else math.nan
@@ -170,7 +176,9 @@ def gammainc_der(report):
 
 
 def exact_gammainc_inv(a, q, x0):
-    """Root of the regularised lower incomplete gamma minus q, near ``x0``; or None"""
+    """
+    Root of the regularised lower incomplete gamma minus q, near ``x0``; or None
+    """
     with mpmath.workdps(40):
 
         def f(t):

@@ -1,4 +1,6 @@
-"""Oracles for the special functions (``lib/hypergeo.c``)."""
+"""
+Oracles for the special functions (``lib/hypergeo.c``).
+"""
 
 from math import pi
 
@@ -22,7 +24,9 @@ from ._libm import erf, exp, ipow, lgamma, log, pow, sin, sqrt, tan  # noqa: A00
 # `scipy.special.gammaincinv`. The ufunc returns an `np.float64`, which is converted
 # so that callers divide by it with Python semantics (ZeroDivisionError).
 def _gammainc_inv(a, x):
-    """scipy.special.cython_special.gammaincinv"""
+    """
+    scipy.special.cython_special.gammaincinv
+    """
     return float(scipy.special.gammaincinv(a, x))
 
 
@@ -75,7 +79,9 @@ def _trigamma(x):
 
 
 def _betaln(p, q):
-    """Log of the beta function."""
+    """
+    Log of the beta function.
+    """
     return lgamma(p) + lgamma(q) - lgamma(p + q)
 
 

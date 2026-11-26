@@ -33,7 +33,9 @@ def sim_ts(request):
 
 @pytest.fixture(scope="module")
 def eps(small_ts, small_ts_historical):
-    """`ExpectationPropagation` after a few iterations, for each simulated ts"""
+    """
+    `ExpectationPropagation` after a few iterations, for each simulated ts
+    """
     eps = {}
     for name, ts in [
         ("small_ts", small_ts),
@@ -51,7 +53,9 @@ def ep(request, eps):
 
 
 def rescale_inputs(ep):
-    """Arguments of `mutational_timescale`, as in `ExpectationPropagation.rescale`"""
+    """
+    Arguments of `mutational_timescale`, as in `ExpectationPropagation.rescale`
+    """
     nodes_time, _ = ep.node_moments()
     nodes_fixed = ep.node_constraints[:, 0] == ep.node_constraints[:, 1]
     return (
@@ -83,7 +87,9 @@ def count_args(ts, size_biased, node_is_sample=None):
 
 
 def piecewise_rates(rng, size, num_pieces, offset_range, rate_range):
-    """Poisson counts and offsets for `size` observations, with piecewise constant rate"""
+    """
+    Poisson counts and offsets for `size` observations, with piecewise constant rate
+    """
     offset = rng.uniform(*offset_range, size)
     rate = np.repeat(rng.uniform(*rate_range, num_pieces), size // num_pieces + 1)[:size]
     counts = rng.poisson(rate * offset).astype(float)

@@ -75,7 +75,9 @@ class Snapshot:
         return new
 
     def factors(self, cls):
-        """New ``EPFactors`` of class ``cls`` holding a copy of the factors"""
+        """
+        New ``EPFactors`` of class ``cls`` holding a copy of the factors
+        """
         factors = cls(
             self.node_constraints,
             self.edge_parents,
@@ -104,7 +106,9 @@ class Snapshot:
         f["scale"][sel] = scale
 
     def fix_nodes(self, nodes):
-        """Constrain ``nodes`` to their true (simulated) ages"""
+        """
+        Constrain ``nodes`` to their true (simulated) ages
+        """
         nodes = np.asarray(nodes)
         times = self.ts.nodes_time[nodes]
         self.node_constraints[nodes, LOWER] = times
@@ -115,7 +119,9 @@ class Snapshot:
         return self.node_constraints[:, LOWER] == self.node_constraints[:, UPPER]
 
     def branch_counts(self, unphased):
-        """Number of edges (blocks) of each kind visited by the propagate functions"""
+        """
+        Number of edges (blocks) of each kind visited by the propagate functions
+        """
         if unphased:
             p, c = self.block_nodes[ROOTWARD], self.block_nodes[LEAFWARD]
         else:
@@ -130,7 +136,9 @@ class Snapshot:
         }
 
     def after_pass(self, state):
-        """Copy with the state returned by `run_likelihood` as its current state"""
+        """
+        Copy with the state returned by `run_likelihood` as its current state
+        """
         posterior, _, *fields = state
         new = self.copy()
         new.node_posterior = posterior.copy()
@@ -139,7 +147,9 @@ class Snapshot:
 
 
 def make_snapshot(ts, name, iterations=2):
-    """Snapshot of the state of EP on ``ts`` (fixture ``name``) after some iterations"""
+    """
+    Snapshot of the state of EP on ``ts`` (fixture ``name``) after some iterations
+    """
     singletons_phased, mutation_rate = SNAPSHOT_SPECS[name]
     ep = ExpectationPropagation(
         ts, mutation_rate=mutation_rate, singletons_phased=singletons_phased
@@ -189,7 +199,9 @@ DAMPED_CAVITY, DAMPED_MESSAGE = np.array([1.0, 0.05]), np.array([22.0, 2.4])
 
 
 def tiny_snapshot(branch, cavity=CAVITY, message=MESSAGE, likelihood=(3.0, 0.1)):
-    """Snapshot of a single edge (or block) whose factor is `message` at each end"""
+    """
+    Snapshot of a single edge (or block) whose factor is `message` at each end
+    """
     unphased, constraints, p, c = BRANCHES[branch]
     constraints = np.array(constraints, dtype=np.float64)
     n = constraints.shape[0]
@@ -224,7 +236,9 @@ def tiny_snapshot(branch, cavity=CAVITY, message=MESSAGE, likelihood=(3.0, 0.1))
 
 
 def likelihood_args(snap, unphased, order=None, likelihoods=None):
-    """Leading arguments of `propagate_likelihood` and the matching `lognorm`"""
+    """
+    Leading arguments of `propagate_likelihood` and the matching `lognorm`
+    """
     if unphased:
         args = (
             snap.block_order if order is None else order,
@@ -267,7 +281,9 @@ def run_likelihood(
 
 
 def run_prior(ns, snap, free, max_shape=1000.0, em_maxitt=10, em_reltol=1e-8):
-    """Run `propagate_prior`; return ``(posterior, node, scale)`` after the pass."""
+    """
+    Run `propagate_prior`; return ``(posterior, node, scale)`` after the pass.
+    """
     factors = snap.factors(ns.EPFactors)
     posterior = snap.node_posterior.copy()
     ns.propagate_prior(free, posterior, factors, max_shape, em_maxitt, em_reltol)

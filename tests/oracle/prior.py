@@ -1,4 +1,6 @@
-"""Oracles for the prior functions (``lib/prior.c``)."""
+"""
+Oracles for the prior functions (``lib/prior.c``).
+"""
 
 import numpy as np
 

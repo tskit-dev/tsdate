@@ -125,5 +125,7 @@ def seq_sum(x):
 
 
 def seq_mean(x):
-    """Mean of a 1d array using `seq_sum`, as the C library computes means."""
+    """
+    Mean of a 1d array using `seq_sum`, as the C library computes means.
+    """
     return seq_sum(x) / np.size(x)

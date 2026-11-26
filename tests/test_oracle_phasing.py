@@ -15,7 +15,9 @@ from tsdate.rescaling import count_mutations
 
 
 def sweep_args(ts):
-    """Tree sequence arguments shared by the sweep-line functions"""
+    """
+    Tree sequence arguments shared by the sweep-line functions
+    """
     return [
         ts.mutations_node,
         ts.sites_position[ts.mutations_site],
@@ -153,7 +155,9 @@ class TestBlockSingletons:
 
 @pytest.fixture(scope="module")
 def blocks(small_ts_unphased):
-    """Likelihoods and blocks for `reallocate_unphased`, with all individuals unphased"""
+    """
+    Likelihoods and blocks for `reallocate_unphased`, with all individuals unphased
+    """
     ts = small_ts_unphased
     unphased = np.full(ts.num_individuals, True)
     _, block_edges, mutation_blocks = block_singletons(ts, unphased)

@@ -1,4 +1,6 @@
-"""Oracles for the rescaling functions (``lib/rescaling.c``)."""
+"""
+Oracles for the rescaling functions (``lib/rescaling.c``).
+"""
 
 from math import inf
 

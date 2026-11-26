@@ -14,7 +14,9 @@ from tsdate import prior as tsdate_prior
 
 
 def coalescent_moments(num_tips):
-    """The argument that `conditional_coalescent_variance` passes"""
+    """
+    The argument that `conditional_coalescent_variance` passes
+    """
     rates = np.array(
         [2 / (i * (i - 1)) if i > 1 else 0.0 for i in range(1, num_tips + 1)]
     )

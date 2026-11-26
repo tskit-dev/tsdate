@@ -12,7 +12,9 @@ INF = np.inf
 
 
 def factors(num_nodes=3, num_edges=2, num_blocks=1):
-    """The tuple of arrays that describes EP factors, for a small example."""
+    """
+    The tuple of arrays that describes EP factors, for a small example.
+    """
     return (
         np.zeros((num_nodes, 2, 2)),
         np.zeros((num_edges, 2, 2)),
@@ -26,7 +28,9 @@ def factors(num_nodes=3, num_edges=2, num_blocks=1):
 
 
 def likelihood_args(**changes):
-    """Arguments of propagate_likelihood on two edges (2, 0) and (2, 1)."""
+    """
+    Arguments of propagate_likelihood on two edges (2, 0) and (2, 1).
+    """
     args = dict(
         edge_order=np.array([0, 1], dtype=np.int32),
         edges_parent=np.array([2, 2], dtype=np.int32),

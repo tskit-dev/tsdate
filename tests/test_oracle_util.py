@@ -97,7 +97,9 @@ class TestSplitDisjointNodes:
 
 
 def relabel_args(ts):
-    """Arguments of `_relabel_mutations_node`, with the nodes split as by `util`"""
+    """
+    Arguments of `_relabel_mutations_node`, with the nodes split as by `util`
+    """
     parent, child, order, _ = util._split_disjoint_nodes(
         ts.edges_parent,
         ts.edges_child,

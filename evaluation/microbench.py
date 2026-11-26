@@ -39,7 +39,9 @@ MAX_BATCH = 1000
 
 
 def _with_factors(func, position):
-    """Wrap a `_tsdate` function so that it takes an ``EPFactors`` at `position`."""
+    """
+    Wrap a `_tsdate` function so that it takes an ``EPFactors`` at `position`.
+    """
 
     def wrapped(*args):
         factors = args[position].arrays()
@@ -49,7 +51,9 @@ def _with_factors(func, position):
 
 
 def _functions():
-    """The benchmarked functions of `_tsdate`, by the name the benchmarks use."""
+    """
+    The benchmarked functions of `_tsdate`, by the name the benchmarks use.
+    """
     import _tsdate
 
     return {
@@ -148,7 +152,9 @@ def _const(*args):
 
 
 def build_benchmarks(n, length, iterations):
-    """Build all benchmarks (and a dict describing the inputs) for one size."""
+    """
+    Build all benchmarks (and a dict describing the inputs) for one size.
+    """
     from tsdate import phasing, rescaling, util
     from tsdate.variational import (
         LEAFWARD,
@@ -505,7 +511,9 @@ def build_benchmarks(n, length, iterations):
 
 
 def time_bench(func, bench, repeats):
-    """Warm up, then return per-call times (seconds) for `repeats` timed blocks."""
+    """
+    Warm up, then return per-call times (seconds) for `repeats` timed blocks.
+    """
     t0 = time.perf_counter()
     func(*bench.make_args())  # warm up (also the first-call cost)
     first_call = time.perf_counter() - t0

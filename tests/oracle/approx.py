@@ -1,4 +1,6 @@
-"""Oracles for the gamma approximations (``lib/approx.c``)."""
+"""
+Oracles for the gamma approximations (``lib/approx.c``).
+"""
 
 from math import inf, nan
 
@@ -95,7 +97,9 @@ def approximate_gamma_mom(mean, variance):
 
 
 def approximate_gamma_iqr(q1, q2, x1, x2, max_shape):
-    """Find gamma natural parameters that match empirical quantiles"""
+    """
+    Find gamma natural parameters that match empirical quantiles
+    """
 
     def upper_bound(q, x):  # cap shape parameter
         beta = hypergeo._gammainc_inv(max_shape, q) / x
@@ -156,7 +160,9 @@ def average_gammas(alpha, beta):
 
 
 def _valid_moments(mn, va):
-    """Whether a mean and variance are finite and positive."""
+    """
+    Whether a mean and variance are finite and positive.
+    """
     if not (np.isfinite(mn) and np.isfinite(va)):
         return False
     if not (mn > 0.0 and va > 0.0):
@@ -165,7 +171,9 @@ def _valid_moments(mn, va):
 
 
 def _valid_gamma(s, r):
-    """Whether a gamma shape and rate are finite and positive."""
+    """
+    Whether a gamma shape and rate are finite and positive.
+    """
     if not (np.isfinite(s) and np.isfinite(r)):
         return False
     if s <= 0.0 or r <= 0.0:
@@ -174,7 +182,9 @@ def _valid_gamma(s, r):
 
 
 def _valid_hyp1f1(a, b, z):
-    """Whether the arguments are in the domain of `_hyp1f1_laplace`."""
+    """
+    Whether the arguments are in the domain of `_hyp1f1_laplace`.
+    """
     if not (np.isfinite(a) and np.isfinite(b) and np.isfinite(z)):
         return False
     if not (b >= a > 0.0):
@@ -183,7 +193,9 @@ def _valid_hyp1f1(a, b, z):
 
 
 def _valid_hyperu(a, b, z):
-    """Whether the arguments are in the domain of `_hyperu_laplace`."""
+    """
+    Whether the arguments are in the domain of `_hyperu_laplace`.
+    """
     if not (np.isfinite(a) and np.isfinite(b) and np.isfinite(z)):
         return False
     if z <= 0.0:
@@ -194,7 +206,9 @@ def _valid_hyperu(a, b, z):
 
 
 def _valid_hyp2f1(a, b, c, z):
-    """Whether the arguments are in the domain of `_hyp2f1_laplace`."""
+    """
+    Whether the arguments are in the domain of `_hyp2f1_laplace`.
+    """
     if not (np.isfinite(a) and np.isfinite(b) and np.isfinite(c)):
         return False
     if not np.isfinite(z) or z >= 1 or z / (z - 1) >= 1:

@@ -51,7 +51,9 @@ def parity(impl, name, args, expected_kind=None):
 
 
 def table(name, rows):
-    """``pytest.param`` rows of ``(name, args, expected_kind)`` with readable ids"""
+    """
+    ``pytest.param`` rows of ``(name, args, expected_kind)`` with readable ids
+    """
     return [pytest.param(name, args, kind, id=f"{name}{args}") for args, kind in rows]
 
 
@@ -60,7 +62,9 @@ def floats(args):
 
 
 def natural(shape, rate):
-    """Natural parameters of a gamma"""
+    """
+    Natural parameters of a gamma
+    """
     return np.array([shape - 1.0, rate])
 
 
@@ -135,12 +139,16 @@ HYPERU = [
 
 
 def z_below_one(z):
-    """The condition on z: below one, or for z < 0 that ``z / (z - 1)`` is below one"""
+    """
+    The condition on z: below one, or for z < 0 that ``z / (z - 1)`` is below one
+    """
     return bool(z / (z - 1) < 1.0 if z < 0.0 else z < 1.0)
 
 
 def hyp2f1_rows():
-    """``(args, expected)`` for ``_valid_hyp2f1``: a, b, c positive and finite, z < 1"""
+    """
+    ``(args, expected)`` for ``_valid_hyp2f1``: a, b, c positive and finite, z < 1
+    """
     rows = [((1.0, 1.0, 1.0, 0.0), True), ((10.0, 1.0, 1.0, 0.5), True)]  # a > c is ok
     for i in range(3):
         for z in [0.5, -0.0]:
@@ -665,7 +673,9 @@ class TestProjections:
 
 
 def flip_sign(rng, values, prob=0.12):
-    """Negate one of ``values`` with probability ``prob``, to give invalid input."""
+    """
+    Negate one of ``values`` with probability ``prob``, to give invalid input.
+    """
     values = list(values)
     if rng.random() < prob:
         i = rng.integers(len(values))
@@ -674,12 +684,16 @@ def flip_sign(rng, values, prob=0.12):
 
 
 def draw_gamma(rng):
-    """Shape and rate of a node age"""
+    """
+    Shape and rate of a node age
+    """
     return float(rng.uniform(0.5, 30)), log_uniform(rng, -5, -2)
 
 
 def draw_edge(rng):
-    """Mutation count and mutational target size on an edge"""
+    """
+    Mutation count and mutational target size on an edge
+    """
     return float(rng.integers(0, 12)), log_uniform(rng, -4, -2)
 
 

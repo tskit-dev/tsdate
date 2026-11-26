@@ -48,14 +48,18 @@ INCONSISTENT_MESSAGE = (
 
 @pytest.fixture(scope="module")
 def snaps(small_ts, small_ts_unphased, small_ts_historical):
-    """Snapshots of EP state two iterations in, by fixture name"""
+    """
+    Snapshots of EP state two iterations in, by fixture name
+    """
     tss = [small_ts, small_ts_unphased, small_ts_historical]
     return {name: ep_state.make_snapshot(ts, name) for name, ts in zip(TS_NAMES, tss)}
 
 
 @pytest.fixture(scope="module")
 def fresh(small_ts, small_ts_unphased, small_ts_historical):
-    """Snapshots of the initial EP state, by fixture name"""
+    """
+    Snapshots of the initial EP state, by fixture name
+    """
     tss = [small_ts, small_ts_unphased, small_ts_historical]
     return {
         name: ep_state.make_snapshot(ts, name, iterations=0)
@@ -65,14 +69,18 @@ def fresh(small_ts, small_ts_unphased, small_ts_historical):
 
 @pytest.fixture(scope="module")
 def scaled_snap(snaps):
-    """``small_ts`` after a likelihood pass with a small cap, so that scales are not 1"""
+    """
+    ``small_ts`` after a likelihood pass with a small cap, so that scales are not 1
+    """
     snap = snaps["small_ts"]
     state = ep_state.run_likelihood(variational, snap, False, max_shape=3.0)
     return snap.after_pass(state)
 
 
 def compare_runs(runner, impl, snap, *args, **kwargs):
-    """Run ``runner`` (an ``ep_state.run_*``) with the implementation and the oracle"""
+    """
+    Run ``runner`` (an ``ep_state.run_*``) with the implementation and the oracle
+    """
     actual = partial(runner, impl.variational)
     expected = partial(runner, variational)
     return compare(actual, expected, snap, *args, **kwargs)
@@ -340,7 +348,9 @@ class TestCheckValidConstraints:
 
 
 class TestPropagateLikelihoodBranches:
-    """One edge (block) in each branch, with valid and failing projections"""
+    """
+    One edge (block) in each branch, with valid and failing projections
+    """
 
     CASES = {
         "valid": dict(),
@@ -564,7 +574,9 @@ class TestPropagateLikelihoodTinyScale:
 
     @staticmethod
     def shrunk(snap, role, scale):
-        """Equivalent state with the scale of one node tiny, first used mid-pass"""
+        """
+        Equivalent state with the scale of one node tiny, first used mid-pass
+        """
         snap = snap.copy()
         nodes = snap.edge_parents if role == "parent" else snap.edge_children
         first = {}

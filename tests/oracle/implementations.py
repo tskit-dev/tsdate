@@ -27,7 +27,9 @@ def _c_hypergeo(_tsdate):
 
 
 def _c_valid(func):
-    """The `_valid_*` oracles return a bool; the C functions a float."""
+    """
+    The `_valid_*` oracles return a bool; the C functions a float.
+    """
 
     def valid(*args):
         return bool(func(*args))
@@ -137,7 +139,9 @@ def _c_rescaling(_tsdate):
 
 
 def _factor_arrays(factors):
-    """The fields of an ``EPFactors`` that the module takes, as a tuple of arrays."""
+    """
+    The fields of an ``EPFactors`` that the module takes, as a tuple of arrays.
+    """
     return (
         factors.node,
         factors.edge,
