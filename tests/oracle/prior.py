@@ -4,6 +4,10 @@ Oracles for the prior functions (``lib/prior.c``).
 
 import numpy as np
 
+# NumPy's SIMD log and exp can differ from libm in the last bit on some CPUs; `_libm`
+# gives the C library's results.
+from ._libm import exp, log
+
 
 def _marginalize_over_ancestors(val):
     """
@@ -17,16 +21,14 @@ def _marginalize_over_ancestors(val):
     pr_a_ln = [np.nan, np.nan, 0.0]  # log Pr(a | k, n)
     out = np.zeros((n + 1, N))
     for k in range(n - 1, 1, -1):
-        # `np.log(0)` at k == 2 warns (divide by zero) here; C is silent
-        # and the value is unused for k == 2, so suppress the warning locally.
-        with np.errstate(divide="ignore"):
-            const = np.log(n - k) + np.log(k - 2) - np.log(k + 1)
+        # log(0) at k == 2 is -inf; the value is unused for k == 2
+        const = log(n - k) + log(k - 2) - log(k + 1)
         for a in range(2, n - k + 2):
-            out[k] += np.exp(pr_a_ln[a]) * val[a]
+            out[k] += exp(pr_a_ln[a]) * val[a]
             if k > 2:  # Pr(a | k, n) to Pr(a | k - 1, n)
-                pr_a_ln[a] += const - np.log(n - a - k + 2)
+                pr_a_ln[a] += const - log(n - a - k + 2)
         if k > 2:  # Pr(n - k + 1 | k - 1, n) to Pr(n - k + 2 | k - 1, n)
-            pr_a_ln.append(pr_a_ln[-1] + np.log(n - k + 2) - np.log(k + 1) - const)
+            pr_a_ln.append(pr_a_ln[-1] + log(n - k + 2) - log(k + 1) - const)
     out[n] = val[1]
     return out
 
