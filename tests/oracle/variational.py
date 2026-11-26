@@ -15,7 +15,7 @@ from tsdate.variational import (
 
 from . import approx
 
-# oracle: C sums sequentially, whereas numpy sums pairwise, which differs in the last
+# C sums sequentially, whereas numpy sums pairwise, which differs in the last
 # bits; `seq_mean` sums sequentially.
 from ._libm import seq_mean
 
@@ -323,12 +323,12 @@ def propagate_prior(free, posterior, factors, max_shape, em_maxitt, em_reltol):
     # fit an exponential to cavity distributions for unconstrained nodes
     cavity = posterior - factor[:, MIXPRIOR] * scale[:, np.newaxis]
     shape, rate = cavity[free, 0] + 1, cavity[free, 1]
-    penalty = 1 / seq_mean(shape / rate)  # oracle: seq_mean
+    penalty = 1 / seq_mean(shape / rate)
     itt, delta = 0, np.inf
     while abs(delta) > abs(penalty) * em_reltol:
         if itt > em_maxitt:
             break
-        delta = 1 / seq_mean(shape / (rate + penalty)) - penalty  # oracle: seq_mean
+        delta = 1 / seq_mean(shape / (rate + penalty)) - penalty
         penalty += delta
         itt += 1
     assert penalty > 0

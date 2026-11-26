@@ -6,17 +6,17 @@ import numpy as np
 
 from . import hypergeo
 
-# oracle: plain `math` raises on log(0), exp overflow etc., where C gives -inf, inf or
+# Plain `math` raises on log(0), exp overflow etc., where C gives -inf, inf or
 # nan; `_libm` gives the C results.
-# oracle: C computes `x ** n` for integer constants `n` by repeated squaring, whereas
+# C computes `x ** n` for integer constants `n` by repeated squaring, whereas
 # CPython calls libm pow, which differs by an ulp in a few percent of cases; `ipow`
-# squares (see `_libm.ipow`). Lines that use it are marked.
-# oracle: `np.log` of a Python float returns an `np.float64`, so that a following
+# squares (see `_libm.ipow`).
+# `np.log` of a Python float returns an `np.float64`, so that a following
 # division by zero gives inf (with a warning) instead of the ZeroDivisionError that
 # stands for the library's TSD_ERR_ZERO_DIVISION; and NumPy's SIMD log may differ
 # from libm by an ulp. Logs are the `_libm.log` of a Python float.
-# oracle: for the same reason, elements unpacked from a NumPy array are converted with
-# `float` (marked `oracle: float`).
+# For the same reason, elements unpacked from a NumPy array are converted with
+# `float`.
 from ._libm import exp, ipow, lgamma, log
 
 # the tolerances of the KL minimisation, as in the library
@@ -39,11 +39,9 @@ def approximate_log_moments(mean, variance):
     """
     assert mean > 0
     assert variance > 0
-    logx = log(mean) - 0.5 * variance / ipow(mean, 2)  # oracle: ipow
+    logx = log(mean) - 0.5 * variance / ipow(mean, 2)
     xlogx = mean * log(mean) + 0.5 * variance / mean
-    logx2 = ipow(log(mean), 2) + (1 - log(mean)) * variance / ipow(
-        mean, 2
-    )  # oracle: ipow
+    logx2 = ipow(log(mean), 2) + (1 - log(mean)) * variance / ipow(mean, 2)
     return logx, xlogx, logx2
 
 
@@ -91,7 +89,7 @@ def approximate_gamma_mom(mean, variance):
     """
     if not (mean > 0.0 and variance > 0.0):
         raise KLMinimizationFailedError("Nonpositive central moments")
-    shape = ipow(mean, 2) / variance  # oracle: ipow
+    shape = ipow(mean, 2) / variance
     rate = mean / variance
     return shape - 1.0, rate
 
@@ -127,7 +125,7 @@ def approximate_gamma_iqr(q1, q2, x1, x2, max_shape):
         # print(itt, alpha, y1, y2) #DEBUG
         gra_1 = hypergeo._gammainc_der(alpha, y1) * inv_1
         gra_2 = hypergeo._gammainc_der(alpha, y2) * inv_2
-        gra = (gra_2 * y1 - gra_1 * y2) / ipow(y1, 2)  # oracle: ipow
+        gra = (gra_2 * y1 - gra_1 * y2) / ipow(y1, 2)
         delta = -obj / gra
         alpha += delta
         itt += 1
@@ -149,7 +147,7 @@ def average_gammas(alpha, beta):
     assert alpha.size == beta.size, "Array sizes are not equal"
     avg_x = 0.0
     avg_logx = 0.0
-    for shape, rate in zip(map(float, alpha + 1.0), map(float, beta)):  # oracle: float
+    for shape, rate in zip(map(float, alpha + 1.0), map(float, beta)):
         avg_logx += hypergeo._digamma(shape) - log(rate)
         avg_x += shape / rate
     avg_x /= alpha.size
@@ -232,12 +230,12 @@ def moments(a_i, b_i, a_j, b_j, y_ij, mu_ij):
     logl = f0 + hypergeo._betaln(y_ij + 1, a) + lgamma(b) - b * log(t)
 
     mn_j = d1 / t
-    sq_j = d2 / ipow(t, 2)  # oracle: ipow
-    va_j = sq_j - ipow(mn_j, 2)  # oracle: ipow
+    sq_j = d2 / ipow(t, 2)
+    va_j = sq_j - ipow(mn_j, 2)
 
     mn_i = mn_j * z + b / t
-    sq_i = sq_j * ipow(z, 2) + (b + 1) * (mn_i + mn_j * z) / t  # oracle: ipow
-    va_i = sq_i - ipow(mn_i, 2)  # oracle: ipow
+    sq_i = sq_j * ipow(z, 2) + (b + 1) * (mn_i + mn_j * z) / t
+    va_i = sq_i - ipow(mn_i, 2)
 
     return logl, mn_i, va_i, mn_j, va_j
 
@@ -262,7 +260,7 @@ def rootward_moments(t_j, a_i, b_i, y_ij, mu_ij):
     if t_j == 0.0:
         logl = lgamma(s) - s * log(r)
         mn_i = s / r
-        va_i = s / ipow(r, 2)  # oracle: ipow
+        va_i = s / ipow(r, 2)
         return logl, mn_i, va_i
 
     a = y_ij + 1
@@ -278,7 +276,7 @@ def rootward_moments(t_j, a_i, b_i, y_ij, mu_ij):
 
     logl = f0 - b_i * t_j + (b - 1) * log(t_j) + lgamma(a)
     mn_i = t_j * (1 - d0)
-    va_i = ipow(t_j, 2) * d0 * (d1 - d0)  # oracle: ipow
+    va_i = ipow(t_j, 2) * d0 * (d1 - d0)
 
     return logl, mn_i, va_i
 
@@ -310,8 +308,8 @@ def leafward_moments(t_i, a_j, b_j, y_ij, mu_ij):
 
     logl = f0 - mu_ij * t_i + (b - 1) * log(t_i) + hypergeo._betaln(a, b - a)
     mn_j = t_i * d1
-    sq_j = ipow(t_i, 2) * d2  # oracle: ipow
-    va_j = sq_j - ipow(mn_j, 2)  # oracle: ipow
+    sq_j = ipow(t_i, 2) * d2
+    va_j = sq_j - ipow(mn_j, 2)
 
     return logl, mn_j, va_j
 
@@ -347,12 +345,12 @@ def unphased_moments(a_i, b_i, a_j, b_j, y_ij, mu_ij):
     logl = f0 + hypergeo._betaln(a_j, a_i) + lgamma(b) - b * log(t)
 
     mn_j = d1 / t
-    sq_j = d2 / ipow(t, 2)  # oracle: ipow
-    va_j = sq_j - ipow(mn_j, 2)  # oracle: ipow
+    sq_j = d2 / ipow(t, 2)
+    va_j = sq_j - ipow(mn_j, 2)
 
     mn_i = b / t - mn_j * z
-    sq_i = sq_j * ipow(z, 2) + (b + 1) * (mn_i - mn_j * z) / t  # oracle: ipow
-    va_i = sq_i - ipow(mn_i, 2)  # oracle: ipow
+    sq_i = sq_j * ipow(z, 2) + (b + 1) * (mn_i - mn_j * z) / t
+    va_i = sq_i - ipow(mn_i, 2)
 
     return logl, mn_i, va_i, mn_j, va_j
 
@@ -369,7 +367,7 @@ def twin_moments(a_i, b_i, y_ij, mu_ij):
     r = b_i + 2 * mu_ij
     logl = log(2) * y_ij + lgamma(s) - log(r) * s
     mn_i = s / r
-    va_i = s / ipow(r, 2)  # oracle: ipow
+    va_i = s / ipow(r, 2)
     return logl, mn_i, va_i
 
 
@@ -397,7 +395,7 @@ def sideways_moments(t_i, a_j, b_j, y_ij, mu_ij):
 
     logl = f0 - mu_ij * t_i + (b - 1) * log(t_i) + lgamma(a)
     mn_j = -t_i * d0
-    va_j = ipow(t_i, 2) * d0 * (d1 - d0)  # oracle: ipow
+    va_j = ipow(t_i, 2) * d0 * (d1 - d0)
 
     return logl, mn_j, va_j
 
@@ -430,7 +428,7 @@ def mutation_moments(a_i, b_i, a_j, b_j, y_ij, mu_ij):
     f222 = hyp2f1(a + 2, b + 2, c + 2, z)
 
     s1 = a * b / c
-    d1 = b * (b + 1) / ipow(t, 2)  # oracle: ipow
+    d1 = b * (b + 1) / ipow(t, 2)
     d2 = d1 * a / c
     d3 = d2 * (a + 1) / (c + 1)
 
@@ -438,7 +436,7 @@ def mutation_moments(a_i, b_i, a_j, b_j, y_ij, mu_ij):
     sq_m = (
         d1 * exp(f020 - f000) / 3 + d2 * exp(f121 - f000) / 3 + d3 * exp(f222 - f000) / 3
     )
-    va_m = sq_m - ipow(mn_m, 2)  # oracle: ipow
+    va_m = sq_m - ipow(mn_m, 2)
 
     return mn_m, va_m
 
@@ -455,8 +453,8 @@ def mutation_rootward_moments(t_j, a_i, b_i, y_ij, mu_ij):
 
     logl, mn_i, va_i = rootward_moments(t_j, a_i, b_i, y_ij, mu_ij)
     mn_m = mn_i / 2 + t_j / 2
-    sq_m = (va_i + ipow(mn_i, 2) + mn_i * t_j + ipow(t_j, 2)) / 3  # oracle: ipow
-    va_m = sq_m - ipow(mn_m, 2)  # oracle: ipow
+    sq_m = (va_i + ipow(mn_i, 2) + mn_i * t_j + ipow(t_j, 2)) / 3
+    va_m = sq_m - ipow(mn_m, 2)
 
     return mn_m, va_m
 
@@ -473,8 +471,8 @@ def mutation_leafward_moments(t_i, a_j, b_j, y_ij, mu_ij):
 
     logl, mn_j, va_j = leafward_moments(t_i, a_j, b_j, y_ij, mu_ij)
     mn_m = mn_j / 2 + t_i / 2
-    sq_m = (va_j + ipow(mn_j, 2) + mn_j * t_i + ipow(t_i, 2)) / 3  # oracle: ipow
-    va_m = sq_m - ipow(mn_m, 2)  # oracle: ipow
+    sq_m = (va_j + ipow(mn_j, 2) + mn_j * t_i + ipow(t_i, 2)) / 3
+    va_m = sq_m - ipow(mn_m, 2)
 
     return mn_m, va_m
 
@@ -525,7 +523,7 @@ def mutation_unphased_moments(a_i, b_i, a_j, b_j, y_ij, mu_ij):
 
     mn_m = s0 * s1 * exp(f012 - f000) / 2 + s0 * s2 * exp(f212 - f000) / 2
     sq_m = d0 * d1 * exp(f023 - f000) / 3 + d0 * d2 * exp(f323 - f000) / 3
-    va_m = sq_m - ipow(mn_m, 2)  # oracle: ipow
+    va_m = sq_m - ipow(mn_m, 2)
     pr_m = (c - a) / c * exp(f001 - f000)
 
     return pr_m, mn_m, va_m
@@ -543,8 +541,8 @@ def mutation_twin_moments(a_i, b_i, y_ij, mu_ij):
     r = b_i + 2 * mu_ij
     pr_m = 0.5
     mn_m = s / r / 2
-    sq_m = (s + 1) * s / 3 / ipow(r, 2)  # oracle: ipow
-    va_m = sq_m - ipow(mn_m, 2)  # oracle: ipow
+    sq_m = (s + 1) * s / 3 / ipow(r, 2)
+    va_m = sq_m - ipow(mn_m, 2)
 
     return pr_m, mn_m, va_m
 
@@ -588,14 +586,14 @@ def mutation_sideways_moments(t_i, a_j, b_j, y_ij, mu_ij):
     sq_m = (
         pr_m * ipow(t_i, 2) / 3
         + ipow(t_i, 2) * exp(f32 - f00) * a * (a + 1) * (a + 2) / 3
-    )  # oracle: ipow
+    )
 
     # TODO: use a stabler approach with derivatives
     # note that exp(f10 - f00) = (a + z * d00) / (a - b + 1)
     # however the denominator is 0 if y_ij is 0
     # note that when y_ij == 0 then a == b + 1 and f00 = z**(-a)
 
-    va_m = sq_m - ipow(mn_m, 2)  # oracle: ipow
+    va_m = sq_m - ipow(mn_m, 2)
 
     return pr_m, mn_m, va_m
 
@@ -609,7 +607,7 @@ def mutation_edge_moments(t_i, t_j):
     """
 
     mn_m = 1 / 2 * (t_i + t_j)
-    va_m = 1 / 12 * ipow(t_i - t_j, 2)  # oracle: ipow
+    va_m = 1 / 12 * ipow(t_i - t_j, 2)
 
     return mn_m, va_m
 
@@ -628,8 +626,8 @@ def mutation_block_moments(t_i, t_j):
 
     pr_m = t_i / (t_i + t_j)
     mn_m = pr_m * t_i / 2 + (1 - pr_m) * t_j / 2
-    sq_m = pr_m * ipow(t_i, 2) / 3 + (1 - pr_m) * ipow(t_j, 2) / 3  # oracle: ipow
-    va_m = sq_m - ipow(mn_m, 2)  # oracle: ipow
+    sq_m = pr_m * ipow(t_i, 2) / 3 + (1 - pr_m) * ipow(t_j, 2) / 3
+    va_m = sq_m - ipow(mn_m, 2)
 
     return pr_m, mn_m, va_m
 
@@ -643,9 +641,9 @@ def gamma_projection(pars_i, pars_j, pars_ij):
 
     Returns normalizing constant, gamma natural parameters for parent and child ages
     """
-    a_i, b_i = map(float, pars_i)  # oracle: float
-    a_j, b_j = map(float, pars_j)  # oracle: float
-    y_ij, mu_ij = map(float, pars_ij)  # oracle: float
+    a_i, b_i = map(float, pars_i)
+    a_j, b_j = map(float, pars_j)
+    y_ij, mu_ij = map(float, pars_ij)
     a_i += 1
     a_j += 1
 
@@ -668,8 +666,8 @@ def leafward_projection(t_i, pars_j, pars_ij):
 
     Returns normalizing constant, gamma natural parameters for child age
     """
-    a_j, b_j = map(float, pars_j)  # oracle: float
-    y_ij, mu_ij = map(float, pars_ij)  # oracle: float
+    a_j, b_j = map(float, pars_j)
+    y_ij, mu_ij = map(float, pars_ij)
     a_j += 1
 
     logl, mn_j, va_j = leafward_moments(t_i, a_j, b_j, y_ij, mu_ij)
@@ -690,8 +688,8 @@ def rootward_projection(t_j, pars_i, pars_ij):
 
     Returns normalizing constant, gamma natural parameters for parent age
     """
-    a_i, b_i = map(float, pars_i)  # oracle: float
-    y_ij, mu_ij = map(float, pars_ij)  # oracle: float
+    a_i, b_i = map(float, pars_i)
+    y_ij, mu_ij = map(float, pars_ij)
     a_i += 1
 
     logl, mn_i, va_i = rootward_moments(t_j, a_i, b_i, y_ij, mu_ij)
@@ -713,9 +711,9 @@ def unphased_projection(pars_i, pars_j, pars_ij):
 
     Returns normalizing constant, gamma natural parameters for parent ages
     """
-    a_i, b_i = map(float, pars_i)  # oracle: float
-    a_j, b_j = map(float, pars_j)  # oracle: float
-    y_ij, mu_ij = map(float, pars_ij)  # oracle: float
+    a_i, b_i = map(float, pars_i)
+    a_j, b_j = map(float, pars_j)
+    y_ij, mu_ij = map(float, pars_ij)
     a_i += 1
     a_j += 1
 
@@ -738,8 +736,8 @@ def twin_projection(pars_i, pars_ij):
 
     Returns normalizing constant, gamma natural parameters for parent ages
     """
-    a_i, b_i = map(float, pars_i)  # oracle: float
-    y_ij, mu_ij = map(float, pars_ij)  # oracle: float
+    a_i, b_i = map(float, pars_i)
+    y_ij, mu_ij = map(float, pars_ij)
     a_i += 1
 
     logl, mn_i, va_i = twin_moments(a_i, b_i, y_ij, mu_ij)
@@ -760,8 +758,8 @@ def sideways_projection(t_i, pars_j, pars_ij):
 
     Returns normalizing constant, gamma natural parameters for nonfixed parent age
     """
-    a_j, b_j = map(float, pars_j)  # oracle: float
-    y_ij, mu_ij = map(float, pars_ij)  # oracle: float
+    a_j, b_j = map(float, pars_j)
+    y_ij, mu_ij = map(float, pars_ij)
     a_j += 1
 
     logl, mn_j, va_j = sideways_moments(t_i, a_j, b_j, y_ij, mu_ij)
@@ -784,9 +782,9 @@ def mutation_gamma_projection(pars_i, pars_j, pars_ij):
 
     Returns phase probability, gamma natural parameters for mutation age
     """
-    a_i, b_i = map(float, pars_i)  # oracle: float
-    a_j, b_j = map(float, pars_j)  # oracle: float
-    y_ij, mu_ij = map(float, pars_ij)  # oracle: float
+    a_i, b_i = map(float, pars_i)
+    a_j, b_j = map(float, pars_j)
+    y_ij, mu_ij = map(float, pars_ij)
     a_i += 1
     a_j += 1
 
@@ -809,8 +807,8 @@ def mutation_leafward_projection(t_i, pars_j, pars_ij):
 
     Returns phase probability, gamma natural parameters for mutation age
     """
-    a_j, b_j = map(float, pars_j)  # oracle: float
-    y_ij, mu_ij = map(float, pars_ij)  # oracle: float
+    a_j, b_j = map(float, pars_j)
+    y_ij, mu_ij = map(float, pars_ij)
     a_j += 1
 
     mn_m, va_m = mutation_leafward_moments(t_i, a_j, b_j, y_ij, mu_ij)
@@ -832,8 +830,8 @@ def mutation_rootward_projection(t_j, pars_i, pars_ij):
 
     Returns phase probability, gamma natural parameters for mutation age
     """
-    a_i, b_i = map(float, pars_i)  # oracle: float
-    y_ij, mu_ij = map(float, pars_ij)  # oracle: float
+    a_i, b_i = map(float, pars_i)
+    y_ij, mu_ij = map(float, pars_ij)
     a_i += 1
 
     mn_m, va_m = mutation_rootward_moments(t_j, a_i, b_i, y_ij, mu_ij)
@@ -874,9 +872,9 @@ def mutation_unphased_projection(pars_i, pars_j, pars_ij):
 
     Returns phase probability, gamma natural parameters for mutation age
     """
-    a_i, b_i = map(float, pars_i)  # oracle: float
-    a_j, b_j = map(float, pars_j)  # oracle: float
-    y_ij, mu_ij = map(float, pars_ij)  # oracle: float
+    a_i, b_i = map(float, pars_i)
+    a_j, b_j = map(float, pars_j)
+    y_ij, mu_ij = map(float, pars_ij)
     a_i += 1
     a_j += 1
 
@@ -899,8 +897,8 @@ def mutation_twin_projection(pars_i, pars_ij):
 
     Returns phase probability, gamma natural parameters for mutation age
     """
-    a_i, b_i = map(float, pars_i)  # oracle: float
-    y_ij, mu_ij = map(float, pars_ij)  # oracle: float
+    a_i, b_i = map(float, pars_i)
+    y_ij, mu_ij = map(float, pars_ij)
     a_i += 1
 
     pr_m, mn_m, va_m = mutation_twin_moments(a_i, b_i, y_ij, mu_ij)
@@ -923,8 +921,8 @@ def mutation_sideways_projection(t_i, pars_j, pars_ij):
 
     Returns phase probability, gamma natural parameters for mutation age
     """
-    a_j, b_j = map(float, pars_j)  # oracle: float
-    y_ij, mu_ij = map(float, pars_ij)  # oracle: float
+    a_j, b_j = map(float, pars_j)
+    y_ij, mu_ij = map(float, pars_ij)
     a_j += 1
 
     pr_m, mn_m, va_m = mutation_sideways_moments(t_i, a_j, b_j, y_ij, mu_ij)

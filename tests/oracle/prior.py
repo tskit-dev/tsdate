@@ -15,7 +15,7 @@ def _marginalize_over_ancestors(val):
     pr_a_ln = [np.nan, np.nan, 0.0]  # log Pr(a | k, n)
     out = np.zeros((n + 1, N))
     for k in range(n - 1, 1, -1):
-        # oracle: `np.log(0)` at k == 2 warns (divide by zero) here; C is silent
+        # `np.log(0)` at k == 2 warns (divide by zero) here; C is silent
         # and the value is unused for k == 2, so suppress the warning locally.
         with np.errstate(divide="ignore"):
             const = np.log(n - k) + np.log(k - 2) - np.log(k + 1)

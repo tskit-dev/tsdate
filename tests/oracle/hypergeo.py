@@ -5,12 +5,12 @@ from math import pi
 import numpy as np
 import scipy.special
 
-# oracle: plain `math` raises on log(0), exp overflow etc., where C gives -inf, inf or
+# Plain `math` raises on log(0), exp overflow etc., where C gives -inf, inf or
 # nan; `_libm` gives the C results.
-# oracle: C computes `x ** n` for integer constants `n` by repeated squaring, whereas
+# C computes `x ** n` for integer constants `n` by repeated squaring, whereas
 # CPython calls libm pow, which differs by an ulp in a few percent of cases; `ipow`
-# squares (see `_libm.ipow`). Lines that use it are marked.
-# oracle: NumPy ufuncs on Python floats return `np.float64`, so a following division
+# squares (see `_libm.ipow`).
+# NumPy ufuncs on Python floats return `np.float64`, so a following division
 # by zero (e.g. `pi / tan(0)`) gives inf with a warning instead of the
 # ZeroDivisionError that stands for the library's TSD_ERR_ZERO_DIVISION; and NumPy's
 # SIMD loops may differ from libm. Logs, tangents, sines and powers are the `_libm`
@@ -18,7 +18,7 @@ import scipy.special
 from ._libm import erf, exp, ipow, lgamma, log, pow, sin, sqrt, tan  # noqa: A004
 
 
-# oracle: the C library calls SciPy's Cython gammaincinv, which is
+# The C library calls SciPy's Cython gammaincinv, which is
 # `scipy.special.gammaincinv`. The ufunc returns an `np.float64`, which is converted
 # so that callers divide by it with Python semantics (ZeroDivisionError).
 def _gammainc_inv(a, x):
@@ -36,16 +36,16 @@ def _digamma(x):
         return -np.euler_gamma - (1 / x)
     if x < 8.5:
         return _digamma(1 + x) - 1 / x
-    xpm2 = 1 / ipow(x, 2)  # oracle: ipow
+    xpm2 = 1 / ipow(x, 2)
     return (
         log(x)
         - 0.5 / x
         - 0.083333333333333333 * xpm2
-        + 0.008333333333333333 * ipow(xpm2, 2)  # oracle: ipow
-        - 0.003968253968253968 * ipow(xpm2, 3)  # oracle: ipow
-        + 0.004166666666666667 * ipow(xpm2, 4)  # oracle: ipow
-        - 0.007575757575757576 * ipow(xpm2, 5)  # oracle: ipow
-        + 0.021092796092796094 * ipow(xpm2, 6)  # oracle: ipow
+        + 0.008333333333333333 * ipow(xpm2, 2)
+        - 0.003968253968253968 * ipow(xpm2, 3)
+        + 0.004166666666666667 * ipow(xpm2, 4)
+        - 0.007575757575757576 * ipow(xpm2, 5)
+        + 0.021092796092796094 * ipow(xpm2, 6)
     )
 
 
@@ -54,15 +54,13 @@ def _trigamma(x):
     Trigamma function, from asymptotic series expansion
     """
     if x <= 0.0:
-        return -_trigamma(1 - x) + ipow(np.pi, 2) / ipow(
-            sin(np.pi * x), 2
-        )  # oracle: ipow
+        return -_trigamma(1 - x) + ipow(np.pi, 2) / ipow(sin(np.pi * x), 2)
     if x <= 1e-4:
-        return 1 / ipow(x, 2)  # oracle: ipow
+        return 1 / ipow(x, 2)
     if x < 5:
-        return _trigamma(1 + x) + 1 / ipow(x, 2)  # oracle: ipow
+        return _trigamma(1 + x) + 1 / ipow(x, 2)
     xpm1 = 1 / x
-    xpm2 = 1 / ipow(x, 2)  # oracle: ipow
+    xpm2 = 1 / ipow(x, 2)
     return xpm1 * (
         1.000000000000000000
         + 0.500000000000000000 * xpm1
@@ -94,8 +92,8 @@ def _hyperu_laplace(a, b, x):
     assert x > 0.0
 
     t = b - x - 1
-    u = 2 * a / (sqrt(ipow(t, 2) + 4 * x * a) - t)  # oracle: ipow
-    r = (b - a - 1) * ipow(u, 2) + a * ipow(1 + u, 2)  # oracle: ipow
+    u = 2 * a / (sqrt(ipow(t, 2) + 4 * x * a) - t)
+    r = (b - a - 1) * ipow(u, 2) + a * ipow(1 + u, 2)
     g = (b - a) * log(1 + u) + a * (1 + log(u)) - x * u - log(a) * (a - 1 / 2)
 
     w = (b - 1) * u + a
@@ -121,8 +119,8 @@ def _hyp1f1_laplace(a, b, x):
         return 0.0
 
     t = x - b
-    u = 2 * a / (sqrt(ipow(t, 2) + 4 * x * a) - t)  # oracle: ipow
-    r = ipow(u, 2) * b / a + ipow(1 - u, 2) * b / (b - a)  # oracle: ipow
+    u = 2 * a / (sqrt(ipow(t, 2) + 4 * x * a) - t)
+    r = ipow(u, 2) * b / a + ipow(1 - u, 2) * b / (b - a)
     g = (
         (b - a) * log(1 - u)
         + a * log(u)
@@ -187,14 +185,14 @@ def _hyp2f1_laplace(a, b, c, x):
         return s + _hyp2f1_unity(a, b, c, x)
 
     t = x * (b - a) - c
-    u = sqrt(ipow(t, 2) - 4 * a * x * (c - b)) - t  # oracle: ipow
+    u = sqrt(ipow(t, 2) - 4 * a * x * (c - b)) - t
     y = 2 * a / u
 
     assert 0 < y < 1, "Root on boundary"
 
-    yy = ipow(y, 2) / a  # oracle: ipow
-    my = ipow(1 - y, 2) / (c - a)  # oracle: ipow
-    ymy = ipow(x, 2) * b * yy * my / ipow(1 - x * y, 2)  # oracle: ipow
+    yy = ipow(y, 2) / a
+    my = ipow(1 - y, 2) / (c - a)
+    ymy = ipow(x, 2) * b * yy * my / ipow(1 - x * y, 2)
     r = yy + my - ymy
     f = (
         (c - 1 / 2) * log(c)
@@ -235,7 +233,7 @@ def _gammainc_der(p, x):
     if p > plimit:  # gaussian approximation
         pn1 = 3 * sqrt(p) * (pow(x / p, 1 / 3) + 1 / (9 * p) - 1)
         grad = pn1 / (2 * p) - 1 / sqrt(p) * (pow(x / p, 1 / 3) + 1 / (3 * p))
-        grad *= 1 / sqrt(2 * pi) * exp(-(ipow(pn1, 2)) / 2)  # oracle: ipow
+        grad *= 1 / sqrt(2 * pi) * exp(-(ipow(pn1, 2)) / 2)
         value = (1 + erf(pn1 / sqrt(2))) / 2
         return grad
 
@@ -246,7 +244,7 @@ def _gammainc_der(p, x):
         a = p
         while True:
             a += 1.0
-            dc = -c * x / ipow(a, 2) + dc * x / a  # oracle: ipow
+            dc = -c * x / ipow(a, 2) + dc * x / a
             c *= x / a
             value += c
             grad += dc
@@ -280,7 +278,7 @@ def _gammainc_der(p, x):
             dpn6 = b * dpn4 - pn4 - an * dpn2 + c * pn2
             if pn6 != 0.0:
                 rn = pn5 / pn6
-                grad = (dpn5 * pn6 - pn5 * dpn6) / ipow(pn6, 2)  # oracle: ipow
+                grad = (dpn5 * pn6 - pn5 * dpn6) / ipow(pn6, 2)
                 if abs(value - rn) <= min(tol, tol * rn):
                     break
                 value = rn

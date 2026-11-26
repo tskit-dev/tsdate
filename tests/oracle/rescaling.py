@@ -5,7 +5,7 @@ from math import inf
 import numpy as np
 import tskit
 
-# oracle: plain `math.log` raises on 0, where C gives -inf; C sums sequentially,
+# Plain `math.log` raises on 0, where C gives -inf; C sums sequentially,
 # whereas numpy sums pairwise (`seq_sum`).
 from ._libm import log, seq_sum
 from .approx import approximate_gamma_iqr
@@ -270,9 +270,9 @@ def mutational_timescale(
     for i, j in zip(changepoints[:-1], changepoints[1:]):
         assert j > i
         # TODO: when changepoint intersects a fixed node?
-        n = seq_sum(offset[i:j])  # oracle: seq_sum
-        y = seq_sum(counts[i:j])  # oracle: seq_sum
-        z = seq_sum(duration[i:j])  # oracle: seq_sum
+        n = seq_sum(offset[i:j])
+        y = seq_sum(counts[i:j])
+        z = seq_sum(duration[i:j])
         assert n > 0, "Zero edge span in interval"
         adjust[k + 1] = z * y / n
         k += 1
@@ -347,7 +347,7 @@ def piecewise_scale_posterior(
     # reproject posteriors using inter-quantile range
     new_posteriors = np.full(posteriors.shape, np.nan)
     for i in np.flatnonzero(freed):
-        # oracle: the library reports a float division by zero here (as
+        # The library reports a float division by zero here (as
         # `ZeroDivisionError` in the oracle), where numpy scalars give inf.
         # `approximate_gamma_iqr` divides by its `x1` argument (`x2 / x1`, or `... / x`
         # in `upper_bound`) in every branch that doesn't raise earlier, so a zero lower
@@ -357,7 +357,7 @@ def piecewise_scale_posterior(
         alpha, beta = approximate_gamma_iqr(
             quant_lower, quant_upper, lower[i], upper[i], max_shape
         )
-        if midpt[i] == 0.0:  # oracle: as above
+        if midpt[i] == 0.0:
             raise ZeroDivisionError("division by zero")
         beta = (alpha + 1) / midpt[i]  # choose rate so as to keep mean
         new_posteriors[i] = alpha, beta
