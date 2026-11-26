@@ -83,32 +83,6 @@ class TestScalarErrors:
         assert math.isnan(_tsdate.gammainc_inv(math.nan, 0.5))
 
 
-class TestGammaincInv:
-    """
-    ``gammainc_inv`` is a port of SciPy's ``gammaincinv``, identical to
-    ``scipy.special.gammaincinv``, including outside the domain.
-    """
-
-    @pytest.mark.parametrize(
-        ("a", "q"),
-        [
-            (0.5, 0.3),
-            (2.0, 0.9),
-            (1e5, 1e-10),
-            (1e-3, 0.99),
-            (2.0, 0.0),
-            (2.0, 1.0),
-            (-1.0, 0.5),
-            (2.0, 1.5),
-            (math.nan, 0.5),
-        ],
-    )
-    def test_matches_scipy(self, a, q):
-        actual = _tsdate.gammainc_inv(a, q)
-        expected = scipy.special.gammaincinv(a, q)
-        assert actual == expected or (math.isnan(actual) and math.isnan(expected))
-
-
 class TestScipyDependency:
     def test_import_without_scipy(self):
         code = (

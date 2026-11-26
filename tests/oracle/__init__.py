@@ -13,7 +13,9 @@ Rules:
   C library. Where plain Python semantics differ from C (e.g. division by zero
   raising instead of giving inf/nan, numpy scalar semantics), a comment explains the
   compensation, once in the module header where it applies throughout.
-* Oracles call other oracles, never ``_tsdate``.
+* Oracles call other oracles, never ``_tsdate``, except for ``gammaincinv``
+  (``hypergeo._gammainc_inv``), which they take from the C library as they take libm,
+  and which is compared with SciPy instead.
 * Names and signatures are those of ``tsdate``'s functions of the same names, where
   they exist.
 """

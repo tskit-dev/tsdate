@@ -8,9 +8,13 @@ branch switch); grids and seeded random draws cover the interior and extreme ran
 Accuracy of the approximations is measured in ``evaluation/numerical_accuracy.py``.
 """
 
+import math
+import platform
+
 import _tsdate
 import numpy as np
 import pytest
+import scipy.special
 from oracle import hypergeo
 from oracle._libm import lgamma, log
 from oracle.helpers import (
@@ -30,7 +34,6 @@ C_FUNCTIONS = {
     "_trigamma": _tsdate.trigamma,
     "_betaln": _tsdate.betaln,
     "_gammainc_der": _tsdate.gammainc_der,
-    "_gammainc_inv": _tsdate.gammainc_inv,
     "_hyperu_laplace": _tsdate.hyperu_laplace,
     "_hyp1f1_laplace": _tsdate.hyp1f1_laplace,
     "_hyp2f1_laplace": _tsdate.hyp2f1_laplace,
@@ -303,18 +306,48 @@ def gammainc_inv_random():
     return np.concatenate(shapes), np.concatenate(quantiles)
 
 
+def scipy_gammaincinv(a, q):
+    """
+    scipy.special.gammaincinv inside the domain of the C library's port (0 < a < inf,
+    0 <= q <= 1, with q = 0 and q = 1 giving 0 and inf for any a >= 0); NaN outside it
+    """
+    if not (a >= 0 and 0 <= q <= 1):
+        return math.nan
+    if q == 0:
+        return 0.0
+    if q == 1:
+        return math.inf
+    if a == 0 or math.isinf(a):
+        return math.nan
+    return float(scipy.special.gammaincinv(a, q))
+
+
+# SciPy's wheels for x86-64 compute gammaincinv without fused multiply-adds, as the C
+# library does, so the two agree exactly; wheels for other architectures (e.g. arm64
+# macOS, built with clang) may fuse them, which changes results by up to about 1e-12
+# relative.
+GAMMAINCINV_EXACT = platform.machine().lower() in ("x86_64", "amd64")
+
+
+def assert_matches_scipy(actual, desired):
+    if GAMMAINCINV_EXACT:
+        assert_same_values(actual, desired)
+    else:
+        np.testing.assert_allclose(actual, desired, rtol=1e-11, atol=0, equal_nan=True)
+
+
 class TestGammaincInv:
     """
-    `_gammainc_inv` is SciPy's ``gammaincinv`` (cephes ``igami``) inside the domain,
-    of which the C library's is a port; checked exactly, including the edges of the
-    domain and outside it (NaN, with no exception).
+    The C library's gammaincinv is a port of SciPy's (cephes ``igami``): compared with
+    ``scipy.special.gammaincinv`` inside the domain, including its edges, and NaN
+    outside it.
     """
 
     @pytest.mark.parametrize(("a", "q"), gammainc_inv_grid(), ids=repr)
-    def test_matches_oracle(self, a, q):
-        parity("_gammainc_inv", (a, q))
+    def test_matches_scipy(self, a, q):
+        assert_matches_scipy(_tsdate.gammainc_inv(a, q), scipy_gammaincinv(a, q))
 
-    def test_matches_oracle_random(self):
+    def test_matches_scipy_random(self):
         """
         Seeded draws of log-uniform shapes with quantiles that are uniform, tiny, close
         to one (the complemented inversion), special values or outside [0, 1], and of
@@ -322,8 +355,8 @@ class TestGammaincInv:
         """
         shapes, quantiles = gammainc_inv_random()
         actual = [_tsdate.gammainc_inv(a, q) for a, q in zip(shapes, quantiles)]
-        desired = [hypergeo._gammainc_inv(a, q) for a, q in zip(shapes, quantiles)]
-        assert_same_values(np.array(actual), np.array(desired))
+        desired = [scipy_gammaincinv(a, q) for a, q in zip(shapes, quantiles)]
+        assert_matches_scipy(np.array(actual), np.array(desired))
 
 
 HYPERU_DOMAIN = [
@@ -602,12 +635,6 @@ def draw_gammainc_der(rng, extreme):
     return log_uniform(rng, -1, 3.5), log_uniform(rng, -3, 4)
 
 
-def draw_gammainc_inv(rng, extreme):
-    if extreme:
-        return log_uniform(rng, -8, 8), float(rng.uniform(0, 1))
-    return log_uniform(rng, -1, 3), float(rng.uniform(0.001, 0.999))
-
-
 def draw_hyperu(rng, extreme):
     # requires b >= a > 0 and x > 0
     if extreme:
@@ -654,7 +681,6 @@ DRAWS = {
     "_trigamma": draw_polygamma,
     "_betaln": draw_betaln,
     "_gammainc_der": draw_gammainc_der,
-    "_gammainc_inv": draw_gammainc_inv,
     "_hyperu_laplace": draw_hyperu,
     "_hyp1f1_laplace": draw_hyp1f1,
     "_hyp2f1_laplace": draw_hyp2f1,
