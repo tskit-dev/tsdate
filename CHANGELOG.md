@@ -11,9 +11,12 @@ In development
   diagnostics are superseded by the scripts in `evaluation/`, the AFS diagnostics
   moved to `evaluation/afs.py`, and the polytomy test helpers to `tests/`.
 
+- A slight adjustement in the default timeslices used for the discrete-time method: see
+  https://github.com/tskit-dev/tsdate/pull/233 for a rationale.
+
 **Bugfixes**
 
-- Removed an assertion in `split_disjoint_nodes` that is not guarenteed
+- Removed an assertion in `split_disjoint_nodes` that is not guaranteed
   to hold since table sorting changes the order of mutations in tskit 1.0.0 onwards
 
 ## [0.2.6] - 2026-03-06
