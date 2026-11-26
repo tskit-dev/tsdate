@@ -121,17 +121,15 @@ def _rescale(x, s):
     return 1.0
 
 
-def _check_valid_constraints(constraints, edges_parent, edges_child):
-    # Check that upper-bound on node age is greater than maximum lower-bound
-    # for ages of descendants
+def _constraints_are_consistent(constraints, edges_parent, edges_child):
+    """
+    Whether the upper bound on each node's age is at least the maximum lower bound of
+    its descendants' ages.
+    """
     lower_max = constraints[:, LOWER].copy()
     for p, c in zip(edges_parent, edges_child):
         lower_max[p] = max(lower_max[c], lower_max[p])
-    if np.any(lower_max > constraints[:, UPPER]):
-        raise ValueError(
-            "Node age constraints are inconsistent, some descendants have"
-            " lower bounds that exceed upper bounds of their ancestors."
-        )
+    return not np.any(lower_max > constraints[:, UPPER])
 
 
 def propagate_likelihood(

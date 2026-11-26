@@ -81,9 +81,8 @@ extern "C" {
 #define TSD_ERR_INVALID_MIN_STEP                                    -31
 #define TSD_ERR_INVALID_NODE_POSTERIOR                              -32
 #define TSD_ERR_INVALID_DAMPING                                     -33
-#define TSD_ERR_INCONSISTENT_CONSTRAINTS                            -34
-#define TSD_ERR_TWIN_EDGE_IN_PHASED_PASS                            -35
-#define TSD_ERR_NONPOSITIVE_PENALTY                                 -36
+#define TSD_ERR_TWIN_EDGE_IN_PHASED_PASS                            -34
+#define TSD_ERR_NONPOSITIVE_PENALTY                                 -35
 /* clang-format on */
 
 #ifdef __GNUC__

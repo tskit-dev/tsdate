@@ -121,16 +121,16 @@ class TestFactors:
         assert np.array_equal(f[0][:, 0, 0], [2.0, 3.0, 4.0])
 
 
-class TestCheckValidConstraints:
+class TestConstraintsAreConsistent:
     def test_columns(self):
         with pytest.raises(ValueError, match="two columns"):
-            _tsdate.check_valid_constraints(
+            _tsdate.constraints_are_consistent(
                 np.zeros((3, 3)), np.zeros(0, np.int32), np.zeros(0, np.int32)
             )
 
     def test_edge_sizes(self):
         with pytest.raises(ValueError, match="same size"):
-            _tsdate.check_valid_constraints(
+            _tsdate.constraints_are_consistent(
                 np.zeros((3, 2)), np.zeros(2, np.int32), np.zeros(1, np.int32)
             )
 
@@ -300,7 +300,7 @@ class TestArgumentParsing:
         [
             "rescale_factors",
             "assemble_factors",
-            "check_valid_constraints",
+            "constraints_are_consistent",
             "propagate_likelihood",
             "propagate_prior",
             "propagate_mutations",
@@ -310,9 +310,9 @@ class TestArgumentParsing:
         with pytest.raises(TypeError):
             getattr(_tsdate, name)()
 
-    def test_check_valid_constraints_wrong_dtype(self):
+    def test_constraints_are_consistent_wrong_dtype(self):
         with pytest.raises(TypeError):
-            _tsdate.check_valid_constraints(
+            _tsdate.constraints_are_consistent(
                 np.zeros((3, 2)), np.zeros(0, np.int64), np.zeros(0, np.int32)
             )
 

@@ -1,7 +1,7 @@
 """
 Equivalence of the C implementation of ``tsdate.variational`` with its oracle: the
 EP helpers (``EPFactors``, ``_damp``, ``_rescale``, ``_rescale_factors``,
-``_check_valid_constraints``) and the passes ``propagate_likelihood``,
+``_constraints_are_consistent``) and the passes ``propagate_likelihood``,
 ``propagate_prior`` and ``propagate_mutations``, plus whole sweeps.
 
 Inputs are snapshots of real EP state (``oracle.ep_state``) on the session fixtures,
@@ -11,6 +11,7 @@ Where the C library reports a division by zero and the oracle does not raise, th
 implementation alone is checked.
 """
 
+import re
 from functools import partial
 
 import numpy as np
@@ -36,6 +37,7 @@ from tsdate.variational import (
     MIXPRIOR,
     TINY,
     UPPER,
+    ExpectationPropagation,
 )
 
 up = np.nextafter
@@ -281,7 +283,7 @@ class TestRescale:
             impl.variational._rescale(f64(0, 1), 0.5)
 
 
-class TestCheckValidConstraints:
+class TestConstraintsAreConsistent:
     @staticmethod
     def check(impl, constraints, parents, children, valid):
         args = (
@@ -289,13 +291,9 @@ class TestCheckValidConstraints:
             np.array(parents, dtype=np.int32),
             np.array(children, dtype=np.int32),
         )
-        func = impl.variational._check_valid_constraints
-        result = compare(func, variational._check_valid_constraints, *args)
-        if valid:
-            assert result.exception is None
-        else:
-            assert kind(result) is ValueError
-            assert str(result.exception) == INCONSISTENT_MESSAGE
+        func = impl.variational._constraints_are_consistent
+        result = compare(func, variational._constraints_are_consistent, *args)
+        assert result.value is valid
 
     @pytest.mark.parametrize(
         ("constraints", "parents", "children", "valid"),
@@ -345,6 +343,13 @@ class TestCheckValidConstraints:
         constraints[p, UPPER] = 500.0 if gap == "equal" else up(500.0, 0.0)
         valid = gap == "equal"
         self.check(impl, constraints, snap.edge_parents, snap.edge_children, valid)
+
+    def test_production_raises(self):
+        constraints = np.array([[10.0, 10.0], [0.0, 0.0]])
+        edge = np.array([1], dtype=np.int32), np.array([0], dtype=np.int32)
+        check = ExpectationPropagation._check_valid_constraints
+        with pytest.raises(ValueError, match=re.escape(INCONSISTENT_MESSAGE)):
+            check(constraints, *edge)
 
 
 class TestPropagateLikelihoodBranches:

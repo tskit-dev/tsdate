@@ -243,7 +243,7 @@ def _c_variational(_tsdate):
         _assemble_factors=assemble_factors,
         _damp=damp,
         _rescale=rescale,
-        _check_valid_constraints=_tsdate.check_valid_constraints,
+        _constraints_are_consistent=_tsdate.constraints_are_consistent,
         propagate_likelihood=propagate_likelihood,
         propagate_prior=propagate_prior,
         propagate_mutations=propagate_mutations,

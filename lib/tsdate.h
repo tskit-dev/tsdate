@@ -321,9 +321,9 @@ int tsd_damp(const double x[2], const double y[2], double s, double *out);
 /* The factor that brings the shape of `x` between 1 / s and s; `s` is `max_shape`. */
 int tsd_rescale(const double x[2], double s, double *out);
 /* `constraints` has num_nodes x 2 entries (lower and upper bound). */
-int tsd_check_valid_constraints(tsd_size_t num_nodes, tsd_size_t num_edges,
-    const double *constraints, const tsd_id_t *edges_parent,
-    const tsd_id_t *edges_child);
+int tsd_constraints_are_consistent(tsd_size_t num_nodes, tsd_size_t num_edges,
+    const double *constraints, const tsd_id_t *edges_parent, const tsd_id_t *edges_child,
+    int *consistent);
 /*
  * Update the factors of the edges (blocks of unphased singletons, if `unphased`),
  * visited in the given order. `edges_parent`, `edges_child` and `likelihoods` (two

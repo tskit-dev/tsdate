@@ -140,10 +140,6 @@ tsd_strerror(int err)
         case TSD_ERR_INVALID_DAMPING:
             ret = "The damping factor is not greater than zero and at most one";
             break;
-        case TSD_ERR_INCONSISTENT_CONSTRAINTS:
-            ret = "Node age constraints are inconsistent, some descendants have"
-                  " lower bounds that exceed upper bounds of their ancestors.";
-            break;
         case TSD_ERR_TWIN_EDGE_IN_PHASED_PASS:
             ret = "An edge with the same parent and child can only be updated in an "
                   "unphased pass";

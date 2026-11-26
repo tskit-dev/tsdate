@@ -1923,15 +1923,16 @@ out:
     return ret;
 }
 
-/* check_valid_constraints(constraints, edges_parent, edges_child) */
+/* constraints_are_consistent(constraints, edges_parent, edges_child) -> bool */
 static PyObject *
-tsdate_check_valid_constraints(PyObject *Py_UNUSED(self), PyObject *args)
+tsdate_constraints_are_consistent(PyObject *Py_UNUSED(self), PyObject *args)
 {
     PyObject *ret = NULL;
     PyObject *obj[3];
     PyArrayObject *constraints = NULL;
     PyArrayObject *edges_parent = NULL;
     PyArrayObject *edges_child = NULL;
+    int consistent = 0;
     int err;
 
     if (!PyArg_ParseTuple(args, "OOO", &obj[0], &obj[1], &obj[2])) {
@@ -1952,15 +1953,14 @@ tsdate_check_valid_constraints(PyObject *Py_UNUSED(self), PyObject *args)
         goto out;
     }
     Py_BEGIN_ALLOW_THREADS
-    err = tsd_check_valid_constraints(ARRAY_LEN(constraints), ARRAY_LEN(edges_parent),
-        DOUBLES(constraints), IDS(edges_parent), IDS(edges_child));
+    err = tsd_constraints_are_consistent(ARRAY_LEN(constraints), ARRAY_LEN(edges_parent),
+        DOUBLES(constraints), IDS(edges_parent), IDS(edges_child), &consistent);
     Py_END_ALLOW_THREADS
     if (err != 0) {
         handle_library_error(err);
         goto out;
     }
-    ret = Py_None;
-    Py_INCREF(ret);
+    ret = PyBool_FromLong(consistent);
 out:
     Py_XDECREF(constraints);
     Py_XDECREF(edges_parent);
@@ -2252,8 +2252,8 @@ static PyMethodDef tsdate_methods[] = {
         "Multiply the EP factors by the node scales, in place." },
     { "assemble_factors", (PyCFunction) tsdate_assemble_factors, METH_VARARGS,
         "The node posteriors implied by the EP factors." },
-    { "check_valid_constraints", (PyCFunction) tsdate_check_valid_constraints,
-        METH_VARARGS, "Check that node age constraints are consistent with the edges." },
+    { "constraints_are_consistent", (PyCFunction) tsdate_constraints_are_consistent,
+        METH_VARARGS, "Whether node age constraints are consistent with the edges." },
     { "propagate_likelihood", (PyCFunction) tsdate_propagate_likelihood, METH_VARARGS,
         "Update the factors of the edge likelihoods, in place." },
     { "propagate_prior", (PyCFunction) tsdate_propagate_prior, METH_VARARGS,

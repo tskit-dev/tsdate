@@ -220,12 +220,13 @@ out:
 }
 
 /*
- * Check that the upper bound on node age is greater than the maximum lower bound for
- * ages of descendants.
+ * Whether the upper bound on each node's age is at least the maximum lower bound of
+ * its descendants' ages. Writes 1 to `consistent` if so, 0 if not.
  */
 int
-tsd_check_valid_constraints(tsd_size_t num_nodes, tsd_size_t num_edges,
-    const double *constraints, const tsd_id_t *edges_parent, const tsd_id_t *edges_child)
+tsd_constraints_are_consistent(tsd_size_t num_nodes, tsd_size_t num_edges,
+    const double *constraints, const tsd_id_t *edges_parent, const tsd_id_t *edges_child,
+    int *consistent)
 {
     int ret = 0;
     double *lower_max = NULL;
@@ -245,10 +246,11 @@ tsd_check_valid_constraints(tsd_size_t num_nodes, tsd_size_t num_edges,
         c = edges_child[j];
         lower_max[p] = tsd_max(lower_max[c], lower_max[p]);
     }
+    *consistent = 1;
     for (j = 0; j < num_nodes; j++) {
         if (lower_max[j] > constraints[2 * j + UPPER]) {
-            ret = tsd_trace_error(TSD_ERR_INCONSISTENT_CONSTRAINTS);
-            goto out;
+            *consistent = 0;
+            break;
         }
     }
 out:

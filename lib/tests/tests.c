@@ -55,8 +55,7 @@ test_strerror(void)
         TSD_ERR_TIME_BELOW_FIRST_BREAKPOINT, TSD_ERR_NO_POSTERIORS,
         TSD_ERR_INVALID_MAX_SHAPE, TSD_ERR_INVALID_MIN_STEP,
         TSD_ERR_INVALID_NODE_POSTERIOR, TSD_ERR_INVALID_DAMPING,
-        TSD_ERR_INCONSISTENT_CONSTRAINTS, TSD_ERR_TWIN_EDGE_IN_PHASED_PASS,
-        TSD_ERR_NONPOSITIVE_PENALTY };
+        TSD_ERR_TWIN_EDGE_IN_PHASED_PASS, TSD_ERR_NONPOSITIVE_PENALTY };
     const int num_codes = (int) (sizeof(codes) / sizeof(codes[0]));
     const char *msg_i;
     const char *msg_j;
@@ -1283,18 +1282,26 @@ test_rescale_and_assemble_factors(void)
 }
 
 static void
-test_check_valid_constraints(void)
+test_constraints_are_consistent(void)
 {
     const tsd_id_t parent[2] = { 1, 2 };
     const tsd_id_t child[2] = { 0, 1 };
     const double valid[6] = { 0, 0, 1, 5, 2, INFINITY };
     const double invalid[6] = { 3, 3, 1, 2, 2, INFINITY };
+    int consistent;
 
-    CU_ASSERT_EQUAL(tsd_check_valid_constraints(3, 2, valid, parent, child), 0);
-    CU_ASSERT_EQUAL(tsd_check_valid_constraints(3, 0, valid, parent, child), 0);
-    CU_ASSERT_EQUAL(tsd_check_valid_constraints(3, 2, invalid, parent, child),
-        TSD_ERR_INCONSISTENT_CONSTRAINTS);
-    CU_ASSERT_EQUAL(tsd_check_valid_constraints(0, 0, valid, parent, child), 0);
+    CU_ASSERT_EQUAL(
+        tsd_constraints_are_consistent(3, 2, valid, parent, child, &consistent), 0);
+    CU_ASSERT_EQUAL(consistent, 1);
+    CU_ASSERT_EQUAL(
+        tsd_constraints_are_consistent(3, 0, valid, parent, child, &consistent), 0);
+    CU_ASSERT_EQUAL(consistent, 1);
+    CU_ASSERT_EQUAL(
+        tsd_constraints_are_consistent(3, 2, invalid, parent, child, &consistent), 0);
+    CU_ASSERT_EQUAL(consistent, 0);
+    CU_ASSERT_EQUAL(
+        tsd_constraints_are_consistent(0, 0, valid, parent, child, &consistent), 0);
+    CU_ASSERT_EQUAL(consistent, 1);
 }
 
 /* The branches of an EP pass: fixed child, fixed parent, free, both fixed. */
@@ -1498,7 +1505,7 @@ main(int argc, char **argv)
         { "test_piecewise_scale_posterior", test_piecewise_scale_posterior },
         { "test_damp_and_rescale", test_damp_and_rescale },
         { "test_rescale_and_assemble_factors", test_rescale_and_assemble_factors },
-        { "test_check_valid_constraints", test_check_valid_constraints },
+        { "test_constraints_are_consistent", test_constraints_are_consistent },
         { "test_propagate_likelihood", test_propagate_likelihood },
         { "test_propagate_prior", test_propagate_prior },
         { "test_propagate_mutations", test_propagate_mutations },

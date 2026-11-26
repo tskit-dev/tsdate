@@ -149,10 +149,11 @@ class ExpectationPropagation:
     def _check_valid_constraints(constraints, edges_parent, edges_child):
         # Check that upper-bound on node age is greater than maximum lower-bound
         # for ages of descendants
-        try:
-            _tsdate.check_valid_constraints(constraints, edges_parent, edges_child)
-        except _tsdate.LibraryError as e:
-            raise ValueError(str(e)) from None
+        if not _tsdate.constraints_are_consistent(constraints, edges_parent, edges_child):
+            raise ValueError(
+                "Node age constraints are inconsistent, some descendants have"
+                " lower bounds that exceed upper bounds of their ancestors."
+            )
 
     @staticmethod
     def _check_valid_inputs(ts, mutation_rate, allow_unary):
