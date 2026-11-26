@@ -23,8 +23,9 @@
  */
 
 /*
- * Smoke tests for the low-level tsdate API. These check return codes and
- * memory handling only; numerical correctness is tested from Python.
+ * Smoke tests for the low-level tsdate API: return codes, error paths and memory
+ * handling, with coarse sanity checks of results (finite, NaN, simple values).
+ * Numerical correctness is tested from Python.
  */
 
 #include <math.h>
@@ -104,12 +105,6 @@ test_safe_free(void)
     /* Freeing twice is harmless */
     tsd_safe_free(x);
     CU_ASSERT_PTR_NULL(x);
-}
-
-static void
-test_bug_assert_passes(void)
-{
-    tsd_bug_assert(1 + 1 == 2);
 }
 
 static void
@@ -1442,7 +1437,6 @@ main(int argc, char **argv)
         { "test_strerror_unknown", test_strerror_unknown },
         { "test_trace_error", test_trace_error },
         { "test_safe_free", test_safe_free },
-        { "test_bug_assert_passes", test_bug_assert_passes },
         { "test_polygamma", test_polygamma },
         { "test_polygamma_poles", test_polygamma_poles },
         { "test_betaln", test_betaln },

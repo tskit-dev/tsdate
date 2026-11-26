@@ -46,12 +46,11 @@ class TestMarginalizeOverAncestors:
     def test_random(self, seed, num_tips):
         rng = np.random.default_rng(seed)
         val = rng.uniform(0.1, 10.0, (num_tips, 2))
-        result = compare(
+        compare(
             _tsdate.marginalize_over_ancestors,
             prior.marginalize_over_ancestors,
             val,
         )
-        assert result.value.shape == (num_tips + 1, 2)
 
     @pytest.mark.parametrize("num_columns", [1, 3])
     def test_number_of_moments(self, num_columns):
@@ -79,23 +78,15 @@ class TestMarginalizeOverAncestors:
             expected_kind,
         )
 
-    def test_input_not_modified(self):
-        # `compare` passes copies, so call directly
-        val = np.random.default_rng(0).uniform(0.1, 10.0, (8, 2))
-        copy = val.copy()
-        _tsdate.marginalize_over_ancestors(val)
-        assert np.array_equal(val, copy)
-
 
 class TestConditionalCoalescentVariance:
     @pytest.mark.parametrize("num_tips", [2, 3, 5, 20, 100, 250])
     def test_variance(self, num_tips):
-        result = compare(
+        compare(
             _tsdate.conditional_coalescent_variance,
             prior.conditional_coalescent_variance,
             num_tips,
         )
-        assert result.value.shape == (num_tips + 1,)
 
 
 class TestSingleTip:

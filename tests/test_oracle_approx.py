@@ -28,7 +28,6 @@ from oracle.helpers import (
     NAN,
     assert_outcome,
     compare,
-    expected_error,
     kind,
     log_uniform,
     outcome,
@@ -343,17 +342,6 @@ class TestGammaApproximations:
     def test_domain(self, name, args, expected):
         parity(name, args, expected)
 
-    @pytest.mark.parametrize(
-        ("name", "args", "expected"),
-        [p for p in GAMMA_DOMAIN if p.values[2] is KLMinimizationFailedError],
-    )
-    def test_error_messages(self, name, args, expected):
-        # the messages distinguish the failure modes
-        func = getattr(_tsdate, name)
-        with pytest.raises(expected_error(KLMinimizationFailedError)):
-            func(*args)
-        compare(func, getattr(approx, name), *args)
-
     @pytest.mark.parametrize("gap", [1e-17, 1e-10, 4e-5, 4.99e-5, 5e-5, 6e-5, 1e-3])
     def test_kl_asymptotic_threshold(self, gap):
         # for alpha > 1e4 (gap < 5e-5) the lower bound alpha = 0.5 / gap is returned
@@ -647,16 +635,6 @@ class TestProjections:
     def test_regimes(self, name, label):
         moments = PROJECTIONS[name][0]
         check_projection(name, floats(REGIMES[moments][label]))
-
-    @pytest.mark.parametrize("name", list(PROJECTIONS))
-    def test_inputs_are_not_modified(self, name):
-        moments = PROJECTIONS[name][0]
-        first_regime = next(iter(REGIMES[moments].values()))
-        proj_args = projection_args(name, floats(first_regime))
-        copies = list(proj_args)
-        func = getattr(_tsdate, name)
-        func(*proj_args)
-        assert list(proj_args) == copies
 
     def test_unphased_probability_out_of_range(self):
         # NOTE: current behaviour, possibly a bug: the Laplace

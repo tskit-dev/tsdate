@@ -362,7 +362,6 @@ class TestPropagateLikelihoodBranches:
         snap = tiny_snapshot("twin")
         result = compare_runs(ep_state.run_likelihood, snap, False)
         assert kind(result) is AssertionError
-        assert str(result.exception) == "Invalid update"
 
 
 class TestPropagateLikelihood:

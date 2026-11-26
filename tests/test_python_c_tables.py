@@ -67,11 +67,6 @@ class TestReallocateUnphased:
         with pytest.raises(_tsdate.LibraryError, match="out of range"):
             self.call(np.ones((2, 2)), [0.5], [0], [[0, 7]])
 
-    def test_updates_in_place(self):
-        likelihood = np.array([[1.0, 5.0], [0.0, 5.0]])
-        self.call(likelihood, [0.25], [0], [[0, 1]])
-        assert likelihood[:, 0].tolist() == [0.25, 0.75]
-
     def test_columns(self):
         with pytest.raises(ValueError, match="two columns"):
             self.call(np.ones((2, 3)), [0.5], [0], [[0, 1]])

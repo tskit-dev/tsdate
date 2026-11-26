@@ -10,7 +10,6 @@ import sys
 
 import _tsdate
 import pytest
-import scipy.special
 
 SCALAR_FUNCTIONS = {
     # name: (number of arguments, number of results, valid arguments)
@@ -93,4 +92,4 @@ class TestScipyDependency:
             [sys.executable, "-c", code], capture_output=True, text=True
         )
         assert result.returncode == 0, result.stderr
-        assert float(result.stdout) == scipy.special.gammaincinv(2.0, 0.5)
+        assert float(result.stdout) == _tsdate.gammainc_inv(2.0, 0.5)

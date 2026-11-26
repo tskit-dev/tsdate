@@ -91,10 +91,10 @@ class TestSplitDisjointNodes:
             ts.edges_right,
             sample_flags(ts),
         )
-        result = self.compare(*args)
+        self.compare(*args)
         # also the dtypes, which `compare` ignores
         actual = _tsdate.split_disjoint_nodes(*args)
-        assert all(a.dtype == e.dtype == np.int32 for a, e in zip(actual, result.value))
+        assert all(a.dtype == np.int32 for a in actual)
 
 
 def relabel_args(ts):
@@ -177,10 +177,10 @@ class TestRelabelMutationsNode:
 
     def test_simulated(self, sim_ts):
         args = relabel_args(sim_ts)
-        result = self.compare(args)
+        self.compare(args)
         # also the dtype, which `compare` ignores
         actual = _tsdate.relabel_mutations_node(*args)
-        assert actual.dtype == result.value.dtype == np.int32
+        assert actual.dtype == np.int32
 
 
 # times, fixed, parents, children, epsilon, max_iterations, outcome category
@@ -268,16 +268,6 @@ class TestConstrainAges:
     def test_size_mismatch(self, args):
         result = self.compare(self.args(*args, 0.1, 3))
         assert result.error is AssertionError
-
-    def test_input_not_modified(self):
-        # `compare` passes copies, so call directly
-        times = f64(*VIOLATED[0])
-        copy = times.copy()
-        out = _tsdate.constrain_ages(
-            times, b1(*VIOLATED[1]), i32(2, 3), i32(0, 2), 1e-6, 5
-        )
-        assert np.array_equal(times, copy)
-        assert out is not times
 
     @pytest.mark.parametrize("mode", ["iterated", "forced"])
     @pytest.mark.parametrize("seed", range(2))

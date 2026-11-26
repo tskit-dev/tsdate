@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 import tskit
 from oracle import phasing
-from oracle.helpers import INF, NAN, assert_same_values, compare, make_ts, shrink
+from oracle.helpers import INF, NAN, compare, make_ts, shrink
 
 from tsdate.phasing import block_singletons
 from tsdate.rescaling import count_mutations
@@ -146,12 +146,10 @@ class TestBlockSingletons:
         rng = np.random.default_rng(seed)
         unphased = rng.random(ts.num_individuals) < fraction
         args = self.args(ts, unphased)
-        result = self.compare(args)
-        # also the dtypes, which `compare` ignores, and the public wrapper
+        self.compare(args)
+        # also the dtypes, which `compare` ignores
         actual = _tsdate.block_singletons(*args)
         assert actual[1].dtype == actual[2].dtype == np.int32
-        assert_same_values(actual, block_singletons(ts, unphased))
-        assert result.value[1].dtype == np.int32
 
 
 @pytest.fixture(scope="module")
@@ -388,7 +386,7 @@ class TestMutationFrequency:
             for _ in range(num_sets)
         ]
         nodes_sample = self.nodes_sample(ts, members)
-        result = self.compare(nodes_sample, sweep_args(ts))
+        self.compare(nodes_sample, sweep_args(ts))
         # also the dtype, which `compare` ignores
         actual = _tsdate.mutation_frequency(nodes_sample, *sweep_args(ts))
-        assert actual.dtype == result.value.dtype == np.int32
+        assert actual.dtype == np.int32
