@@ -1653,7 +1653,7 @@ class TestConstrainAges:
         ts = msprime.sim_mutations(ts, rate=1e-8, random_seed=1)
         sample_data = tsinfer.SampleData.from_tree_sequence(ts)
         inf_ts = tsinfer.infer(sample_data).simplify()
-        rng = np.random.default_rng()
+        rng = np.random.default_rng(1)
         noise = rng.uniform(0, 0.1, size=inf_ts.num_nodes)
         nodes_time = inf_ts.nodes_time + noise
         eps = 1e-6
