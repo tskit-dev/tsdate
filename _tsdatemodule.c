@@ -741,8 +741,9 @@ tsdate_block_singletons(PyObject *Py_UNUSED(self), PyObject *args)
         goto out;
     }
     Py_BEGIN_ALLOW_THREADS
-    err = tsd_block_singletons(ARRAY_SIZE(arrays[0]), ARRAY_SIZE(arrays[4]),
-        ARRAY_SIZE(arrays[2]), (const uint8_t *) PyArray_DATA(arrays[0]),
+    err = tsd_block_singletons(ARRAY_SIZE(arrays[1]), ARRAY_SIZE(arrays[0]),
+        ARRAY_SIZE(arrays[4]), ARRAY_SIZE(arrays[2]),
+        (const uint8_t *) PyArray_DATA(arrays[0]),
         (const tsd_id_t *) PyArray_DATA(arrays[1]),
         (const tsd_id_t *) PyArray_DATA(arrays[2]),
         (const double *) PyArray_DATA(arrays[3]),
@@ -1182,10 +1183,6 @@ tsdate_marginalize_over_ancestors(PyObject *Py_UNUSED(self), PyObject *args)
     if (val_array == NULL) {
         goto out;
     }
-    if (ARRAY_DIM(val_array, 0) < 2) {
-        PyErr_SetString(PyExc_ValueError, "At least two tips are required");
-        goto out;
-    }
     dims[0] = PyArray_DIM(val_array, 0) + 1;
     dims[1] = PyArray_DIM(val_array, 1);
     output = PyArray_SimpleNew(2, dims, NPY_FLOAT64);
@@ -1222,8 +1219,8 @@ tsdate_conditional_coalescent_variance(PyObject *Py_UNUSED(self), PyObject *args
     if (!PyArg_ParseTuple(args, "n", &num_tips)) {
         goto out;
     }
-    if (num_tips < 1) {
-        PyErr_SetString(PyExc_ValueError, "The number of tips must be positive");
+    if (num_tips < 0) {
+        PyErr_SetString(PyExc_ValueError, "The number of tips must be non-negative");
         goto out;
     }
     dims[0] = (npy_intp) num_tips + 1;
@@ -1662,9 +1659,8 @@ tsdate_piecewise_scale_point_estimate(PyObject *Py_UNUSED(self), PyObject *args)
         != 0) {
         goto out;
     }
-    if (check_sizes(ARRAY_LEN(original_breaks) == ARRAY_LEN(rescaled_breaks)
-                        && ARRAY_LEN(original_breaks) > 0,
-            "Breakpoints must be non-empty and of the same size")
+    if (check_sizes(ARRAY_LEN(original_breaks) == ARRAY_LEN(rescaled_breaks),
+            "Breakpoints must be of the same size")
         != 0) {
         goto out;
     }
@@ -1726,9 +1722,8 @@ tsdate_piecewise_scale_posterior(PyObject *Py_UNUSED(self), PyObject *args)
         != 0) {
         goto out;
     }
-    if (check_sizes(ARRAY_LEN(original_breaks) == ARRAY_LEN(rescaled_breaks)
-                        && ARRAY_LEN(original_breaks) > 0,
-            "Breakpoints must be non-empty and of the same size")
+    if (check_sizes(ARRAY_LEN(original_breaks) == ARRAY_LEN(rescaled_breaks),
+            "Breakpoints must be of the same size")
         != 0) {
         goto out;
     }

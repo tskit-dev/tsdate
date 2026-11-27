@@ -59,12 +59,12 @@ class TestReallocateUnphased:
             np.array(blocks_edges, dtype=np.int32).reshape(-1, 2),
         )
 
-    def test_block_out_of_range(self):
-        with pytest.raises(_tsdate.LibraryError, match="out of range"):
+    def test_block_out_of_bounds(self):
+        with pytest.raises(_tsdate.LibraryError, match="out of bounds"):
             self.call(np.ones((2, 2)), [0.5], [1], [[0, 1]])
 
-    def test_edge_out_of_range(self):
-        with pytest.raises(_tsdate.LibraryError, match="out of range"):
+    def test_edge_out_of_bounds(self):
+        with pytest.raises(_tsdate.LibraryError, match="out of bounds"):
             self.call(np.ones((2, 2)), [0.5], [0], [[0, 7]])
 
     def test_columns(self):
@@ -125,13 +125,16 @@ class TestUtil:
 
 class TestPrior:
     def test_marginalize_over_ancestors_one_tip(self):
-        with pytest.raises(ValueError, match="At least two"):
+        with pytest.raises(_tsdate.LibraryError, match="Too few tips"):
             _tsdate.marginalize_over_ancestors(np.ones((1, 2)))
 
-    @pytest.mark.parametrize("num_tips", [0, -1])
-    def test_variance_no_tips(self, num_tips):
-        with pytest.raises(ValueError, match="positive"):
-            _tsdate.conditional_coalescent_variance(num_tips)
+    def test_variance_no_tips(self):
+        with pytest.raises(_tsdate.LibraryError, match="Too few tips"):
+            _tsdate.conditional_coalescent_variance(0)
+
+    def test_variance_negative_tips(self):
+        with pytest.raises(ValueError, match="non-negative"):
+            _tsdate.conditional_coalescent_variance(-1)
 
     def test_variance_one_tip(self):
         # the result is unused by tsdate

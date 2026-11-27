@@ -233,6 +233,10 @@ tsd_constraints_are_consistent(tsd_size_t num_nodes, tsd_size_t num_edges,
     tsd_size_t j;
     tsd_id_t p, c;
 
+    ret = tsd_check_edges(num_nodes, num_edges, edges_parent, edges_child);
+    if (ret != 0) {
+        goto out;
+    }
     lower_max = malloc((num_nodes > 0 ? num_nodes : 1) * sizeof(*lower_max));
     if (lower_max == NULL) {
         ret = tsd_trace_error(TSD_ERR_NO_MEMORY);

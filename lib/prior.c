@@ -55,7 +55,10 @@ tsd_marginalize_over_ancestors(
     tsd_size_t k, a, j;
     double dk, dnk, dnak, weight, constant;
 
-    tsd_bug_assert(num_tips >= 2);
+    if (num_tips < 2) {
+        ret = tsd_trace_error(TSD_ERR_TOO_FEW_TIPS);
+        goto out;
+    }
     pr_a_ln = malloc((n + 1) * sizeof(*pr_a_ln));
     if (pr_a_ln == NULL) {
         ret = tsd_trace_error(TSD_ERR_NO_MEMORY);
@@ -111,7 +114,10 @@ tsd_conditional_coalescent_variance(tsd_size_t num_tips, double *variance_out)
     tsd_size_t i, n;
     double rate;
 
-    tsd_bug_assert(num_tips >= 1);
+    if (num_tips < 1) {
+        ret = tsd_trace_error(TSD_ERR_TOO_FEW_TIPS);
+        goto out;
+    }
     n = num_tips;
     if (n == 1) {
         variance_out[0] = 0.0;

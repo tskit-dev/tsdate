@@ -178,12 +178,29 @@ int tsd_mutation_block_projection(
  * coalescent prior (prior.c). Flags are arrays of uint8_t (numpy bool); the arrays
  * of the edges are those of a tree sequence, with the indexes of the insertion and
  * removal orders. Results of unknown size are allocated by the function and freed by
- * the caller.
+ * the caller. Ids out of bounds, edges that a sweep over the trees cannot traverse
+ * (tsd_check_edge_sweep) and edges that form a cycle are errors.
  */
 int tsd_argsort(tsd_size_t num_items, const double *keys, tsd_id_t *order);
 
-int tsd_block_singletons(tsd_size_t num_individuals, tsd_size_t num_edges,
-    tsd_size_t num_mutations, const uint8_t *individuals_unphased,
+/* `err` unless every id is in [0, bound), or TSD_NULL if `allow_null`. */
+int tsd_check_ids(
+    tsd_size_t num_ids, const tsd_id_t *ids, tsd_size_t bound, int allow_null, int err);
+/* TSD_ERR_NODE_OUT_OF_BOUNDS unless the parent and child of every edge are nodes. */
+int tsd_check_edges(tsd_size_t num_nodes, tsd_size_t num_edges,
+    const tsd_id_t *edges_parent, const tsd_id_t *edges_child);
+/*
+ * The conditions under which a sweep over the trees terminates: every edge satisfies
+ * 0 <= left < right <= sequence_length (TSD_ERR_BAD_EDGE_INTERVAL), and the insertion
+ * and removal indexes each list every edge once (TSD_ERR_EDGE_OUT_OF_BOUNDS,
+ * TSD_ERR_BAD_EDGE_INDEXES), in order of left and right position respectively.
+ */
+int tsd_check_edge_sweep(tsd_size_t num_edges, const double *edges_left,
+    const double *edges_right, const tsd_id_t *indexes_insert,
+    const tsd_id_t *indexes_remove, double sequence_length);
+
+int tsd_block_singletons(tsd_size_t num_nodes, tsd_size_t num_individuals,
+    tsd_size_t num_edges, tsd_size_t num_mutations, const uint8_t *individuals_unphased,
     const tsd_id_t *nodes_individual, const tsd_id_t *mutations_node,
     const double *mutations_position, const tsd_id_t *edges_child,
     const double *edges_left, const double *edges_right, const tsd_id_t *indexes_insert,
@@ -219,10 +236,10 @@ int tsd_contains_unary_nodes(tsd_size_t num_nodes, tsd_size_t num_edges,
     const double *edges_right, const tsd_id_t *indexes_insert,
     const tsd_id_t *indexes_remove, double sequence_length, int *contains_unary);
 
-/* `val` has `num_tips` >= 2 rows; `out` has `num_tips + 1` rows. */
+/* `val` has `num_tips` rows, at least two; `out` has `num_tips + 1` rows. */
 int tsd_marginalize_over_ancestors(
     tsd_size_t num_tips, tsd_size_t num_moments, const double *val, double *out);
-/* `variance` has `num_tips + 1` entries; `num_tips` >= 1. */
+/* `variance` has `num_tips + 1` entries; there is at least one tip. */
 int tsd_conditional_coalescent_variance(tsd_size_t num_tips, double *variance);
 /*
  * Time rescaling (rescaling.c).

@@ -112,6 +112,113 @@ out:
     return ret;
 }
 
+int
+tsd_check_ids(
+    tsd_size_t num_ids, const tsd_id_t *ids, tsd_size_t bound, int allow_null, int err)
+{
+    tsd_size_t j;
+    tsd_id_t id;
+
+    for (j = 0; j < num_ids; j++) {
+        id = ids[j];
+        if (allow_null && id == TSD_NULL) {
+            continue;
+        }
+        if (id < 0 || (tsd_size_t) id >= bound) {
+            return tsd_trace_error(err);
+        }
+    }
+    return 0;
+}
+
+int
+tsd_check_edges(tsd_size_t num_nodes, tsd_size_t num_edges, const tsd_id_t *edges_parent,
+    const tsd_id_t *edges_child)
+{
+    int ret;
+
+    ret = tsd_check_ids(
+        num_edges, edges_parent, num_nodes, 0, TSD_ERR_NODE_OUT_OF_BOUNDS);
+    if (ret != 0) {
+        return ret;
+    }
+    return tsd_check_ids(
+        num_edges, edges_child, num_nodes, 0, TSD_ERR_NODE_OUT_OF_BOUNDS);
+}
+
+/* Whether each id in [0, num_edges) appears once in `index`. */
+static int
+is_permutation(tsd_size_t num_edges, const tsd_id_t *index, uint8_t *seen)
+{
+    tsd_size_t j;
+
+    memset(seen, 0, num_edges * sizeof(*seen));
+    for (j = 0; j < num_edges; j++) {
+        if (seen[index[j]]) {
+            return 0;
+        }
+        seen[index[j]] = 1;
+    }
+    return 1;
+}
+
+/* Whether `position[index[j]]` does not decrease with j. */
+static int
+is_sorted_by(tsd_size_t num_edges, const tsd_id_t *index, const double *position)
+{
+    tsd_size_t j;
+
+    for (j = 1; j < num_edges; j++) {
+        if (position[index[j]] < position[index[j - 1]]) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+int
+tsd_check_edge_sweep(tsd_size_t num_edges, const double *edges_left,
+    const double *edges_right, const tsd_id_t *indexes_insert,
+    const tsd_id_t *indexes_remove, double sequence_length)
+{
+    int ret = 0;
+    uint8_t *seen = NULL;
+    tsd_size_t e;
+
+    for (e = 0; e < num_edges; e++) {
+        if (!(edges_left[e] >= 0 && edges_left[e] < edges_right[e]
+                && edges_right[e] <= sequence_length)) {
+            ret = tsd_trace_error(TSD_ERR_BAD_EDGE_INTERVAL);
+            goto out;
+        }
+    }
+    ret = tsd_check_ids(
+        num_edges, indexes_insert, num_edges, 0, TSD_ERR_EDGE_OUT_OF_BOUNDS);
+    if (ret != 0) {
+        goto out;
+    }
+    ret = tsd_check_ids(
+        num_edges, indexes_remove, num_edges, 0, TSD_ERR_EDGE_OUT_OF_BOUNDS);
+    if (ret != 0) {
+        goto out;
+    }
+    seen = malloc(num_edges > 0 ? num_edges : 1);
+    if (seen == NULL) {
+        ret = tsd_trace_error(TSD_ERR_NO_MEMORY);
+        goto out;
+    }
+    if (!is_permutation(num_edges, indexes_insert, seen)
+        || !is_permutation(num_edges, indexes_remove, seen)
+        || !is_sorted_by(num_edges, indexes_insert, edges_left)
+        || !is_sorted_by(num_edges, indexes_remove, edges_right)) {
+        ret = tsd_trace_error(TSD_ERR_BAD_EDGE_INDEXES);
+        goto out;
+    }
+out:
+    tsd_safe_free(seen);
+    return ret;
+}
+
 /*
  * Label the disconnected segments of each non-excluded node along its edges: the
  * segment of an edge increases when the edge starts after the previous edges of the
@@ -192,6 +299,10 @@ tsd_split_disjoint_nodes(tsd_size_t num_nodes, tsd_size_t num_edges,
     tsd_size_t j, side, k, total, next;
     tsd_id_t s, n, segment, e;
 
+    ret = tsd_check_edges(num_nodes, num_edges, edges_parent, edges_child);
+    if (ret != 0) {
+        goto out;
+    }
     edges_segments = malloc((2 * num_edges + 1) * sizeof(*edges_segments));
     nodes_segments = malloc((num_nodes > 0 ? num_nodes : 1) * sizeof(*nodes_segments));
     nodes_map = malloc((num_nodes > 0 ? num_nodes : 1) * sizeof(*nodes_map));
@@ -279,6 +390,25 @@ tsd_relabel_mutations_node(tsd_size_t num_nodes, tsd_size_t num_edges,
     tsd_id_t e, c, p;
     double left, right, sequence_length;
 
+    ret = tsd_check_edges(num_nodes, num_edges, edges_parent, edges_child);
+    if (ret != 0) {
+        goto out;
+    }
+    ret = tsd_check_ids(
+        num_nodes, nodes_order, num_nodes, 0, TSD_ERR_NODE_OUT_OF_BOUNDS);
+    if (ret != 0) {
+        goto out;
+    }
+    ret = tsd_check_ids(
+        num_mutations, mutations_node, num_nodes, 0, TSD_ERR_NODE_OUT_OF_BOUNDS);
+    if (ret != 0) {
+        goto out;
+    }
+    ret = tsd_check_edge_sweep(
+        num_edges, edges_left, edges_right, insert_index, remove_index, INFINITY);
+    if (ret != 0) {
+        goto out;
+    }
     nodes_map = malloc((num_nodes > 0 ? num_nodes : 1) * sizeof(*nodes_map));
     if (nodes_map == NULL) {
         ret = tsd_trace_error(TSD_ERR_NO_MEMORY);
@@ -371,6 +501,10 @@ tsd_constrain_ages(tsd_size_t num_nodes, tsd_size_t num_edges, const double *nod
     double adjustment;
     double *cavity;
 
+    ret = tsd_check_edges(num_nodes, num_edges, edges_parent, edges_child);
+    if (ret != 0) {
+        goto out;
+    }
     edges_cavity = calloc(2 * num_edges + 1, sizeof(*edges_cavity));
     if (edges_cavity == NULL) {
         ret = tsd_trace_error(TSD_ERR_NO_MEMORY);
@@ -459,6 +593,16 @@ tsd_contains_unary_nodes(tsd_size_t num_nodes, tsd_size_t num_edges,
     tsd_id_t p;
     double left, right;
 
+    ret = tsd_check_ids(
+        num_edges, edges_parent, num_nodes, 0, TSD_ERR_NODE_OUT_OF_BOUNDS);
+    if (ret != 0) {
+        goto out;
+    }
+    ret = tsd_check_edge_sweep(num_edges, edges_left, edges_right, indexes_insert,
+        indexes_remove, sequence_length);
+    if (ret != 0) {
+        goto out;
+    }
     nodes_children = calloc(num_nodes > 0 ? num_nodes : 1, sizeof(*nodes_children));
     if (nodes_children == NULL) {
         ret = tsd_trace_error(TSD_ERR_NO_MEMORY);

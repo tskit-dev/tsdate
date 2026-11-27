@@ -367,15 +367,19 @@ out:
  * its child `c`, and to every ancestor of `p`, in proportion to the number of
  * samples below `c`; and update the sample counts of the ancestors.
  */
-static void
-count_update_ancestors(tsd_id_t e, tsd_id_t p, tsd_id_t c, double sign, double remainder,
-    const tsd_id_t *nodes_edge, const tsd_id_t *nodes_parent, double *nodes_samples,
-    double *edges_stats)
+static int
+count_update_ancestors(tsd_size_t num_nodes, tsd_id_t e, tsd_id_t p, tsd_id_t c,
+    double sign, double remainder, const tsd_id_t *nodes_edge,
+    const tsd_id_t *nodes_parent, double *nodes_samples, double *edges_stats)
 {
     tsd_id_t next_e, next_p;
+    tsd_size_t depth = 0;
     double span;
 
     while (p != NO_ID) {
+        if (depth == num_nodes) {
+            return tsd_trace_error(TSD_ERR_EDGES_FORM_CYCLE);
+        }
         span = nodes_samples[c] * remainder;
         edges_stats[2 * (tsd_size_t) e + 1] += sign * span;
         nodes_samples[p] += sign * nodes_samples[c];
@@ -383,7 +387,9 @@ count_update_ancestors(tsd_id_t e, tsd_id_t p, tsd_id_t c, double sign, double r
         next_p = nodes_parent[p];
         e = next_e;
         p = next_p;
+        depth++;
     }
+    return 0;
 }
 
 int
@@ -404,6 +410,20 @@ tsd_count_mutations(tsd_size_t num_nodes, const uint8_t *node_is_sample,
     tsd_id_t e, p, c, m;
     double left, right, remainder, edge_position;
 
+    ret = tsd_check_edges(num_nodes, num_edges, edges_parent, edges_child);
+    if (ret != 0) {
+        goto out;
+    }
+    ret = tsd_check_ids(
+        num_mutations, mutations_node, num_nodes, 0, TSD_ERR_NODE_OUT_OF_BOUNDS);
+    if (ret != 0) {
+        goto out;
+    }
+    ret = tsd_check_edge_sweep(num_edges, edges_left, edges_right, indexes_insert,
+        indexes_remove, sequence_length);
+    if (ret != 0) {
+        goto out;
+    }
     mutation_order = malloc((num_mutations + 1) * sizeof(*mutation_order));
     nodes_samples = malloc((num_nodes + 1) * sizeof(*nodes_samples));
     nodes_edge = malloc((num_nodes + 1) * sizeof(*nodes_edge));
@@ -441,8 +461,10 @@ tsd_count_mutations(tsd_size_t num_nodes, const uint8_t *node_is_sample,
             nodes_edge[c] = NO_ID;
             nodes_parent[c] = NO_ID;
             if (size_biased) {
-                count_update_ancestors(e, p, c, -1.0, remainder, nodes_edge,
-                    nodes_parent, nodes_samples, edges_stats);
+                ret = count_update_ancestors(num_nodes, e, p, c, -1.0, remainder,
+                    nodes_edge, nodes_parent, nodes_samples, edges_stats);
+                /* A cycle is found when the edge that closes it is inserted */
+                tsd_bug_assert(ret == 0);
             } else {
                 edges_stats[2 * (tsd_size_t) e + 1] -= remainder;
             }
@@ -457,8 +479,11 @@ tsd_count_mutations(tsd_size_t num_nodes, const uint8_t *node_is_sample,
             nodes_edge[c] = e;
             nodes_parent[c] = p;
             if (size_biased) {
-                count_update_ancestors(e, p, c, 1.0, remainder, nodes_edge, nodes_parent,
-                    nodes_samples, edges_stats);
+                ret = count_update_ancestors(num_nodes, e, p, c, 1.0, remainder,
+                    nodes_edge, nodes_parent, nodes_samples, edges_stats);
+                if (ret != 0) {
+                    goto out;
+                }
             } else {
                 edges_stats[2 * (tsd_size_t) e + 1] += remainder;
             }
@@ -515,6 +540,10 @@ tsd_mutational_area(tsd_size_t num_nodes, const double *nodes_time, tsd_size_t n
     tsd_id_t p, c, node, previous;
     double length, edge_count, edge_span;
 
+    ret = tsd_check_edges(num_nodes, num_edges, edges_parent, edges_child);
+    if (ret != 0) {
+        goto out;
+    }
     order = malloc((num_nodes + 1) * sizeof(*order));
     epoch_breaks = malloc((num_nodes + 1) * sizeof(*epoch_breaks));
     if (order == NULL || epoch_breaks == NULL) {
@@ -762,7 +791,10 @@ tsd_piecewise_scale_point_estimate(tsd_size_t num_points, const double *point_es
     int64_t idx;
     double x;
 
-    tsd_bug_assert(num_breaks > 0);
+    if (num_breaks == 0) {
+        ret = tsd_trace_error(TSD_ERR_NO_BREAKPOINTS);
+        goto out;
+    }
     if (!is_increasing(num_breaks, rescaled_breaks)
         || !is_increasing(num_breaks, original_breaks)) {
         ret = tsd_trace_error(TSD_ERR_NON_INCREASING_BREAKPOINTS);
@@ -818,7 +850,10 @@ tsd_piecewise_scale_posterior(tsd_size_t num_posteriors, const double *posterior
     double alpha, beta, quant_lower, quant_upper, new_beta;
     double gamma_pars[2];
 
-    tsd_bug_assert(num_breaks > 0);
+    if (num_breaks == 0) {
+        ret = tsd_trace_error(TSD_ERR_NO_BREAKPOINTS);
+        goto out;
+    }
     if (!(quantile_width < 1 && quantile_width > 0)) {
         ret = tsd_trace_error(TSD_ERR_INVALID_QUANTILE_WIDTH);
         goto out;

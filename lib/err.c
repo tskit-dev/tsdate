@@ -84,8 +84,8 @@ tsd_strerror(int err)
             ret = "An unphased individual does not have exactly two edges over each "
                   "of its blocks";
             break;
-        case TSD_ERR_BLOCK_OUT_OF_RANGE:
-            ret = "A block or an edge of a block is out of range";
+        case TSD_ERR_BLOCK_OUT_OF_BOUNDS:
+            ret = "Block id, or an edge of a block, out of bounds";
             break;
         case TSD_ERR_PHASE_OUT_OF_RANGE:
             ret = "The phase of a mutation is not between zero and one";
@@ -146,6 +146,30 @@ tsd_strerror(int err)
             break;
         case TSD_ERR_NONPOSITIVE_PENALTY:
             ret = "The fitted regularisation penalty is not positive";
+            break;
+        case TSD_ERR_NODE_OUT_OF_BOUNDS:
+            ret = "Node id out of bounds";
+            break;
+        case TSD_ERR_EDGE_OUT_OF_BOUNDS:
+            ret = "Edge id out of bounds";
+            break;
+        case TSD_ERR_INDIVIDUAL_OUT_OF_BOUNDS:
+            ret = "Individual id out of bounds";
+            break;
+        case TSD_ERR_BAD_EDGE_INTERVAL:
+            ret = "Edge interval is empty or outside [0, sequence_length]";
+            break;
+        case TSD_ERR_BAD_EDGE_INDEXES:
+            ret = "Edge indexes must list every edge once, in order of position";
+            break;
+        case TSD_ERR_EDGES_FORM_CYCLE:
+            ret = "Edges form a cycle";
+            break;
+        case TSD_ERR_TOO_FEW_TIPS:
+            ret = "Too few tips";
+            break;
+        case TSD_ERR_NO_BREAKPOINTS:
+            ret = "No breakpoints";
             break;
         default:
             break;

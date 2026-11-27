@@ -31,7 +31,7 @@ def reallocate_unphased(edges_likelihood, mutations_phase, mutations_block, bloc
             continue
         i, j = blocks_edges[b]
         if not (tskit.NULL < i < num_edges and tskit.NULL < j < num_edges):
-            raise library_error(errors.BLOCK_OUT_OF_RANGE)
+            raise library_error(errors.BLOCK_OUT_OF_BOUNDS)
         assert edges_unphased[i]
         assert edges_unphased[j]
         if np.isnan(mutations_phase[m]):  # TODO: fix rare numerical issue

@@ -119,8 +119,8 @@ out:
  * caller frees them.
  */
 int
-tsd_block_singletons(tsd_size_t num_individuals, tsd_size_t num_edges,
-    tsd_size_t num_mutations, const uint8_t *individuals_unphased,
+tsd_block_singletons(tsd_size_t num_nodes, tsd_size_t num_individuals,
+    tsd_size_t num_edges, tsd_size_t num_mutations, const uint8_t *individuals_unphased,
     const tsd_id_t *nodes_individual, const tsd_id_t *mutations_node,
     const double *mutations_position, const tsd_id_t *edges_child,
     const double *edges_left, const double *edges_right, const tsd_id_t *indexes_insert,
@@ -142,6 +142,26 @@ tsd_block_singletons(tsd_size_t num_individuals, tsd_size_t num_edges,
     tsd_id_t m, i;
     double left, right;
 
+    ret = tsd_check_ids(num_nodes, nodes_individual, num_individuals, 1,
+        TSD_ERR_INDIVIDUAL_OUT_OF_BOUNDS);
+    if (ret != 0) {
+        goto out;
+    }
+    ret = tsd_check_ids(
+        num_edges, edges_child, num_nodes, 0, TSD_ERR_NODE_OUT_OF_BOUNDS);
+    if (ret != 0) {
+        goto out;
+    }
+    ret = tsd_check_ids(
+        num_mutations, mutations_node, num_nodes, 0, TSD_ERR_NODE_OUT_OF_BOUNDS);
+    if (ret != 0) {
+        goto out;
+    }
+    ret = tsd_check_edge_sweep(num_edges, edges_left, edges_right, indexes_insert,
+        indexes_remove, sequence_length);
+    if (ret != 0) {
+        goto out;
+    }
     indexes_mutation
         = malloc((num_mutations > 0 ? num_mutations : 1) * sizeof(tsd_id_t));
     individuals_edges = malloc(2 * num_ind * sizeof(*individuals_edges));
@@ -296,14 +316,14 @@ tsd_reallocate_unphased(tsd_size_t num_edges, tsd_size_t num_mutations,
             continue;
         }
         if (b < 0 || (tsd_size_t) b >= num_blocks) {
-            ret = tsd_trace_error(TSD_ERR_BLOCK_OUT_OF_RANGE);
+            ret = tsd_trace_error(TSD_ERR_BLOCK_OUT_OF_BOUNDS);
             goto out;
         }
         i = blocks_edges[2 * (tsd_size_t) b];
         k = blocks_edges[2 * (tsd_size_t) b + 1];
         if (i <= TSD_NULL || (tsd_size_t) i >= num_edges || k <= TSD_NULL
             || (tsd_size_t) k >= num_edges) {
-            ret = tsd_trace_error(TSD_ERR_BLOCK_OUT_OF_RANGE);
+            ret = tsd_trace_error(TSD_ERR_BLOCK_OUT_OF_BOUNDS);
             goto out;
         }
         phase = mutations_phase[m];
@@ -328,6 +348,31 @@ out:
 }
 
 /*
+ * Add (sign = 1) or subtract (sign = -1) the sample counts of node `c` to those of
+ * `p` and of every ancestor of `p`.
+ */
+static int
+update_ancestors(tsd_size_t num_nodes, tsd_size_t num_sample_sets, tsd_id_t p,
+    tsd_id_t c, int32_t sign, const tsd_id_t *nodes_parent, int32_t *nodes_samples)
+{
+    const tsd_size_t S = num_sample_sets;
+    tsd_size_t k, depth = 0;
+
+    while (p != TSD_NULL) {
+        if (depth == num_nodes) {
+            return tsd_trace_error(TSD_ERR_EDGES_FORM_CYCLE);
+        }
+        for (k = 0; k < S; k++) {
+            nodes_samples[(tsd_size_t) p * S + k]
+                += sign * nodes_samples[(tsd_size_t) c * S + k];
+        }
+        p = nodes_parent[p];
+        depth++;
+    }
+    return 0;
+}
+
+/*
  * For each mutation and each sample set, the number of members of the set below the
  * mutation's node in the tree at the mutation's position.
  */
@@ -348,6 +393,20 @@ tsd_mutation_frequency(tsd_size_t num_nodes, tsd_size_t num_sample_sets,
     tsd_id_t e, p, c, m;
     double left, right;
 
+    ret = tsd_check_edges(num_nodes, num_edges, edges_parent, edges_child);
+    if (ret != 0) {
+        goto out;
+    }
+    ret = tsd_check_ids(
+        num_mutations, mutations_node, num_nodes, 0, TSD_ERR_NODE_OUT_OF_BOUNDS);
+    if (ret != 0) {
+        goto out;
+    }
+    ret = tsd_check_edge_sweep(num_edges, edges_left, edges_right, indexes_insert,
+        indexes_remove, sequence_length);
+    if (ret != 0) {
+        goto out;
+    }
     indexes_mutation
         = malloc((num_mutations > 0 ? num_mutations : 1) * sizeof(tsd_id_t));
     nodes_parent = malloc((num_nodes > 0 ? num_nodes : 1) * sizeof(*nodes_parent));
@@ -380,13 +439,9 @@ tsd_mutation_frequency(tsd_size_t num_nodes, tsd_size_t num_sample_sets,
             p = edges_parent[e];
             c = edges_child[e];
             nodes_parent[c] = TSD_NULL;
-            while (p != TSD_NULL) {
-                for (k = 0; k < S; k++) {
-                    nodes_samples[(tsd_size_t) p * S + k]
-                        -= nodes_samples[(tsd_size_t) c * S + k];
-                }
-                p = nodes_parent[p];
-            }
+            ret = update_ancestors(num_nodes, S, p, c, -1, nodes_parent, nodes_samples);
+            /* A cycle is found when the edge that closes it is inserted */
+            tsd_bug_assert(ret == 0);
             b++;
         }
         while (a < num_edges && edges_left[indexes_insert[a]] == left) { /* in */
@@ -394,12 +449,9 @@ tsd_mutation_frequency(tsd_size_t num_nodes, tsd_size_t num_sample_sets,
             p = edges_parent[e];
             c = edges_child[e];
             nodes_parent[c] = p;
-            while (p != TSD_NULL) {
-                for (k = 0; k < S; k++) {
-                    nodes_samples[(tsd_size_t) p * S + k]
-                        += nodes_samples[(tsd_size_t) c * S + k];
-                }
-                p = nodes_parent[p];
+            ret = update_ancestors(num_nodes, S, p, c, 1, nodes_parent, nodes_samples);
+            if (ret != 0) {
+                goto out;
             }
             a++;
         }

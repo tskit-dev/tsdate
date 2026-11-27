@@ -10,7 +10,7 @@ import pytest
 import tskit
 from oracle import phasing
 from oracle.errors import (
-    BLOCK_OUT_OF_RANGE,
+    BLOCK_OUT_OF_BOUNDS,
     PHASE_OUT_OF_RANGE,
     UNPHASED_INDIVIDUAL_EDGES,
     UNPHASED_LIKELIHOOD_NOT_CONSERVED,
@@ -217,7 +217,7 @@ REALLOCATE_SMALL = [
         np.array([0.5]),
         np.array([0], dtype=np.int32),
         np.array([[0, -1]], dtype=np.int32),
-        BLOCK_OUT_OF_RANGE,
+        BLOCK_OUT_OF_BOUNDS,
         id="null_edge_in_block",
     ),
 ]

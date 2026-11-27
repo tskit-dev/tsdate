@@ -318,8 +318,10 @@ def piecewise_scale_posterior(
 
     if not (posteriors.shape[1] == 2 and posteriors_fixed.size == posteriors.shape[0]):
         raise ValueError("Posteriors must have two columns and one row per fixed flag")
-    if not (original_breaks.size == rescaled_breaks.size and original_breaks.size > 0):
-        raise ValueError("Breakpoints must be non-empty and of the same size")
+    if not (original_breaks.size == rescaled_breaks.size):
+        raise ValueError("Breakpoints must be of the same size")
+    if original_breaks.size == 0:
+        raise library_error(errors.NO_BREAKPOINTS)
     if not (1 > quantile_width > 0):
         raise library_error(errors.INVALID_QUANTILE_WIDTH)
 
@@ -393,6 +395,8 @@ def piecewise_scale_point_estimate(
     Node ages mapped piecewise linearly from ``original_breaks`` to
     ``rescaled_breaks``; ages where ``point_fixed`` are unchanged.
     """
+    if original_breaks.size == 0:
+        raise library_error(errors.NO_BREAKPOINTS)
     if not (
         np.all(np.diff(rescaled_breaks) > 0) and np.all(np.diff(original_breaks) > 0)
     ):

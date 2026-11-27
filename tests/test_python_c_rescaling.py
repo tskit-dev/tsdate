@@ -33,11 +33,11 @@ class TestArguments:
 
     def test_empty_breaks(self):
         empty = np.zeros(0)
-        with pytest.raises(ValueError, match="non-empty"):
+        with pytest.raises(_tsdate.LibraryError, match="No breakpoints"):
             _tsdate.piecewise_scale_point_estimate(
                 np.zeros(1), np.zeros(1, dtype=bool), empty, empty
             )
-        with pytest.raises(ValueError, match="non-empty"):
+        with pytest.raises(_tsdate.LibraryError, match="No breakpoints"):
             _tsdate.piecewise_scale_posterior(
                 np.ones((1, 2)), np.zeros(1, dtype=bool), empty, empty, 0.5, 1000.0
             )

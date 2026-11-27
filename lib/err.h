@@ -54,7 +54,7 @@
 
 /* phasing */
 #define TSD_ERR_UNPHASED_INDIVIDUAL_EDGES                           -16
-#define TSD_ERR_BLOCK_OUT_OF_RANGE                                  -17
+#define TSD_ERR_BLOCK_OUT_OF_BOUNDS                                  -17
 #define TSD_ERR_PHASE_OUT_OF_RANGE                                  -18
 #define TSD_ERR_UNPHASED_LIKELIHOOD_NOT_CONSERVED                   -19
 
@@ -79,6 +79,16 @@
 #define TSD_ERR_INVALID_DAMPING                                     -33
 #define TSD_ERR_TWIN_EDGE_IN_PHASED_PASS                            -34
 #define TSD_ERR_NONPOSITIVE_PENALTY                                 -35
+
+/* Arguments that a caller can get wrong */
+#define TSD_ERR_NODE_OUT_OF_BOUNDS                                  -36
+#define TSD_ERR_EDGE_OUT_OF_BOUNDS                                  -37
+#define TSD_ERR_INDIVIDUAL_OUT_OF_BOUNDS                            -38
+#define TSD_ERR_BAD_EDGE_INTERVAL                                   -39
+#define TSD_ERR_BAD_EDGE_INDEXES                                    -40
+#define TSD_ERR_EDGES_FORM_CYCLE                                    -41
+#define TSD_ERR_TOO_FEW_TIPS                                        -42
+#define TSD_ERR_NO_BREAKPOINTS                                      -43
 /* clang-format on */
 
 const char *tsd_strerror(int err);
