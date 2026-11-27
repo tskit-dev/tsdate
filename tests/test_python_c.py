@@ -9,10 +9,26 @@ import msprime
 import numpy as np
 import pytest
 
+import tsdate
+
 ERR_GENERIC = -1
 ERR_NO_MEMORY = -2
 ERR_BAD_PARAM = -3
 ERR_ZERO_DIVISION = -4
+ERR_UNSORTED_QUANTILES = -11
+ERR_UNPHASED_INDIVIDUAL_EDGES = -16
+ERR_BLOCK_OUT_OF_BOUNDS = -17
+ERR_PHASE_OUT_OF_RANGE = -18
+ERR_UNPHASED_LIKELIHOOD_NOT_CONSERVED = -19
+ERR_MUTATION_NODE_NOT_IN_TREE = -20
+ERR_FIXED_NODES_VIOLATE_CONSTRAINT = -21
+ERR_NONPOSITIVE_INTERVALS = -22
+ERR_ZERO_EDGE_SPAN = -24
+ERR_NON_INCREASING_BREAKPOINTS = -25
+ERR_INVALID_QUANTILE_WIDTH = -26
+ERR_INVALID_POSTERIOR = -27
+ERR_TIME_BELOW_FIRST_BREAKPOINT = -28
+ERR_NO_POSTERIORS = -29
 ERR_INVALID_MAX_SHAPE = -30
 ERR_INVALID_MIN_STEP = -31
 ERR_TWIN_EDGE_IN_PHASED_PASS = -34
@@ -625,3 +641,537 @@ class TestExpectationPropagationMethods:
         )
         with raises_library_error(ERR_ZERO_DIVISION):
             ep.propagate_likelihood(BLOCKS, True, 1000.0, 0.1)
+
+
+def sweep_kwargs(ts, parents=True):
+    """
+    The edge, index and mutation arrays of ``ts`` as keyword arguments
+    """
+    kwargs = {
+        "mutations_node": ts.mutations_node,
+        "mutations_position": ts.sites_position[ts.mutations_site],
+        "edges_parent": ts.edges_parent,
+        "edges_child": ts.edges_child,
+        "edges_left": ts.edges_left,
+        "edges_right": ts.edges_right,
+        "indexes_insert": ts.indexes_edge_insertion_order,
+        "indexes_remove": ts.indexes_edge_removal_order,
+    }
+    if not parents:
+        del kwargs["edges_parent"]
+    return kwargs
+
+
+EDGE_ARRAYS = ["edges_parent", "edges_child", "edges_left", "edges_right"]
+INDEXES = ["indexes_insert", "indexes_remove"]
+MUTATION_ARRAYS = ["mutations_node", "mutations_position"]
+
+
+def function_specs(ts):
+    """
+    For each function of the module that tsdate calls: valid keyword arguments, the
+    groups of arrays that must have the same length, and the arrays of two columns
+    """
+    samples = np.zeros(ts.num_nodes, dtype=bool)
+    samples[ts.samples()] = True
+    unphased = np.ones(ts.num_individuals, dtype=bool)
+    _, blocks_edges, mutations_block = tsdate.phasing.block_singletons(ts, unphased)
+    likelihood, _ = tsdate.rescaling.count_mutations(ts)
+    constraints = np.zeros((ts.num_nodes, 2))
+    constraints[:, 1] = np.inf
+    constraints[samples] = 0.0
+    breaks = np.array([0.0, 1.0, 10.0]), np.array([0.0, 2.0, 20.0])
+    posteriors = np.ones((ts.num_nodes, 2))
+    return {
+        "block_singletons": (
+            dict(
+                individuals_unphased=unphased,
+                nodes_individual=ts.nodes_individual,
+                **sweep_kwargs(ts, parents=False),
+                sequence_length=ts.sequence_length,
+            ),
+            [EDGE_ARRAYS[1:] + INDEXES, MUTATION_ARRAYS],
+            [],
+        ),
+        "reallocate_unphased": (
+            dict(
+                edges_likelihood=likelihood,
+                mutations_phase=np.full(ts.num_mutations, 0.5),
+                mutations_block=mutations_block,
+                blocks_edges=blocks_edges,
+            ),
+            [["mutations_phase", "mutations_block"]],
+            ["edges_likelihood", "blocks_edges"],
+        ),
+        "mutation_frequency": (
+            dict(
+                nodes_sample=samples[:, np.newaxis],
+                **sweep_kwargs(ts),
+                sequence_length=ts.sequence_length,
+            ),
+            [EDGE_ARRAYS + INDEXES, MUTATION_ARRAYS],
+            [],
+        ),
+        "split_disjoint_nodes": (
+            dict(
+                edges_parent=ts.edges_parent,
+                edges_child=ts.edges_child,
+                edges_left=ts.edges_left,
+                edges_right=ts.edges_right,
+                nodes_excluded=samples,
+            ),
+            [EDGE_ARRAYS],
+            [],
+        ),
+        "relabel_mutations_node": (
+            dict(
+                mutations_node=ts.mutations_node,
+                mutations_position=ts.sites_position[ts.mutations_site],
+                nodes_order=np.arange(ts.num_nodes, dtype=np.int32),
+                **{
+                    k: v
+                    for k, v in sweep_kwargs(ts).items()
+                    if k.startswith(("edges", "indexes"))
+                },
+            ),
+            [EDGE_ARRAYS + INDEXES, MUTATION_ARRAYS],
+            [],
+        ),
+        "constrain_ages": (
+            dict(
+                nodes_time=ts.nodes_time,
+                nodes_fixed=samples,
+                edges_parent=ts.edges_parent,
+                edges_child=ts.edges_child,
+                epsilon=1e-6,
+                max_iterations=2,
+            ),
+            [["nodes_time", "nodes_fixed"], ["edges_parent", "edges_child"]],
+            [],
+        ),
+        "contains_unary_nodes": (
+            dict(
+                nodes_mask=samples,
+                edges_parent=ts.edges_parent,
+                edges_left=ts.edges_left,
+                edges_right=ts.edges_right,
+                indexes_insert=ts.indexes_edge_insertion_order,
+                indexes_remove=ts.indexes_edge_removal_order,
+                sequence_length=ts.sequence_length,
+            ),
+            [["edges_parent", "edges_left", "edges_right"] + INDEXES],
+            [],
+        ),
+        "conditional_coalescent_variance": (dict(num_tips=5), [], []),
+        "count_mutations": (
+            dict(
+                nodes_sample=samples,
+                **sweep_kwargs(ts),
+                sequence_length=ts.sequence_length,
+                size_biased=True,
+            ),
+            [EDGE_ARRAYS + INDEXES, MUTATION_ARRAYS],
+            [],
+        ),
+        "mutational_area": (
+            dict(
+                nodes_time=ts.nodes_time,
+                edges_likelihood=likelihood,
+                edges_parent=ts.edges_parent,
+                edges_child=ts.edges_child,
+            ),
+            [["edges_parent", "edges_child", "edges_likelihood"]],
+            ["edges_likelihood"],
+        ),
+        "mutational_timescale": (
+            dict(
+                nodes_time=ts.nodes_time,
+                edges_likelihood=likelihood,
+                nodes_fixed=samples,
+                edges_parent=ts.edges_parent,
+                edges_child=ts.edges_child,
+                max_intervals=3,
+            ),
+            [
+                ["edges_parent", "edges_child", "edges_likelihood"],
+                ["nodes_time", "nodes_fixed"],
+            ],
+            ["edges_likelihood"],
+        ),
+        "piecewise_scale_point_estimate": (
+            dict(
+                point_estimate=ts.nodes_time,
+                point_fixed=samples,
+                original_breaks=breaks[0],
+                rescaled_breaks=breaks[1],
+            ),
+            [["point_estimate", "point_fixed"], ["original_breaks", "rescaled_breaks"]],
+            [],
+        ),
+        "piecewise_scale_posterior": (
+            dict(
+                posteriors=posteriors,
+                posteriors_fixed=samples,
+                original_breaks=breaks[0],
+                rescaled_breaks=breaks[1],
+                quantile_width=0.5,
+                max_shape=1000.0,
+            ),
+            [
+                ["posteriors", "posteriors_fixed"],
+                ["original_breaks", "rescaled_breaks"],
+            ],
+            ["posteriors"],
+        ),
+        "constraints_are_consistent": (
+            dict(
+                constraints=constraints,
+                edges_parent=ts.edges_parent,
+                edges_child=ts.edges_child,
+            ),
+            [["edges_parent", "edges_child"]],
+            ["constraints"],
+        ),
+    }
+
+
+FUNCTIONS = [
+    "block_singletons",
+    "reallocate_unphased",
+    "mutation_frequency",
+    "split_disjoint_nodes",
+    "relabel_mutations_node",
+    "constrain_ages",
+    "contains_unary_nodes",
+    "conditional_coalescent_variance",
+    "count_mutations",
+    "mutational_area",
+    "mutational_timescale",
+    "piecewise_scale_point_estimate",
+    "piecewise_scale_posterior",
+    "constraints_are_consistent",
+]
+
+
+@pytest.fixture(scope="module")
+def specs(ts):
+    return function_specs(ts)
+
+
+def array_arguments():
+    """
+    (function, argument) for every array argument
+    """
+    specs = function_specs(make_ts_for_specs())
+    return [
+        (name, arg)
+        for name in FUNCTIONS
+        for arg, value in specs[name][0].items()
+        if isinstance(value, np.ndarray)
+    ]
+
+
+def scalar_arguments():
+    """
+    (function, argument) for every numerical scalar argument (flags take any object,
+    as Python's truth values)
+    """
+    specs = function_specs(make_ts_for_specs())
+    return [
+        (name, arg)
+        for name in FUNCTIONS
+        for arg, value in specs[name][0].items()
+        if not isinstance(value, (np.ndarray, bool))
+    ]
+
+
+def make_ts_for_specs():
+    """
+    The tree sequence of the ``ts`` fixture, for parametrising tests
+    """
+    ts = msprime.sim_ancestry(
+        2,
+        sequence_length=1e4,
+        recombination_rate=1e-8,
+        population_size=1e4,
+        random_seed=2,
+    )
+    return msprime.sim_mutations(ts, rate=1e-7, random_seed=2)
+
+
+def bad_dtype(value):
+    """
+    An array of a type that cannot be cast safely to the type of ``value``
+    """
+    if value.dtype == np.float64:
+        return value.astype(np.complex128)
+    return value.astype(np.float64)
+
+
+class TestArguments:
+    """
+    Argument handling of each function: counts, keywords, types, dimensions and lengths
+    """
+
+    @pytest.mark.parametrize("name", FUNCTIONS)
+    def test_keywords(self, specs, name):
+        kwargs, _, _ = specs[name]
+        getattr(_tsdate, name)(**kwargs)
+
+    @pytest.mark.parametrize("name", FUNCTIONS)
+    def test_positional(self, specs, name):
+        kwargs, _, _ = specs[name]
+        getattr(_tsdate, name)(*kwargs.values())
+
+    @pytest.mark.parametrize("name", FUNCTIONS)
+    def test_too_few_arguments(self, specs, name):
+        args = list(specs[name][0].values())
+        with pytest.raises(TypeError):
+            getattr(_tsdate, name)(*args[:-1])
+
+    @pytest.mark.parametrize("name", FUNCTIONS)
+    def test_too_many_arguments(self, specs, name):
+        args = list(specs[name][0].values())
+        with pytest.raises(TypeError):
+            getattr(_tsdate, name)(*args, args[-1])
+
+    @pytest.mark.parametrize("name", FUNCTIONS)
+    def test_unknown_keyword(self, specs, name):
+        kwargs = dict(specs[name][0], not_an_argument=1)
+        with pytest.raises(TypeError):
+            getattr(_tsdate, name)(**kwargs)
+
+    @pytest.mark.parametrize(("name", "arg"), array_arguments())
+    def test_bad_dtype(self, specs, name, arg):
+        kwargs = dict(specs[name][0])
+        kwargs[arg] = bad_dtype(kwargs[arg])
+        with pytest.raises(TypeError):
+            getattr(_tsdate, name)(**kwargs)
+
+    @pytest.mark.parametrize(("name", "arg"), array_arguments())
+    def test_bad_dimension(self, specs, name, arg):
+        kwargs = dict(specs[name][0])
+        value = kwargs[arg]
+        kwargs[arg] = value.reshape(-1) if value.ndim == 2 else value[np.newaxis, :]
+        with pytest.raises(ValueError):
+            getattr(_tsdate, name)(**kwargs)
+
+    @pytest.mark.parametrize(("name", "arg"), array_arguments())
+    def test_not_an_array(self, specs, name, arg):
+        kwargs = dict(specs[name][0])
+        kwargs[arg] = "not an array"
+        with pytest.raises((TypeError, ValueError)):
+            getattr(_tsdate, name)(**kwargs)
+
+    @pytest.mark.parametrize(("name", "arg"), scalar_arguments())
+    def test_bad_scalar(self, specs, name, arg):
+        kwargs = dict(specs[name][0])
+        kwargs[arg] = "not a number"
+        with pytest.raises(TypeError):
+            getattr(_tsdate, name)(**kwargs)
+
+    @pytest.mark.parametrize("name", FUNCTIONS)
+    def test_mismatched_lengths(self, specs, name):
+        kwargs, groups, _ = specs[name]
+        for group in groups:
+            for arg in group[1:]:
+                bad = dict(kwargs)
+                bad[arg] = kwargs[arg][:-1]
+                with pytest.raises(ValueError):
+                    getattr(_tsdate, name)(**bad)
+
+    @pytest.mark.parametrize("name", FUNCTIONS)
+    def test_two_columns(self, specs, name):
+        kwargs, _, two_columns = specs[name]
+        for arg in two_columns:
+            bad = dict(kwargs)
+            bad[arg] = np.hstack((kwargs[arg], kwargs[arg][:, :1]))
+            with pytest.raises(ValueError, match="two columns"):
+                getattr(_tsdate, name)(**bad)
+
+
+def first_blocked(kwargs):
+    """
+    The first mutation of ``reallocate_unphased``'s arguments that is in a block
+    """
+    return np.flatnonzero(kwargs["mutations_block"] >= 0)[0]
+
+
+def edit(arg, change):
+    """
+    An edit of the keyword arguments that sets ``arg`` to ``change(kwargs)``
+    """
+
+    def apply(kwargs):
+        kwargs[arg] = change(kwargs)
+
+    return apply
+
+
+def with_entry(arg, index, value):
+    """
+    An edit that sets entry ``index`` of array ``arg`` to ``value``; either can be a
+    function of the arguments
+    """
+
+    def change(kwargs):
+        array = kwargs[arg].copy()
+        entry = index(kwargs) if callable(index) else index
+        array[entry] = value(kwargs) if callable(value) else value
+        return array
+
+    return edit(arg, change)
+
+
+def node_not_in_tree(kwargs):
+    """
+    A node with no edge over the position of the first mutation
+    """
+    position = kwargs["mutations_position"][0]
+    left, right = kwargs["edges_left"], kwargs["edges_right"]
+    over = (left <= position) & (position < right)
+    present = set(kwargs["edges_parent"][over]) | set(kwargs["edges_child"][over])
+    return min(set(range(kwargs["nodes_order"].size)) - present)
+
+
+def reversed_ages(kwargs):
+    return kwargs["nodes_time"].max() - kwargs["nodes_time"]
+
+
+ERROR_CASES = {
+    "block_singletons_three_edges": (
+        "block_singletons",
+        with_entry("nodes_individual", 2, 0),
+        ERR_UNPHASED_INDIVIDUAL_EDGES,
+    ),
+    "reallocate_block": (
+        "reallocate_unphased",
+        with_entry("mutations_block", first_blocked, 1000),
+        ERR_BLOCK_OUT_OF_BOUNDS,
+    ),
+    "reallocate_edge_of_block": (
+        "reallocate_unphased",
+        with_entry("blocks_edges", 0, 10**6),
+        ERR_BLOCK_OUT_OF_BOUNDS,
+    ),
+    "reallocate_phase": (
+        "reallocate_unphased",
+        with_entry("mutations_phase", first_blocked, 1.5),
+        ERR_PHASE_OUT_OF_RANGE,
+    ),
+    "reallocate_not_conserved": (
+        "reallocate_unphased",
+        with_entry("mutations_phase", first_blocked, np.nan),
+        ERR_UNPHASED_LIKELIHOOD_NOT_CONSERVED,
+    ),
+    "relabel_node_not_in_tree": (
+        "relabel_mutations_node",
+        with_entry("mutations_node", 0, node_not_in_tree),
+        ERR_MUTATION_NODE_NOT_IN_TREE,
+    ),
+    "constrain_fixed_nodes": (
+        "constrain_ages",
+        lambda kwargs: kwargs.update(
+            nodes_fixed=np.ones_like(kwargs["nodes_fixed"]),
+            nodes_time=reversed_ages(kwargs),
+        ),
+        ERR_FIXED_NODES_VIOLATE_CONSTRAINT,
+    ),
+    "timescale_intervals": (
+        "mutational_timescale",
+        edit("max_intervals", lambda kwargs: 0),
+        ERR_NONPOSITIVE_INTERVALS,
+    ),
+    "timescale_zero_span": (
+        "mutational_timescale",
+        edit("edges_likelihood", lambda kwargs: kwargs["edges_likelihood"] * [1, 0]),
+        ERR_ZERO_EDGE_SPAN,
+    ),
+    "point_estimate_breaks": (
+        "piecewise_scale_point_estimate",
+        edit("original_breaks", lambda kwargs: kwargs["original_breaks"][::-1].copy()),
+        ERR_NON_INCREASING_BREAKPOINTS,
+    ),
+    "posterior_breaks": (
+        "piecewise_scale_posterior",
+        edit("rescaled_breaks", lambda kwargs: kwargs["rescaled_breaks"][::-1].copy()),
+        ERR_NON_INCREASING_BREAKPOINTS,
+    ),
+    "posterior_quantile_width": (
+        "piecewise_scale_posterior",
+        edit("quantile_width", lambda kwargs: 1.0),
+        ERR_INVALID_QUANTILE_WIDTH,
+    ),
+    "posterior_invalid": (
+        "piecewise_scale_posterior",
+        with_entry("posteriors", (0, 1), 0.0),
+        ERR_INVALID_POSTERIOR,
+    ),
+    "posterior_none": (
+        "piecewise_scale_posterior",
+        lambda kwargs: kwargs.update(
+            posteriors=np.zeros((0, 2)), posteriors_fixed=np.zeros(0, dtype=bool)
+        ),
+        ERR_NO_POSTERIORS,
+    ),
+    "posterior_below_first_break": (
+        "piecewise_scale_posterior",
+        edit("original_breaks", lambda kwargs: kwargs["original_breaks"] + 50.0),
+        ERR_TIME_BELOW_FIRST_BREAKPOINT,
+    ),
+    "posterior_zero_quantile": (
+        "piecewise_scale_posterior",
+        with_entry("posteriors", (0, 1), np.inf),
+        ERR_ZERO_DIVISION,
+    ),
+    "posterior_approximation": (
+        "piecewise_scale_posterior",
+        with_entry("posteriors", (0, 0), np.inf),
+        ERR_UNSORTED_QUANTILES,
+    ),
+}
+
+
+class TestLibraryErrors:
+    """
+    Errors of the library, through each function that reports them
+    """
+
+    @pytest.mark.parametrize("case", ERROR_CASES)
+    def test_error(self, specs, case):
+        name, change, code = ERROR_CASES[case]
+        kwargs = dict(specs[name][0])
+        if name == "piecewise_scale_posterior":
+            kwargs["posteriors_fixed"] = np.zeros_like(kwargs["posteriors_fixed"])
+        change(kwargs)
+        with raises_library_error(code):
+            getattr(_tsdate, name)(**kwargs)
+
+
+class TestValues:
+    """
+    Results that the other tests do not check
+    """
+
+    def test_reallocate_unphased_leaves_input(self):
+        likelihood = np.array([[1.0, 5.0], [0.0, 5.0]])
+        result = _tsdate.reallocate_unphased(
+            edges_likelihood=likelihood,
+            mutations_phase=np.array([0.25]),
+            mutations_block=np.array([0], dtype=np.int32),
+            blocks_edges=np.array([[0, 1]], dtype=np.int32),
+        )
+        assert result.tolist() == [[0.25, 5.0], [0.75, 5.0]]
+        assert likelihood.tolist() == [[1.0, 5.0], [0.0, 5.0]]
+
+    def test_variance_one_tip(self):
+        # the result is unused by tsdate
+        assert _tsdate.conditional_coalescent_variance(1).tolist() == [0.0, 0.0]
+
+    def test_variance_negative_tips(self):
+        with pytest.raises(ValueError, match="non-negative"):
+            _tsdate.conditional_coalescent_variance(-1)
+
+    def test_fixed_changepoints_epochs_beyond_int64(self):
+        with pytest.raises(OverflowError):
+            _tsdate.fixed_changepoints(np.ones(3), 2**70)

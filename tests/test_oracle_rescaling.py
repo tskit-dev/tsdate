@@ -887,3 +887,66 @@ class TestPiecewiseScalePosterior:
             rescaling.piecewise_scale_posterior,
             *args,
         )
+
+
+class TestOutsideTreeSequences:
+    def test_nan_node_times(self):
+        # NaN is ordered last, whichever its position
+        times = np.array([0.0, np.nan, 1.0, np.nan, 2.0])
+        likelihoods = np.array([[1.0, 1.0], [1.0, 1.0]])
+        parents = np.array([2, 4], dtype=np.int32)
+        children = np.array([0, 2], dtype=np.int32)
+        compare(
+            _tsdate.mutational_area,
+            rescaling.mutational_area,
+            times,
+            likelihoods,
+            parents,
+            children,
+        )
+
+    def test_changepoint_before_the_first_epoch(self):
+        # The mutational spans make the offsets of the four epochs 1, 1, -3 and 1, so
+        # that the total weight is zero and the cumulative distribution is NaN where
+        # it is looked up: the first changepoint is -1, which counts from the end as
+        # in numpy.
+        nodes_time = np.array([0.0, 0.0, 1.0, 2.0, 3.0, 4.0])
+        likelihoods = np.array([[1.0, 1.0], [1.0, 1.0], [1.0, -3.0], [1.0, 1.0]])
+        parents = np.array([2, 3, 4, 5], dtype=np.int32)
+        children = np.array([0, 2, 3, 4], dtype=np.int32)
+        fixed = np.full(6, False)
+        args = (nodes_time, likelihoods, fixed, parents, children, 2)
+        result = compare(
+            _tsdate.mutational_timescale, rescaling.mutational_timescale, *args
+        )
+        assert result.value[0].tolist() == [4.0, 4.0]
+
+    def test_quantile_below_first_breakpoint(self):
+        # the lower quantile (1.1) is below the first breakpoint, the mean (2) is not
+        args = (
+            np.array([[1.0, 1.0]]),
+            np.array([False]),
+            np.array([1.5, 3.0, 5.0]),
+            np.array([0.0, 1.0, 2.0]),
+            0.5,
+            1000.0,
+        )
+        result = compare(
+            _tsdate.piecewise_scale_posterior, rescaling.piecewise_scale_posterior, *args
+        )
+        assert result.error == TIME_BELOW_FIRST_BREAKPOINT
+
+    def test_fixed_posteriors_below_first_breakpoint(self):
+        # the rescaled quantiles of fixed posteriors are zero, and are checked too
+        args = (
+            np.array([[1.0, 1.0]]),
+            np.array([True]),
+            np.array([0.5, 2.0, 5.0]),
+            np.array([0.0, 1.0, 2.0]),
+            0.5,
+            1000.0,
+        )
+        result = compare(
+            _tsdate.piecewise_scale_posterior, rescaling.piecewise_scale_posterior, *args
+        )
+        assert result.error == TIME_BELOW_FIRST_BREAKPOINT
