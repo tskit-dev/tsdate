@@ -181,8 +181,12 @@ tsd_fixed_changepoints(tsd_size_t num_counts, const double *counts, int64_t epoc
         ret = tsd_trace_error(TSD_ERR_NO_MEMORY);
         goto out;
     }
-    /* The cumulative counts, normalised by the total. Division by zero is not an
-     * error: the result is NaN, which compares as greater than every number. */
+    /*
+     * The cumulative counts, normalised by the total. Division by zero is not an
+     * error: the result is NaN, which compares as greater than every number.
+     * NOTE: current behaviour, possibly a bug: if all counts are zero, every
+     * normalised count is NaN and the breakpoints are [-1, ..., -1, num_counts].
+     */
     cumulative[0] = 0.0;
     for (j = 0; j < num_counts; j++) {
         cumulative[j + 1] = cumulative[j] + counts[j];

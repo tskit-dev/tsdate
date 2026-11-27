@@ -402,12 +402,6 @@ def _reorder_nodes(node_table, order, extra_md_dict):
     )
 
 
-_split_disjoint_nodes = _tsdate.split_disjoint_nodes
-
-
-_relabel_mutations_node = _tsdate.relabel_mutations_node
-
-
 def split_disjoint_nodes(ts, *, record_provenance=None):
     """
     For each non-sample node, split regions separated by gaps into distinct
@@ -431,7 +425,7 @@ def split_disjoint_nodes(ts, *, record_provenance=None):
     if record_provenance is None:
         record_provenance = True
     node_is_sample = np.bitwise_and(ts.nodes_flags, tskit.NODE_IS_SAMPLE).astype(bool)
-    edges_parent, edges_child, nodes_order, split_nodes = _split_disjoint_nodes(
+    edges_parent, edges_child, nodes_order, split_nodes = _tsdate.split_disjoint_nodes(
         ts.edges_parent,
         ts.edges_child,
         ts.edges_left,
@@ -439,7 +433,7 @@ def split_disjoint_nodes(ts, *, record_provenance=None):
         node_is_sample,
     )
 
-    mutations_node = _relabel_mutations_node(
+    mutations_node = _tsdate.relabel_mutations_node(
         ts.mutations_node,
         ts.sites_position[ts.mutations_site],
         nodes_order,
@@ -482,9 +476,6 @@ def split_disjoint_nodes(ts, *, record_provenance=None):
     return tables.tree_sequence()
 
 
-_constrain_ages = _tsdate.constrain_ages
-
-
 def constrain_ages(ts, nodes_time, epsilon=1e-6, max_iterations=0):
     """
     Use a hybrid approach to adjust node times such that branch lengths are
@@ -511,7 +502,7 @@ def constrain_ages(ts, nodes_time, epsilon=1e-6, max_iterations=0):
     assert max_iterations >= 0
 
     nodes_fixed = np.bitwise_and(ts.nodes_flags, tskit.NODE_IS_SAMPLE).astype(bool)
-    constrained_nodes_time = _constrain_ages(
+    constrained_nodes_time = _tsdate.constrain_ages(
         nodes_time,
         nodes_fixed,
         ts.edges_parent,
@@ -525,9 +516,6 @@ def constrain_ages(ts, nodes_time, epsilon=1e-6, max_iterations=0):
     return constrained_nodes_time
 
 
-_contains_unary_nodes = _tsdate.contains_unary_nodes
-
-
 def contains_unary_nodes(ts, skip_samples=True):
     """
     Check if any internal node in the tree sequence is unary over some portion
@@ -539,7 +527,7 @@ def contains_unary_nodes(ts, skip_samples=True):
     if skip_samples:
         nodes_mask[list(ts.samples())] = True
 
-    return _contains_unary_nodes(
+    return _tsdate.contains_unary_nodes(
         nodes_mask,
         ts.edges_parent,
         ts.edges_left,

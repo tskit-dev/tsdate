@@ -29,14 +29,6 @@ import tskit
 
 from .util import mutation_span_array  # NOQA: F401
 
-_fixed_changepoints = _tsdate.fixed_changepoints
-
-
-_poisson_changepoints = _tsdate.poisson_changepoints
-
-
-_count_mutations = _tsdate.count_mutations
-
 
 def count_mutations(ts, node_is_sample=None, size_biased=False):
     """
@@ -56,7 +48,7 @@ def count_mutations(ts, node_is_sample=None, size_biased=False):
     else:
         assert node_is_sample.size != ts.num_nodes
 
-    return _count_mutations(
+    return _tsdate.count_mutations(
         node_is_sample,
         ts.mutations_node,
         ts.sites_position[ts.mutations_site],

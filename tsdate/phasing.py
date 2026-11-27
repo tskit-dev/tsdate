@@ -31,7 +31,6 @@ import tskit
 
 
 reallocate_unphased = _tsdate.reallocate_unphased
-_block_singletons = _tsdate.block_singletons
 
 
 def block_singletons(ts, individuals_unphased):
@@ -59,7 +58,7 @@ def block_singletons(ts, individuals_unphased):
                 raise ValueError("Singleton blocking assumes contemporary individuals")
 
     # TODO: adjust spans by an accessibility mask
-    return _block_singletons(
+    return _tsdate.block_singletons(
         individuals_unphased,
         ts.nodes_individual,
         ts.mutations_node,
@@ -72,9 +71,6 @@ def block_singletons(ts, individuals_unphased):
         ts.indexes_edge_removal_order,
         ts.sequence_length,
     )
-
-
-_mutation_frequency = _tsdate.mutation_frequency
 
 
 def mutation_frequency(ts, sample_sets=None):
@@ -96,7 +92,7 @@ def mutation_frequency(ts, sample_sets=None):
         assert min(s) >= 0 and max(s) < ts.num_samples, "Sample out of range"  # NOQA: PT018
         nodes_sample[s, i] = True
 
-    return _mutation_frequency(
+    return _tsdate.mutation_frequency(
         nodes_sample,
         ts.mutations_node,
         ts.sites_position[ts.mutations_site],
