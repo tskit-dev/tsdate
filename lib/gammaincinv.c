@@ -1431,8 +1431,8 @@ ceph_igamci(double a, double q)
     return x;
 }
 
-/* igami(). As in xsf, where set_error only reports it, an `a` or `p` outside the
- * domain is not rejected: the computation goes on (and its result is NaN). */
+/* igami(). NaN for `a` < 0, `p` outside [0, 1], `a` = 0 or `a` = infinity (with
+ * 0 < p < 1), and NaN arguments. */
 double
 tsd_gammaincinv(double a, double p)
 {

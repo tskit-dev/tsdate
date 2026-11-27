@@ -51,9 +51,9 @@ int tsd_hyp2f1_laplace(double a, double b, double c, double x, double *out);
 
 /*
  * The inverse of the regularised lower incomplete gamma function (gammaincinv.c): x
- * such that gammainc(a, x) = p, identical to scipy.special.gammaincinv. It returns 0
- * for p = 0, infinity for p = 1 and NaN (not an error) for arguments outside the
- * domain.
+ * such that gammainc(a, x) = p. Inside the domain it agrees with
+ * scipy.special.gammaincinv, bit for bit on x86-64 Linux. It returns 0 for p = 0,
+ * infinity for p = 1 and NaN (not an error) for arguments outside the domain.
  */
 double tsd_gammaincinv(double a, double p);
 
