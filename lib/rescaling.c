@@ -365,7 +365,9 @@ out:
 /*
  * Add (sign = 1) or remove (sign = -1) the span of the edge `e`, to the parent `p` of
  * its child `c`, and to every ancestor of `p`, in proportion to the number of
- * samples below `c`; and update the sample counts of the ancestors.
+ * samples below `c`; and update the sample counts of the ancestors. Each node has one
+ * parent in the current tree, so a walk of more than num_nodes steps has repeated a
+ * node: the edges form a cycle.
  */
 static int
 count_update_ancestors(tsd_size_t num_nodes, tsd_id_t e, tsd_id_t p, tsd_id_t c,

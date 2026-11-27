@@ -349,7 +349,8 @@ out:
 
 /*
  * Add (sign = 1) or subtract (sign = -1) the sample counts of node `c` to those of
- * `p` and of every ancestor of `p`.
+ * `p` and of every ancestor of `p`. Each node has one parent in the current tree, so a
+ * walk of more than num_nodes steps has repeated a node: the edges form a cycle.
  */
 static int
 update_ancestors(tsd_size_t num_nodes, tsd_size_t num_sample_sets, tsd_id_t p,
