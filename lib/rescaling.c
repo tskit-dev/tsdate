@@ -377,7 +377,7 @@ count_update_ancestors(tsd_id_t e, tsd_id_t p, tsd_id_t c, double sign, double r
 
     while (p != NO_ID) {
         span = nodes_samples[c] * remainder;
-        edges_stats[2 * e + 1] += sign * span;
+        edges_stats[2 * (tsd_size_t) e + 1] += sign * span;
         nodes_samples[p] += sign * nodes_samples[c];
         next_e = nodes_edge[p];
         next_p = nodes_parent[p];
@@ -444,7 +444,7 @@ tsd_count_mutations(tsd_size_t num_nodes, const uint8_t *node_is_sample,
                 count_update_ancestors(e, p, c, -1.0, remainder, nodes_edge,
                     nodes_parent, nodes_samples, edges_stats);
             } else {
-                edges_stats[2 * e + 1] -= remainder;
+                edges_stats[2 * (tsd_size_t) e + 1] -= remainder;
             }
             b++;
         }
@@ -460,7 +460,7 @@ tsd_count_mutations(tsd_size_t num_nodes, const uint8_t *node_is_sample,
                 count_update_ancestors(e, p, c, 1.0, remainder, nodes_edge, nodes_parent,
                     nodes_samples, edges_stats);
             } else {
-                edges_stats[2 * e + 1] += remainder;
+                edges_stats[2 * (tsd_size_t) e + 1] += remainder;
             }
             a++;
         }
@@ -482,7 +482,7 @@ tsd_count_mutations(tsd_size_t num_nodes, const uint8_t *node_is_sample,
             e = nodes_edge[c];
             if (e != NO_ID) {
                 mutations_edge[m] = e;
-                edges_stats[2 * e] += size_biased ? nodes_samples[c] : 1.0;
+                edges_stats[2 * (tsd_size_t) e] += size_biased ? nodes_samples[c] : 1.0;
             }
             d++;
         }

@@ -58,7 +58,7 @@ block_edge_out(block_state_t *state, tsd_id_t e, double left)
     if (i == TSD_NULL || !state->individuals_unphased[i]) {
         return;
     }
-    edges = state->individuals_edges + 2 * i;
+    edges = state->individuals_edges + 2 * (tsd_size_t) i;
     tsd_bug_assert(edges[0] == e || edges[1] == e);
     s = edges[1] == e ? edges[0] : edges[1];
     edges[0] = s;
@@ -66,10 +66,11 @@ block_edge_out(block_state_t *state, tsd_id_t e, double left)
     if (s != TSD_NULL) {
         block = state->individuals_block[i];
         tsd_bug_assert(block != TSD_NULL);
-        state->blocks_edges[2 * block] = e;
-        state->blocks_edges[2 * block + 1] = s;
-        state->blocks_stats[2 * block] = state->individuals_singletons[i];
-        state->blocks_stats[2 * block + 1] = left - state->individuals_position[i];
+        state->blocks_edges[2 * (tsd_size_t) block] = e;
+        state->blocks_edges[2 * (tsd_size_t) block + 1] = s;
+        state->blocks_stats[2 * (tsd_size_t) block] = state->individuals_singletons[i];
+        state->blocks_stats[2 * (tsd_size_t) block + 1]
+            = left - state->individuals_position[i];
         state->num_flushed++;
         state->individuals_position[i] = NAN;
         state->individuals_block[i] = TSD_NULL;
@@ -89,7 +90,7 @@ block_edge_in(block_state_t *state, tsd_id_t e, double left)
     if (i == TSD_NULL || !state->individuals_unphased[i]) {
         goto out;
     }
-    edges = state->individuals_edges + 2 * i;
+    edges = state->individuals_edges + 2 * (tsd_size_t) i;
     u = edges[0];
     v = edges[1];
     if (u != TSD_NULL && v != TSD_NULL) {
@@ -298,8 +299,8 @@ tsd_reallocate_unphased(tsd_size_t num_edges, tsd_size_t num_mutations,
             ret = tsd_trace_error(TSD_ERR_BLOCK_OUT_OF_RANGE);
             goto out;
         }
-        i = blocks_edges[2 * b];
-        k = blocks_edges[2 * b + 1];
+        i = blocks_edges[2 * (tsd_size_t) b];
+        k = blocks_edges[2 * (tsd_size_t) b + 1];
         if (i <= TSD_NULL || (tsd_size_t) i >= num_edges || k <= TSD_NULL
             || (tsd_size_t) k >= num_edges) {
             ret = tsd_trace_error(TSD_ERR_BLOCK_OUT_OF_RANGE);
@@ -313,8 +314,8 @@ tsd_reallocate_unphased(tsd_size_t num_edges, tsd_size_t num_mutations,
             ret = tsd_trace_error(TSD_ERR_PHASE_OUT_OF_RANGE);
             goto out;
         }
-        edges_likelihood[2 * i] += phase;
-        edges_likelihood[2 * k] += 1 - phase;
+        edges_likelihood[2 * (tsd_size_t) i] += phase;
+        edges_likelihood[2 * (tsd_size_t) k] += 1 - phase;
     }
     if (!tsd_isclose(num_unphased,
             sum_flagged_likelihoods(num_edges, edges_likelihood, edges_unphased))) {
