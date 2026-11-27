@@ -46,7 +46,7 @@ def count_mutations(ts, node_is_sample=None, size_biased=False):
         node_is_sample = np.full(ts.num_nodes, False)
         node_is_sample[list(ts.samples())] = True
     else:
-        assert node_is_sample.size != ts.num_nodes
+        assert node_is_sample.size == ts.num_nodes
 
     return _tsdate.count_mutations(
         node_is_sample,
