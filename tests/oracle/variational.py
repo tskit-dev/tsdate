@@ -1,10 +1,11 @@
 """
 Oracles for the expectation propagation passes (``lib/variational.c``).
 
-The mutable state of the EP algorithm, the factors associated with each edge
-likelihood, block likelihood and prior factor that together form the posterior, is a
-tuple of eight arrays ``(node, edge, block, scale, edges_parent, edges_child,
-blocks_left, blocks_right)``; the passes update the first four in place.
+``ExpectationPropagation`` has the methods and properties of
+``_tsdate.ExpectationPropagation``. The passes it calls take the factors associated
+with each edge likelihood, block likelihood and prior factor, which together form
+the posterior, as a tuple of eight arrays ``(node, edge, block, scale, edges_parent,
+edges_child, blocks_left, blocks_right)``, and update the first four in place.
 """
 
 import numpy as np
@@ -505,3 +506,146 @@ def propagate_mutations(
                     child_cavity,
                     edge_likelihood,
                 )
+
+
+class ExpectationPropagation:
+    """
+    The state of expectation propagation, with the methods and properties of
+    ``_tsdate.ExpectationPropagation``
+    """
+
+    def __init__(
+        self,
+        constraints,
+        edges_parent,
+        edges_child,
+        edges_likelihood,
+        blocks_left,
+        blocks_right,
+        blocks_likelihood,
+    ):
+        num_nodes = constraints.shape[0]
+        for ids in (edges_parent, edges_child, blocks_left, blocks_right):
+            if np.any((ids < 0) | (ids >= num_nodes)):
+                raise library_error(errors.NODE_OUT_OF_BOUNDS)
+        self.constraints = constraints.copy()
+        self.edges_parent = edges_parent.copy()
+        self.edges_child = edges_child.copy()
+        self.edges_likelihood = edges_likelihood.copy()
+        self.blocks_left = blocks_left.copy()
+        self.blocks_right = blocks_right.copy()
+        self.blocks_likelihood = blocks_likelihood.copy()
+        self.node = np.zeros((num_nodes, 2, 2))
+        self.edge = np.zeros((edges_parent.size, 2, 2))
+        self.block = np.zeros((blocks_left.size, 2, 2))
+        self.scale = np.ones(num_nodes)
+        self._posterior = np.zeros((num_nodes, 2))
+        self._edges_lognorm = np.zeros(edges_parent.size)
+        self._blocks_lognorm = np.zeros(blocks_left.size)
+
+    def factors(self):
+        """
+        The factors as the tuple of arrays that the passes take
+        """
+        return (
+            self.node,
+            self.edge,
+            self.block,
+            self.scale,
+            self.edges_parent,
+            self.edges_child,
+            self.blocks_left,
+            self.blocks_right,
+        )
+
+    def _edges(self, unphased):
+        if unphased:
+            return self.blocks_left, self.blocks_right, self.blocks_likelihood
+        return self.edges_parent, self.edges_child, self.edges_likelihood
+
+    def propagate_likelihood(self, order, unphased, max_shape, min_step):
+        """
+        Update the factors of the edges (blocks, if ``unphased``) in ``order``
+        """
+        parents, children, likelihood = self._edges(unphased)
+        lognorm = self._blocks_lognorm if unphased else self._edges_lognorm
+        if not (max_shape >= 1.0):
+            raise library_error(errors.INVALID_MAX_SHAPE)
+        if not (0.0 < min_step < 1.0):
+            raise library_error(errors.INVALID_MIN_STEP)
+        if np.any((order < 0) | (order >= parents.size)):
+            code = errors.BLOCK_OUT_OF_BOUNDS if unphased else errors.EDGE_OUT_OF_BOUNDS
+            raise library_error(code)
+        propagate_likelihood(
+            order,
+            parents,
+            children,
+            likelihood,
+            self.constraints,
+            self._posterior,
+            self.factors(),
+            lognorm,
+            max_shape,
+            min_step,
+            unphased,
+        )
+
+    def propagate_prior(self, free, max_shape, em_maxitt, em_reltol):
+        """
+        Fit an exponential prior to the cavities of the ``free`` nodes
+        """
+        if free.size != self.scale.size:
+            raise ValueError("free must have one entry per node")
+        propagate_prior(
+            free, self._posterior, self.factors(), max_shape, em_maxitt, em_reltol
+        )
+
+    def rescale_factors(self):
+        """
+        Multiply the factors by the scales of their nodes
+        """
+        rescale_factors(self.factors())
+
+    def assemble_factors(self):
+        """
+        The posteriors implied by the factors
+        """
+        return assemble_factors(self.factors())
+
+    def propagate_mutations(self, mutations_edge, unphased):
+        """
+        The posteriors and phases of mutations above ``mutations_edge``
+        """
+        parents, children, likelihood = self._edges(unphased)
+        if np.any((mutations_edge < tskit.NULL) | (mutations_edge >= parents.size)):
+            code = errors.BLOCK_OUT_OF_BOUNDS if unphased else errors.EDGE_OUT_OF_BOUNDS
+            raise library_error(code)
+        num_mutations = mutations_edge.size
+        posterior = np.full((num_mutations, 2), np.nan)
+        phase = np.ones(num_mutations)
+        propagate_mutations(
+            np.arange(num_mutations, dtype=np.int32),
+            posterior,
+            phase,
+            mutations_edge,
+            parents,
+            children,
+            likelihood,
+            self.constraints,
+            self._posterior,
+            self.factors(),
+            unphased,
+        )
+        return posterior, phase
+
+    @property
+    def posterior(self):
+        return self._posterior.copy()
+
+    @property
+    def edges_lognorm(self):
+        return self._edges_lognorm.copy()
+
+    @property
+    def blocks_lognorm(self):
+        return self._blocks_lognorm.copy()

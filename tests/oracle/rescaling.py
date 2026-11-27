@@ -82,7 +82,7 @@ def poisson_changepoints(counts, offset, penalty, min_counts, min_offset):
 
 
 def count_mutations(
-    node_is_sample,
+    nodes_sample,
     mutations_node,
     mutations_position,
     edges_parent,
@@ -98,16 +98,21 @@ def count_mutations(
     The mutations on each edge and the edge's span, weighted by the number of samples
     below the edge if ``size_biased``, as ``(edges_stats, mutations_edge)``.
     """
-    if not (edges_parent.size == edges_child.size == edges_left.size == edges_right.size):
+    if not (
+        edges_parent.size
+        == edges_child.size
+        == edges_left.size
+        == edges_right.size
+        == indexes_insert.size
+        == indexes_remove.size
+    ):
         raise ValueError("Edge arrays must have the same size")
-    if not (indexes_insert.size == indexes_remove.size == edges_parent.size):
-        raise ValueError("Edge index arrays must have one entry per edge")
     if mutations_node.size != mutations_position.size:
         raise ValueError("Mutation arrays must have the same size")
 
     num_mutations = mutations_node.size
     num_edges = edges_parent.size
-    num_nodes = node_is_sample.size
+    num_nodes = nodes_sample.size
 
     indexes_mutation = np.argsort(mutations_position)
     position_insert = edges_left[indexes_insert]
@@ -121,7 +126,7 @@ def count_mutations(
     edges_mutations = np.zeros(num_edges)
     edges_span = np.zeros(num_edges)
 
-    nodes_samples[node_is_sample] = 1.0
+    nodes_samples[nodes_sample] = 1.0
     left = 0.0
     a, b, d = 0, 0, 0
     while a < num_edges or b < num_edges:

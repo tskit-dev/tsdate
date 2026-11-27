@@ -113,7 +113,9 @@ class TestBlockSingletons:
     @staticmethod
     def args(ts, unphased):
         unphased = np.array(unphased, dtype=bool)
-        return [unphased, ts.nodes_individual, *sweep_args(ts)]
+        args = sweep_args(ts)
+        del args[2]  # the parents are not used
+        return [unphased, ts.nodes_individual, *args]
 
     @staticmethod
     def compare(args):
@@ -138,7 +140,7 @@ class TestBlockSingletons:
         _, _, mutation_block = self.compare(self.args(ts, unphased)).value
         assert mutation_block.tolist() == expected
 
-    @pytest.mark.parametrize(("index", "size"), [(5, 3), (8, 3), (3, 1)])
+    @pytest.mark.parametrize(("index", "size"), [(4, 3), (7, 3), (3, 1)])
     def test_size_mismatch(self, index, size):
         ts = make_ts(NODES, STAR, [(1, 0), (2, 1)], 10.0, 2)
         args = shrink(self.args(ts, [1, 1]), index, size)

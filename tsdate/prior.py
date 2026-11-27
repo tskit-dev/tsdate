@@ -215,7 +215,8 @@ class ConditionalCoalescentTimes:
         prior_lookup_table = np.zeros((n, 2))
         all_tips = np.arange(2, n + 1)
         prior_lookup_table[1:, 0] = all_tips / n
-        prior_lookup_table[1:, 1] = conditional_coalescent_variance(n + 1)[all_tips]
+        variance = conditional_coalescent_variance(num_tips=n + 1)
+        prior_lookup_table[1:, 1] = variance[all_tips]
         np.savetxt(self.get_precalc_cache(n), prior_lookup_table)
         return prior_lookup_table
 
@@ -268,7 +269,7 @@ class ConditionalCoalescentTimes:
         return interpolated_priors
 
     def tau_var_exact(self, total_tips, all_tips):
-        return conditional_coalescent_variance(total_tips)[all_tips]
+        return conditional_coalescent_variance(num_tips=total_tips)[all_tips]
 
     def mixture_expect_and_var(self, mixture, weight_by_log_span=False):
         """

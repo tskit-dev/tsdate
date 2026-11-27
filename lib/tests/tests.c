@@ -25,7 +25,9 @@
 /*
  * Smoke tests for the low-level tsdate API: return codes, error paths and memory
  * handling, with coarse sanity checks of results (finite, NaN, simple values).
- * Numerical correctness is tested from Python.
+ * Numerical correctness is tested from Python, except for the expectation
+ * propagation passes on states set directly in the library's struct, which have
+ * tables of expected values.
  */
 
 #include <math.h>
@@ -1351,52 +1353,26 @@ handle_cunit_error(void)
     exit(EXIT_FAILURE);
 }
 
-/* Expectation propagation (variational.c): a four node, four edge fixture */
-typedef struct {
-    double node[16];
-    double edge[16];
-    double block[16];
-    double scale[4];
-    tsd_id_t parent[4];
-    tsd_id_t child[4];
-    tsd_id_t left[4];
-    tsd_id_t right[4];
-    tsd_ep_factors_t factors;
-} ep_fixture_t;
-
 /* Nodes 0 and 1 are fixed, at ages 1 and 5; 2 and 3 are free. */
 static const double ep_constraints[8] = { 1, 1, 5, 5, 0, INFINITY, 0, INFINITY };
 static const double ep_likelihoods[8] = { 1, 0.1, 1, 0.1, 1, 0.1, 1, 0.1 };
+static const double ep_huge[8] = { 1, 1e300, 1, 1e300, 1, 1e300, 1, 1e300 };
+static const tsd_id_t ep_parent[4] = { 2, 1, 3, 1 };
+static const tsd_id_t ep_child[4] = { 0, 3, 2, 0 };
+static const tsd_id_t ep_twin_parent[4] = { 2, 1, 3, 2 };
+static const tsd_id_t ep_twin_child[4] = { 0, 3, 2, 2 };
 
+/* Four nodes with four edges, and the same four as blocks, with posterior `post`. */
 static void
-ep_fixture_init(ep_fixture_t *fixture, const tsd_id_t *parent, const tsd_id_t *child)
+ep_init(tsd_ep_t *ep, const tsd_id_t *parent, const tsd_id_t *child,
+    const double *likelihoods, const double *post)
 {
-    tsd_ep_factors_t *f = &fixture->factors;
-    int j;
+    int ret;
 
-    for (j = 0; j < 16; j++) {
-        fixture->node[j] = 0;
-        fixture->edge[j] = 0;
-        fixture->block[j] = 0;
-    }
-    for (j = 0; j < 4; j++) {
-        fixture->scale[j] = 1.0;
-        fixture->parent[j] = parent[j];
-        fixture->child[j] = child[j];
-        fixture->left[j] = parent[j];
-        fixture->right[j] = child[j];
-    }
-    f->num_nodes = 4;
-    f->num_edges = 4;
-    f->num_blocks = 4;
-    f->node = fixture->node;
-    f->edge = fixture->edge;
-    f->block = fixture->block;
-    f->scale = fixture->scale;
-    f->edges_parent = fixture->parent;
-    f->edges_child = fixture->child;
-    f->blocks_left = fixture->left;
-    f->blocks_right = fixture->right;
+    ret = tsd_ep_init(ep, 4, 4, 4, ep_constraints, parent, child, likelihoods, parent,
+        child, likelihoods);
+    CU_ASSERT_FATAL(ret == 0);
+    memcpy(ep->posterior, post, 8 * sizeof(*post));
 }
 
 static void
@@ -1449,30 +1425,56 @@ test_damp_and_rescale(void)
 }
 
 static void
+test_ep_init(void)
+{
+    const tsd_id_t bad[4] = { 2, 1, 3, 4 };
+    tsd_ep_t ep;
+
+    CU_ASSERT_EQUAL(tsd_ep_init(&ep, 4, 4, 4, ep_constraints, ep_parent, ep_child,
+                        ep_likelihoods, ep_parent, ep_child, ep_likelihoods),
+        0);
+    CU_ASSERT_EQUAL(ep.scale[3], 1.0);
+    CU_ASSERT_EQUAL(ep.posterior[7], 0.0);
+    CU_ASSERT_EQUAL(ep.edges_parent[3], 1);
+    tsd_ep_free(&ep);
+    CU_ASSERT_EQUAL(tsd_ep_init(&ep, 4, 4, 4, ep_constraints, bad, ep_child,
+                        ep_likelihoods, ep_parent, ep_child, ep_likelihoods),
+        TSD_ERR_NODE_OUT_OF_BOUNDS);
+    tsd_ep_free(&ep);
+    CU_ASSERT_EQUAL(tsd_ep_init(&ep, 4, 4, 4, ep_constraints, ep_parent, ep_child,
+                        ep_likelihoods, ep_parent, bad, ep_likelihoods),
+        TSD_ERR_NODE_OUT_OF_BOUNDS);
+    tsd_ep_free(&ep);
+    CU_ASSERT_EQUAL(
+        tsd_ep_init(&ep, 0, 0, 0, NULL, NULL, NULL, NULL, NULL, NULL, NULL), 0);
+    tsd_ep_free(&ep);
+}
+
+static void
 test_rescale_and_assemble_factors(void)
 {
-    const tsd_id_t parent[4] = { 2, 1, 3, 1 };
-    const tsd_id_t child[4] = { 0, 3, 2, 0 };
-    ep_fixture_t fixture;
+    const double zero[8] = { 0 };
+    tsd_ep_t ep;
     double posterior[8];
     int j;
 
-    ep_fixture_init(&fixture, parent, child);
+    ep_init(&ep, ep_parent, ep_child, ep_likelihoods, zero);
     for (j = 0; j < 16; j++) {
-        fixture.node[j] = 1.0 + j;
-        fixture.edge[j] = 1.0 + j;
-        fixture.block[j] = 0.5 * (1.0 + j);
+        ep.node[j] = 1.0 + j;
+        ep.edge[j] = 1.0 + j;
+        ep.block[j] = 0.5 * (1.0 + j);
     }
     for (j = 0; j < 4; j++) {
-        fixture.scale[j] = 2.0;
+        ep.scale[j] = 2.0;
     }
-    tsd_assemble_factors(&fixture.factors, posterior);
+    tsd_ep_assemble_factors(&ep, posterior);
     CU_ASSERT_TRUE(posterior[0] > 0);
-    tsd_rescale_factors(&fixture.factors);
-    CU_ASSERT_EQUAL(fixture.scale[3], 1.0);
-    CU_ASSERT_EQUAL(fixture.node[0], 2.0);
-    CU_ASSERT_EQUAL(fixture.edge[0], 2.0);
-    CU_ASSERT_EQUAL(fixture.block[0], 1.0);
+    tsd_ep_rescale_factors(&ep);
+    CU_ASSERT_EQUAL(ep.scale[3], 1.0);
+    CU_ASSERT_EQUAL(ep.node[0], 2.0);
+    CU_ASSERT_EQUAL(ep.edge[0], 2.0);
+    CU_ASSERT_EQUAL(ep.block[0], 1.0);
+    tsd_ep_free(&ep);
 }
 
 static void
@@ -1500,155 +1502,1749 @@ test_constraints_are_consistent(void)
 
 /* The branches of an EP pass: fixed child, fixed parent, free, both fixed. */
 static void
-run_likelihood_pass(int unphased, const tsd_id_t *parent, const tsd_id_t *child)
+run_likelihood_pass(int unphased)
 {
     const tsd_id_t order[5] = { 0, 1, 2, 3, 2 };
-    ep_fixture_t fixture;
-    double posterior[8] = { 0, 0, 0, 0, 1, 1, 1, 1 };
-    double lognorm[4] = { 0 };
+    const double post[8] = { 0, 0, 0, 0, 1, 1, 1, 1 };
+    double *lognorm;
+    tsd_ep_t ep;
     int ret;
 
-    ep_fixture_init(&fixture, parent, child);
-    ret = tsd_propagate_likelihood(5, order, 4, parent, child, ep_likelihoods,
-        ep_constraints, 1000.0, 0.1, unphased, posterior, &fixture.factors, lognorm);
+    ep_init(&ep, ep_parent, ep_child, ep_likelihoods, post);
+    lognorm = unphased ? ep.blocks_lognorm : ep.edges_lognorm;
+    ret = tsd_ep_propagate_likelihood(&ep, 5, order, unphased, 1000.0, 0.1);
     CU_ASSERT_EQUAL(ret, 0);
     CU_ASSERT_TRUE(isfinite(lognorm[2]));
     /* a small scale triggers a rescaling of the factors in mid-pass */
-    fixture.scale[2] = 1e-200;
-    ret = tsd_propagate_likelihood(5, order, 4, parent, child, ep_likelihoods,
-        ep_constraints, 1000.0, 0.1, unphased, posterior, &fixture.factors, lognorm);
+    ep.scale[2] = 1e-200;
+    ret = tsd_ep_propagate_likelihood(&ep, 5, order, unphased, 1000.0, 0.1);
     CU_ASSERT_EQUAL(ret, 0);
-    CU_ASSERT_EQUAL(fixture.scale[0], 1.0);
+    CU_ASSERT_EQUAL(ep.scale[0], 1.0);
+    tsd_ep_free(&ep);
 }
 
 static void
 test_propagate_likelihood(void)
 {
-    const tsd_id_t parent[4] = { 2, 1, 3, 1 };
-    const tsd_id_t child[4] = { 0, 3, 2, 0 };
-    const tsd_id_t twin_parent[4] = { 2, 1, 3, 2 };
-    const tsd_id_t twin_child[4] = { 0, 3, 2, 2 };
     const tsd_id_t order[1] = { 3 };
-    const double huge[8] = { 1, 1e300, 1, 1e300, 1, 1e300, 1, 1e300 };
-    ep_fixture_t fixture;
-    double posterior[8] = { 0, 0, 0, 0, 1, 1, 1, 1 };
-    double lognorm[4] = { 0 };
     const tsd_id_t sideways[1] = { 0 };
+    const tsd_id_t bad[1] = { 4 };
+    const double post[8] = { 0, 0, 0, 0, 1, 1, 1, 1 };
+    tsd_ep_t ep;
 
-    run_likelihood_pass(0, parent, child);
-    run_likelihood_pass(1, parent, child);
-    ep_fixture_init(&fixture, twin_parent, twin_child);
+    run_likelihood_pass(0);
+    run_likelihood_pass(1);
     /* a block with a single node: the twin update, only in an unphased pass */
-    CU_ASSERT_EQUAL(
-        tsd_propagate_likelihood(1, order, 4, twin_parent, twin_child, ep_likelihoods,
-            ep_constraints, 1000.0, 0.1, 1, posterior, &fixture.factors, lognorm),
-        0);
-    CU_ASSERT_EQUAL(
-        tsd_propagate_likelihood(1, order, 4, twin_parent, twin_child, ep_likelihoods,
-            ep_constraints, 1000.0, 0.1, 0, posterior, &fixture.factors, lognorm),
+    ep_init(&ep, ep_twin_parent, ep_twin_child, ep_likelihoods, post);
+    CU_ASSERT_EQUAL(tsd_ep_propagate_likelihood(&ep, 1, order, 1, 1000.0, 0.1), 0);
+    CU_ASSERT_EQUAL(tsd_ep_propagate_likelihood(&ep, 1, order, 0, 1000.0, 0.1),
         TSD_ERR_TWIN_EDGE_IN_PHASED_PASS);
+    tsd_ep_free(&ep);
     /* the projection of an edge with a huge mutational target divides by zero */
-    CU_ASSERT_EQUAL(
-        tsd_propagate_likelihood(1, sideways, 4, parent, child, huge, ep_constraints,
-            1000.0, 0.1, 1, posterior, &fixture.factors, lognorm),
+    ep_init(&ep, ep_parent, ep_child, ep_huge, post);
+    CU_ASSERT_EQUAL(tsd_ep_propagate_likelihood(&ep, 1, sideways, 1, 1000.0, 0.1),
         TSD_ERR_ZERO_DIVISION);
-    /* an improper posterior, a damping that fails, and bad parameters */
-    posterior[4] = -5;
-    CU_ASSERT_EQUAL(
-        tsd_propagate_likelihood(1, sideways, 4, parent, child, ep_likelihoods,
-            ep_constraints, 1000.0, 0.1, 0, posterior, &fixture.factors, lognorm),
+    tsd_ep_free(&ep);
+    /* an improper posterior, bad parameters and ids out of bounds */
+    ep_init(&ep, ep_parent, ep_child, ep_likelihoods, post);
+    ep.posterior[4] = -5;
+    CU_ASSERT_EQUAL(tsd_ep_propagate_likelihood(&ep, 1, sideways, 0, 1000.0, 0.1),
         TSD_ERR_INVALID_NODE_POSTERIOR);
-    CU_ASSERT_EQUAL(
-        tsd_propagate_likelihood(1, order, 4, parent, child, ep_likelihoods,
-            ep_constraints, 0.5, 0.1, 0, posterior, &fixture.factors, lognorm),
+    CU_ASSERT_EQUAL(tsd_ep_propagate_likelihood(&ep, 1, order, 0, 0.5, 0.1),
         TSD_ERR_INVALID_MAX_SHAPE);
-    CU_ASSERT_EQUAL(
-        tsd_propagate_likelihood(1, order, 4, parent, child, ep_likelihoods,
-            ep_constraints, 1000.0, 1.0, 0.0, posterior, &fixture.factors, lognorm),
+    CU_ASSERT_EQUAL(tsd_ep_propagate_likelihood(&ep, 1, order, 0, 1000.0, 1.0),
         TSD_ERR_INVALID_MIN_STEP);
+    CU_ASSERT_EQUAL(tsd_ep_propagate_likelihood(&ep, 1, bad, 0, 1000.0, 0.1),
+        TSD_ERR_EDGE_OUT_OF_BOUNDS);
+    CU_ASSERT_EQUAL(tsd_ep_propagate_likelihood(&ep, 1, bad, 1, 1000.0, 0.1),
+        TSD_ERR_BLOCK_OUT_OF_BOUNDS);
+    tsd_ep_free(&ep);
 }
 
 static void
 test_propagate_prior(void)
 {
-    const tsd_id_t parent[4] = { 2, 1, 3, 1 };
-    const tsd_id_t child[4] = { 0, 3, 2, 0 };
     const uint8_t free_nodes[4] = { 0, 0, 1, 1 };
     const uint8_t none[4] = { 0, 0, 0, 0 };
-    ep_fixture_t fixture;
-    double posterior[8] = { 0, 0, 0, 0, 2, 1, 3, 2 };
-    double improper[8] = { 0, 0, 0, 0, 1, 0, 1, 0 };
+    const double post[8] = { 0, 0, 0, 0, 2, 1, 3, 2 };
+    const double improper[8] = { 0, 0, 0, 0, 1, 0, 1, 0 };
+    tsd_ep_t ep;
 
-    ep_fixture_init(&fixture, parent, child);
+    ep_init(&ep, ep_parent, ep_child, ep_likelihoods, post);
+    CU_ASSERT_EQUAL(tsd_ep_propagate_prior(&ep, free_nodes, 1000.0, 10, 1e-8), 0);
+    CU_ASSERT_TRUE(ep.node[9] != 0);
     CU_ASSERT_EQUAL(
-        tsd_propagate_prior(free_nodes, 1000.0, 10, 1e-8, posterior, &fixture.factors),
-        0);
-    CU_ASSERT_TRUE(fixture.node[9] != 0);
-    CU_ASSERT_EQUAL(
-        tsd_propagate_prior(none, 0.5, 10, 1e-8, posterior, &fixture.factors),
-        TSD_ERR_INVALID_MAX_SHAPE);
-    CU_ASSERT_EQUAL(
-        tsd_propagate_prior(none, 1000.0, 10, 1e-8, posterior, &fixture.factors), 0);
-    CU_ASSERT_EQUAL(
-        tsd_propagate_prior(free_nodes, 1000.0, 10, 1e-8, improper, &fixture.factors),
-        TSD_ERR_NONPOSITIVE_PENALTY);
+        tsd_ep_propagate_prior(&ep, none, 0.5, 10, 1e-8), TSD_ERR_INVALID_MAX_SHAPE);
+    CU_ASSERT_EQUAL(tsd_ep_propagate_prior(&ep, none, 1000.0, 10, 1e-8), 0);
     /* the fit succeeds, but a posterior that is improper cannot be rescaled */
-    posterior[4] = -5;
-    posterior[6] = 99;
-    CU_ASSERT_EQUAL(
-        tsd_propagate_prior(free_nodes, 1000.0, 10, 1e-8, posterior, &fixture.factors),
+    ep.posterior[4] = -5;
+    ep.posterior[6] = 99;
+    CU_ASSERT_EQUAL(tsd_ep_propagate_prior(&ep, free_nodes, 1000.0, 10, 1e-8),
         TSD_ERR_INVALID_NODE_POSTERIOR);
+    tsd_ep_free(&ep);
+    ep_init(&ep, ep_parent, ep_child, ep_likelihoods, improper);
+    CU_ASSERT_EQUAL(tsd_ep_propagate_prior(&ep, free_nodes, 1000.0, 10, 1e-8),
+        TSD_ERR_NONPOSITIVE_PENALTY);
+    tsd_ep_free(&ep);
 }
 
 static void
 run_mutations_pass(int unphased)
 {
-    const tsd_id_t parent[4] = { 2, 1, 3, 1 };
-    const tsd_id_t child[4] = { 0, 3, 2, 0 };
-    const tsd_id_t twin_parent[4] = { 2, 1, 3, 2 };
-    const tsd_id_t twin_child[4] = { 0, 3, 2, 2 };
-    const tsd_id_t order[6] = { 0, 1, 2, 3, 4, 5 };
     const tsd_id_t edges[6] = { 0, 1, 2, 3, TSD_NULL, 3 };
-    const double posterior[8] = { 0, 0, 0, 0, 1, 1, 1, 1 };
-    const tsd_id_t *twin_edges = twin_parent;
-    ep_fixture_t fixture;
+    const double post[8] = { 0, 0, 0, 0, 1, 1, 1, 1 };
     double mutations_posterior[12];
     double mutations_phase[6];
+    tsd_ep_t ep;
     int ret;
 
-    ep_fixture_init(&fixture, parent, child);
-    ret = tsd_propagate_mutations(6, order, edges, parent, child, ep_likelihoods,
-        ep_constraints, posterior, &fixture.factors, unphased, mutations_posterior,
-        mutations_phase);
+    ep_init(&ep, ep_parent, ep_child, ep_likelihoods, post);
+    ret = tsd_ep_propagate_mutations(
+        &ep, 6, edges, unphased, mutations_posterior, mutations_phase);
     CU_ASSERT_EQUAL(ret, 0);
     CU_ASSERT_TRUE(isfinite(mutations_phase[2]));
-    ep_fixture_init(&fixture, twin_parent, twin_child);
-    ret = tsd_propagate_mutations(6, order, edges, twin_edges, twin_child,
-        ep_likelihoods, ep_constraints, posterior, &fixture.factors, unphased,
-        mutations_posterior, mutations_phase);
+    CU_ASSERT_TRUE(isnan(mutations_posterior[8]));
+    CU_ASSERT_EQUAL(mutations_phase[4], 1.0);
+    tsd_ep_free(&ep);
+    ep_init(&ep, ep_twin_parent, ep_twin_child, ep_likelihoods, post);
+    ret = tsd_ep_propagate_mutations(
+        &ep, 6, edges, unphased, mutations_posterior, mutations_phase);
     CU_ASSERT_EQUAL(ret, 0);
+    tsd_ep_free(&ep);
 }
 
 static void
 test_propagate_mutations(void)
 {
-    const tsd_id_t parent[4] = { 2, 1, 3, 1 };
-    const tsd_id_t child[4] = { 0, 3, 2, 0 };
-    const tsd_id_t order[1] = { 0 };
     const tsd_id_t edge[1] = { 0 };
-    const double posterior[8] = { 0, 0, 0, 0, 1, 1, 1, 1 };
-    const double huge[8] = { 1, 1e300, 1, 1e300, 1, 1e300, 1, 1e300 };
-    ep_fixture_t fixture;
+    const tsd_id_t bad[1] = { 4 };
+    const double post[8] = { 0, 0, 0, 0, 1, 1, 1, 1 };
     double mutations_posterior[2];
     double mutations_phase[1];
+    tsd_ep_t ep;
 
     run_mutations_pass(0);
     run_mutations_pass(1);
-    ep_fixture_init(&fixture, parent, child);
-    CU_ASSERT_EQUAL(
-        tsd_propagate_mutations(1, order, edge, parent, child, huge, ep_constraints,
-            posterior, &fixture.factors, 1, mutations_posterior, mutations_phase),
+    ep_init(&ep, ep_parent, ep_child, ep_huge, post);
+    CU_ASSERT_EQUAL(tsd_ep_propagate_mutations(
+                        &ep, 1, edge, 1, mutations_posterior, mutations_phase),
         TSD_ERR_ZERO_DIVISION);
+    CU_ASSERT_EQUAL(
+        tsd_ep_propagate_mutations(&ep, 1, bad, 0, mutations_posterior, mutations_phase),
+        TSD_ERR_EDGE_OUT_OF_BOUNDS);
+    CU_ASSERT_EQUAL(
+        tsd_ep_propagate_mutations(&ep, 1, bad, 1, mutations_posterior, mutations_phase),
+        TSD_ERR_BLOCK_OUT_OF_BOUNDS);
+    tsd_ep_free(&ep);
+}
+
+/*
+ * Tables of expectation propagation passes: the inputs of tsd_ep_init, the state
+ * that a case sets after it, and the state (or mutations) expected after the pass.
+ * Entries of the arrays beyond the sizes of the inputs are unused.
+ */
+#define EP_MAX_NODES     8
+#define EP_MAX_EDGES     8
+#define EP_MAX_ORDER     8
+#define EP_MAX_MUTATIONS 4
+#define EP_ULPS          4
+
+typedef struct {
+    tsd_size_t num_nodes;
+    tsd_size_t num_edges;
+    tsd_size_t num_blocks;
+    double constraints[EP_MAX_NODES][2];
+    tsd_id_t edges_parent[EP_MAX_EDGES];
+    tsd_id_t edges_child[EP_MAX_EDGES];
+    double edges_likelihood[EP_MAX_EDGES][2];
+    tsd_id_t blocks_left[EP_MAX_EDGES];
+    tsd_id_t blocks_right[EP_MAX_EDGES];
+    double blocks_likelihood[EP_MAX_EDGES][2];
+} ep_inputs_t;
+
+typedef struct {
+    double posterior[EP_MAX_NODES][2];
+    double node[EP_MAX_NODES][2][2];
+    double edge[EP_MAX_EDGES][2][2];
+    double block[EP_MAX_EDGES][2][2];
+    double scale[EP_MAX_NODES];
+    double edges_lognorm[EP_MAX_EDGES];
+    double blocks_lognorm[EP_MAX_EDGES];
+} ep_state_t;
+
+/* The expected state `after` is only checked if `ret` is 0. */
+typedef struct {
+    const ep_inputs_t *inputs;
+    const ep_state_t *before;
+    tsd_size_t num_order;
+    tsd_id_t order[EP_MAX_ORDER];
+    int unphased;
+    double max_shape;
+    double min_step;
+    int ret;
+    ep_state_t after;
+} ep_likelihood_row_t;
+
+typedef struct {
+    const ep_inputs_t *inputs;
+    const ep_state_t *before;
+    ep_state_t after;
+} ep_rescale_row_t;
+
+typedef struct {
+    const ep_inputs_t *inputs;
+    const ep_state_t *before;
+    uint8_t free[EP_MAX_NODES];
+    double max_shape;
+    int64_t em_maxitt;
+    double em_reltol;
+    int ret;
+    ep_state_t after;
+} ep_prior_row_t;
+
+typedef struct {
+    const ep_inputs_t *inputs;
+    const ep_state_t *before;
+    tsd_size_t num_mutations;
+    tsd_id_t mutations_edge[EP_MAX_MUTATIONS];
+    int unphased;
+    int ret;
+    double posterior[EP_MAX_MUTATIONS][2];
+    double phase[EP_MAX_MUTATIONS];
+} ep_mutations_row_t;
+
+/* The bits of `x` as an integer that increases with `x` (with -0 equal to 0). */
+static int64_t
+ordered_bits(double x)
+{
+    int64_t bits;
+
+    memcpy(&bits, &x, sizeof(bits));
+    if (bits < 0) {
+        bits = INT64_MIN - bits;
+    }
+    return bits;
+}
+
+/* `actual` is within `ulps` units in the last place of `expected`; NaNs are equal. */
+static void
+assert_close_ulps(double actual, double expected, int ulps)
+{
+    int64_t a, b;
+    uint64_t distance;
+
+    if (isnan(expected)) {
+        CU_ASSERT_TRUE(isnan(actual));
+    } else if (!isfinite(expected) || !isfinite(actual)) {
+        CU_ASSERT_EQUAL(actual, expected);
+    } else {
+        a = ordered_bits(actual);
+        b = ordered_bits(expected);
+        distance = a > b ? (uint64_t) a - (uint64_t) b : (uint64_t) b - (uint64_t) a;
+        CU_ASSERT_TRUE(distance <= (uint64_t) ulps);
+    }
+}
+
+static void
+assert_array_close(const double *actual, const double *expected, tsd_size_t n)
+{
+    tsd_size_t j;
+
+    for (j = 0; j < n; j++) {
+        assert_close_ulps(actual[j], expected[j], EP_ULPS);
+    }
+}
+
+static void
+ep_setup(tsd_ep_t *ep, const ep_inputs_t *in, const ep_state_t *state)
+{
+    const tsd_size_t n = in->num_nodes;
+    const tsd_size_t e = in->num_edges;
+    const tsd_size_t b = in->num_blocks;
+    int ret;
+
+    ret = tsd_ep_init(ep, n, e, b, &in->constraints[0][0], in->edges_parent,
+        in->edges_child, &in->edges_likelihood[0][0], in->blocks_left, in->blocks_right,
+        &in->blocks_likelihood[0][0]);
+    CU_ASSERT_FATAL(ret == 0);
+    memcpy(ep->posterior, state->posterior, 2 * n * sizeof(double));
+    memcpy(ep->node, state->node, 4 * n * sizeof(double));
+    memcpy(ep->edge, state->edge, 4 * e * sizeof(double));
+    memcpy(ep->block, state->block, 4 * b * sizeof(double));
+    memcpy(ep->scale, state->scale, n * sizeof(double));
+    memcpy(ep->edges_lognorm, state->edges_lognorm, e * sizeof(double));
+    memcpy(ep->blocks_lognorm, state->blocks_lognorm, b * sizeof(double));
+}
+
+static void
+assert_ep_state(const tsd_ep_t *ep, const ep_state_t *expected)
+{
+    const tsd_size_t n = ep->num_nodes;
+    const tsd_size_t e = ep->num_edges;
+    const tsd_size_t b = ep->num_blocks;
+
+    assert_array_close(ep->posterior, &expected->posterior[0][0], 2 * n);
+    assert_array_close(ep->node, &expected->node[0][0][0], 4 * n);
+    assert_array_close(ep->edge, &expected->edge[0][0][0], 4 * e);
+    assert_array_close(ep->block, &expected->block[0][0][0], 4 * b);
+    assert_array_close(ep->scale, expected->scale, n);
+    assert_array_close(ep->edges_lognorm, expected->edges_lognorm, e);
+    assert_array_close(ep->blocks_lognorm, expected->blocks_lognorm, b);
+}
+
+static const ep_inputs_t ep_inputs_fixed_child = { .num_nodes = 2,
+    .num_edges = 1,
+    .num_blocks = 1,
+    .constraints = { { 0, 0 }, { 0, INFINITY } },
+    .edges_parent = { 1 },
+    .edges_child = { 0 },
+    .edges_likelihood = { { 3, 0.1 } },
+    .blocks_left = { 1 },
+    .blocks_right = { 0 },
+    .blocks_likelihood = { { 3, 0.1 } } };
+
+static const ep_state_t ep_state_edge2_valid = { .posterior = { { 4, 0.6 }, { 4, 0.6 } },
+    .edge = { { { 1, 0.1 }, { 1, 0.1 } } },
+    .scale = { 1, 1 } };
+
+static const ep_state_t ep_state_edge2_damped
+    = { .posterior = { { 23, 2.4499999999999997 }, { 23, 2.4499999999999997 } },
+          .edge = { { { 22, 2.4 }, { 22, 2.4 } } },
+          .scale = { 1, 1 } };
+
+static const ep_inputs_t ep_inputs_fixed_child_huge_span = { .num_nodes = 2,
+    .num_edges = 1,
+    .num_blocks = 1,
+    .constraints = { { 0, 0 }, { 0, INFINITY } },
+    .edges_parent = { 1 },
+    .edges_child = { 0 },
+    .edges_likelihood = { { 1, 1e+300 } },
+    .blocks_left = { 1 },
+    .blocks_right = { 0 },
+    .blocks_likelihood = { { 1, 1e+300 } } };
+
+static const ep_inputs_t ep_inputs_fixed_parent = { .num_nodes = 2,
+    .num_edges = 1,
+    .num_blocks = 1,
+    .constraints = { { 0, INFINITY }, { 10, 10 } },
+    .edges_parent = { 1 },
+    .edges_child = { 0 },
+    .edges_likelihood = { { 3, 0.1 } },
+    .blocks_left = { 1 },
+    .blocks_right = { 0 },
+    .blocks_likelihood = { { 3, 0.1 } } };
+
+static const ep_inputs_t ep_inputs_fixed_parent_huge_span = { .num_nodes = 2,
+    .num_edges = 1,
+    .num_blocks = 1,
+    .constraints = { { 0, INFINITY }, { 10, 10 } },
+    .edges_parent = { 1 },
+    .edges_child = { 0 },
+    .edges_likelihood = { { 1, 1e+300 } },
+    .blocks_left = { 1 },
+    .blocks_right = { 0 },
+    .blocks_likelihood = { { 1, 1e+300 } } };
+
+static const ep_inputs_t ep_inputs_both_free = { .num_nodes = 2,
+    .num_edges = 1,
+    .num_blocks = 1,
+    .constraints = { { 0, INFINITY }, { 0, INFINITY } },
+    .edges_parent = { 1 },
+    .edges_child = { 0 },
+    .edges_likelihood = { { 3, 0.1 } },
+    .blocks_left = { 1 },
+    .blocks_right = { 0 },
+    .blocks_likelihood = { { 3, 0.1 } } };
+
+static const ep_inputs_t ep_inputs_both_free_huge_span = { .num_nodes = 2,
+    .num_edges = 1,
+    .num_blocks = 1,
+    .constraints = { { 0, INFINITY }, { 0, INFINITY } },
+    .edges_parent = { 1 },
+    .edges_child = { 0 },
+    .edges_likelihood = { { 1, 1e+300 } },
+    .blocks_left = { 1 },
+    .blocks_right = { 0 },
+    .blocks_likelihood = { { 1, 1e+300 } } };
+
+static const ep_inputs_t ep_inputs_both_fixed = { .num_nodes = 2,
+    .num_edges = 1,
+    .num_blocks = 1,
+    .constraints = { { 0, 0 }, { 10, 10 } },
+    .edges_parent = { 1 },
+    .edges_child = { 0 },
+    .edges_likelihood = { { 3, 0.1 } },
+    .blocks_left = { 1 },
+    .blocks_right = { 0 },
+    .blocks_likelihood = { { 3, 0.1 } } };
+
+static const ep_inputs_t ep_inputs_twin = { .num_nodes = 2,
+    .num_edges = 1,
+    .num_blocks = 1,
+    .constraints = { { 0, INFINITY }, { 0, INFINITY } },
+    .edges_parent = { 1 },
+    .edges_child = { 1 },
+    .edges_likelihood = { { 3, 0.1 } },
+    .blocks_left = { 1 },
+    .blocks_right = { 1 },
+    .blocks_likelihood = { { 3, 0.1 } } };
+
+static const ep_state_t ep_state_block2_valid
+    = { .posterior = { { 4, 0.6 }, { 4, 0.6 } },
+          .block = { { { 1, 0.1 }, { 1, 0.1 } } },
+          .scale = { 1, 1 } };
+
+static const ep_state_t ep_state_block2_damped
+    = { .posterior = { { 23, 2.4499999999999997 }, { 23, 2.4499999999999997 } },
+          .block = { { { 22, 2.4 }, { 22, 2.4 } } },
+          .scale = { 1, 1 } };
+
+static const ep_inputs_t ep_inputs_twin_huge_span = { .num_nodes = 2,
+    .num_edges = 1,
+    .num_blocks = 1,
+    .constraints = { { 0, INFINITY }, { 0, INFINITY } },
+    .edges_parent = { 1 },
+    .edges_child = { 1 },
+    .edges_likelihood = { { 1, 1e+300 } },
+    .blocks_left = { 1 },
+    .blocks_right = { 1 },
+    .blocks_likelihood = { { 1, 1e+300 } } };
+
+static const ep_inputs_t ep_inputs_sideways_fixed_parent = { .num_nodes = 3,
+    .num_edges = 1,
+    .num_blocks = 1,
+    .constraints = { { 0, INFINITY }, { 5, 5 }, { 0, INFINITY } },
+    .edges_parent = { 1 },
+    .edges_child = { 2 },
+    .edges_likelihood = { { 3, 0.1 } },
+    .blocks_left = { 1 },
+    .blocks_right = { 2 },
+    .blocks_likelihood = { { 3, 0.1 } } };
+
+static const ep_state_t ep_state_block3_valid
+    = { .posterior = { { 4, 0.6 }, { 4, 0.6 }, { 4, 0.6 } },
+          .block = { { { 1, 0.1 }, { 1, 0.1 } } },
+          .scale = { 1, 1, 1 } };
+
+static const ep_state_t ep_state_block3_damped
+    = { .posterior = { { 23, 2.4499999999999997 }, { 23, 2.4499999999999997 },
+            { 23, 2.4499999999999997 } },
+          .block = { { { 22, 2.4 }, { 22, 2.4 } } },
+          .scale = { 1, 1, 1 } };
+
+static const ep_inputs_t ep_inputs_sideways_fixed_parent_huge_span = { .num_nodes = 3,
+    .num_edges = 1,
+    .num_blocks = 1,
+    .constraints = { { 0, INFINITY }, { 5, 5 }, { 0, INFINITY } },
+    .edges_parent = { 1 },
+    .edges_child = { 2 },
+    .edges_likelihood = { { 1, 1e+300 } },
+    .blocks_left = { 1 },
+    .blocks_right = { 2 },
+    .blocks_likelihood = { { 1, 1e+300 } } };
+
+static const ep_inputs_t ep_inputs_sideways_fixed_child = { .num_nodes = 3,
+    .num_edges = 1,
+    .num_blocks = 1,
+    .constraints = { { 0, INFINITY }, { 0, INFINITY }, { 5, 5 } },
+    .edges_parent = { 1 },
+    .edges_child = { 2 },
+    .edges_likelihood = { { 3, 0.1 } },
+    .blocks_left = { 1 },
+    .blocks_right = { 2 },
+    .blocks_likelihood = { { 3, 0.1 } } };
+
+static const ep_inputs_t ep_inputs_sideways_fixed_child_huge_span = { .num_nodes = 3,
+    .num_edges = 1,
+    .num_blocks = 1,
+    .constraints = { { 0, INFINITY }, { 0, INFINITY }, { 5, 5 } },
+    .edges_parent = { 1 },
+    .edges_child = { 2 },
+    .edges_likelihood = { { 1, 1e+300 } },
+    .blocks_left = { 1 },
+    .blocks_right = { 2 },
+    .blocks_likelihood = { { 1, 1e+300 } } };
+
+static const ep_inputs_t ep_inputs_unphased_both_free = { .num_nodes = 3,
+    .num_edges = 1,
+    .num_blocks = 1,
+    .constraints = { { 0, INFINITY }, { 0, INFINITY }, { 0, INFINITY } },
+    .edges_parent = { 1 },
+    .edges_child = { 2 },
+    .edges_likelihood = { { 3, 0.1 } },
+    .blocks_left = { 1 },
+    .blocks_right = { 2 },
+    .blocks_likelihood = { { 3, 0.1 } } };
+
+static const ep_inputs_t ep_inputs_unphased_both_free_huge_span = { .num_nodes = 3,
+    .num_edges = 1,
+    .num_blocks = 1,
+    .constraints = { { 0, INFINITY }, { 0, INFINITY }, { 0, INFINITY } },
+    .edges_parent = { 1 },
+    .edges_child = { 2 },
+    .edges_likelihood = { { 1, 1e+300 } },
+    .blocks_left = { 1 },
+    .blocks_right = { 2 },
+    .blocks_likelihood = { { 1, 1e+300 } } };
+
+static const ep_inputs_t ep_inputs_unphased_both_fixed = { .num_nodes = 3,
+    .num_edges = 1,
+    .num_blocks = 1,
+    .constraints = { { 0, 0 }, { 5, 5 }, { 5, 5 } },
+    .edges_parent = { 1 },
+    .edges_child = { 2 },
+    .edges_likelihood = { { 3, 0.1 } },
+    .blocks_left = { 1 },
+    .blocks_right = { 2 },
+    .blocks_likelihood = { { 3, 0.1 } } };
+
+static const ep_state_t ep_state_block2_improper_posterior
+    = { .posterior = { { 4, 0.6 }, { -2, 0.6 } },
+          .block = { { { 1, 0.1 }, { 1, 0.1 } } },
+          .scale = { 1, 1 } };
+
+static const ep_state_t ep_state_edge2_improper_parent
+    = { .posterior = { { 4, 0.6 }, { -2, 0.6 } },
+          .edge = { { { 1, 0.1 }, { 1, 0.1 } } },
+          .scale = { 1, 1 } };
+
+static const ep_state_t ep_state_edge2_improper_child
+    = { .posterior = { { -2, 0.6 }, { 4, 0.6 } },
+          .edge = { { { 1, 0.1 }, { 1, 0.1 } } },
+          .scale = { 1, 1 } };
+
+static const ep_state_t ep_state_edge2_infinite_rate
+    = { .posterior = { { 4, 0.6 }, { 3, INFINITY } },
+          .edge = { { { 1, 0 }, { 1, 0.1 } } },
+          .scale = { 1, 1 } };
+
+static const ep_state_t ep_state_edge2_nan_parent_message
+    = { .posterior = { { 4, 0.6 }, { 4, 0.6 } },
+          .edge = { { { 1, NAN }, { 1, 0.1 } } },
+          .scale = { 1, 1 } };
+
+static const ep_inputs_t ep_inputs_both_free_huge_count = { .num_nodes = 2,
+    .num_edges = 1,
+    .num_blocks = 1,
+    .constraints = { { 0, INFINITY }, { 0, INFINITY } },
+    .edges_parent = { 1 },
+    .edges_child = { 0 },
+    .edges_likelihood = { { 1e+300, 0.1 } },
+    .blocks_left = { 1 },
+    .blocks_right = { 0 },
+    .blocks_likelihood = { { 1e+300, 0.1 } } };
+
+static const ep_inputs_t ep_inputs_twin_huge_count = { .num_nodes = 2,
+    .num_edges = 1,
+    .num_blocks = 1,
+    .constraints = { { 0, INFINITY }, { 0, INFINITY } },
+    .edges_parent = { 1 },
+    .edges_child = { 1 },
+    .edges_likelihood = { { 1e+300, 0.1 } },
+    .blocks_left = { 1 },
+    .blocks_right = { 1 },
+    .blocks_likelihood = { { 1e+300, 0.1 } } };
+
+static const ep_inputs_t ep_inputs_twin_negative_span = { .num_nodes = 2,
+    .num_edges = 1,
+    .num_blocks = 1,
+    .constraints = { { 0, INFINITY }, { 0, INFINITY } },
+    .edges_parent = { 1 },
+    .edges_child = { 1 },
+    .edges_likelihood = { { 3, -0.25 } },
+    .blocks_left = { 1 },
+    .blocks_right = { 1 },
+    .blocks_likelihood = { { 3, -0.25 } } };
+
+static const ep_inputs_t ep_inputs_small = { .num_nodes = 8,
+    .num_edges = 7,
+    .num_blocks = 2,
+    .constraints = { { 0, 0 }, { 0, 0 }, { 1, 1 }, { 0, INFINITY }, { 0, INFINITY },
+        { 3, 3 }, { 0, INFINITY }, { 0, 0 } },
+    .edges_parent = { 5, 5, 6, 3, 3, 4, 4 },
+    .edges_child = { 2, 6, 7, 0, 1, 3, 5 },
+    .edges_likelihood = { { 2, 0.4 }, { 1, 0.3 }, { 3, 0.5 }, { 1, 0.2 }, { 2, 0.6 },
+        { 4, 0.5 }, { 0, 0.3 } },
+    .blocks_left = { 3, 3 },
+    .blocks_right = { 3, 6 },
+    .blocks_likelihood = { { 1, 0.1 }, { 2, 0.3 } } };
+
+static const ep_state_t ep_state_small_parent_below = {
+    .posterior = { { 0, 0 }, { 0, 0 }, { 0, 0 }, { 2, 0.8636609034779383 },
+        { 2, 0.35355763983709054 }, { 0, 0 }, { 1.9999999999999998, 0.6559293439814701 },
+        { 0, 0 } },
+    .node = { { { 0, 0 }, { 0, 0 } }, { { 0, 0 }, { 0, 0 } }, { { 0, 0 }, { 0, 0 } },
+        { { 6.7039039649712985e+159, 3.3519519824856493e+159 }, { 0, 0 } },
+        { { 1, 0.11336363853632214 }, { 0, 0 } }, { { 0, 0 }, { 0, 0 } },
+        { { 1, 0.5 }, { 0, 0 } }, { { 0, 0 }, { 0, 0 } } },
+    .edge
+    = { { { 0, 0 }, { 0, 0 } }, { { 0, 0 }, { 10.011642211321844, 6.605287307126262 } },
+        { { 21.44384001098297, 3.5739733351638274 }, { 0, 0 } },
+        { { 6.703903964971305e+159, 1.3407807929942595e+159 }, { 0, 0 } },
+        { { 4.006486409929041e+160, 1.2019459229787126e+160 }, { 0, 0 } },
+        { { 6.9437839783179705, 0.524576155586376 },
+            { 6.734058618746918e+159, 1.196199483833472e+160 } },
+        { { 6.297584371607302, 1.8796324968024116 }, { 0, 0 } } },
+    .block = { { { 6.7039039649712985e+159, 1.3407807929942595e+159 }, { 0, 0 } },
+        { { 5.135700831885259e+159, 1.0968339446850352e+159 },
+            { 0.2842511293334642, 0.058215267444087004 } } },
+    .scale = { 1, 1, 1, 1.4916681462400413e-160, 0.14043594343309676, 1,
+        0.06108785244275427, 1 },
+    .edges_lognorm = { 0, 0.9159334894862647, 1.8171156304288907, 1.6342858852166113,
+        1.9098718845981875, 7.151100745299825, 3.5484528956654957 },
+    .blocks_lognorm = { 2.265195274615815, -2.300107063753849 }
+};
+
+static const ep_state_t ep_state_small_child_below
+    = { .posterior = { { 0, 0 }, { 0, 0 }, { 0, 0 }, { 2, 0.8636609034779383 },
+            { 2, 0.35355763983709054 }, { 0, 0 },
+            { 1.9999999999999998, 0.6559293439814701 }, { 0, 0 } },
+          .node = { { { 0, 0 }, { 0, 0 } }, { { 0, 0 }, { 0, 0 } },
+              { { 0, 0 }, { 0, 0 } }, { { 1, 0.5 }, { 0, 0 } },
+              { { 1, 0.11336363853632214 }, { 0, 0 } }, { { 0, 0 }, { 0, 0 } },
+              { { 6.7039039649712985e+159, 3.3519519824856493e+159 }, { 0, 0 } },
+              { { 0, 0 }, { 0, 0 } } },
+          .edge = { { { 0, 0 }, { 0, 0 } },
+              { { 0, 0 }, { 6.711708791635453e+160, 4.428121176801834e+160 } },
+              { { 1.4375744407383892e+161, 2.395957401230648e+160 }, { 0, 0 } },
+              { { 1.0000000000000009, 0.19999999999999996 }, { 0, 0 } },
+              { { 5.9763481560347715, 1.7929044468104316 }, { 0, 0 } },
+              { { 6.9437839783179705, 0.524576155586376 },
+                  { 1.0044980736497988, 1.7843326665831694 } },
+              { { 6.297584371607302, 1.8796324968024116 }, { 0, 0 } } },
+          .block = { { { 1, 0.19999999999999996 }, { 0, 0 } },
+              { { 0.7660761339541722, 0.16361122570014786 },
+                  { 1.90559227298618e+159, 3.9026956224027946e+158 } } },
+          .scale = { 1, 1, 1, 0.18609979046343747, 0.14043594343309676, 1,
+              1.4916681462400413e-160, 1 },
+          .edges_lognorm
+          = { 0, 0.9159334894862647, 1.8171156304288907, 1.6342858852166113,
+              1.9098718845981875, 7.151100745299825, 3.5484528956654957 },
+          .blocks_lognorm = { 2.265195274615815, -2.300107063753849 } };
+
+static const ep_state_t ep_state_small_child_just_below
+    = { .posterior = { { 0, 0 }, { 0, 0 }, { 0, 0 }, { 2, 0.8636609034779383 },
+            { 2, 0.35355763983709054 }, { 0, 0 },
+            { 1.9999999999999998, 0.6559293439814701 }, { 0, 0 } },
+          .node = { { { 0, 0 }, { 0, 0 } }, { { 0, 0 }, { 0, 0 } },
+              { { 0, 0 }, { 0, 0 } }, { { 1, 0.5 }, { 0, 0 } },
+              { { 1, 0.11336363853632214 }, { 0, 0 } }, { { 0, 0 }, { 0, 0 } },
+              { { 6.7039039649713e+153, 3.35195198248565e+153 }, { 0, 0 } },
+              { { 0, 0 }, { 0, 0 } } },
+          .edge = { { { 0, 0 }, { 0, 0 } },
+              { { 0, 0 }, { 6.711708791635454e+154, 4.4281211768018344e+154 } },
+              { { 1.4375744407383894e+155, 2.395957401230648e+154 }, { 0, 0 } },
+              { { 1.0000000000000009, 0.19999999999999996 }, { 0, 0 } },
+              { { 5.9763481560347715, 1.7929044468104316 }, { 0, 0 } },
+              { { 6.9437839783179705, 0.524576155586376 },
+                  { 1.0044980736497988, 1.7843326665831694 } },
+              { { 6.297584371607302, 1.8796324968024116 }, { 0, 0 } } },
+          .block = { { { 1, 0.19999999999999996 }, { 0, 0 } },
+              { { 0.7660761339541722, 0.16361122570014786 },
+                  { 1.9055922729861804e+153, 3.9026956224027947e+152 } } },
+          .scale = { 1, 1, 1, 0.18609979046343747, 0.14043594343309676, 1,
+              1.4916681462400412e-154, 1 },
+          .edges_lognorm
+          = { 0, 0.9159334894862647, 1.8171156304288907, 1.6342858852166113,
+              1.9098718845981875, 7.151100745299825, 3.5484528956654957 },
+          .blocks_lognorm = { 2.265195274615815, -2.300107063753849 } };
+
+static const ep_state_t ep_state_small_child_at
+    = { .posterior = { { 0, 0 }, { 0, 0 }, { 0, 0 }, { 2, 0.8636609034779383 },
+            { 2, 0.35355763983709054 }, { 0, 0 },
+            { 1.9999999999999998, 0.6559293439814701 }, { 0, 0 } },
+          .node = { { { 0, 0 }, { 0, 0 } }, { { 0, 0 }, { 0, 0 } },
+              { { 0, 0 }, { 0, 0 } }, { { 1, 0.5 }, { 0, 0 } },
+              { { 1, 0.11336363853632214 }, { 0, 0 } }, { { 0, 0 }, { 0, 0 } },
+              { { 6.703903964971299e+153, 3.3519519824856493e+153 }, { 0, 0 } },
+              { { 0, 0 }, { 0, 0 } } },
+          .edge = { { { 0, 0 }, { 0, 0 } },
+              { { 0, 0 }, { 6.711708791635453e+154, 4.428121176801834e+154 } },
+              { { 1.4375744407383891e+155, 2.3959574012306478e+154 }, { 0, 0 } },
+              { { 1.0000000000000009, 0.19999999999999996 }, { 0, 0 } },
+              { { 5.9763481560347715, 1.7929044468104316 }, { 0, 0 } },
+              { { 6.9437839783179705, 0.524576155586376 },
+                  { 1.0044980736497988, 1.7843326665831694 } },
+              { { 6.297584371607302, 1.8796324968024116 }, { 0, 0 } } },
+          .block = { { { 1, 0.19999999999999996 }, { 0, 0 } },
+              { { 0.7660761339541722, 0.16361122570014786 },
+                  { 1.90559227298618e+153, 3.902695622402794e+152 } } },
+          .scale = { 1, 1, 1, 0.18609979046343747, 0.14043594343309676, 1,
+              1.4916681462400413e-154, 1 },
+          .edges_lognorm
+          = { 0, 0.9159334894862647, 1.8171156304288907, 1.6342858852166113,
+              1.9098718845981875, 7.151100745299825, 3.5484528956654957 },
+          .blocks_lognorm = { 2.265195274615815, -2.300107063753849 } };
+
+static const ep_state_t ep_state_small_parent_above = {
+    .posterior = { { 0, 0 }, { 0, 0 }, { 0, 0 }, { 2, 0.8636609034779383 },
+        { 2, 0.35355763983709054 }, { 0, 0 }, { 1.9999999999999998, 0.6559293439814701 },
+        { 0, 0 } },
+    .node = { { { 0, 0 }, { 0, 0 } }, { { 0, 0 }, { 0, 0 } }, { { 0, 0 }, { 0, 0 } },
+        { { 3.3519519824856493e+153, 1.6759759912428246e+153 }, { 0, 0 } },
+        { { 1, 0.11336363853632214 }, { 0, 0 } }, { { 0, 0 }, { 0, 0 } },
+        { { 1, 0.5 }, { 0, 0 } }, { { 0, 0 }, { 0, 0 } } },
+    .edge
+    = { { { 0, 0 }, { 0, 0 } }, { { 0, 0 }, { 10.011642211321844, 6.605287307126262 } },
+        { { 21.44384001098297, 3.5739733351638274 }, { 0, 0 } },
+        { { 3.351951982485652e+153, 6.703903964971297e+152 }, { 0, 0 } },
+        { { 2.0032432049645207e+154, 6.0097296148935625e+153 }, { 0, 0 } },
+        { { 6.9437839783179705, 0.524576155586376 },
+            { 3.367029309373459e+153, 5.9809974191673596e+153 } },
+        { { 6.297584371607302, 1.8796324968024116 }, { 0, 0 } } },
+    .block = { { { 3.3519519824856493e+153, 6.703903964971297e+152 }, { 0, 0 } },
+        { { 2.5678504159426292e+153, 5.484169723425176e+152 },
+            { 0.2842511293334642, 0.058215267444087004 } } },
+    .scale = { 1, 1, 1, 2.983336292480083e-154, 0.14043594343309676, 1,
+        0.06108785244275427, 1 },
+    .edges_lognorm = { 0, 0.9159334894862647, 1.8171156304288907, 1.6342858852166113,
+        1.9098718845981875, 7.151100745299825, 3.5484528956654957 },
+    .blocks_lognorm = { 2.265195274615815, -2.300107063753849 }
+};
+
+static const ep_state_t ep_state_small_skipped_below = {
+    .posterior = { { 0, 0 }, { 0, 0 }, { 0, 0 }, { 2, 0.8636609034779383 },
+        { 2, 0.35355763983709054 }, { 0, 0 }, { 1.9999999999999998, 0.6559293439814701 },
+        { 0, 0 } },
+    .node = { { { 0, 0 }, { 0, 0 } }, { { 0, 0 }, { 0, 0 } }, { { 0, 0 }, { 0, 0 } },
+        { { 1, 0.5 }, { 0, 0 } }, { { 1, 0.11336363853632214 }, { 0, 0 } },
+        { { 0, 0 }, { 0, 0 } }, { { 1, 0.5 }, { 0, 0 } }, { { 0, 0 }, { 0, 0 } } },
+    .edge
+    = { { { 0, 0 }, { 0, 0 } }, { { 0, 0 }, { 10.011642211321844, 6.605287307126262 } },
+        { { 21.44384001098297, 3.5739733351638274 }, { 0, 0 } },
+        { { 1.0000000000000009, 0.19999999999999996 }, { 0, 0 } },
+        { { 5.9763481560347715, 1.7929044468104316 }, { 0, 0 } },
+        { { 6.9437839783179705, 0.524576155586376 },
+            { 1.0044980736497988, 1.7843326665831694 } },
+        { { 6.297584371607302, 1.8796324968024116 }, { 0, 0 } } },
+    .block = { { { 1, 0.19999999999999996 }, { 0, 0 } },
+        { { 0.7660761339541722, 0.16361122570014786 },
+            { 0.2842511293334642, 0.058215267444087004 } } },
+    .scale = { 1, 1, 1.4916681462400413e-160, 0.18609979046343747, 0.14043594343309676,
+        1, 0.06108785244275427, 1 },
+    .edges_lognorm = { 0, 0.9159334894862647, 1.8171156304288907, 1.6342858852166113,
+        1.9098718845981875, 7.151100745299825, 3.5484528956654957 },
+    .blocks_lognorm = { 2.265195274615815, -2.300107063753849 }
+};
+
+static const ep_state_t ep_state_small_random_scales = {
+    .posterior = { { 0, 0 }, { 0, 0 }, { 0, 0 }, { 2, 0.8636609034779383 },
+        { 2, 0.35355763983709054 }, { 0, 0 }, { 1.9999999999999998, 0.6559293439814701 },
+        { 0, 0 } },
+    .node = { { { 0, 0 }, { 0, 0 } }, { { 0, 0 }, { 0, 0 } }, { { 0, 0 }, { 0, 0 } },
+        { { 1, 0.5 }, { 0, 0 } }, { { 1, 0.11336363853632214 }, { 0, 0 } },
+        { { 0, 0 }, { 0, 0 } }, { { 1, 0.5 }, { 0, 0 } }, { { 0, 0 }, { 0, 0 } } },
+    .edge
+    = { { { 0, 0 }, { 0, 0 } }, { { 0, 0 }, { 10.011642211321844, 6.605287307126262 } },
+        { { 21.44384001098297, 3.5739733351638274 }, { 0, 0 } },
+        { { 1.0000000000000009, 0.19999999999999996 }, { 0, 0 } },
+        { { 5.9763481560347715, 1.7929044468104316 }, { 0, 0 } },
+        { { 6.9437839783179705, 0.524576155586376 },
+            { 1.0044980736497988, 1.7843326665831694 } },
+        { { 6.297584371607302, 1.8796324968024116 }, { 0, 0 } } },
+    .block = { { { 1, 0.19999999999999996 }, { 0, 0 } },
+        { { 0.7660761339541722, 0.16361122570014786 },
+            { 0.2842511293334642, 0.058215267444087004 } } },
+    .scale
+    = { 1.4554425309821815, 0.9046800706458055, 0.5614602859042921, 0.5247914532927936,
+        1.7199053588004087, 1.8691333659165825, 1.4099536636507697, 1.5942448414759975 },
+    .edges_lognorm = { 0, 0.9159334894862647, 1.8171156304288907, 1.6342858852166113,
+        1.9098718845981875, 7.151100745299825, 3.5484528956654957 },
+    .blocks_lognorm = { 2.265195274615815, -2.300107063753849 }
+};
+
+static const ep_state_t ep_state_small_scales_1em160 = {
+    .posterior = { { 0, 0 }, { 0, 0 }, { 0, 0 }, { 2, 0.8636609034779383 },
+        { 2, 0.35355763983709054 }, { 0, 0 }, { 1.9999999999999998, 0.6559293439814701 },
+        { 0, 0 } },
+    .node = { { { 0, 0 }, { 0, 0 } }, { { 0, 0 }, { 0, 0 } }, { { 0, 0 }, { 0, 0 } },
+        { { 1, 0.5 }, { 0, 0 } }, { { 1, 0.11336363853632214 }, { 0, 0 } },
+        { { 0, 0 }, { 0, 0 } }, { { 1, 0.5 }, { 0, 0 } }, { { 0, 0 }, { 0, 0 } } },
+    .edge
+    = { { { 0, 0 }, { 0, 0 } }, { { 0, 0 }, { 10.011642211321844, 6.605287307126262 } },
+        { { 21.44384001098297, 3.5739733351638274 }, { 0, 0 } },
+        { { 1.0000000000000009, 0.19999999999999996 }, { 0, 0 } },
+        { { 5.9763481560347715, 1.7929044468104316 }, { 0, 0 } },
+        { { 6.9437839783179705, 0.524576155586376 },
+            { 1.0044980736497988, 1.7843326665831694 } },
+        { { 6.297584371607302, 1.8796324968024116 }, { 0, 0 } } },
+    .block = { { { 1, 0.19999999999999996 }, { 0, 0 } },
+        { { 0.7660761339541722, 0.16361122570014786 },
+            { 0.2842511293334642, 0.058215267444087004 } } },
+    .scale = { 1e-160, 1e-160, 1e-160, 1e-160, 1e-160, 1e-160, 1e-160, 1e-160 },
+    .edges_lognorm = { 0, 0.9159334894862647, 1.8171156304288907, 1.6342858852166113,
+        1.9098718845981875, 7.151100745299825, 3.5484528956654957 },
+    .blocks_lognorm = { 2.265195274615815, -2.300107063753849 }
+};
+
+static const ep_state_t ep_state_small_scales_1e100 = {
+    .posterior = { { 0, 0 }, { 0, 0 }, { 0, 0 }, { 2, 0.8636609034779383 },
+        { 2, 0.35355763983709054 }, { 0, 0 }, { 1.9999999999999998, 0.6559293439814701 },
+        { 0, 0 } },
+    .node = { { { 0, 0 }, { 0, 0 } }, { { 0, 0 }, { 0, 0 } }, { { 0, 0 }, { 0, 0 } },
+        { { 1, 0.5 }, { 0, 0 } }, { { 1, 0.11336363853632214 }, { 0, 0 } },
+        { { 0, 0 }, { 0, 0 } }, { { 1, 0.5 }, { 0, 0 } }, { { 0, 0 }, { 0, 0 } } },
+    .edge
+    = { { { 0, 0 }, { 0, 0 } }, { { 0, 0 }, { 10.011642211321844, 6.605287307126262 } },
+        { { 21.44384001098297, 3.5739733351638274 }, { 0, 0 } },
+        { { 1.0000000000000009, 0.19999999999999996 }, { 0, 0 } },
+        { { 5.9763481560347715, 1.7929044468104316 }, { 0, 0 } },
+        { { 6.9437839783179705, 0.524576155586376 },
+            { 1.0044980736497988, 1.7843326665831694 } },
+        { { 6.297584371607302, 1.8796324968024116 }, { 0, 0 } } },
+    .block = { { { 1, 0.19999999999999996 }, { 0, 0 } },
+        { { 0.7660761339541722, 0.16361122570014786 },
+            { 0.2842511293334642, 0.058215267444087004 } } },
+    .scale = { 1e+100, 1e+100, 1e+100, 1e+100, 1e+100, 1e+100, 1e+100, 1e+100 },
+    .edges_lognorm = { 0, 0.9159334894862647, 1.8171156304288907, 1.6342858852166113,
+        1.9098718845981875, 7.151100745299825, 3.5484528956654957 },
+    .blocks_lognorm = { 2.265195274615815, -2.300107063753849 }
+};
+
+static const ep_state_t ep_state_small = {
+    .posterior = { { 0, 0 }, { 0, 0 }, { 0, 0 }, { 2, 0.8636609034779383 },
+        { 2, 0.35355763983709054 }, { 0, 0 }, { 1.9999999999999998, 0.6559293439814701 },
+        { 0, 0 } },
+    .node = { { { 0, 0 }, { 0, 0 } }, { { 0, 0 }, { 0, 0 } }, { { 0, 0 }, { 0, 0 } },
+        { { 1, 0.5 }, { 0, 0 } }, { { 1, 0.11336363853632214 }, { 0, 0 } },
+        { { 0, 0 }, { 0, 0 } }, { { 1, 0.5 }, { 0, 0 } }, { { 0, 0 }, { 0, 0 } } },
+    .edge
+    = { { { 0, 0 }, { 0, 0 } }, { { 0, 0 }, { 10.011642211321844, 6.605287307126262 } },
+        { { 21.44384001098297, 3.5739733351638274 }, { 0, 0 } },
+        { { 1.0000000000000009, 0.19999999999999996 }, { 0, 0 } },
+        { { 5.9763481560347715, 1.7929044468104316 }, { 0, 0 } },
+        { { 6.9437839783179705, 0.524576155586376 },
+            { 1.0044980736497988, 1.7843326665831694 } },
+        { { 6.297584371607302, 1.8796324968024116 }, { 0, 0 } } },
+    .block = { { { 1, 0.19999999999999996 }, { 0, 0 } },
+        { { 0.7660761339541722, 0.16361122570014786 },
+            { 0.2842511293334642, 0.058215267444087004 } } },
+    .scale
+    = { 1, 1, 1, 0.18609979046343747, 0.14043594343309676, 1, 0.06108785244275427, 1 },
+    .edges_lognorm = { 0, 0.9159334894862647, 1.8171156304288907, 1.6342858852166113,
+        1.9098718845981875, 7.151100745299825, 3.5484528956654957 },
+    .blocks_lognorm = { 2.265195274615815, -2.300107063753849 }
+};
+
+static const ep_state_t ep_state_small_zero = {
+    .edge
+    = { { { 0, 0 }, { 0, 0 } }, { { 0, 0 }, { 10.011642211321844, 6.605287307126262 } },
+        { { 21.44384001098297, 3.5739733351638274 }, { 0, 0 } },
+        { { 1.0000000000000009, 0.19999999999999996 }, { 0, 0 } },
+        { { 5.9763481560347715, 1.7929044468104316 }, { 0, 0 } },
+        { { 6.9437839783179705, 0.524576155586376 },
+            { 1.0044980736497988, 1.7843326665831694 } },
+        { { 6.297584371607302, 1.8796324968024116 }, { 0, 0 } } },
+    .block = { { { 1, 0.19999999999999996 }, { 0, 0 } },
+        { { 0.7660761339541722, 0.16361122570014786 },
+            { 0.2842511293334642, 0.058215267444087004 } } },
+    .scale
+    = { 1, 1, 1, 0.18609979046343747, 0.14043594343309676, 1, 0.06108785244275427, 1 },
+    .edges_lognorm = { 0, 0.9159334894862647, 1.8171156304288907, 1.6342858852166113,
+        1.9098718845981875, 7.151100745299825, 3.5484528956654957 },
+    .blocks_lognorm = { 2.265195274615815, -2.300107063753849 }
+};
+
+static const ep_state_t ep_state_small_negative_rate = {
+    .posterior = { { 0, 0 }, { 0, 0 }, { 0, 0 }, { 2, 0.8636609034779383 },
+        { 2, 0.35355763983709054 }, { 0, 0 }, { 1.9999999999999998, 0.6559293439814701 },
+        { 0, 0 } },
+    .node = { { { 0, 0 }, { 0, 0 } }, { { 0, 0 }, { 0, 0 } }, { { 0, 0 }, { 0, 0 } },
+        { { 1, 0.5 }, { 0, 0 } }, { { 1, 9.638256465887746 }, { 0, 0 } },
+        { { 0, 0 }, { 0, 0 } }, { { 1, 0.5 }, { 0, 0 } }, { { 0, 0 }, { 0, 0 } } },
+    .edge
+    = { { { 0, 0 }, { 0, 0 } }, { { 0, 0 }, { 10.011642211321844, 6.605287307126262 } },
+        { { 21.44384001098297, 3.5739733351638274 }, { 0, 0 } },
+        { { 1.0000000000000009, 0.19999999999999996 }, { 0, 0 } },
+        { { 5.9763481560347715, 1.7929044468104316 }, { 0, 0 } },
+        { { 6.9437839783179705, 0.524576155586376 },
+            { 1.0044980736497988, 1.7843326665831694 } },
+        { { 6.297584371607302, 1.8796324968024116 }, { 0, 0 } } },
+    .block = { { { 1, 0.19999999999999996 }, { 0, 0 } },
+        { { 0.7660761339541722, 0.16361122570014786 },
+            { 0.2842511293334642, 0.058215267444087004 } } },
+    .scale
+    = { 1, 1, 1, 0.18609979046343747, 0.14043594343309676, 1, 0.06108785244275427, 1 },
+    .edges_lognorm = { 0, 0.9159334894862647, 1.8171156304288907, 1.6342858852166113,
+        1.9098718845981875, 7.151100745299825, 3.5484528956654957 },
+    .blocks_lognorm = { 2.265195274615815, -2.300107063753849 }
+};
+
+static const ep_inputs_t ep_inputs_both_fixed_equal = { .num_nodes = 2,
+    .num_edges = 1,
+    .num_blocks = 1,
+    .constraints = { { 5, 5 }, { 5, 5 } },
+    .edges_parent = { 1 },
+    .edges_child = { 0 },
+    .edges_likelihood = { { 3, 0.1 } },
+    .blocks_left = { 1 },
+    .blocks_right = { 0 },
+    .blocks_likelihood = { { 3, 0.1 } } };
+
+static const ep_inputs_t ep_inputs_both_fixed_adjacent = { .num_nodes = 2,
+    .num_edges = 1,
+    .num_blocks = 1,
+    .constraints = { { 5, 5 }, { 5.000000000000001, 5.000000000000001 } },
+    .edges_parent = { 1 },
+    .edges_child = { 0 },
+    .edges_likelihood = { { 3, 0.1 } },
+    .blocks_left = { 1 },
+    .blocks_right = { 0 },
+    .blocks_likelihood = { { 3, 0.1 } } };
+
+static const ep_inputs_t ep_inputs_both_fixed_inverted = { .num_nodes = 2,
+    .num_edges = 1,
+    .num_blocks = 1,
+    .constraints = { { 10, 10 }, { 0, 0 } },
+    .edges_parent = { 1 },
+    .edges_child = { 0 },
+    .edges_likelihood = { { 3, 0.1 } },
+    .blocks_left = { 1 },
+    .blocks_right = { 0 },
+    .blocks_likelihood = { { 3, 0.1 } } };
+
+/* One edge (block) in each branch of the likelihood pass, with valid, damped and failing
+ * projections, and failures of the damping; expected values are those of the reference
+ * implementation, except for the divisions by zero that the library reports and the
+ * reference implementation computes in floating point. */
+static const ep_likelihood_row_t ep_likelihood_branch_rows[] = {
+    /* fixed_child, valid */
+    { &ep_inputs_fixed_child, &ep_state_edge2_valid, 1, { 0 }, 0, 1e+300, 0.1, 0,
+        { .posterior = { { 4, 0.6 }, { 6.000000000000001, 0.6 } },
+            .edge = { { { 3.000000000000001, 0.09999999999999998 }, { 1, 0.1 } } },
+            .scale = { 1, 1 },
+            .edges_lognorm = { 10.155030578372036 } } },
+    /* fixed_child, damped */
+    { &ep_inputs_fixed_child, &ep_state_edge2_damped, 1, { 0 }, 0, 1e+300, 0.1, 0,
+        { .posterior
+            = { { 23, 2.4499999999999997 }, { 5.543750000000004, 0.3368750000000001 } },
+            .edge = { { { 4.543750000000002, 0.2868750000000003 }, { 22, 2.4 } } },
+            .scale = { 1, 1 },
+            .edges_lognorm = { 12.861044274991544 } } },
+    /* fixed_child, projection_fails */
+    { &ep_inputs_fixed_child_huge_span, &ep_state_edge2_valid, 1, { 0 }, 0, 1e+300, 0.1,
+        0,
+        { .posterior = { { 4, 0.6 }, { 3, 0.5 } },
+            .edge = { { { 0, 0 }, { 1, 0.1 } } },
+            .scale = { 1, 1 },
+            .edges_lognorm = { NAN } } },
+    /* fixed_parent, valid */
+    { &ep_inputs_fixed_parent, &ep_state_edge2_valid, 1, { 0 }, 0, 1e+300, 0.1, 0,
+        { .posterior = { { 5.237205312432989, 1.5864148365014894 }, { 4, 0.6 } },
+            .edge = { { { 1, 0.1 }, { 2.237205312432989, 1.0864148365014894 } } },
+            .scale = { 1, 1 },
+            .edges_lognorm = { 8.392109396313824 } } },
+    /* fixed_parent, damped */
+    { &ep_inputs_fixed_parent, &ep_state_edge2_damped, 1, { 0 }, 0, 1e+300, 0.1, 0,
+        { .posterior
+            = { { 6.2859049125683475, 1.59224630406714 }, { 23, 2.4499999999999997 } },
+            .edge = { { { 22, 2.4 }, { 5.285904912568346, 1.5422463040671401 } } },
+            .scale = { 1, 1 },
+            .edges_lognorm = { 8.819556344925992 } } },
+    /* fixed_parent, projection_fails */
+    { &ep_inputs_fixed_parent_huge_span, &ep_state_edge2_valid, 1, { 0 }, 0, 1e+300, 0.1,
+        0,
+        { .posterior = { { 3, 0.5 }, { 4, 0.6 } },
+            .edge = { { { 1, 0.1 }, { 0, 0 } } },
+            .scale = { 1, 1 },
+            .edges_lognorm = { NAN } } },
+    /* both_free, valid */
+    { &ep_inputs_both_free, &ep_state_edge2_valid, 1, { 0 }, 0, 1e+300, 0.1, 0,
+        { .posterior = { { 3.340990263647014, 0.8598058362787732 },
+              { 9.208111413904785, 0.6820200768549769 } },
+            .edge = { { { 6.208111413904785, 0.1820200768549769 },
+                { 0.3409902636470141, 0.35980583627877316 } } },
+            .scale = { 1, 1 },
+            .edges_lognorm = { 13.088415737608075 } } },
+    /* both_free, damped */
+    { &ep_inputs_both_free, &ep_state_edge2_damped, 1, { 0 }, 0, 1e+300, 0.1, 0,
+        { .posterior = { { 3.191895535259021, 0.4211261303374999 },
+              { 8.897091337020257, 0.3785701047221309 } },
+            .edge = { { { 7.897091337020255, 0.3285701047221311 },
+                { 2.191895535259019, 0.3711261303375002 } } },
+            .scale = { 1, 1 },
+            .edges_lognorm = { 18.31439947231522 } } },
+    /* both_free, projection_fails */
+    { &ep_inputs_both_free_huge_span, &ep_state_edge2_valid, 1, { 0 }, 0, 1e+300, 0.1, 0,
+        { .posterior = { { 3, 0.5 }, { 3, 0.5 } },
+            .scale = { 1, 1 },
+            .edges_lognorm = { NAN } } },
+    /* both_fixed, valid */
+    { &ep_inputs_both_fixed, &ep_state_edge2_valid, 1, { 0 }, 0, 1e+300, 0.1, 0,
+        { .posterior = { { 4, 0.6 }, { 4, 0.6 } },
+            .edge = { { { 1, 0.1 }, { 1, 0.1 } } },
+            .scale = { 1, 1 } } },
+    /* twin, valid */
+    { &ep_inputs_twin, &ep_state_block2_valid, 1, { 0 }, 1, 1e+300, 0.1, 0,
+        { .posterior = { { 4, 0.6 }, { 5.999999999999999, 0.6999999999999998 } },
+            .block = { { { 2.999999999999999, 0.19999999999999984 }, { 1, 0.1 } } },
+            .scale = { 1, 1 },
+            .blocks_lognorm = { 11.155417361261065 } } },
+    /* twin, damped */
+    { &ep_inputs_twin, &ep_state_block2_damped, 1, { 0 }, 1, 1e+300, 0.1, 0,
+        { .posterior
+            = { { 23, 2.4499999999999997 }, { 5.543750000000005, 0.4287500000000001 } },
+            .block = { { { 4.543750000000003, 0.37875000000000036 }, { 22, 2.4 } } },
+            .scale = { 1, 1 },
+            .blocks_lognorm = { 13.193426982114381 } } },
+    /* twin, projection_fails */
+    { &ep_inputs_twin_huge_span, &ep_state_block2_valid, 1, { 0 }, 1, 1e+300, 0.1, 0,
+        { .posterior = { { 4, 0.6 }, { 3, 0.5 } },
+            .block = { { { 0, 0 }, { 1, 0.1 } } },
+            .scale = { 1, 1 },
+            .blocks_lognorm = { NAN } } },
+    /* sideways_fixed_parent, valid */
+    { &ep_inputs_sideways_fixed_parent, &ep_state_block3_valid, 1, { 0 }, 1, 1e+300, 0.1,
+        0,
+        { .posterior
+            = { { 4, 0.6 }, { 4, 0.6 }, { 4.231122949265319, 0.5314156646872705 } },
+            .block = { { { 1, 0.1 }, { 1.2311229492653188, 0.03141566468727053 } } },
+            .scale = { 1, 1, 1 },
+            .blocks_lognorm = { 10.937231963805417 } } },
+    /* sideways_fixed_parent, damped */
+    { &ep_inputs_sideways_fixed_parent, &ep_state_block3_damped, 1, { 0 }, 1, 1e+300,
+        0.1, 0,
+        { .posterior = { { 23, 2.4499999999999997 }, { 23, 2.4499999999999997 },
+              { 4.3632947068956724, 0.308279227260758 } },
+            .block = { { { 22, 2.4 }, { 3.3632947068956707, 0.25827922726075825 } } },
+            .scale = { 1, 1, 1 },
+            .blocks_lognorm = { 13.159832686323291 } } },
+    /* sideways_fixed_parent, projection_fails */
+    { &ep_inputs_sideways_fixed_parent_huge_span, &ep_state_block3_valid, 1, { 0 }, 1,
+        1e+300, 0.1, TSD_ERR_ZERO_DIVISION, { .scale = { 0 } } },
+    /* sideways_fixed_child, valid */
+    { &ep_inputs_sideways_fixed_child, &ep_state_block3_valid, 1, { 0 }, 1, 1e+300, 0.1,
+        0,
+        { .posterior
+            = { { 4, 0.6 }, { 4.231122949265319, 0.5314156646872705 }, { 4, 0.6 } },
+            .block = { { { 1.2311229492653188, 0.03141566468727053 }, { 1, 0.1 } } },
+            .scale = { 1, 1, 1 },
+            .blocks_lognorm = { 10.937231963805417 } } },
+    /* sideways_fixed_child, damped */
+    { &ep_inputs_sideways_fixed_child, &ep_state_block3_damped, 1, { 0 }, 1, 1e+300, 0.1,
+        0,
+        { .posterior = { { 23, 2.4499999999999997 },
+              { 4.3632947068956724, 0.308279227260758 }, { 23, 2.4499999999999997 } },
+            .block = { { { 3.3632947068956707, 0.25827922726075825 }, { 22, 2.4 } } },
+            .scale = { 1, 1, 1 },
+            .blocks_lognorm = { 13.159832686323291 } } },
+    /* sideways_fixed_child, projection_fails */
+    { &ep_inputs_sideways_fixed_child_huge_span, &ep_state_block3_valid, 1, { 0 }, 1,
+        1e+300, 0.1, TSD_ERR_ZERO_DIVISION, { .scale = { 0 } } },
+    /* unphased_both_free, valid */
+    { &ep_inputs_unphased_both_free, &ep_state_block3_valid, 1, { 0 }, 1, 1e+300, 0.1, 0,
+        { .posterior = { { 4, 0.6 }, { 3.7142857142857224, 0.5142857142857151 },
+              { 3.7142857142857224, 0.5142857142857151 } },
+            .block = { { { 0.7142857142857224, 0.014285714285715123 },
+                { 0.7142857142857224, 0.014285714285715123 } } },
+            .scale = { 1, 1, 1 },
+            .blocks_lognorm = { 15.781852011892113 } } },
+    /* unphased_both_free, damped */
+    { &ep_inputs_unphased_both_free, &ep_state_block3_damped, 1, { 0 }, 1, 1e+300, 0.1,
+        0,
+        { .posterior
+            = { { 23, 2.4499999999999997 }, { 3.4503846153846256, 0.2902307692307697 },
+                { 3.4503846153846256, 0.2902307692307697 } },
+            .block = { { { 2.450384615384624, 0.24023076923076994 },
+                { 2.450384615384624, 0.24023076923076994 } } },
+            .scale = { 1, 1, 1 },
+            .blocks_lognorm = { 20.176250719010007 } } },
+    /* unphased_both_free, projection_fails */
+    { &ep_inputs_unphased_both_free_huge_span, &ep_state_block3_valid, 1, { 0 }, 1,
+        1e+300, 0.1, 0,
+        { .posterior = { { 4, 0.6 }, { 3, 0.5 }, { 3, 0.5 } },
+            .scale = { 1, 1, 1 },
+            .blocks_lognorm = { NAN } } },
+    /* unphased_both_fixed, valid */
+    { &ep_inputs_unphased_both_fixed, &ep_state_block3_valid, 1, { 0 }, 1, 1e+300, 0.1,
+        0,
+        { .posterior = { { 4, 0.6 }, { 4, 0.6 }, { 4, 0.6 } },
+            .block = { { { 1, 0.1 }, { 1, 0.1 } } },
+            .scale = { 1, 1, 1 } } },
+    /* twin, in a phased pass */
+    { &ep_inputs_twin, &ep_state_block2_valid, 1, { 0 }, 0, 1e+300, 0.1,
+        TSD_ERR_TWIN_EDGE_IN_PHASED_PASS, { .scale = { 0 } } },
+    /* twin, improper posterior */
+    { &ep_inputs_twin, &ep_state_block2_improper_posterior, 1, { 0 }, 1, 1e+300, 0.1,
+        TSD_ERR_INVALID_NODE_POSTERIOR, { .scale = { 0 } } },
+    /* both_free, improper parent posterior */
+    { &ep_inputs_both_free, &ep_state_edge2_improper_parent, 1, { 0 }, 0, 1e+300, 0.1,
+        TSD_ERR_INVALID_NODE_POSTERIOR, { .scale = { 0 } } },
+    /* both_free, improper child posterior */
+    { &ep_inputs_both_free, &ep_state_edge2_improper_child, 1, { 0 }, 0, 1e+300, 0.1,
+        TSD_ERR_INVALID_NODE_POSTERIOR, { .scale = { 0 } } },
+    /* fixed_child, infinite posterior rate */
+    { &ep_inputs_fixed_child, &ep_state_edge2_infinite_rate, 1, { 0 }, 0, 1e+300, 0.1,
+        TSD_ERR_ZERO_DIVISION, { .scale = { 0 } } },
+    /* both_free, NaN rate of the parent message */
+    { &ep_inputs_both_free, &ep_state_edge2_nan_parent_message, 1, { 0 }, 0, 1e+300, 0.1,
+        TSD_ERR_INVALID_NODE_POSTERIOR, { .scale = { 0 } } },
+    /* both_free, huge mutation count */
+    { &ep_inputs_both_free_huge_count, &ep_state_edge2_valid, 1, { 0 }, 0, 1e+300, 0.1,
+        TSD_ERR_INVALID_HYPERGEO, { .scale = { 0 } } },
+    /* twin, huge mutation count */
+    { &ep_inputs_twin_huge_count, &ep_state_block2_valid, 1, { 0 }, 1, 1e+300, 0.1, 0,
+        { .posterior = { { 4, 0.6 }, { NAN, 0 } },
+            .block = { { { INFINITY, 0.19999999999999996 }, { 1, 0.1 } } },
+            .scale = { 1, 0 },
+            .blocks_lognorm = { 6.908253500227124e+302 } } },
+    /* twin, span that cancels the cavity rate */
+    { &ep_inputs_twin_negative_span, &ep_state_block2_valid, 1, { 0 }, 1, 1e+300, 0.1,
+        TSD_ERR_ZERO_DIVISION, { .scale = { 0 } } },
+};
+
+/* A node scale below sqrt(DBL_MIN) rescales the factors mid-pass (even for a skipped
+ * edge); expected values are those of the reference implementation. */
+static const ep_likelihood_row_t ep_likelihood_tiny_scale_rows[] = {
+    /* parent 3, scale far below sqrt(DBL_MIN) */
+    { &ep_inputs_small, &ep_state_small_parent_below, 7, { 6, 0, 3, 1, 2, 4, 5 }, 0,
+        1000, 0.1, 0,
+        { .posterior
+            = { { 0, 0 }, { 0, 0 }, { 0, 0 }, { 0.5843090800906015, 0.4141118212927717 },
+                { 4.576142402519787, 0.6250950421834373 }, { 0, 0 },
+                { 7.309791285287766, 4.2876962848892894 }, { 0, 0 } },
+            .node = { { { 0, 0 }, { 0, 0 } }, { { 0, 0 }, { 0, 0 } },
+                { { 0, 0 }, { 0, 0 } }, { { 1, 0.5 }, { 0, 0 } },
+                { { 0.14043594343309676, 0.015920329528856966 }, { 0, 0 } },
+                { { 0, 0 }, { 0, 0 } },
+                { { 0.06108785244275427, 0.030543926221377134 }, { 0, 0 } },
+                { { 0, 0 }, { 0, 0 } } },
+            .edge = { { { 0, 0 }, { 0, 0 } },
+                { { 0, 0 }, { 4.231339141799602, 3.7535961130003725 } },
+                { { 3.000000000000001, 0.49999999999999956 }, { 0, 0 } },
+                { { 0.9999999999999996, 0.19999999999999984 }, { 0, 0 } },
+                { { 4.252444351577177, 1.2757333054731532 }, { 0, 0 } },
+                { { 2.587238914201411, 0.12364381294339392 },
+                    { 1.3127109581979957, 1.8519547257352813 } },
+                { { 1.848467544885279, 0.48553089971118635 }, { 0, 0 } } },
+            .block = { { { 1, 0.19999999999999996 }, { 0, 0 } },
+                { { 0.7660761339541722, 0.16361122570014786 },
+                    { 0.01736429104540892, 0.003556245667539863 } } },
+            .scale = { 1, 1, 1, 1, 1, 1, 1, 1 },
+            .edges_lognorm
+            = { 0, 0.8096806220619701, -2.9410830709207385, 1.132872360686421,
+                1.2487332284559316, 6.048304970158144, 2.570276182534273 },
+            .blocks_lognorm = { 2.265195274615815, -2.300107063753849 } } },
+    /* child 6, scale far below sqrt(DBL_MIN) */
+    { &ep_inputs_small, &ep_state_small_child_below, 7, { 6, 0, 3, 1, 2, 4, 5 }, 0, 1000,
+        0.1, 0,
+        { .posterior
+            = { { 0, 0 }, { 0, 0 }, { 0, 0 }, { 3.7958421321682865, 1.333492106759158 },
+                { 10.065420818105734, 1.1253981016342018 }, { 0, 0 },
+                { 0.771929388179595, 2.9935415583239657 }, { 0, 0 } },
+            .node
+            = { { { 0, 0 }, { 0, 0 } }, { { 0, 0 }, { 0, 0 } }, { { 0, 0 }, { 0, 0 } },
+                { { 0.18609979046343747, 0.09304989523171874 }, { 0, 0 } },
+                { { 0.14043594343309676, 0.015920329528856966 }, { 0, 0 } },
+                { { 0, 0 }, { 0, 0 } }, { { 1, 0.5 }, { 0, 0 } },
+                { { 0, 0 }, { 0, 0 } } },
+            .edge = { { { 0, 0 }, { 0, 0 } },
+                { { 0, 0 }, { 14.85515137621622, 9.954829484254553 } },
+                { { 15.37226023426819, 2.562043372378031 }, { 0, 0 } },
+                { { 0.9999999999999999, 0.19999999999999973 }, { 0, 0 } },
+                { { 1.9999999999999993, 0.5999999999999999 }, { 0, 0 } },
+                { { 8.076517329787357, 0.6239468723941586 },
+                    { 0.28107594323350105, 0.3727742386144888 } },
+                { { 1.848467544885279, 0.48553089971118635 }, { 0, 0 } } },
+            .block = { { { 0.18609979046343747, 0.03721995809268749 }, { 0, 0 } },
+                { { 0.1425666080079117, 0.030448014820263693 },
+                    { 0.2842511293334642, 0.05821526744408701 } } },
+            .scale = { 1, 1, 1, 1, 1, 1, 1, 1 },
+            .edges_lognorm
+            = { 0, 1.3769145175226662, -2.0216361082280465, 1.4634663891508815,
+                1.5314734140184885, 8.186688217624864, 2.570276182534273 },
+            .blocks_lognorm = { 2.265195274615815, -2.300107063753849 } } },
+    /* child 6, scale just below sqrt(DBL_MIN) */
+    { &ep_inputs_small, &ep_state_small_child_just_below, 7, { 6, 0, 3, 1, 2, 4, 5 }, 0,
+        1000, 0.1, 0,
+        { .posterior
+            = { { 0, 0 }, { 0, 0 }, { 0, 0 }, { 3.7958421321682865, 1.333492106759158 },
+                { 10.065420818105734, 1.1253981016342018 }, { 0, 0 },
+                { 0.771929388179595, 2.9935415583239657 }, { 0, 0 } },
+            .node
+            = { { { 0, 0 }, { 0, 0 } }, { { 0, 0 }, { 0, 0 } }, { { 0, 0 }, { 0, 0 } },
+                { { 0.18609979046343747, 0.09304989523171874 }, { 0, 0 } },
+                { { 0.14043594343309676, 0.015920329528856966 }, { 0, 0 } },
+                { { 0, 0 }, { 0, 0 } }, { { 1, 0.5 }, { 0, 0 } },
+                { { 0, 0 }, { 0, 0 } } },
+            .edge = { { { 0, 0 }, { 0, 0 } },
+                { { 0, 0 }, { 14.85515137621622, 9.954829484254553 } },
+                { { 15.37226023426819, 2.562043372378031 }, { 0, 0 } },
+                { { 0.9999999999999999, 0.19999999999999973 }, { 0, 0 } },
+                { { 1.9999999999999993, 0.5999999999999999 }, { 0, 0 } },
+                { { 8.076517329787357, 0.6239468723941586 },
+                    { 0.28107594323350105, 0.3727742386144888 } },
+                { { 1.848467544885279, 0.48553089971118635 }, { 0, 0 } } },
+            .block = { { { 0.18609979046343747, 0.03721995809268749 }, { 0, 0 } },
+                { { 0.1425666080079117, 0.030448014820263693 },
+                    { 0.2842511293334642, 0.058215267444087004 } } },
+            .scale = { 1, 1, 1, 1, 1, 1, 1, 1 },
+            .edges_lognorm
+            = { 0, 1.3769145175226662, -2.0216361082280465, 1.4634663891508815,
+                1.5314734140184885, 8.186688217624864, 2.570276182534273 },
+            .blocks_lognorm = { 2.265195274615815, -2.300107063753849 } } },
+    /* child 6, scale at sqrt(DBL_MIN) */
+    { &ep_inputs_small, &ep_state_small_child_at, 7, { 6, 0, 3, 1, 2, 4, 5 }, 0, 1000,
+        0.1, 0,
+        { .posterior
+            = { { 0, 0 }, { 0, 0 }, { 0, 0 }, { 3.7958421321682865, 1.333492106759158 },
+                { 10.065420818105734, 1.1253981016342018 }, { 0, 0 },
+                { 0.771929388179595, 2.9935415583239657 }, { 0, 0 } },
+            .node = { { { 0, 0 }, { 0, 0 } }, { { 0, 0 }, { 0, 0 } },
+                { { 0, 0 }, { 0, 0 } }, { { 1, 0.5 }, { 0, 0 } },
+                { { 1, 0.11336363853632214 }, { 0, 0 } }, { { 0, 0 }, { 0, 0 } },
+                { { 6.703903964971299e+153, 3.3519519824856493e+153 }, { 0, 0 } },
+                { { 0, 0 }, { 0, 0 } } },
+            .edge = { { { 0, 0 }, { 0, 0 } },
+                { { 0, 0 }, { 9.958750821126476e+154, 6.673622085010729e+154 } },
+                { { 1.0305415633508114e+155, 1.717569272251352e+154 }, { 0, 0 } },
+                { { 5.37346118181937, 1.0746922363638727 }, { 0, 0 } },
+                { { 10.746922363638738, 3.224076709091622 }, { 0, 0 } },
+                { { 57.51032913902832, 4.442928620274516 },
+                    { 1.510350670108483, 2.003087900777227 } },
+                { { 13.162353594796642, 3.457312194028815 }, { 0, 0 } } },
+            .block = { { { 1, 0.19999999999999996 }, { 0, 0 } },
+                { { 0.7660761339541722, 0.16361122570014786 },
+                    { 1.90559227298618e+153, 3.902695622402794e+152 } } },
+            .scale = { 1, 1, 1, 0.18609979046343747, 0.14043594343309676, 1,
+                1.4916681462400413e-154, 1 },
+            .edges_lognorm
+            = { 0, 1.3769145175226662, -2.0216361082280465, 1.4634663891508815,
+                1.5314734140184885, 8.186688217624864, 2.570276182534273 },
+            .blocks_lognorm = { 2.265195274615815, -2.300107063753849 } } },
+    /* parent 3, scale above sqrt(DBL_MIN) */
+    { &ep_inputs_small, &ep_state_small_parent_above, 7, { 6, 0, 3, 1, 2, 4, 5 }, 0,
+        1000, 0.1, 0,
+        { .posterior
+            = { { 0, 0 }, { 0, 0 }, { 0, 0 }, { 0.584309080090585, 0.41411182129276836 },
+                { 4.5761424025197845, 0.6250950421834371 }, { 0, 0 },
+                { 7.309791285287766, 4.2876962848892894 }, { 0, 0 } },
+            .node
+            = { { { 0, 0 }, { 0, 0 } }, { { 0, 0 }, { 0, 0 } }, { { 0, 0 }, { 0, 0 } },
+                { { 3.3519519824856493e+153, 1.6759759912428246e+153 }, { 0, 0 } },
+                { { 1, 0.11336363853632214 }, { 0, 0 } }, { { 0, 0 }, { 0, 0 } },
+                { { 1, 0.5 }, { 0, 0 } }, { { 0, 0 }, { 0, 0 } } },
+            .edge = { { { 0, 0 }, { 0, 0 } },
+                { { 0, 0 }, { 69.26645761143446, 61.445867924689054 } },
+                { { 49.10960002745744, 8.184933337909563 }, { 0, 0 } },
+                { { 3.3519519824856478e+153, 6.703903964971293e+152 }, { 0, 0 } },
+                { { 1.425398927467902e+154, 4.276196782403706e+153 }, { 0, 0 } },
+                { { 18.422911193201482, 0.8804285421580647 },
+                    { 4.400144098762354e+153, 6.207663314402032e+153 } },
+                { { 13.162353594796642, 3.457312194028815 }, { 0, 0 } } },
+            .block = { { { 3.3519519824856493e+153, 6.703903964971297e+152 }, { 0, 0 } },
+                { { 2.5678504159426292e+153, 5.484169723425176e+152 },
+                    { 0.2842511293334642, 0.058215267444087004 } } },
+            .scale = { 1, 1, 1, 2.983336292480083e-154, 0.14043594343309676, 1,
+                0.06108785244275427, 1 },
+            .edges_lognorm
+            = { 0, 0.8096806220619701, -2.9410830709207385, 1.132872360686421,
+                1.2487332284559312, 6.048304970158142, 2.570276182534273 },
+            .blocks_lognorm = { 2.265195274615815, -2.300107063753849 } } },
+    /* child of a skipped edge between fixed nodes 2, scale far below sqrt(DBL_MIN) */
+    { &ep_inputs_small, &ep_state_small_skipped_below, 7, { 6, 0, 3, 1, 2, 4, 5 }, 0,
+        1000, 0.1, 0,
+        { .posterior
+            = { { 0, 0 }, { 0, 0 }, { 0, 0 }, { 3.7958421321682865, 1.333492106759158 },
+                { 10.065420818105734, 1.1253981016342018 }, { 0, 0 },
+                { 7.309791285287766, 4.2876962848892894 }, { 0, 0 } },
+            .node
+            = { { { 0, 0 }, { 0, 0 } }, { { 0, 0 }, { 0, 0 } }, { { 0, 0 }, { 0, 0 } },
+                { { 0.18609979046343747, 0.09304989523171874 }, { 0, 0 } },
+                { { 0.14043594343309676, 0.015920329528856966 }, { 0, 0 } },
+                { { 0, 0 }, { 0, 0 } },
+                { { 0.06108785244275427, 0.030543926221377134 }, { 0, 0 } },
+                { { 0, 0 }, { 0, 0 } } },
+            .edge = { { { 0, 0 }, { 0, 0 } },
+                { { 0, 0 }, { 4.231339141799602, 3.7535961130003725 } },
+                { { 3.000000000000001, 0.49999999999999956 }, { 0, 0 } },
+                { { 0.9999999999999998, 0.19999999999999973 }, { 0, 0 } },
+                { { 1.9999999999999993, 0.5999999999999999 }, { 0, 0 } },
+                { { 8.076517329787357, 0.6239468723941586 },
+                    { 0.28107594323350105, 0.3727742386144888 } },
+                { { 1.848467544885279, 0.48553089971118635 }, { 0, 0 } } },
+            .block = { { { 0.18609979046343747, 0.03721995809268749 }, { 0, 0 } },
+                { { 0.1425666080079117, 0.030448014820263693 },
+                    { 0.01736429104540892, 0.003556245667539863 } } },
+            .scale = { 1, 1, 1, 1, 1, 1, 1, 1 },
+            .edges_lognorm
+            = { 0, 0.8096806220619701, -2.9410830709207385, 1.4634663891508815,
+                1.5314734140184885, 8.186688217624864, 2.570276182534273 },
+            .blocks_lognorm = { 2.265195274615815, -2.300107063753849 } } },
+};
+
+/* Rescaling the factors of the small state; expected values are those of the reference
+ * implementation. */
+static const ep_rescale_row_t ep_rescale_rows[] = {
+    /* random scales */
+    { &ep_inputs_small, &ep_state_small_random_scales,
+        { .posterior = { { 0, 0 }, { 0, 0 }, { 0, 0 }, { 2, 0.8636609034779383 },
+              { 2, 0.35355763983709054 }, { 0, 0 },
+              { 1.9999999999999998, 0.6559293439814701 }, { 0, 0 } },
+            .node
+            = { { { 0, 0 }, { 0, 0 } }, { { 0, 0 }, { 0, 0 } }, { { 0, 0 }, { 0, 0 } },
+                { { 0.5247914532927936, 0.2623957266463968 }, { 0, 0 } },
+                { { 1.7199053588004087, 0.19497472941173297 }, { 0, 0 } },
+                { { 0, 0 }, { 0, 0 } },
+                { { 1.4099536636507697, 0.7049768318253848 }, { 0, 0 } },
+                { { 0, 0 }, { 0, 0 } } },
+            .edge = { { { 0, 0 }, { 0, 0 } },
+                { { 0, 0 }, { 14.115951615013927, 9.3131490381486 } },
+                { { 30.2348207862264, 5.039136797704399 }, { 0, 0 } },
+                { { 0.5247914532927941, 0.1049582906585587 }, { 0, 0 } },
+                { { 3.1363364341891953, 0.9409009302567586 }, { 0, 0 } },
+                { { 11.942651274661499, 0.9022213410919251 },
+                    { 0.5271520039004896, 0.9364025332539873 } },
+                { { 10.831249108225103, 3.2327900038258597 }, { 0, 0 } } },
+            .block = { { { 0.5247914532927936, 0.1049582906585587 }, { 0, 0 } },
+                { { 0.4020302076707349, 0.08586177291019587 },
+                    { 0.4007809212005866, 0.08208082961319985 } } },
+            .scale = { 1, 1, 1, 1, 1, 1, 1, 1 },
+            .edges_lognorm
+            = { 0, 0.9159334894862647, 1.8171156304288907, 1.6342858852166113,
+                1.9098718845981875, 7.151100745299825, 3.5484528956654957 },
+            .blocks_lognorm = { 2.265195274615815, -2.300107063753849 } } },
+    /* scales 1e-160 */
+    { &ep_inputs_small, &ep_state_small_scales_1em160,
+        { .posterior = { { 0, 0 }, { 0, 0 }, { 0, 0 }, { 2, 0.8636609034779383 },
+              { 2, 0.35355763983709054 }, { 0, 0 },
+              { 1.9999999999999998, 0.6559293439814701 }, { 0, 0 } },
+            .node = { { { 0, 0 }, { 0, 0 } }, { { 0, 0 }, { 0, 0 } },
+                { { 0, 0 }, { 0, 0 } }, { { 1e-160, 5e-161 }, { 0, 0 } },
+                { { 1e-160, 1.1336363853632214e-161 }, { 0, 0 } },
+                { { 0, 0 }, { 0, 0 } }, { { 1e-160, 5e-161 }, { 0, 0 } },
+                { { 0, 0 }, { 0, 0 } } },
+            .edge = { { { 0, 0 }, { 0, 0 } },
+                { { 0, 0 }, { 1.0011642211321843e-159, 6.605287307126262e-160 } },
+                { { 2.1443840010982971e-159, 3.5739733351638275e-160 }, { 0, 0 } },
+                { { 1.000000000000001e-160, 1.9999999999999997e-161 }, { 0, 0 } },
+                { { 5.976348156034772e-160, 1.7929044468104316e-160 }, { 0, 0 } },
+                { { 6.943783978317971e-160, 5.24576155586376e-161 },
+                    { 1.0044980736497989e-160, 1.7843326665831694e-160 } },
+                { { 6.297584371607302e-160, 1.8796324968024114e-160 }, { 0, 0 } } },
+            .block = { { { 1e-160, 1.9999999999999997e-161 }, { 0, 0 } },
+                { { 7.660761339541722e-161, 1.6361122570014785e-161 },
+                    { 2.842511293334642e-161, 5.8215267444087e-162 } } },
+            .scale = { 1, 1, 1, 1, 1, 1, 1, 1 },
+            .edges_lognorm
+            = { 0, 0.9159334894862647, 1.8171156304288907, 1.6342858852166113,
+                1.9098718845981875, 7.151100745299825, 3.5484528956654957 },
+            .blocks_lognorm = { 2.265195274615815, -2.300107063753849 } } },
+    /* scales 1e100 */
+    { &ep_inputs_small, &ep_state_small_scales_1e100,
+        { .posterior = { { 0, 0 }, { 0, 0 }, { 0, 0 }, { 2, 0.8636609034779383 },
+              { 2, 0.35355763983709054 }, { 0, 0 },
+              { 1.9999999999999998, 0.6559293439814701 }, { 0, 0 } },
+            .node = { { { 0, 0 }, { 0, 0 } }, { { 0, 0 }, { 0, 0 } },
+                { { 0, 0 }, { 0, 0 } }, { { 1e+100, 5e+99 }, { 0, 0 } },
+                { { 1e+100, 1.1336363853632215e+99 }, { 0, 0 } }, { { 0, 0 }, { 0, 0 } },
+                { { 1e+100, 5e+99 }, { 0, 0 } }, { { 0, 0 }, { 0, 0 } } },
+            .edge = { { { 0, 0 }, { 0, 0 } },
+                { { 0, 0 }, { 1.0011642211321844e+101, 6.605287307126262e+100 } },
+                { { 2.144384001098297e+101, 3.5739733351638276e+100 }, { 0, 0 } },
+                { { 1.000000000000001e+100, 1.9999999999999997e+99 }, { 0, 0 } },
+                { { 5.9763481560347715e+100, 1.7929044468104318e+100 }, { 0, 0 } },
+                { { 6.9437839783179705e+100, 5.24576155586376e+99 },
+                    { 1.0044980736497988e+100, 1.7843326665831695e+100 } },
+                { { 6.297584371607302e+100, 1.8796324968024115e+100 }, { 0, 0 } } },
+            .block = { { { 1e+100, 1.9999999999999997e+99 }, { 0, 0 } },
+                { { 7.660761339541722e+99, 1.6361122570014786e+99 },
+                    { 2.842511293334642e+99, 5.8215267444087e+98 } } },
+            .scale = { 1, 1, 1, 1, 1, 1, 1, 1 },
+            .edges_lognorm
+            = { 0, 0.9159334894862647, 1.8171156304288907, 1.6342858852166113,
+                1.9098718845981875, 7.151100745299825, 3.5484528956654957 },
+            .blocks_lognorm = { 2.265195274615815, -2.300107063753849 } } },
+};
+
+/* The prior pass on the small state, with and without EM iterations, and its failures;
+ * expected values are those of the reference implementation. */
+static const ep_prior_row_t ep_prior_rows[] = {
+    /* the root */
+    { &ep_inputs_small, &ep_state_small, { 0, 0, 0, 0, 1, 0, 0, 0 }, 1000, 10, 1e-08, 0,
+        { .posterior = { { 0, 0 }, { 0, 0 }, { 0, 0 }, { 2, 0.8636609034779383 },
+              { 2, 0.5192046941817232 }, { 0, 0 },
+              { 1.9999999999999998, 0.6559293439814701 }, { 0, 0 } },
+            .node = { { { 0, 0 }, { 0, 0 } }, { { 0, 0 }, { 0, 0 } },
+                { { 0, 0 }, { 0, 0 } }, { { 1, 0.5 }, { 0, 0 } },
+                { { 1.0000000000000007, 1.2928839970373238 }, { 0, 0 } },
+                { { 0, 0 }, { 0, 0 } }, { { 1, 0.5 }, { 0, 0 } },
+                { { 0, 0 }, { 0, 0 } } },
+            .edge = { { { 0, 0 }, { 0, 0 } },
+                { { 0, 0 }, { 10.011642211321844, 6.605287307126262 } },
+                { { 21.44384001098297, 3.5739733351638274 }, { 0, 0 } },
+                { { 1.0000000000000009, 0.19999999999999996 }, { 0, 0 } },
+                { { 5.9763481560347715, 1.7929044468104316 }, { 0, 0 } },
+                { { 6.9437839783179705, 0.524576155586376 },
+                    { 1.0044980736497988, 1.7843326665831694 } },
+                { { 6.297584371607302, 1.8796324968024116 }, { 0, 0 } } },
+            .block = { { { 1, 0.19999999999999996 }, { 0, 0 } },
+                { { 0.7660761339541722, 0.16361122570014786 },
+                    { 0.2842511293334642, 0.058215267444087004 } } },
+            .scale = { 1, 1, 1, 0.18609979046343747, 0.14043594343309676, 1,
+                0.06108785244275427, 1 },
+            .edges_lognorm
+            = { 0, 0.9159334894862647, 1.8171156304288907, 1.6342858852166113,
+                1.9098718845981875, 7.151100745299825, 3.5484528956654957 },
+            .blocks_lognorm = { 2.265195274615815, -2.300107063753849 } } },
+    /* free internal nodes */
+    { &ep_inputs_small, &ep_state_small, { 0, 0, 0, 1, 1, 0, 1, 0 }, 1000, 10, 1e-08, 0,
+        { .posterior = { { 0, 0 }, { 0, 0 }, { 0, 0 }, { 2, 1.057316890860762 },
+              { 2, 0.624343192922776 }, { 0, 0 },
+              { 1.9999999999999998, 0.9120913003746354 }, { 0, 0 } },
+            .node
+            = { { { 0, 0 }, { 0, 0 } }, { { 0, 0 }, { 0, 0 } }, { { 0, 0 }, { 0, 0 } },
+                { { 0.9999999999999996, 1.5406029308285045 }, { 0, 0 } },
+                { { 1.0000000000000007, 2.041542041202067 }, { 0, 0 } },
+                { { 0, 0 }, { 0, 0 } },
+                { { 1.0000000000000002, 4.693337073573113 }, { 0, 0 } },
+                { { 0, 0 }, { 0, 0 } } },
+            .edge = { { { 0, 0 }, { 0, 0 } },
+                { { 0, 0 }, { 10.011642211321844, 6.605287307126262 } },
+                { { 21.44384001098297, 3.5739733351638274 }, { 0, 0 } },
+                { { 1.0000000000000009, 0.19999999999999996 }, { 0, 0 } },
+                { { 5.9763481560347715, 1.7929044468104316 }, { 0, 0 } },
+                { { 6.9437839783179705, 0.524576155586376 },
+                    { 1.0044980736497988, 1.7843326665831694 } },
+                { { 6.297584371607302, 1.8796324968024116 }, { 0, 0 } } },
+            .block = { { { 1, 0.19999999999999996 }, { 0, 0 } },
+                { { 0.7660761339541722, 0.16361122570014786 },
+                    { 0.2842511293334642, 0.058215267444087004 } } },
+            .scale = { 1, 1, 1, 0.18609979046343747, 0.14043594343309676, 1,
+                0.06108785244275427, 1 },
+            .edges_lognorm
+            = { 0, 0.9159334894862647, 1.8171156304288907, 1.6342858852166113,
+                1.9098718845981875, 7.151100745299825, 3.5484528956654957 },
+            .blocks_lognorm = { 2.265195274615815, -2.300107063753849 } } },
+    /* no EM iteration */
+    { &ep_inputs_small, &ep_state_small, { 0, 0, 0, 1, 1, 0, 1, 0 }, 1000, -1, 1e-08, 0,
+        { .posterior = { { 0, 0 }, { 0, 0 }, { 0, 0 }, { 2, 0.9489678090196197 },
+              { 2, 0.5159941110816337 }, { 0, 0 },
+              { 1.9999999999999998, 0.803742218533493 }, { 0, 0 } },
+            .node
+            = { { { 0, 0 }, { 0, 0 } }, { { 0, 0 }, { 0, 0 } }, { { 0, 0 }, { 0, 0 } },
+                { { 0.9999999999999996, 0.9583933454693566 }, { 0, 0 } },
+                { { 1.0000000000000007, 1.270022448764114 }, { 0, 0 } },
+                { { 0, 0 }, { 0, 0 } },
+                { { 1.0000000000000002, 2.919677049386196 }, { 0, 0 } },
+                { { 0, 0 }, { 0, 0 } } },
+            .edge = { { { 0, 0 }, { 0, 0 } },
+                { { 0, 0 }, { 10.011642211321844, 6.605287307126262 } },
+                { { 21.44384001098297, 3.5739733351638274 }, { 0, 0 } },
+                { { 1.0000000000000009, 0.19999999999999996 }, { 0, 0 } },
+                { { 5.9763481560347715, 1.7929044468104316 }, { 0, 0 } },
+                { { 6.9437839783179705, 0.524576155586376 },
+                    { 1.0044980736497988, 1.7843326665831694 } },
+                { { 6.297584371607302, 1.8796324968024116 }, { 0, 0 } } },
+            .block = { { { 1, 0.19999999999999996 }, { 0, 0 } },
+                { { 0.7660761339541722, 0.16361122570014786 },
+                    { 0.2842511293334642, 0.058215267444087004 } } },
+            .scale = { 1, 1, 1, 0.18609979046343747, 0.14043594343309676, 1,
+                0.06108785244275427, 1 },
+            .edges_lognorm
+            = { 0, 0.9159334894862647, 1.8171156304288907, 1.6342858852166113,
+                1.9098718845981875, 7.151100745299825, 3.5484528956654957 },
+            .blocks_lognorm = { 2.265195274615815, -2.300107063753849 } } },
+    /* EM iterations reach the maximum */
+    { &ep_inputs_small, &ep_state_small, { 0, 0, 0, 1, 1, 0, 1, 0 }, 1000, 3, 0, 0,
+        { .posterior = { { 0, 0 }, { 0, 0 }, { 0, 0 }, { 2, 1.0553334660423712 },
+              { 2, 0.6223597681043852 }, { 0, 0 },
+              { 1.9999999999999998, 0.9101078755562446 }, { 0, 0 } },
+            .node
+            = { { { 0, 0 }, { 0, 0 } }, { { 0, 0 }, { 0, 0 } }, { { 0, 0 }, { 0, 0 } },
+                { { 0.9999999999999996, 1.5299450745598246 }, { 0, 0 } },
+                { { 1.0000000000000007, 2.0274186994855237 }, { 0, 0 } },
+                { { 0, 0 }, { 0, 0 } },
+                { { 1.0000000000000002, 4.660868673734545 }, { 0, 0 } },
+                { { 0, 0 }, { 0, 0 } } },
+            .edge = { { { 0, 0 }, { 0, 0 } },
+                { { 0, 0 }, { 10.011642211321844, 6.605287307126262 } },
+                { { 21.44384001098297, 3.5739733351638274 }, { 0, 0 } },
+                { { 1.0000000000000009, 0.19999999999999996 }, { 0, 0 } },
+                { { 5.9763481560347715, 1.7929044468104316 }, { 0, 0 } },
+                { { 6.9437839783179705, 0.524576155586376 },
+                    { 1.0044980736497988, 1.7843326665831694 } },
+                { { 6.297584371607302, 1.8796324968024116 }, { 0, 0 } } },
+            .block = { { { 1, 0.19999999999999996 }, { 0, 0 } },
+                { { 0.7660761339541722, 0.16361122570014786 },
+                    { 0.2842511293334642, 0.058215267444087004 } } },
+            .scale = { 1, 1, 1, 0.18609979046343747, 0.14043594343309676, 1,
+                0.06108785244275427, 1 },
+            .edges_lognorm
+            = { 0, 0.9159334894862647, 1.8171156304288907, 1.6342858852166113,
+                1.9098718845981875, 7.151100745299825, 3.5484528956654957 },
+            .blocks_lognorm = { 2.265195274615815, -2.300107063753849 } } },
+    /* NaN tolerance: no EM iteration */
+    { &ep_inputs_small, &ep_state_small, { 0, 0, 0, 1, 1, 0, 1, 0 }, 1000, 10, NAN, 0,
+        { .posterior = { { 0, 0 }, { 0, 0 }, { 0, 0 }, { 2, 0.9489678090196197 },
+              { 2, 0.5159941110816337 }, { 0, 0 },
+              { 1.9999999999999998, 0.803742218533493 }, { 0, 0 } },
+            .node
+            = { { { 0, 0 }, { 0, 0 } }, { { 0, 0 }, { 0, 0 } }, { { 0, 0 }, { 0, 0 } },
+                { { 0.9999999999999996, 0.9583933454693566 }, { 0, 0 } },
+                { { 1.0000000000000007, 1.270022448764114 }, { 0, 0 } },
+                { { 0, 0 }, { 0, 0 } },
+                { { 1.0000000000000002, 2.919677049386196 }, { 0, 0 } },
+                { { 0, 0 }, { 0, 0 } } },
+            .edge = { { { 0, 0 }, { 0, 0 } },
+                { { 0, 0 }, { 10.011642211321844, 6.605287307126262 } },
+                { { 21.44384001098297, 3.5739733351638274 }, { 0, 0 } },
+                { { 1.0000000000000009, 0.19999999999999996 }, { 0, 0 } },
+                { { 5.9763481560347715, 1.7929044468104316 }, { 0, 0 } },
+                { { 6.9437839783179705, 0.524576155586376 },
+                    { 1.0044980736497988, 1.7843326665831694 } },
+                { { 6.297584371607302, 1.8796324968024116 }, { 0, 0 } } },
+            .block = { { { 1, 0.19999999999999996 }, { 0, 0 } },
+                { { 0.7660761339541722, 0.16361122570014786 },
+                    { 0.2842511293334642, 0.058215267444087004 } } },
+            .scale = { 1, 1, 1, 0.18609979046343747, 0.14043594343309676, 1,
+                0.06108785244275427, 1 },
+            .edges_lognorm
+            = { 0, 0.9159334894862647, 1.8171156304288907, 1.6342858852166113,
+                1.9098718845981875, 7.151100745299825, 3.5484528956654957 },
+            .blocks_lognorm = { 2.265195274615815, -2.300107063753849 } } },
+    /* the cap on the shape binds */
+    { &ep_inputs_small, &ep_state_small, { 0, 0, 0, 1, 1, 0, 1, 0 }, 1.5, 10, 1e-08, 0,
+        { .posterior = { { 0, 0 }, { 0, 0 }, { 0, 0 }, { 0.5, 0.2643292227151905 },
+              { 0.5, 0.156085798230694 }, { 0, 0 }, { 0.5, 0.2280228250936589 },
+              { 0, 0 } },
+            .node
+            = { { { 0, 0 }, { 0, 0 } }, { { 0, 0 }, { 0, 0 } }, { { 0, 0 }, { 0, 0 } },
+                { { 0.9999999999999996, 1.5406029308285045 }, { 0, 0 } },
+                { { 1.0000000000000007, 2.041542041202067 }, { 0, 0 } },
+                { { 0, 0 }, { 0, 0 } },
+                { { 1.0000000000000002, 4.693337073573113 }, { 0, 0 } },
+                { { 0, 0 }, { 0, 0 } } },
+            .edge = { { { 0, 0 }, { 0, 0 } },
+                { { 0, 0 }, { 10.011642211321844, 6.605287307126262 } },
+                { { 21.44384001098297, 3.5739733351638274 }, { 0, 0 } },
+                { { 1.0000000000000009, 0.19999999999999996 }, { 0, 0 } },
+                { { 5.9763481560347715, 1.7929044468104316 }, { 0, 0 } },
+                { { 6.9437839783179705, 0.524576155586376 },
+                    { 1.0044980736497988, 1.7843326665831694 } },
+                { { 6.297584371607302, 1.8796324968024116 }, { 0, 0 } } },
+            .block = { { { 1, 0.19999999999999996 }, { 0, 0 } },
+                { { 0.7660761339541722, 0.16361122570014786 },
+                    { 0.2842511293334642, 0.058215267444087004 } } },
+            .scale = { 1, 1, 1, 0.04652494761585937, 0.03510898585827419, 1,
+                0.01527196311068857, 1 },
+            .edges_lognorm
+            = { 0, 0.9159334894862647, 1.8171156304288907, 1.6342858852166113,
+                1.9098718845981875, 7.151100745299825, 3.5484528956654957 },
+            .blocks_lognorm = { 2.265195274615815, -2.300107063753849 } } },
+    /* no free nodes */
+    { &ep_inputs_small, &ep_state_small, { 0, 0, 0, 0, 0, 0, 0, 0 }, 1000, 10, 1e-08, 0,
+        { .posterior = { { 0, 0 }, { 0, 0 }, { 0, 0 }, { 2, 0.8636609034779383 },
+              { 2, 0.35355763983709054 }, { 0, 0 },
+              { 1.9999999999999998, 0.6559293439814701 }, { 0, 0 } },
+            .node = { { { 0, 0 }, { 0, 0 } }, { { 0, 0 }, { 0, 0 } },
+                { { 0, 0 }, { 0, 0 } }, { { 1, 0.5 }, { 0, 0 } },
+                { { 1, 0.11336363853632214 }, { 0, 0 } }, { { 0, 0 }, { 0, 0 } },
+                { { 1, 0.5 }, { 0, 0 } }, { { 0, 0 }, { 0, 0 } } },
+            .edge = { { { 0, 0 }, { 0, 0 } },
+                { { 0, 0 }, { 10.011642211321844, 6.605287307126262 } },
+                { { 21.44384001098297, 3.5739733351638274 }, { 0, 0 } },
+                { { 1.0000000000000009, 0.19999999999999996 }, { 0, 0 } },
+                { { 5.9763481560347715, 1.7929044468104316 }, { 0, 0 } },
+                { { 6.9437839783179705, 0.524576155586376 },
+                    { 1.0044980736497988, 1.7843326665831694 } },
+                { { 6.297584371607302, 1.8796324968024116 }, { 0, 0 } } },
+            .block = { { { 1, 0.19999999999999996 }, { 0, 0 } },
+                { { 0.7660761339541722, 0.16361122570014786 },
+                    { 0.2842511293334642, 0.058215267444087004 } } },
+            .scale = { 1, 1, 1, 0.18609979046343747, 0.14043594343309676, 1,
+                0.06108785244275427, 1 },
+            .edges_lognorm
+            = { 0, 0.9159334894862647, 1.8171156304288907, 1.6342858852166113,
+                1.9098718845981875, 7.151100745299825, 3.5484528956654957 },
+            .blocks_lognorm = { 2.265195274615815, -2.300107063753849 } } },
+    /* zero posteriors */
+    { &ep_inputs_small, &ep_state_small_zero, { 0, 0, 0, 0, 1, 0, 0, 0 }, 1000, 10,
+        1e-08, TSD_ERR_NONPOSITIVE_PENALTY, { .scale = { 0 } } },
+    /* negative cavity rate */
+    { &ep_inputs_small, &ep_state_small_negative_rate, { 0, 0, 0, 0, 1, 0, 0, 0 }, 1000,
+        10, 1e-08, TSD_ERR_NONPOSITIVE_PENALTY, { .scale = { 0 } } },
+    /* max_shape below one */
+    { &ep_inputs_small, &ep_state_small, { 0, 0, 0, 0, 1, 0, 0, 0 }, 0.5, 10, 1e-08,
+        TSD_ERR_INVALID_MAX_SHAPE, { .scale = { 0 } } },
+};
+
+/* The mutations above one edge (block) in each branch, with fixed ages, and on the small
+ * state; expected values are those of the reference implementation, except for the
+ * divisions by zero that the library reports and the reference implementation computes
+ * in floating point. */
+static const ep_mutations_row_t ep_mutations_rows[] = {
+    /* fixed_child, valid */
+    { &ep_inputs_fixed_child, &ep_state_edge2_valid, 1, { 0 }, 0, 0,
+        { { 0.9090909090909085, 0.32727272727272716 } }, { 1 } },
+    /* fixed_child, projection_fails */
+    { &ep_inputs_fixed_child_huge_span, &ep_state_edge2_valid, 1, { 0 }, 0, 0,
+        { { NAN, NAN } }, { NAN } },
+    /* fixed_parent, valid */
+    { &ep_inputs_fixed_parent, &ep_state_edge2_valid, 1, { 0 }, 0, 0,
+        { { 11.458120369143545, 1.788464840386457 } }, { 1 } },
+    /* fixed_parent, projection_fails */
+    { &ep_inputs_fixed_parent_huge_span, &ep_state_edge2_valid, 1, { 0 }, 0, 0,
+        { { NAN, NAN } }, { NAN } },
+    /* both_free, valid */
+    { &ep_inputs_both_free, &ep_state_edge2_valid, 1, { 0 }, 0, 0,
+        { { 4.300199693233025, 0.529589210511545 } }, { 1 } },
+    /* both_free, projection_fails */
+    { &ep_inputs_both_free_huge_span, &ep_state_edge2_valid, 1, { 0 }, 0, 0,
+        { { NAN, NAN } }, { NAN } },
+    /* both_fixed, valid */
+    { &ep_inputs_both_fixed, &ep_state_edge2_valid, 1, { 0 }, 0, 0,
+        { { 2.0000000000000004, 0.6000000000000001 } }, { 1 } },
+    /* twin, valid */
+    { &ep_inputs_twin, &ep_state_block2_valid, 1, { 0 }, 1, 0,
+        { { 0.9090909090909081, 0.3818181818181816 } }, { 0.5 } },
+    /* twin, projection_fails */
+    { &ep_inputs_twin_huge_span, &ep_state_block2_valid, 1, { 0 }, 1, 0,
+        { { NAN, NAN } }, { NAN } },
+    /* sideways_fixed_parent, valid */
+    { &ep_inputs_sideways_fixed_parent, &ep_state_block3_valid, 1, { 0 }, 1, 0,
+        { { 0.4631781099265906, 0.3438769242905483 } }, { 0.36382649552564394 } },
+    /* sideways_fixed_parent, projection_fails */
+    { &ep_inputs_sideways_fixed_parent_huge_span, &ep_state_block3_valid, 1, { 0 }, 1,
+        TSD_ERR_ZERO_DIVISION, { { 0 } }, { 0 } },
+    /* sideways_fixed_child, valid */
+    { &ep_inputs_sideways_fixed_child, &ep_state_block3_valid, 1, { 0 }, 1, 0,
+        { { 0.4631781099265906, 0.3438769242905483 } }, { 0.36382649552564394 } },
+    /* sideways_fixed_child, projection_fails */
+    { &ep_inputs_sideways_fixed_child_huge_span, &ep_state_block3_valid, 1, { 0 }, 1,
+        TSD_ERR_ZERO_DIVISION, { { 0 } }, { 0 } },
+    /* unphased_both_free, valid */
+    { &ep_inputs_unphased_both_free, &ep_state_block3_valid, 1, { 0 }, 1, 0,
+        { { 0.7515923566878997, 0.3439490445859875 } }, { 0.5 } },
+    /* unphased_both_free, projection_fails */
+    { &ep_inputs_unphased_both_free_huge_span, &ep_state_block3_valid, 1, { 0 }, 1, 0,
+        { { NAN, NAN } }, { NAN } },
+    /* unphased_both_fixed, valid */
+    { &ep_inputs_unphased_both_fixed, &ep_state_block3_valid, 1, { 0 }, 1, 0,
+        { { 1.9999999999999991, 1.1999999999999997 } }, { 0.5 } },
+    /* twin, in a phased pass */
+    { &ep_inputs_twin, &ep_state_block2_valid, 1, { 0 }, 0, 0,
+        { { 1.0000000000000013, 0.40000000000000024 } }, { 0.5 } },
+    /* equal fixed ages */
+    { &ep_inputs_both_fixed_equal, &ep_state_edge2_valid, 1, { 0 }, 0, 0,
+        { { NAN, NAN } }, { NAN } },
+    /* adjacent fixed ages */
+    { &ep_inputs_both_fixed_adjacent, &ep_state_edge2_valid, 1, { 0 }, 0, 0,
+        { { 3.802951800684688e+32, 7.605903601369376e+31 } }, { 1 } },
+    /* inverted fixed ages */
+    { &ep_inputs_both_fixed_inverted, &ep_state_edge2_valid, 1, { 0 }, 0, 0,
+        { { 2.0000000000000004, 0.6000000000000001 } }, { 1 } },
+    /* edges of each branch, and a root */
+    { &ep_inputs_small, &ep_state_small, 4, { 3, -1, 1, 6 }, 0, 0,
+        { { 0.46427524306562473, 0.788165385679627 }, { NAN, NAN },
+            { 17.735867699826013, 8.054195276382863 },
+            { 3.653465150153581, 0.9407997952233624 } },
+        { 1, 1, 1, 1 } },
+    /* blocks, and a root */
+    { &ep_inputs_small, &ep_state_small, 3, { 1, -1, 0 }, 1, 0,
+        { { 0.5085725565286765, 0.6842153617467468 }, { NAN, NAN },
+            { 0.4642752430656252, 0.7881653856796274 } },
+        { 0.43985052500362354, 1, 0.5 } },
+};
+
+static void
+run_likelihood_rows(const ep_likelihood_row_t *rows, size_t num_rows)
+{
+    const ep_likelihood_row_t *row;
+    tsd_ep_t ep;
+    size_t j;
+    int ret;
+
+    for (j = 0; j < num_rows; j++) {
+        row = rows + j;
+        ep_setup(&ep, row->inputs, row->before);
+        ret = tsd_ep_propagate_likelihood(&ep, row->num_order, row->order, row->unphased,
+            row->max_shape, row->min_step);
+        CU_ASSERT_EQUAL(ret, row->ret);
+        if (ret == 0 && row->ret == 0) {
+            assert_ep_state(&ep, &row->after);
+        }
+        tsd_ep_free(&ep);
+    }
+}
+
+static void
+test_propagate_likelihood_branches(void)
+{
+    run_likelihood_rows(ep_likelihood_branch_rows,
+        sizeof(ep_likelihood_branch_rows) / sizeof(ep_likelihood_branch_rows[0]));
+}
+
+static void
+test_propagate_likelihood_tiny_scale(void)
+{
+    run_likelihood_rows(
+        ep_likelihood_tiny_scale_rows, sizeof(ep_likelihood_tiny_scale_rows)
+                                           / sizeof(ep_likelihood_tiny_scale_rows[0]));
+}
+
+static void
+test_rescale_factors(void)
+{
+    const size_t num_rows = sizeof(ep_rescale_rows) / sizeof(ep_rescale_rows[0]);
+    const ep_rescale_row_t *row;
+    tsd_ep_t ep;
+    size_t j;
+
+    for (j = 0; j < num_rows; j++) {
+        row = ep_rescale_rows + j;
+        ep_setup(&ep, row->inputs, row->before);
+        tsd_ep_rescale_factors(&ep);
+        assert_ep_state(&ep, &row->after);
+        tsd_ep_free(&ep);
+    }
+}
+
+static void
+test_propagate_prior_table(void)
+{
+    const size_t num_rows = sizeof(ep_prior_rows) / sizeof(ep_prior_rows[0]);
+    const ep_prior_row_t *row;
+    tsd_ep_t ep;
+    size_t j;
+    int ret;
+
+    for (j = 0; j < num_rows; j++) {
+        row = ep_prior_rows + j;
+        ep_setup(&ep, row->inputs, row->before);
+        ret = tsd_ep_propagate_prior(
+            &ep, row->free, row->max_shape, row->em_maxitt, row->em_reltol);
+        CU_ASSERT_EQUAL(ret, row->ret);
+        if (ret == 0 && row->ret == 0) {
+            assert_ep_state(&ep, &row->after);
+        }
+        tsd_ep_free(&ep);
+    }
+}
+
+static void
+test_propagate_mutations_table(void)
+{
+    const size_t num_rows = sizeof(ep_mutations_rows) / sizeof(ep_mutations_rows[0]);
+    const ep_mutations_row_t *row;
+    double posterior[2 * EP_MAX_MUTATIONS];
+    double phase[EP_MAX_MUTATIONS];
+    tsd_ep_t ep;
+    size_t j;
+    int ret;
+
+    for (j = 0; j < num_rows; j++) {
+        row = ep_mutations_rows + j;
+        ep_setup(&ep, row->inputs, row->before);
+        ret = tsd_ep_propagate_mutations(&ep, row->num_mutations, row->mutations_edge,
+            row->unphased, posterior, phase);
+        CU_ASSERT_EQUAL(ret, row->ret);
+        if (ret == 0 && row->ret == 0) {
+            assert_array_close(posterior, &row->posterior[0][0], 2 * row->num_mutations);
+            assert_array_close(phase, row->phase, row->num_mutations);
+        }
+        tsd_ep_free(&ep);
+    }
 }
 
 int
@@ -1700,11 +3296,17 @@ main(int argc, char **argv)
         { "test_piecewise_scale_point_estimate", test_piecewise_scale_point_estimate },
         { "test_piecewise_scale_posterior", test_piecewise_scale_posterior },
         { "test_damp_and_rescale", test_damp_and_rescale },
+        { "test_ep_init", test_ep_init },
         { "test_rescale_and_assemble_factors", test_rescale_and_assemble_factors },
         { "test_constraints_are_consistent", test_constraints_are_consistent },
         { "test_propagate_likelihood", test_propagate_likelihood },
         { "test_propagate_prior", test_propagate_prior },
         { "test_propagate_mutations", test_propagate_mutations },
+        { "test_propagate_likelihood_branches", test_propagate_likelihood_branches },
+        { "test_propagate_likelihood_tiny_scale", test_propagate_likelihood_tiny_scale },
+        { "test_rescale_factors", test_rescale_factors },
+        { "test_propagate_prior_table", test_propagate_prior_table },
+        { "test_propagate_mutations_table", test_propagate_mutations_table },
         CU_TEST_INFO_NULL,
     };
     CU_SuiteInfo suites[] = {

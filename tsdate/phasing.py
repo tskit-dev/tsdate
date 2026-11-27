@@ -59,17 +59,16 @@ def block_singletons(ts, individuals_unphased):
 
     # TODO: adjust spans by an accessibility mask
     return _tsdate.block_singletons(
-        individuals_unphased,
-        ts.nodes_individual,
-        ts.mutations_node,
-        ts.sites_position[ts.mutations_site],
-        ts.edges_parent,
-        ts.edges_child,
-        ts.edges_left,
-        ts.edges_right,
-        ts.indexes_edge_insertion_order,
-        ts.indexes_edge_removal_order,
-        ts.sequence_length,
+        individuals_unphased=individuals_unphased,
+        nodes_individual=ts.nodes_individual,
+        mutations_node=ts.mutations_node,
+        mutations_position=ts.sites_position[ts.mutations_site],
+        edges_child=ts.edges_child,
+        edges_left=ts.edges_left,
+        edges_right=ts.edges_right,
+        indexes_insert=ts.indexes_edge_insertion_order,
+        indexes_remove=ts.indexes_edge_removal_order,
+        sequence_length=ts.sequence_length,
     )
 
 
@@ -93,16 +92,16 @@ def mutation_frequency(ts, sample_sets=None):
         nodes_sample[s, i] = True
 
     return _tsdate.mutation_frequency(
-        nodes_sample,
-        ts.mutations_node,
-        ts.sites_position[ts.mutations_site],
-        ts.edges_parent,
-        ts.edges_child,
-        ts.edges_left,
-        ts.edges_right,
-        ts.indexes_edge_insertion_order,
-        ts.indexes_edge_removal_order,
-        ts.sequence_length,
+        nodes_sample=nodes_sample,
+        mutations_node=ts.mutations_node,
+        mutations_position=ts.sites_position[ts.mutations_site],
+        edges_parent=ts.edges_parent,
+        edges_child=ts.edges_child,
+        edges_left=ts.edges_left,
+        edges_right=ts.edges_right,
+        indexes_insert=ts.indexes_edge_insertion_order,
+        indexes_remove=ts.indexes_edge_removal_order,
+        sequence_length=ts.sequence_length,
     ).squeeze()
 
 

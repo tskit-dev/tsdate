@@ -22,7 +22,6 @@ class TestBlockSingletons:
                 ts.nodes_individual,
                 ts.mutations_node,
                 ts.sites_position[ts.mutations_site],
-                ts.edges_parent,
                 ts.edges_child,
                 ts.edges_left,
                 ts.edges_right,
@@ -39,7 +38,6 @@ class TestBlockSingletons:
                 ts.nodes_individual,
                 ts.mutations_node.astype(np.int64),
                 ts.sites_position[ts.mutations_site],
-                ts.edges_parent,
                 ts.edges_child,
                 ts.edges_left,
                 ts.edges_right,
@@ -71,18 +69,13 @@ class TestReallocateUnphased:
         with pytest.raises(ValueError, match="two columns"):
             self.call(np.ones((2, 3)), [0.5], [0], [[0, 1]])
 
-    @pytest.mark.parametrize("kind", ["float32", "strided", "readonly"])
-    def test_array_updated_in_place_must_not_be_converted(self, kind):
-        # a copy would silently lose the update
-        if kind == "float32":
-            likelihood = np.ones((2, 2), dtype=np.float32)
-        elif kind == "strided":
-            likelihood = np.ones((2, 4))[:, ::2]
-        else:
-            likelihood = np.ones((2, 2))
-            likelihood.flags.writeable = False
-        with pytest.raises(ValueError):
-            self.call(likelihood, [0.5], [0], [[0, 1]])
+    def test_input_unchanged(self):
+        likelihood = np.array([[1.0, 5.0], [0.0, 5.0]])
+        result = _tsdate.reallocate_unphased(
+            likelihood, f64(0.25), i32(0), np.array([[0, 1]], dtype=np.int32)
+        )
+        assert result.tolist() == [[0.25, 5.0], [0.75, 5.0]]
+        assert likelihood.tolist() == [[1.0, 5.0], [0.0, 5.0]]
 
 
 class TestMutationFrequency:
@@ -108,9 +101,9 @@ class TestUtil:
         with pytest.raises(TypeError):
             _tsdate.constrain_ages(f64(0, 1), b1(1, 0), i32(1), np.array([0]), 0.1, 3)
 
-    def test_contains_unary_nodes_mask_size(self):
+    def test_contains_unary_nodes_mask_too_short(self):
         ts = make_ts(THREE_HAPLOTYPES, STAR, [], 10.0, 1)
-        with pytest.raises(ValueError, match="number of nodes"):
+        with pytest.raises(_tsdate.LibraryError, match="Node id out of bounds"):
             _tsdate.contains_unary_nodes(
                 b1(0, 0),
                 ts.edges_parent,
@@ -119,7 +112,6 @@ class TestUtil:
                 ts.indexes_edge_insertion_order,
                 ts.indexes_edge_removal_order,
                 ts.sequence_length,
-                ts.num_nodes,
             )
 
 

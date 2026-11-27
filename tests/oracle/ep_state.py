@@ -1,19 +1,17 @@
 """
-Expectation propagation state for the equivalence tests of ``tsdate.variational``:
-snapshots of real state from ``ExpectationPropagation`` (editable, so that tests can
-force branches), one-edge snapshots, and runners that call the ``propagate_*``
-functions of a given module (``_tsdate``, or the oracle ``oracle.variational``) on
-copies of a snapshot.
+Expectation propagation inputs for the equivalence tests of ``tsdate.variational``:
+the inputs of ``ExpectationPropagation`` on the session fixtures (editable, so that
+tests can force branches), and the loop of ``iterate``, run with the
+``ExpectationPropagation`` of a given module (``_tsdate``, or the oracle
+``oracle.variational``).
 """
 
 import numpy as np
 import tskit
 
 from tsdate.variational import (
-    CONSTRNT,
     LEAFWARD,
     LOWER,
-    MIXPRIOR,
     ROOTWARD,
     UPPER,
     USE_BLOCK_LIKELIHOOD,
@@ -22,7 +20,7 @@ from tsdate.variational import (
 )
 
 # fixture name -> (singletons_phased, mutation_rate)
-SNAPSHOT_SPECS = {
+SPECS = {
     "small_ts": (True, 1e-8),
     "small_ts_unphased": (False, 1e-7),
     "small_ts_historical": (True, 1e-8),
@@ -37,76 +35,43 @@ _COPIED = (
     "block_likelihoods",
     "block_nodes",
     "node_constraints",
-    "node_posterior",
-    "edge_logconst",
-    "block_logconst",
     "unconstrained_roots",
     "roots",
     "leaves",
-    "mutation_order",
     "mutation_edges",
     "mutation_blocks",
 )
 
 
-class Snapshot:
+class Inputs:
     """
-    Copies of the arrays of an ``ExpectationPropagation`` after some iterations, so
-    that tests can edit them freely and rebuild fresh factors.
+    Copies of the inputs of an ``ExpectationPropagation``, which tests can edit
     """
 
     def __init__(self, ts, ep):
         self.ts = ts
         for name in _COPIED:
             setattr(self, name, getattr(ep, name).copy())
-        factors = ep.factors
-        self.fields = {k: getattr(factors, k).copy() for k in self.FIELDS}
-        self.num_mutations = ep.mutation_phase.size
-
-    FIELDS = ("node", "edge", "block", "scale")
 
     def copy(self):
-        new = object.__new__(Snapshot)
+        new = object.__new__(Inputs)
         for k, v in self.__dict__.items():
-            if isinstance(v, np.ndarray):
-                v = v.copy()
-            elif isinstance(v, dict):
-                v = {a: b.copy() for a, b in v.items()}
-            setattr(new, k, v)
+            setattr(new, k, v.copy() if isinstance(v, np.ndarray) else v)
         return new
 
-    def factors(self):
+    def kwargs(self):
         """
-        A copy of the factors, as the tuple of arrays ``(node, edge, block, scale,
-        edges_parent, edges_child, blocks_left, blocks_right)`` that the passes take
+        The arguments of ``ExpectationPropagation``
         """
-        f = self.fields
-        return (
-            f["node"].copy(),
-            f["edge"].copy(),
-            f["block"].copy(),
-            f["scale"].copy(),
-            self.edge_parents.copy(),
-            self.edge_children.copy(),
-            self.block_nodes[ROOTWARD].copy(),
-            self.block_nodes[LEAFWARD].copy(),
+        return dict(
+            constraints=self.node_constraints,
+            edges_parent=self.edge_parents,
+            edges_child=self.edge_children,
+            edges_likelihood=self.edge_likelihoods,
+            blocks_left=self.block_nodes[ROOTWARD],
+            blocks_right=self.block_nodes[LEAFWARD],
+            blocks_likelihood=self.block_likelihoods,
         )
-
-    def unscale(self, nodes, scale):
-        """
-        Make the state equivalent but with ``scale[nodes] = scale``, by dividing all
-        factors associated with those nodes (see ``rescale_factors``) by ``scale``.
-        """
-        sel = np.zeros(self.node_posterior.shape[0], dtype=bool)
-        sel[nodes] = True
-        f = self.fields
-        f["edge"][sel[self.edge_parents], ROOTWARD] /= scale
-        f["edge"][sel[self.edge_children], LEAFWARD] /= scale
-        f["block"][sel[self.block_nodes[ROOTWARD]], ROOTWARD] /= scale
-        f["block"][sel[self.block_nodes[LEAFWARD]], LEAFWARD] /= scale
-        f["node"][sel, MIXPRIOR] /= scale
-        f["node"][sel, CONSTRNT] /= scale
-        f["scale"][sel] = scale
 
     def fix_nodes(self, nodes):
         """
@@ -123,7 +88,7 @@ class Snapshot:
 
     def branch_counts(self, unphased):
         """
-        Number of edges (blocks) of each kind visited by the propagate functions
+        Number of edges (blocks) of each kind visited by the likelihood passes
         """
         if unphased:
             p, c = self.block_nodes[ROOTWARD], self.block_nodes[LEAFWARD]
@@ -138,286 +103,82 @@ class Snapshot:
             "both_free": int(np.sum(~fp & ~fc & (p != c))),
         }
 
-    def after_pass(self, state):
+    def mutations_edge(self, unphased):
         """
-        Copy with the state returned by `run_likelihood` as its current state
+        The edges (blocks) of the phased (unphased) mutations
         """
-        posterior, _, *fields = state
-        new = self.copy()
-        new.node_posterior = posterior.copy()
-        new.fields = {k: v.copy() for k, v in zip(self.FIELDS, fields)}
-        return new
+        phased = self.mutation_blocks == tskit.NULL
+        if unphased:
+            return self.mutation_blocks[~phased]
+        return self.mutation_edges[phased]
 
 
-def make_snapshot(ts, name, iterations=2):
+def make_inputs(ts, name):
     """
-    Snapshot of the state of EP on ``ts`` (fixture ``name``) after some iterations
+    The inputs of EP on ``ts`` (fixture ``name``)
     """
-    singletons_phased, mutation_rate = SNAPSHOT_SPECS[name]
+    singletons_phased, mutation_rate = SPECS[name]
     ep = ExpectationPropagation(
         ts, mutation_rate=mutation_rate, singletons_phased=singletons_phased
     )
-    for _ in range(iterations):
-        ep.iterate(max_shape=1000, min_step=0.1)
-    return Snapshot(ts, ep)
+    return Inputs(ts, ep)
 
 
-def fixed_internal_snapshot(snap, unphased, every=4):
+def fixed_internal(inputs, unphased, every=4):
     """
-    Copy of a snapshot with every ``every``th internal node (every ``every``th block
+    Copy of the inputs with every ``every``th internal node (every ``every``th block
     node, for unphased blocks) fixed at its true age; the first block has both nodes
-    fixed. Gives all branches of the propagate functions.
+    fixed. Gives all branches of the passes.
     """
-    snap = snap.copy()
+    inputs = inputs.copy()
     if unphased:
-        nodes = np.unique(snap.block_nodes)
+        nodes = np.unique(inputs.block_nodes)
         fixed = list(nodes[::every])
-        fixed += [snap.block_nodes[ROOTWARD][0], snap.block_nodes[LEAFWARD][0]]
+        fixed += [inputs.block_nodes[ROOTWARD][0], inputs.block_nodes[LEAFWARD][0]]
     else:
-        internal = np.flatnonzero(~snap.fixed)
+        internal = np.flatnonzero(~inputs.fixed)
         fixed = list(internal[::every])
-    snap.fix_nodes(np.unique(fixed))
-    return snap
+    inputs.fix_nodes(np.unique(fixed))
+    return inputs
 
 
-# One edge (block) in each branch of `propagate_likelihood`/`propagate_mutations`:
-# (unphased, constraints of the nodes, parent, child). Fixed nodes have ages 0
-# (child) or 10 (parent) or 5 (block nodes).
-INF = np.inf
-BRANCHES = {
-    "fixed_child": (False, [[0, 0], [0, INF]], 1, 0),
-    "fixed_parent": (False, [[0, INF], [10, 10]], 1, 0),
-    "both_free": (False, [[0, INF], [0, INF]], 1, 0),
-    "both_fixed": (False, [[0, 0], [10, 10]], 1, 0),
-    "twin": (True, [[0, INF], [0, INF]], 1, 1),
-    "sideways_fixed_parent": (True, [[0, INF], [5, 5], [0, INF]], 1, 2),
-    "sideways_fixed_child": (True, [[0, INF], [0, INF], [5, 5]], 1, 2),
-    "unphased_both_free": (True, [[0, INF], [0, INF], [0, INF]], 1, 2),
-    "unphased_both_fixed": (True, [[0, 0], [5, 5], [5, 5]], 1, 2),
-}
-# cavity and message of every node; `node` = cavity + message
-CAVITY, MESSAGE = np.array([3.0, 0.5]), np.array([1.0, 0.1])
-# message so large relative to the cavity that the cavity has to be damped
-DAMPED_CAVITY, DAMPED_MESSAGE = np.array([1.0, 0.05]), np.array([22.0, 2.4])
-
-
-def tiny_snapshot(branch, cavity=CAVITY, message=MESSAGE, likelihood=(3.0, 0.1)):
+def iterate(ep, inputs, max_shape=1000.0, min_step=0.1, em_maxitt=10, em_reltol=1e-8):
     """
-    Snapshot of a single edge (or block) whose factor is `message` at each end
+    The loop of ``tsdate.variational.ExpectationPropagation.iterate``
     """
-    unphased, constraints, p, c = BRANCHES[branch]
-    constraints = np.array(constraints, dtype=np.float64)
-    n = constraints.shape[0]
-    snap = Snapshot.__new__(Snapshot)
-    snap.ts = None
-    snap.node_constraints = constraints
-    snap.node_posterior = np.tile(cavity + message, (n, 1))
-    parents, children = np.array([p], np.int32), np.array([c], np.int32)
-    snap.edge_parents, snap.edge_children = parents, children
-    snap.block_nodes = np.array([parents, children])
-    snap.edge_order = snap.block_order = np.zeros(1, np.int32)
-    snap.edge_likelihoods = snap.block_likelihoods = np.array([likelihood])
-    snap.edge_logconst = np.zeros(1)
-    snap.block_logconst = np.zeros(1)
-    snap.mutation_order = np.zeros(1, np.int32)
-    snap.mutation_edges = np.zeros(1, np.int32)
-    snap.mutation_blocks = np.full(1, 0 if unphased else tskit.NULL, np.int32)
-    snap.num_mutations = 1
-    fields = {
-        "node": np.zeros((n, 2, 2)),
-        "edge": np.zeros((1, 2, 2)),
-        "block": np.zeros((1, 2, 2)),
-        "scale": np.ones(n),
-    }
-    factor = fields["block" if unphased else "edge"]
-    factor[0, ROOTWARD] = message
-    factor[0, LEAFWARD] = message
-    snap.fields = fields
-    snap.unphased = unphased
-    snap.unconstrained_roots = np.zeros(n, dtype=bool)
-    return snap
-
-
-def likelihood_args(snap, unphased, order=None, likelihoods=None):
-    """
-    Leading arguments of `propagate_likelihood` and the matching `lognorm`
-    """
-    if unphased:
-        args = (
-            snap.block_order if order is None else order,
-            snap.block_nodes[ROOTWARD],
-            snap.block_nodes[LEAFWARD],
-            snap.block_likelihoods if likelihoods is None else likelihoods,
-        )
-        return args, snap.block_logconst
-    args = (
-        snap.edge_order if order is None else order,
-        snap.edge_parents,
-        snap.edge_children,
-        snap.edge_likelihoods if likelihoods is None else likelihoods,
+    ep.propagate_likelihood(
+        order=inputs.block_order,
+        unphased=USE_BLOCK_LIKELIHOOD,
+        max_shape=max_shape,
+        min_step=min_step,
     )
-    return args, snap.edge_logconst
-
-
-def run_likelihood(
-    module,
-    snap,
-    unphased,
-    max_shape=1000.0,
-    min_step=0.1,
-    order=None,
-    likelihoods=None,
-):
-    """
-    Run ``module.propagate_likelihood`` on copies of ``snap``; return
-    ``(posterior, lognorm, node, edge, block, scale)`` after the pass.
-    """
-    args, lognorm = likelihood_args(snap, unphased, order, likelihoods)
-    factors = snap.factors()
-    posterior = snap.node_posterior.copy()
-    lognorm = lognorm.copy()
-    module.propagate_likelihood(
-        *args,
-        snap.node_constraints,
-        posterior,
-        factors,
-        lognorm,
-        max_shape,
-        min_step,
-        USE_BLOCK_LIKELIHOOD if unphased else USE_EDGE_LIKELIHOOD,
+    ep.propagate_likelihood(
+        order=inputs.edge_order,
+        unphased=USE_EDGE_LIKELIHOOD,
+        max_shape=max_shape,
+        min_step=min_step,
     )
-    return (posterior, lognorm, *factors[:4])
-
-
-def run_prior(module, snap, free, max_shape=1000.0, em_maxitt=10, em_reltol=1e-8):
-    """
-    Run ``module.propagate_prior`` on copies of ``snap``; return
-    ``(posterior, node, scale)`` after the pass.
-    """
-    factors = snap.factors()
-    node, edge, block, scale, *_ = factors
-    posterior = snap.node_posterior.copy()
-    module.propagate_prior(free, posterior, factors, max_shape, em_maxitt, em_reltol)
-    return (posterior, node, scale)
-
-
-def run_mutations(module, snap, unphased, edges=None, posterior=None, order=None):
-    """
-    Run ``module.propagate_mutations`` on the phased (or unphased) mutations; return
-    ``(mutation_posterior, phase, node, edge, block, scale)``.
-    """
-    factors = snap.factors()
-    mut_posterior = np.full((snap.num_mutations, 2), np.nan)
-    phase = np.ones(snap.num_mutations)
-    phased = snap.mutation_blocks == tskit.NULL
-    if unphased:
-        order = snap.mutation_order[~phased] if order is None else order
-        args = (
-            snap.mutation_blocks,
-            snap.block_nodes[ROOTWARD],
-            snap.block_nodes[LEAFWARD],
-            snap.block_likelihoods,
-        )
-    else:
-        order = snap.mutation_order[phased] if order is None else order
-        args = (
-            snap.mutation_edges if edges is None else edges,
-            snap.edge_parents,
-            snap.edge_children,
-            snap.edge_likelihoods,
-        )
-    module.propagate_mutations(
-        order,
-        mut_posterior,
-        phase,
-        *args,
-        snap.node_constraints,
-        snap.node_posterior if posterior is None else posterior,
-        factors,
-        USE_BLOCK_LIKELIHOOD if unphased else USE_EDGE_LIKELIHOOD,
+    ep.propagate_prior(
+        free=inputs.unconstrained_roots,
+        max_shape=max_shape,
+        em_maxitt=em_maxitt,
+        em_reltol=em_reltol,
     )
-    return (mut_posterior, phase, *factors[:4])
+    ep.rescale_factors()
 
 
-def run_sweeps(
-    module,
-    snap,
-    num_sweeps,
-    max_shape=1000.0,
-    min_step=0.1,
-    em_maxitt=10,
-):
+def start(module, inputs, iterations=2):
     """
-    Run EP sweeps (the loop of `ExpectationPropagation.iterate`, then the mutation
-    passes of `infer`) with the functions of ``module`` from a copy of ``snap``.
-    Returns, per sweep, ``(posterior, edge_logconst, block_logconst)`` copies, and the
-    mutation ``(posterior, phase)``.
+    The ``ExpectationPropagation`` of ``module`` on ``inputs`` after ``iterations``
     """
-    factors = snap.factors()
-    posterior = snap.node_posterior.copy()
-    edge_logconst = snap.edge_logconst.copy()
-    block_logconst = snap.block_logconst.copy()
-    mut_posterior = np.full((snap.num_mutations, 2), np.nan)
-    mut_phase = np.ones(snap.num_mutations)
-    block_nodes = snap.block_nodes
-    states = []
-    for _ in range(num_sweeps):
-        module.propagate_likelihood(
-            snap.block_order,
-            block_nodes[ROOTWARD],
-            block_nodes[LEAFWARD],
-            snap.block_likelihoods,
-            snap.node_constraints,
-            posterior,
-            factors,
-            block_logconst,
-            max_shape,
-            min_step,
-            USE_BLOCK_LIKELIHOOD,
-        )
-        module.propagate_likelihood(
-            snap.edge_order,
-            snap.edge_parents,
-            snap.edge_children,
-            snap.edge_likelihoods,
-            snap.node_constraints,
-            posterior,
-            factors,
-            edge_logconst,
-            max_shape,
-            min_step,
-            USE_EDGE_LIKELIHOOD,
-        )
-        module.propagate_prior(
-            snap.unconstrained_roots, posterior, factors, max_shape, em_maxitt, 1e-8
-        )
-        module.rescale_factors(factors)
-        states.append((posterior.copy(), edge_logconst.copy(), block_logconst.copy()))
-    phased = snap.mutation_blocks == tskit.NULL
-    module.propagate_mutations(
-        snap.mutation_order[~phased],
-        mut_posterior,
-        mut_phase,
-        snap.mutation_blocks,
-        block_nodes[ROOTWARD],
-        block_nodes[LEAFWARD],
-        snap.block_likelihoods,
-        snap.node_constraints,
-        posterior,
-        factors,
-        USE_BLOCK_LIKELIHOOD,
-    )
-    module.propagate_mutations(
-        snap.mutation_order[phased],
-        mut_posterior,
-        mut_phase,
-        snap.mutation_edges,
-        snap.edge_parents,
-        snap.edge_children,
-        snap.edge_likelihoods,
-        snap.node_constraints,
-        posterior,
-        factors,
-        USE_EDGE_LIKELIHOOD,
-    )
-    return states, (mut_posterior, mut_phase)
+    ep = module.ExpectationPropagation(**inputs.kwargs())
+    for _ in range(iterations):
+        iterate(ep, inputs)
+    return ep
+
+
+def state(ep):
+    """
+    Copies of the node posteriors and the log normalising constants
+    """
+    return ep.posterior, ep.edges_lognorm, ep.blocks_lognorm

@@ -25,10 +25,20 @@ In development
 - Removed the internal `tsdate.approx` and `tsdate.hypergeo` modules; the special
   functions and gamma approximations are now part of the `_tsdate` C extension.
 
+- The state of `ExpectationPropagation` (the factors, posteriors and normalising
+  constants) is held by the C extension: the `factors` attribute and the
+  `EPFactors` class are gone, and `node_posterior`, `edge_logconst` and
+  `block_logconst` are copies updated by `iterate`.
+  `tsdate.phasing.reallocate_unphased` returns the reallocated likelihoods instead
+  of updating its first argument.
+
 **Bugfixes**
 
 - Removed an assertion in `split_disjoint_nodes` that is not guarenteed
   to hold since table sorting changes the order of mutations in tskit 1.0.0 onwards
+
+- `tsdate.rescaling.count_mutations` rejected sample masks of the right size and
+  accepted those of the wrong size.
 
 ## [0.2.6] - 2026-03-06
 

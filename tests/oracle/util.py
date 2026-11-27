@@ -10,7 +10,7 @@ from .errors import library_error
 
 
 def split_disjoint_nodes(
-    edges_parent, edges_child, edges_left, edges_right, node_excluded
+    edges_parent, edges_child, edges_left, edges_right, nodes_excluded
 ):
     """
     Split disconnected regions of nodes into separate nodes.
@@ -19,9 +19,9 @@ def split_disjoint_nodes(
     from which original node the new nodes are derived.
     """
     if not (edges_parent.size == edges_child.size == edges_left.size == edges_right.size):
-        raise ValueError("Array sizes are not equal")
+        raise ValueError("Edge arrays must have the same size")
     num_edges = edges_parent.size
-    num_nodes = node_excluded.size
+    num_nodes = nodes_excluded.size
 
     # For each edge, check whether parent/child is separated by a gap from the
     # previous edge involving either parent/child. Label disconnected segments
@@ -30,11 +30,11 @@ def split_disjoint_nodes(
     # TODO: is a sort really needed here?
     edges_segments = np.full((2, num_edges), -1, dtype=np.int32)
     nodes_segments = np.full(num_nodes, -1, dtype=np.int32)
-    nodes_right = np.full(node_excluded.size, -np.inf, dtype=np.float64)
+    nodes_right = np.full(nodes_excluded.size, -np.inf, dtype=np.float64)
     for e in edges_order:
         nodes = edges_parent[e], edges_child[e]
         for i, n in enumerate(nodes):
-            if node_excluded[n]:
+            if nodes_excluded[n]:
                 continue
             nodes_segments[n] += edges_left[e] > nodes_right[n]
             edges_segments[i, e] = nodes_segments[n]
@@ -76,8 +76,8 @@ def relabel_mutations_node(
     edges_child,
     edges_left,
     edges_right,
-    insert_index,
-    remove_index,
+    indexes_insert,
+    indexes_remove,
 ):
     """
     Traverse trees, maintaining a mapping between old and new node IDs in the
@@ -88,19 +88,19 @@ def relabel_mutations_node(
         == edges_child.size
         == edges_left.size
         == edges_right.size
-        == insert_index.size
-        == remove_index.size
+        == indexes_insert.size
+        == indexes_remove.size
     ):
-        raise ValueError("Array sizes are not equal")
+        raise ValueError("Edge arrays must have the same size")
     if mutations_position.size != mutations_node.size:
-        raise ValueError("Array sizes are not equal")
+        raise ValueError("Mutation arrays must have the same size")
 
     num_nodes = nodes_order.size
     num_edges = edges_parent.size
     num_mutations = mutations_position.size
 
-    insert_position = edges_left[insert_index]
-    remove_position = edges_right[remove_index]
+    insert_position = edges_left[indexes_insert]
+    remove_position = edges_right[indexes_remove]
     sequence_length = remove_position[-1]
 
     output = np.full(num_mutations, tskit.NULL, dtype=np.int32)
@@ -112,7 +112,7 @@ def relabel_mutations_node(
             b += 1
 
         while a < num_edges and insert_position[a] == left:  # edges in
-            e = insert_index[a]
+            e = indexes_insert[a]
             c, p = edges_child[e], edges_parent[e]
             nodes_map[nodes_order[c]] = c
             nodes_map[nodes_order[p]] = p
@@ -146,9 +146,9 @@ def constrain_ages(
     1983
     """
     if nodes_time.size != nodes_fixed.size:
-        raise ValueError("Array sizes are not equal")
+        raise ValueError("Node arrays must have the same size")
     if edges_parent.size != edges_child.size:
-        raise ValueError("Array sizes are not equal")
+        raise ValueError("Edge arrays must have the same size")
 
     num_edges = edges_parent.size
     nodes_time = nodes_time.copy()
@@ -198,7 +198,6 @@ def contains_unary_nodes(
     indexes_insert,
     indexes_remove,
     sequence_length,
-    num_nodes,
 ):
     """
     Whether a node outside ``nodes_mask`` has exactly one child in some tree.
@@ -210,10 +209,10 @@ def contains_unary_nodes(
         == indexes_insert.size
         == indexes_remove.size
     ):
-        raise ValueError("Array sizes are not equal")
+        raise ValueError("Edge arrays must have the same size")
 
     num_edges = edges_parent.size
-    nodes_children = np.zeros(num_nodes, dtype=np.int32)
+    nodes_children = np.zeros(nodes_mask.size, dtype=np.int32)
     position_insert = edges_left[indexes_insert]
     position_remove = edges_right[indexes_remove]
 

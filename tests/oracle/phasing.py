@@ -11,13 +11,15 @@ from .errors import library_error
 
 def reallocate_unphased(edges_likelihood, mutations_phase, mutations_block, blocks_edges):
     """
-    Add a proportion of each unphased singleton mutation to one of the two
-    edges to which it maps
+    The edge likelihoods with a proportion of each unphased singleton mutation added
+    to one of the two edges to which it maps
     """
+    if edges_likelihood.shape[1] != 2 or blocks_edges.shape[1] != 2:
+        raise ValueError("edges_likelihood and blocks_edges must have two columns")
     if mutations_phase.size != mutations_block.size:
-        raise ValueError("Array sizes are not equal")
-    if blocks_edges.shape[1] != 2:
-        raise ValueError("Arrays must have two columns")
+        raise ValueError("Mutation arrays must have the same size")
+
+    edges_likelihood = edges_likelihood.copy()
 
     num_edges = edges_likelihood.shape[0]
     edges_unphased = np.full(num_edges, False)
@@ -42,6 +44,7 @@ def reallocate_unphased(edges_likelihood, mutations_phase, mutations_block, bloc
         edges_likelihood[j, 0] += 1 - mutations_phase[m]
     if not np.isclose(num_unphased, np.sum(edges_likelihood[edges_unphased, 0])):
         raise library_error(errors.UNPHASED_LIKELIHOOD_NOT_CONSERVED)
+    return edges_likelihood
 
 
 def block_singletons(
@@ -49,7 +52,6 @@ def block_singletons(
     nodes_individual,
     mutations_node,
     mutations_position,
-    edges_parent,
     edges_child,
     edges_left,
     edges_right,
@@ -62,19 +64,18 @@ def block_singletons(
     blocks_edges, mutations_block)``.
     """
     if not (
-        edges_parent.size
-        == edges_child.size
+        edges_child.size
         == edges_left.size
         == edges_right.size
         == indexes_insert.size
         == indexes_remove.size
     ):
-        raise ValueError("Array sizes are not equal")
+        raise ValueError("Edge arrays must have the same size")
     if mutations_node.size != mutations_position.size:
-        raise ValueError("Array sizes are not equal")
+        raise ValueError("Mutation arrays must have the same size")
 
     num_mutations = mutations_node.size
-    num_edges = edges_parent.size
+    num_edges = edges_child.size
     num_individuals = individuals_unphased.size
 
     indexes_mutation = np.argsort(mutations_position)
@@ -189,9 +190,9 @@ def mutation_frequency(
         == indexes_insert.size
         == indexes_remove.size
     ):
-        raise ValueError("Array sizes are not equal")
+        raise ValueError("Edge arrays must have the same size")
     if mutations_node.size != mutations_position.size:
-        raise ValueError("Array sizes are not equal")
+        raise ValueError("Mutation arrays must have the same size")
 
     num_nodes, num_sample_sets = nodes_sample.shape
     num_mutations = mutations_node.size

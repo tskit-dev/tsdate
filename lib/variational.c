@@ -31,6 +31,7 @@
 #include <float.h>
 #include <math.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include "mathutil.h"
 #include "tsdate.h"
@@ -47,90 +48,172 @@
 #define PAIR(array, i)          ((array) + 2 * (tsd_size_t) (i))
 #define FACTOR(array, i, which) ((array) + 4 * (tsd_size_t) (i) + 2 * (which))
 
-void
-tsd_rescale_factors(const tsd_ep_factors_t *factors)
+int
+tsd_ep_init(tsd_ep_t *self, tsd_size_t num_nodes, tsd_size_t num_edges,
+    tsd_size_t num_blocks, const double *constraints, const tsd_id_t *edges_parent,
+    const tsd_id_t *edges_child, const double *edges_likelihood,
+    const tsd_id_t *blocks_left, const tsd_id_t *blocks_right,
+    const double *blocks_likelihood)
 {
-    const double *scale = factors->scale;
+    int ret = 0;
+    tsd_size_t j;
+
+    memset(self, 0, sizeof(*self));
+    ret = tsd_check_edges(num_nodes, num_edges, edges_parent, edges_child);
+    if (ret != 0) {
+        goto out;
+    }
+    ret = tsd_check_edges(num_nodes, num_blocks, blocks_left, blocks_right);
+    if (ret != 0) {
+        goto out;
+    }
+    self->num_nodes = num_nodes;
+    self->num_edges = num_edges;
+    self->num_blocks = num_blocks;
+    self->constraints = malloc((2 * num_nodes + 1) * sizeof(*self->constraints));
+    self->edges_parent = malloc((num_edges + 1) * sizeof(*self->edges_parent));
+    self->edges_child = malloc((num_edges + 1) * sizeof(*self->edges_child));
+    self->edges_likelihood
+        = malloc((2 * num_edges + 1) * sizeof(*self->edges_likelihood));
+    self->blocks_left = malloc((num_blocks + 1) * sizeof(*self->blocks_left));
+    self->blocks_right = malloc((num_blocks + 1) * sizeof(*self->blocks_right));
+    self->blocks_likelihood
+        = malloc((2 * num_blocks + 1) * sizeof(*self->blocks_likelihood));
+    self->node = calloc(4 * num_nodes + 1, sizeof(*self->node));
+    self->edge = calloc(4 * num_edges + 1, sizeof(*self->edge));
+    self->block = calloc(4 * num_blocks + 1, sizeof(*self->block));
+    self->scale = malloc((num_nodes + 1) * sizeof(*self->scale));
+    self->posterior = calloc(2 * num_nodes + 1, sizeof(*self->posterior));
+    self->edges_lognorm = calloc(num_edges + 1, sizeof(*self->edges_lognorm));
+    self->blocks_lognorm = calloc(num_blocks + 1, sizeof(*self->blocks_lognorm));
+    if (self->constraints == NULL || self->edges_parent == NULL
+        || self->edges_child == NULL || self->edges_likelihood == NULL
+        || self->blocks_left == NULL || self->blocks_right == NULL
+        || self->blocks_likelihood == NULL || self->node == NULL || self->edge == NULL
+        || self->block == NULL || self->scale == NULL || self->posterior == NULL
+        || self->edges_lognorm == NULL || self->blocks_lognorm == NULL) {
+        ret = tsd_trace_error(TSD_ERR_NO_MEMORY);
+        goto out;
+    }
+    memcpy(self->constraints, constraints, 2 * num_nodes * sizeof(*constraints));
+    memcpy(self->edges_parent, edges_parent, num_edges * sizeof(*edges_parent));
+    memcpy(self->edges_child, edges_child, num_edges * sizeof(*edges_child));
+    memcpy(self->edges_likelihood, edges_likelihood,
+        2 * num_edges * sizeof(*edges_likelihood));
+    memcpy(self->blocks_left, blocks_left, num_blocks * sizeof(*blocks_left));
+    memcpy(self->blocks_right, blocks_right, num_blocks * sizeof(*blocks_right));
+    memcpy(self->blocks_likelihood, blocks_likelihood,
+        2 * num_blocks * sizeof(*blocks_likelihood));
+    for (j = 0; j < num_nodes; j++) {
+        self->scale[j] = 1.0;
+    }
+out:
+    return ret;
+}
+
+void
+tsd_ep_free(tsd_ep_t *self)
+{
+    tsd_safe_free(self->constraints);
+    tsd_safe_free(self->edges_parent);
+    tsd_safe_free(self->edges_child);
+    tsd_safe_free(self->edges_likelihood);
+    tsd_safe_free(self->blocks_left);
+    tsd_safe_free(self->blocks_right);
+    tsd_safe_free(self->blocks_likelihood);
+    tsd_safe_free(self->node);
+    tsd_safe_free(self->edge);
+    tsd_safe_free(self->block);
+    tsd_safe_free(self->scale);
+    tsd_safe_free(self->posterior);
+    tsd_safe_free(self->edges_lognorm);
+    tsd_safe_free(self->blocks_lognorm);
+}
+
+void
+tsd_ep_rescale_factors(tsd_ep_t *self)
+{
+    const double *scale = self->scale;
     tsd_size_t j, k;
     double *f;
 
-    for (j = 0; j < factors->num_edges; j++) {
-        f = FACTOR(factors->edge, j, ROOTWARD);
+    for (j = 0; j < self->num_edges; j++) {
+        f = FACTOR(self->edge, j, ROOTWARD);
         for (k = 0; k < 2; k++) {
-            f[k] *= scale[factors->edges_parent[j]];
+            f[k] *= scale[self->edges_parent[j]];
         }
-        f = FACTOR(factors->edge, j, LEAFWARD);
+        f = FACTOR(self->edge, j, LEAFWARD);
         for (k = 0; k < 2; k++) {
-            f[k] *= scale[factors->edges_child[j]];
-        }
-    }
-    for (j = 0; j < factors->num_blocks; j++) {
-        f = FACTOR(factors->block, j, ROOTWARD);
-        for (k = 0; k < 2; k++) {
-            f[k] *= scale[factors->blocks_left[j]];
-        }
-        f = FACTOR(factors->block, j, LEAFWARD);
-        for (k = 0; k < 2; k++) {
-            f[k] *= scale[factors->blocks_right[j]];
+            f[k] *= scale[self->edges_child[j]];
         }
     }
-    for (j = 0; j < factors->num_nodes; j++) {
-        f = FACTOR(factors->node, j, MIXPRIOR);
+    for (j = 0; j < self->num_blocks; j++) {
+        f = FACTOR(self->block, j, ROOTWARD);
+        for (k = 0; k < 2; k++) {
+            f[k] *= scale[self->blocks_left[j]];
+        }
+        f = FACTOR(self->block, j, LEAFWARD);
+        for (k = 0; k < 2; k++) {
+            f[k] *= scale[self->blocks_right[j]];
+        }
+    }
+    for (j = 0; j < self->num_nodes; j++) {
+        f = FACTOR(self->node, j, MIXPRIOR);
         for (k = 0; k < 2; k++) {
             f[k] *= scale[j];
         }
-        f = FACTOR(factors->node, j, CONSTRNT);
+        f = FACTOR(self->node, j, CONSTRNT);
         for (k = 0; k < 2; k++) {
             f[k] *= scale[j];
         }
-        factors->scale[j] = 1.0;
+        self->scale[j] = 1.0;
     }
 }
 
 void
-tsd_assemble_factors(const tsd_ep_factors_t *factors, double *posterior)
+tsd_ep_assemble_factors(const tsd_ep_t *self, double *posterior)
 {
     tsd_size_t j, k;
     double *post;
     const double *f;
 
-    for (j = 0; j < 2 * factors->num_nodes; j++) {
+    for (j = 0; j < 2 * self->num_nodes; j++) {
         posterior[j] = 0.0;
     }
-    for (j = 0; j < factors->num_edges; j++) {
-        post = PAIR(posterior, factors->edges_parent[j]);
-        f = FACTOR(factors->edge, j, ROOTWARD);
+    for (j = 0; j < self->num_edges; j++) {
+        post = PAIR(posterior, self->edges_parent[j]);
+        f = FACTOR(self->edge, j, ROOTWARD);
         for (k = 0; k < 2; k++) {
             post[k] += f[k];
         }
-        post = PAIR(posterior, factors->edges_child[j]);
-        f = FACTOR(factors->edge, j, LEAFWARD);
-        for (k = 0; k < 2; k++) {
-            post[k] += f[k];
-        }
-    }
-    for (j = 0; j < factors->num_blocks; j++) {
-        post = PAIR(posterior, factors->blocks_left[j]);
-        f = FACTOR(factors->block, j, ROOTWARD);
-        for (k = 0; k < 2; k++) {
-            post[k] += f[k];
-        }
-        post = PAIR(posterior, factors->blocks_right[j]);
-        f = FACTOR(factors->block, j, LEAFWARD);
+        post = PAIR(posterior, self->edges_child[j]);
+        f = FACTOR(self->edge, j, LEAFWARD);
         for (k = 0; k < 2; k++) {
             post[k] += f[k];
         }
     }
-    for (j = 0; j < factors->num_nodes; j++) {
+    for (j = 0; j < self->num_blocks; j++) {
+        post = PAIR(posterior, self->blocks_left[j]);
+        f = FACTOR(self->block, j, ROOTWARD);
+        for (k = 0; k < 2; k++) {
+            post[k] += f[k];
+        }
+        post = PAIR(posterior, self->blocks_right[j]);
+        f = FACTOR(self->block, j, LEAFWARD);
+        for (k = 0; k < 2; k++) {
+            post[k] += f[k];
+        }
+    }
+    for (j = 0; j < self->num_nodes; j++) {
         post = PAIR(posterior, j);
-        f = FACTOR(factors->node, j, MIXPRIOR);
+        f = FACTOR(self->node, j, MIXPRIOR);
         for (k = 0; k < 2; k++) {
             post[k] += f[k];
         }
     }
-    for (j = 0; j < factors->num_nodes; j++) {
+    for (j = 0; j < self->num_nodes; j++) {
         post = PAIR(posterior, j);
-        f = FACTOR(factors->node, j, CONSTRNT);
+        f = FACTOR(self->node, j, CONSTRNT);
         for (k = 0; k < 2; k++) {
             post[k] += f[k];
         }
@@ -463,14 +546,15 @@ out:
 }
 
 int
-tsd_propagate_likelihood(tsd_size_t num_order, const tsd_id_t *edge_order,
-    tsd_size_t num_edges, const tsd_id_t *edges_parent, const tsd_id_t *edges_child,
-    const double *likelihoods, const double *constraints, double max_shape,
-    double min_step, int unphased, double *posterior, const tsd_ep_factors_t *factors,
-    double *lognorm)
+tsd_ep_propagate_likelihood(tsd_ep_t *self, tsd_size_t num_order, const tsd_id_t *order,
+    int unphased, double max_shape, double min_step)
 {
     int ret = 0;
     const double tiny = sqrt(DBL_MIN);
+    const double *constraints = self->constraints;
+    const tsd_size_t num_edges = unphased ? self->num_blocks : self->num_edges;
+    const tsd_id_t *edges_parent = unphased ? self->blocks_left : self->edges_parent;
+    const tsd_id_t *edges_child = unphased ? self->blocks_right : self->edges_child;
     likelihood_pass_t pass;
     tsd_size_t j;
     tsd_id_t i, p, c;
@@ -484,23 +568,27 @@ tsd_propagate_likelihood(tsd_size_t num_order, const tsd_id_t *edge_order,
         ret = tsd_trace_error(TSD_ERR_INVALID_MIN_STEP);
         goto out;
     }
+    ret = tsd_check_ids(num_order, order, num_edges, 0,
+        unphased ? TSD_ERR_BLOCK_OUT_OF_BOUNDS : TSD_ERR_EDGE_OUT_OF_BOUNDS);
+    if (ret != 0) {
+        goto out;
+    }
     pass.max_shape = max_shape;
     pass.min_step = min_step;
     pass.unphased = unphased;
     pass.constraints = constraints;
-    pass.likelihoods = likelihoods;
-    pass.posterior = posterior;
-    pass.scale = factors->scale;
-    pass.factor = unphased ? factors->block : factors->edge;
-    pass.lognorm = lognorm;
-    tsd_bug_assert(num_edges == (unphased ? factors->num_blocks : factors->num_edges));
+    pass.likelihoods = unphased ? self->blocks_likelihood : self->edges_likelihood;
+    pass.posterior = self->posterior;
+    pass.scale = self->scale;
+    pass.factor = unphased ? self->block : self->edge;
+    pass.lognorm = unphased ? self->blocks_lognorm : self->edges_lognorm;
 
     for (j = 0; j < num_order; j++) {
-        i = edge_order[j];
+        i = order[j];
         p = edges_parent[i];
         c = edges_child[i];
         if (pass.scale[p] < tiny || pass.scale[c] < tiny) {
-            tsd_rescale_factors(factors);
+            tsd_ep_rescale_factors(self);
         }
         fixed_p = constraints[2 * (tsd_size_t) p + LOWER]
                   == constraints[2 * (tsd_size_t) p + UPPER];
@@ -530,13 +618,12 @@ out:
 
 /* The prior cavity of a free node: the posterior without the mixture prior factor. */
 static void
-get_prior_cavity(const tsd_ep_factors_t *factors, const double *posterior, tsd_size_t j,
-    double cavity[2])
+get_prior_cavity(const tsd_ep_t *self, tsd_size_t j, double cavity[2])
 {
     double message[2];
 
-    get_message(FACTOR(factors->node, j, MIXPRIOR), factors->scale[j], message);
-    get_cavity(PAIR(posterior, j), 1.0, message, cavity);
+    get_message(FACTOR(self->node, j, MIXPRIOR), self->scale[j], message);
+    get_cavity(PAIR(self->posterior, j), 1.0, message, cavity);
 }
 
 /*
@@ -544,17 +631,17 @@ get_prior_cavity(const tsd_ep_factors_t *factors, const double *posterior, tsd_s
  * `with_penalty`, summing sequentially.
  */
 static double
-mean_shape_over_rate(const tsd_ep_factors_t *factors, const double *posterior,
-    const uint8_t *free, int with_penalty, double penalty)
+mean_shape_over_rate(
+    const tsd_ep_t *self, const uint8_t *free, int with_penalty, double penalty)
 {
     double cavity[2];
     double shape, rate, term;
     double total = 0.0;
     tsd_size_t j, count = 0;
 
-    for (j = 0; j < factors->num_nodes; j++) {
+    for (j = 0; j < self->num_nodes; j++) {
         if (free[j]) {
-            get_prior_cavity(factors, posterior, j, cavity);
+            get_prior_cavity(self, j, cavity);
             shape = cavity[0] + 1;
             rate = cavity[1];
             if (with_penalty) {
@@ -569,11 +656,12 @@ mean_shape_over_rate(const tsd_ep_factors_t *factors, const double *posterior,
 }
 
 int
-tsd_propagate_prior(const uint8_t *free, double max_shape, int64_t em_maxitt,
-    double em_reltol, double *posterior, const tsd_ep_factors_t *factors)
+tsd_ep_propagate_prior(tsd_ep_t *self, const uint8_t *free, double max_shape,
+    int64_t em_maxitt, double em_reltol)
 {
     int ret = 0;
-    const tsd_size_t num_nodes = factors->num_nodes;
+    const tsd_size_t num_nodes = self->num_nodes;
+    double *posterior = self->posterior;
     double cavity[2];
     double penalty, delta;
     int64_t itt;
@@ -592,14 +680,14 @@ tsd_propagate_prior(const uint8_t *free, double max_shape, int64_t em_maxitt,
     }
 
     /* fit an exponential to cavity distributions for unconstrained nodes */
-    penalty = 1 / mean_shape_over_rate(factors, posterior, free, 0, 0.0);
+    penalty = 1 / mean_shape_over_rate(self, free, 0, 0.0);
     itt = 0;
     delta = INFINITY;
     while (fabs(delta) > fabs(penalty) * em_reltol) {
         if (itt > em_maxitt) {
             break;
         }
-        delta = 1 / mean_shape_over_rate(factors, posterior, free, 1, penalty) - penalty;
+        delta = 1 / mean_shape_over_rate(self, free, 1, penalty) - penalty;
         penalty += delta;
         itt++;
     }
@@ -611,17 +699,17 @@ tsd_propagate_prior(const uint8_t *free, double max_shape, int64_t em_maxitt,
     /* update posteriors and rescale to keep shape bounded */
     for (j = 0; j < num_nodes; j++) {
         if (free[j]) {
-            get_prior_cavity(factors, posterior, j, cavity);
+            get_prior_cavity(self, j, cavity);
             PAIR(posterior, j)[1] = cavity[1] + penalty;
-            FACTOR(factors->node, j, MIXPRIOR)
-            [0] = (PAIR(posterior, j)[0] - cavity[0]) / factors->scale[j];
-            FACTOR(factors->node, j, MIXPRIOR)
-            [1] = (PAIR(posterior, j)[1] - cavity[1]) / factors->scale[j];
+            FACTOR(self->node, j, MIXPRIOR)
+            [0] = (PAIR(posterior, j)[0] - cavity[0]) / self->scale[j];
+            FACTOR(self->node, j, MIXPRIOR)
+            [1] = (PAIR(posterior, j)[1] - cavity[1]) / self->scale[j];
         }
     }
     for (j = 0; j < num_nodes; j++) {
         if (free[j]) {
-            ret = rescale_posterior(PAIR(posterior, j), factors->scale + j, max_shape);
+            ret = rescale_posterior(PAIR(posterior, j), self->scale + j, max_shape);
             if (ret != 0) {
                 goto out;
             }
@@ -702,28 +790,36 @@ project_mutation(const mutation_pass_t *pass, tsd_id_t i, tsd_id_t p, tsd_id_t c
 }
 
 int
-tsd_propagate_mutations(tsd_size_t num_order, const tsd_id_t *mutations_order,
-    const tsd_id_t *mutations_edge, const tsd_id_t *edges_parent,
-    const tsd_id_t *edges_child, const double *likelihoods, const double *constraints,
-    const double *posterior, const tsd_ep_factors_t *factors, int unphased,
-    double *mutations_posterior, double *mutations_phase)
+tsd_ep_propagate_mutations(const tsd_ep_t *self, tsd_size_t num_mutations,
+    const tsd_id_t *mutations_edge, int unphased, double *mutations_posterior,
+    double *mutations_phase)
 {
     int ret = 0;
+    const tsd_size_t num_edges = unphased ? self->num_blocks : self->num_edges;
+    const tsd_id_t *edges_parent = unphased ? self->blocks_left : self->edges_parent;
+    const tsd_id_t *edges_child = unphased ? self->blocks_right : self->edges_child;
     mutation_pass_t pass;
-    tsd_size_t j;
-    tsd_id_t m, i;
+    tsd_size_t m;
+    tsd_id_t i;
     double phase, proj[2];
 
+    ret = tsd_check_ids(num_mutations, mutations_edge, num_edges, 1,
+        unphased ? TSD_ERR_BLOCK_OUT_OF_BOUNDS : TSD_ERR_EDGE_OUT_OF_BOUNDS);
+    if (ret != 0) {
+        goto out;
+    }
     pass.unphased = unphased;
-    pass.constraints = constraints;
-    pass.likelihoods = likelihoods;
-    pass.posterior = posterior;
-    pass.scale = factors->scale;
-    pass.factor = unphased ? factors->block : factors->edge;
-    for (j = 0; j < num_order; j++) {
-        m = mutations_order[j];
+    pass.constraints = self->constraints;
+    pass.likelihoods = unphased ? self->blocks_likelihood : self->edges_likelihood;
+    pass.posterior = self->posterior;
+    pass.scale = self->scale;
+    pass.factor = unphased ? self->block : self->edge;
+    for (m = 0; m < num_mutations; m++) {
+        mutations_posterior[2 * m] = NAN;
+        mutations_posterior[2 * m + 1] = NAN;
+        mutations_phase[m] = 1.0;
         i = mutations_edge[m];
-        if (i == TSD_NULL) { /* skip mutations above root */
+        if (i == TSD_NULL) { /* a mutation above a root */
             continue;
         }
         ret = project_mutation(&pass, i, edges_parent[i], edges_child[i], &phase, proj);
@@ -731,8 +827,8 @@ tsd_propagate_mutations(tsd_size_t num_order, const tsd_id_t *mutations_order,
             goto out;
         }
         mutations_phase[m] = phase;
-        mutations_posterior[2 * (tsd_size_t) m] = proj[0];
-        mutations_posterior[2 * (tsd_size_t) m + 1] = proj[1];
+        mutations_posterior[2 * m] = proj[0];
+        mutations_posterior[2 * m + 1] = proj[1];
     }
 out:
     return ret;

@@ -66,50 +66,6 @@ USE_BLOCK_LIKELIHOOD = True
 TINY = np.sqrt(np.finfo(np.float64).tiny)  # DEBUG
 
 
-class EPFactors:
-    """
-    Mutable state of the EP algorithm, that is the factors associated
-    with each edge likelihood / block likelihood / prior factor, that
-    together form the posterior.
-    """
-
-    def __init__(
-        self,
-        node_constraints,
-        edge_parents,
-        edge_children,
-        block_left,
-        block_right,
-    ):
-        assert edge_parents.size == edge_children.size
-        assert block_left.size == block_right.size
-        num_nodes = node_constraints.shape[0]
-        num_edges = edge_parents.size
-        num_blocks = block_left.size
-        self.node = np.zeros((num_nodes, 2, 2))
-        self.edge = np.zeros((num_edges, 2, 2))
-        self.block = np.zeros((num_blocks, 2, 2))
-        self.scale = np.ones(num_nodes)
-        self._p, self._c = edge_parents, edge_children
-        self._j, self._k = block_left, block_right
-
-    def arrays(self):
-        """
-        The arrays, as the tuple that the functions of ``_tsdate`` take; the first
-        four are updated in place by them.
-        """
-        return (
-            self.node,
-            self.edge,
-            self.block,
-            self.scale,
-            self._p,
-            self._c,
-            self._j,
-            self._k,
-        )
-
-
 # main algorithm
 class ExpectationPropagation:
     r"""
@@ -149,7 +105,10 @@ class ExpectationPropagation:
     def _check_valid_constraints(constraints, edges_parent, edges_child):
         # Check that upper-bound on node age is greater than maximum lower-bound
         # for ages of descendants
-        if not _tsdate.constraints_are_consistent(constraints, edges_parent, edges_child):
+        consistent = _tsdate.constraints_are_consistent(
+            constraints=constraints, edges_parent=edges_parent, edges_child=edges_child
+        )
+        if not consistent:
             raise ValueError(
                 "Node age constraints are inconsistent, some descendants have"
                 " lower bounds that exceed upper bounds of their ancestors."
@@ -162,14 +121,10 @@ class ExpectationPropagation:
         if not allow_unary and contains_unary_nodes(ts):
             raise ValueError("Tree sequence contains unary nodes, simplify first")
 
-    @staticmethod
-    def _check_valid_state(
-        posterior,
-        factors,
-    ):
+    def _check_valid_state(self):
         # Check that the messages sum to the posterior (debugging only)
-        posterior_check = _tsdate.assemble_factors(factors.arrays())
-        np.testing.assert_allclose(posterior_check, posterior)
+        posterior_check = self._ep.assemble_factors()
+        np.testing.assert_allclose(posterior_check, self._ep.posterior)
 
     def __init__(self, ts, *, mutation_rate, allow_unary=False, singletons_phased=True):
         """
@@ -225,12 +180,14 @@ class ExpectationPropagation:
         logger.debug(f"Phased singletons in {abs(phase_timing):.2f} seconds")
 
         # mutable
-        self.factors = EPFactors(
-            self.node_constraints,
-            self.edge_parents,
-            self.edge_children,
-            self.block_nodes[0],
-            self.block_nodes[1],
+        self._ep = _tsdate.ExpectationPropagation(
+            constraints=self.node_constraints,
+            edges_parent=self.edge_parents,
+            edges_child=self.edge_children,
+            edges_likelihood=self.edge_likelihoods,
+            blocks_left=self.block_nodes[ROOTWARD],
+            blocks_right=self.block_nodes[LEAFWARD],
+            blocks_likelihood=self.block_likelihoods,
         )
         self.node_posterior = np.zeros((ts.num_nodes, 2))
         self.mutation_posterior = np.full((ts.num_mutations, 2), np.nan)
@@ -259,7 +216,6 @@ class ExpectationPropagation:
         edges = np.arange(ts.num_edges, dtype=np.int32)[~edge_unphased]
         self.edge_order = np.concatenate((edges[:-1], np.flip(edges)))
         self.block_order = np.arange(num_blocks, dtype=np.int32)
-        self.mutation_order = np.arange(ts.num_mutations, dtype=np.int32)
 
     def iterate(
         self,
@@ -272,51 +228,38 @@ class ExpectationPropagation:
         check_valid=False,  # for debugging
     ):
         logger.debug("Passing through singleton blocks")
-        _tsdate.propagate_likelihood(
-            self.block_order,
-            self.block_nodes[ROOTWARD],
-            self.block_nodes[LEAFWARD],
-            self.block_likelihoods,
-            self.node_constraints,
-            self.node_posterior,
-            self.factors.arrays(),
-            self.block_logconst,
-            max_shape,
-            min_step,
-            USE_BLOCK_LIKELIHOOD,
+        self._ep.propagate_likelihood(
+            order=self.block_order,
+            unphased=USE_BLOCK_LIKELIHOOD,
+            max_shape=max_shape,
+            min_step=min_step,
         )
 
         logger.debug("Rootward + leafward pass through edges")
-        _tsdate.propagate_likelihood(
-            self.edge_order,
-            self.edge_parents,
-            self.edge_children,
-            self.edge_likelihoods,
-            self.node_constraints,
-            self.node_posterior,
-            self.factors.arrays(),
-            self.edge_logconst,
-            max_shape,
-            min_step,
-            USE_EDGE_LIKELIHOOD,
+        self._ep.propagate_likelihood(
+            order=self.edge_order,
+            unphased=USE_EDGE_LIKELIHOOD,
+            max_shape=max_shape,
+            min_step=min_step,
         )
 
         if regularise:
             logger.debug("Exponential regularization on roots")
-            _tsdate.propagate_prior(
-                self.unconstrained_roots,
-                self.node_posterior,
-                self.factors.arrays(),
-                max_shape,
-                em_maxitt,
-                em_reltol,
+            self._ep.propagate_prior(
+                free=self.unconstrained_roots,
+                max_shape=max_shape,
+                em_maxitt=em_maxitt,
+                em_reltol=em_reltol,
             )
 
         logger.debug("Absorbing scaling term into the factors")
-        _tsdate.rescale_factors(self.factors.arrays())
+        self._ep.rescale_factors()
+        self.node_posterior = self._ep.posterior
+        self.edge_logconst = self._ep.edges_lognorm
+        self.block_logconst = self._ep.blocks_lognorm
 
         if check_valid:  # for debugging
-            self._check_valid_state(self.node_posterior, self.factors)
+            self._check_valid_state()
 
     def rescale(
         self,
@@ -331,11 +274,11 @@ class ExpectationPropagation:
         # Normalise posteriors so that empirical mutation rate is constant
         likelihoods = self.edge_likelihoods if rescale_segsites \
             else self.sizebiased_likelihoods  # fmt: skip
-        reallocate_unphased(  # correct mutation counts for unphased singletons
-            likelihoods,
-            self.mutation_phase,
-            self.mutation_blocks,
-            self.block_edges,
+        likelihoods = reallocate_unphased(  # correct counts for unphased singletons
+            edges_likelihood=likelihoods,
+            mutations_phase=self.mutation_phase,
+            mutations_block=self.mutation_blocks,
+            blocks_edges=self.block_edges,
         )
         nodes_fixed = self.node_constraints[:, 0] == self.node_constraints[:, 1]
         mutations_fixed = np.isnan(self.mutation_posterior[:, 0])
@@ -343,12 +286,12 @@ class ExpectationPropagation:
         rescaled_nodes_time = nodes_time.copy()
         for _ in np.arange(rescale_iterations):  # estimate time rescaling
             original_breaks, rescaled_breaks = mutational_timescale(
-                rescaled_nodes_time,
-                likelihoods,
-                nodes_fixed,
-                self.edge_parents,
-                self.edge_children,
-                rescale_intervals,
+                nodes_time=rescaled_nodes_time,
+                edges_likelihood=likelihoods,
+                nodes_fixed=nodes_fixed,
+                edges_parent=self.edge_parents,
+                edges_child=self.edge_children,
+                max_intervals=rescale_intervals,
             )
             rescaled_nodes_time = piecewise_scale_point_estimate(
                 rescaled_nodes_time,
@@ -417,35 +360,21 @@ class ExpectationPropagation:
         logger.info(f"Calculated node posteriors in {abs(nodes_timing):.2f} seconds")
 
         muts_timing = time.time()
-        mutations_phased = self.mutation_blocks == tskit.NULL
+        unphased = self.mutation_blocks != tskit.NULL
         logger.debug("Passing through unphased singletons")
-        _tsdate.propagate_mutations(  # unphased singletons
-            self.mutation_order[~mutations_phased],
-            self.mutation_posterior,
-            self.mutation_phase,
-            self.mutation_blocks,
-            self.block_nodes[ROOTWARD],
-            self.block_nodes[LEAFWARD],
-            self.block_likelihoods,
-            self.node_constraints,
-            self.node_posterior,
-            self.factors.arrays(),
-            USE_BLOCK_LIKELIHOOD,
+        posterior, phase = self._ep.propagate_mutations(
+            mutations_edge=self.mutation_blocks[unphased],
+            unphased=USE_BLOCK_LIKELIHOOD,
         )
+        self.mutation_posterior[unphased] = posterior
+        self.mutation_phase[unphased] = phase
         logger.debug("Passing through phased mutations")
-        _tsdate.propagate_mutations(  # phased mutations
-            self.mutation_order[mutations_phased],
-            self.mutation_posterior,
-            self.mutation_phase,
-            self.mutation_edges,
-            self.edge_parents,
-            self.edge_children,
-            self.edge_likelihoods,
-            self.node_constraints,
-            self.node_posterior,
-            self.factors.arrays(),
-            USE_EDGE_LIKELIHOOD,
+        posterior, phase = self._ep.propagate_mutations(
+            mutations_edge=self.mutation_edges[~unphased],
+            unphased=USE_EDGE_LIKELIHOOD,
         )
+        self.mutation_posterior[~unphased] = posterior
+        self.mutation_phase[~unphased] = phase
         muts_timing -= time.time()
         skipped_muts = np.sum(np.isnan(self.mutation_posterior[:, 0]))
         logger.info(f"Skipped {skipped_muts} mutations with invalid posteriors")

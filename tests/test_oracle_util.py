@@ -373,7 +373,6 @@ class TestContainsUnaryNodes:
             ts.indexes_edge_insertion_order,
             ts.indexes_edge_removal_order,
             ts.sequence_length,
-            ts.num_nodes,
         )
 
     @staticmethod

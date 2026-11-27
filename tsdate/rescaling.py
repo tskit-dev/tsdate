@@ -49,17 +49,17 @@ def count_mutations(ts, node_is_sample=None, size_biased=False):
         assert node_is_sample.size == ts.num_nodes
 
     return _tsdate.count_mutations(
-        node_is_sample,
-        ts.mutations_node,
-        ts.sites_position[ts.mutations_site],
-        ts.edges_parent,
-        ts.edges_child,
-        ts.edges_left,
-        ts.edges_right,
-        ts.indexes_edge_insertion_order,
-        ts.indexes_edge_removal_order,
-        ts.sequence_length,
-        size_biased,
+        nodes_sample=node_is_sample,
+        mutations_node=ts.mutations_node,
+        mutations_position=ts.sites_position[ts.mutations_site],
+        edges_parent=ts.edges_parent,
+        edges_child=ts.edges_child,
+        edges_left=ts.edges_left,
+        edges_right=ts.edges_right,
+        indexes_insert=ts.indexes_edge_insertion_order,
+        indexes_remove=ts.indexes_edge_removal_order,
+        sequence_length=ts.sequence_length,
+        size_biased=size_biased,
     )
 
 
@@ -90,12 +90,12 @@ def piecewise_scale_posterior(
 ):
     _check_increasing_breaks(original_breaks, rescaled_breaks)
     return _tsdate.piecewise_scale_posterior(
-        posteriors,
-        posteriors_fixed,
-        original_breaks,
-        rescaled_breaks,
-        quantile_width,
-        max_shape,
+        posteriors=posteriors,
+        posteriors_fixed=posteriors_fixed,
+        original_breaks=original_breaks,
+        rescaled_breaks=rescaled_breaks,
+        quantile_width=quantile_width,
+        max_shape=max_shape,
     )
 
 
@@ -104,7 +104,10 @@ def piecewise_scale_point_estimate(
 ):
     _check_increasing_breaks(original_breaks, rescaled_breaks)
     return _tsdate.piecewise_scale_point_estimate(
-        point_estimate, point_fixed, original_breaks, rescaled_breaks
+        point_estimate=point_estimate,
+        point_fixed=point_fixed,
+        original_breaks=original_breaks,
+        rescaled_breaks=rescaled_breaks,
     )
 
 
@@ -148,12 +151,12 @@ def rescale_tree_sequence(
     nodes_time = ts.nodes_time.copy()
     for _ in np.arange(num_iterations):
         original_breaks, rescaled_breaks = mutational_timescale(
-            nodes_time,
-            mutations_span,
-            constraints,
-            ts.edges_parent,
-            ts.edges_child,
-            num_intervals,
+            nodes_time=nodes_time,
+            edges_likelihood=mutations_span,
+            nodes_fixed=constraints,
+            edges_parent=ts.edges_parent,
+            edges_child=ts.edges_child,
+            max_intervals=num_intervals,
         )
         nodes_time = piecewise_scale_point_estimate(
             nodes_time, fixed_nodes, original_breaks, rescaled_breaks

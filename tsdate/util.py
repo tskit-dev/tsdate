@@ -426,23 +426,23 @@ def split_disjoint_nodes(ts, *, record_provenance=None):
         record_provenance = True
     node_is_sample = np.bitwise_and(ts.nodes_flags, tskit.NODE_IS_SAMPLE).astype(bool)
     edges_parent, edges_child, nodes_order, split_nodes = _tsdate.split_disjoint_nodes(
-        ts.edges_parent,
-        ts.edges_child,
-        ts.edges_left,
-        ts.edges_right,
-        node_is_sample,
+        edges_parent=ts.edges_parent,
+        edges_child=ts.edges_child,
+        edges_left=ts.edges_left,
+        edges_right=ts.edges_right,
+        nodes_excluded=node_is_sample,
     )
 
     mutations_node = _tsdate.relabel_mutations_node(
-        ts.mutations_node,
-        ts.sites_position[ts.mutations_site],
-        nodes_order,
-        edges_parent,
-        edges_child,
-        ts.edges_left,
-        ts.edges_right,
-        ts.indexes_edge_insertion_order,
-        ts.indexes_edge_removal_order,
+        mutations_node=ts.mutations_node,
+        mutations_position=ts.sites_position[ts.mutations_site],
+        nodes_order=nodes_order,
+        edges_parent=edges_parent,
+        edges_child=edges_child,
+        edges_left=ts.edges_left,
+        edges_right=ts.edges_right,
+        indexes_insert=ts.indexes_edge_insertion_order,
+        indexes_remove=ts.indexes_edge_removal_order,
     )
     tables = ts.dump_tables()
 
@@ -503,12 +503,12 @@ def constrain_ages(ts, nodes_time, epsilon=1e-6, max_iterations=0):
 
     nodes_fixed = np.bitwise_and(ts.nodes_flags, tskit.NODE_IS_SAMPLE).astype(bool)
     constrained_nodes_time = _tsdate.constrain_ages(
-        nodes_time,
-        nodes_fixed,
-        ts.edges_parent,
-        ts.edges_child,
-        epsilon,
-        max_iterations,
+        nodes_time=nodes_time,
+        nodes_fixed=nodes_fixed,
+        edges_parent=ts.edges_parent,
+        edges_child=ts.edges_child,
+        epsilon=epsilon,
+        max_iterations=max_iterations,
     )
     modified = np.sum(~np.isclose(nodes_time, constrained_nodes_time))
     logging.info(f"Modified ages of {modified} nodes to satisfy constraints")
@@ -528,14 +528,13 @@ def contains_unary_nodes(ts, skip_samples=True):
         nodes_mask[list(ts.samples())] = True
 
     return _tsdate.contains_unary_nodes(
-        nodes_mask,
-        ts.edges_parent,
-        ts.edges_left,
-        ts.edges_right,
-        ts.indexes_edge_insertion_order,
-        ts.indexes_edge_removal_order,
-        ts.sequence_length,
-        ts.num_nodes,
+        nodes_mask=nodes_mask,
+        edges_parent=ts.edges_parent,
+        edges_left=ts.edges_left,
+        edges_right=ts.edges_right,
+        indexes_insert=ts.indexes_edge_insertion_order,
+        indexes_remove=ts.indexes_edge_removal_order,
+        sequence_length=ts.sequence_length,
     )
 
 
