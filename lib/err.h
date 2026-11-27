@@ -25,10 +25,6 @@
 #ifndef TSD_ERR_H
 #define TSD_ERR_H
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -85,16 +81,6 @@ extern "C" {
 #define TSD_ERR_NONPOSITIVE_PENALTY                                 -35
 /* clang-format on */
 
-#ifdef __GNUC__
-#define WARN_UNUSED    __attribute__((warn_unused_result))
-#define unlikely(expr) __builtin_expect(!!(expr), 0)
-#define likely(expr)   __builtin_expect(!!(expr), 1)
-#else
-#define WARN_UNUSED
-#define unlikely(expr) (expr)
-#define likely(expr)   (expr)
-#endif
-
 const char *tsd_strerror(int err);
 
 #ifdef TSD_TRACE_ERRORS
@@ -128,9 +114,5 @@ _tsd_trace_error(int err, int line, const char *file)
 
 void _tsd_safe_free(void **ptr);
 #define tsd_safe_free(pointer) _tsd_safe_free((void **) &(pointer))
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif

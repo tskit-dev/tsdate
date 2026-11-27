@@ -28,7 +28,6 @@
 
 #include <math.h>
 #include <stdlib.h>
-#include <string.h>
 
 #include "mathutil.h"
 #include "tsdate.h"

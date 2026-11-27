@@ -25,10 +25,6 @@
 #ifndef TSDATE_H
 #define TSDATE_H
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 #include <stdint.h>
 
 #include "err.h"
@@ -345,9 +341,5 @@ int tsd_propagate_mutations(tsd_size_t num_order, const tsd_id_t *mutations_orde
     const tsd_id_t *edges_child, const double *likelihoods, const double *constraints,
     const double *posterior, const tsd_ep_factors_t *factors, int unphased,
     double *mutations_posterior, double *mutations_phase);
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif

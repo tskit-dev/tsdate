@@ -25,10 +25,6 @@
 #ifndef TSD_MATHUTIL_H
 #define TSD_MATHUTIL_H
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 #include <math.h>
 
 /* Constants that <math.h> only defines as extensions (and MSVC not by default). */
@@ -77,9 +73,5 @@ tsd_isclose(double a, double b)
 {
     return fabs(a - b) <= 1e-8 + 1e-5 * fabs(b);
 }
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif
