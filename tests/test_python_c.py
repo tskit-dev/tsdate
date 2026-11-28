@@ -1,5 +1,6 @@
 """
-Tests for the low-level _tsdate C module.
+Tests for the low-level _tsdate C module: argument handling, and each library error
+through each function that reports it.
 """
 
 import re
@@ -8,8 +9,6 @@ import _tsdate
 import msprime
 import numpy as np
 import pytest
-
-import tsdate
 
 ERR_GENERIC = -1
 ERR_NO_MEMORY = -2
@@ -41,6 +40,15 @@ def raises_library_error(code):
     ``pytest.raises`` for the library error ``code``
     """
     return pytest.raises(_tsdate.LibraryError, match=re.escape(_tsdate.strerror(code)))
+
+
+def with_entry(array, index, value):
+    """
+    A copy of ``array`` with entry ``index`` set to ``value``
+    """
+    array = array.copy()
+    array[index] = value
+    return array
 
 
 class TestModule:
@@ -98,287 +106,835 @@ class TestRaiseLibraryError:
             _tsdate.raise_library_error("x")
 
 
-@pytest.fixture(scope="module")
-def ts():
-    """
-    A small tree sequence with recombination, mutations and two diploid individuals
-    """
-    ts = msprime.sim_ancestry(
+# Two diploid individuals, with recombination (seven trees) and mutations
+TS = msprime.sim_mutations(
+    msprime.sim_ancestry(
         2,
         sequence_length=1e4,
         recombination_rate=1e-8,
         population_size=1e4,
         random_seed=2,
-    )
-    return msprime.sim_mutations(ts, rate=1e-7, random_seed=2)
+    ),
+    rate=1e-7,
+    random_seed=2,
+)
+SAMPLES = np.isin(np.arange(TS.num_nodes), TS.samples())
 
 
-def bad_ids(ids, value):
-    """
-    A copy of ``ids`` with the last entry replaced by ``value``
-    """
-    ids = ids.copy()
-    ids[-1] = value
-    return ids
+# Valid keyword arguments of each function, in the order of its parameters
 
 
-def sweep_args(ts, **replace):
-    """
-    The edge arrays of ``ts`` used by a sweep over its trees, with replacements
-    """
-    args = {
-        "edges_parent": ts.edges_parent,
-        "edges_child": ts.edges_child,
-        "edges_left": ts.edges_left,
-        "edges_right": ts.edges_right,
-        "insert": ts.indexes_edge_insertion_order,
-        "remove": ts.indexes_edge_removal_order,
-        "mutations_node": ts.mutations_node,
-    }
-    args.update(replace)
-    return args
-
-
-def call_sweep(name, ts, a):
-    """
-    Call the sweep function ``name`` with the arrays ``a``
-    """
-    position = ts.sites_position[ts.mutations_site]
-    edges = (a["edges_parent"], a["edges_child"], a["edges_left"], a["edges_right"])
-    indexes = (a["insert"], a["remove"])
-    if name == "count_mutations":
-        sample = np.zeros(ts.num_nodes, dtype=bool)
-        sample[ts.samples()] = True
-        return _tsdate.count_mutations(
-            sample,
-            a["mutations_node"],
-            position,
-            *edges,
-            *indexes,
-            ts.sequence_length,
-            True,
-        )
-    if name == "mutation_frequency":
-        sample = np.zeros((ts.num_nodes, 1), dtype=bool)
-        sample[ts.samples(), 0] = True
-        return _tsdate.mutation_frequency(
-            sample, a["mutations_node"], position, *edges, *indexes, ts.sequence_length
-        )
-    if name == "block_singletons":
-        return _tsdate.block_singletons(
-            np.ones(ts.num_individuals, dtype=bool),
-            ts.nodes_individual,
-            a["mutations_node"],
-            position,
-            *edges[1:],
-            *indexes,
-            ts.sequence_length,
-        )
-    if name == "contains_unary_nodes":
-        return _tsdate.contains_unary_nodes(
-            np.zeros(ts.num_nodes, dtype=bool),
-            a["edges_parent"],
-            a["edges_left"],
-            a["edges_right"],
-            *indexes,
-            ts.sequence_length,
-        )
-    assert name == "relabel_mutations_node"
-    return _tsdate.relabel_mutations_node(
-        a["mutations_node"],
-        position,
-        np.arange(ts.num_nodes, dtype=np.int32),
-        *edges,
-        *indexes,
+def block_singletons_kwargs():
+    return dict(
+        individuals_unphased=np.ones(TS.num_individuals, dtype=bool),
+        nodes_individual=TS.nodes_individual,
+        mutations_node=TS.mutations_node,
+        mutations_position=TS.sites_position[TS.mutations_site],
+        edges_child=TS.edges_child,
+        edges_left=TS.edges_left,
+        edges_right=TS.edges_right,
+        indexes_insert=TS.indexes_edge_insertion_order,
+        indexes_remove=TS.indexes_edge_removal_order,
+        sequence_length=TS.sequence_length,
     )
 
 
-SWEEPS = [
-    "count_mutations",
-    "mutation_frequency",
-    "block_singletons",
-    "contains_unary_nodes",
-    "relabel_mutations_node",
+def reallocate_unphased_kwargs():
+    # one block of edges 0 and 1, with two mutations, and a mutation in no block
+    return dict(
+        edges_likelihood=np.array([[2.0, 5.0], [0.0, 5.0], [1.0, 5.0]]),
+        mutations_phase=np.array([0.25, 0.5, np.nan]),
+        mutations_block=np.array([0, 0, -1], dtype=np.int32),
+        blocks_edges=np.array([[0, 1]], dtype=np.int32),
+    )
+
+
+def mutation_frequency_kwargs():
+    return dict(
+        nodes_sample=SAMPLES[:, np.newaxis],
+        mutations_node=TS.mutations_node,
+        mutations_position=TS.sites_position[TS.mutations_site],
+        edges_parent=TS.edges_parent,
+        edges_child=TS.edges_child,
+        edges_left=TS.edges_left,
+        edges_right=TS.edges_right,
+        indexes_insert=TS.indexes_edge_insertion_order,
+        indexes_remove=TS.indexes_edge_removal_order,
+        sequence_length=TS.sequence_length,
+    )
+
+
+def split_disjoint_nodes_kwargs():
+    return dict(
+        edges_parent=TS.edges_parent,
+        edges_child=TS.edges_child,
+        edges_left=TS.edges_left,
+        edges_right=TS.edges_right,
+        nodes_excluded=SAMPLES,
+    )
+
+
+def relabel_mutations_node_kwargs():
+    return dict(
+        mutations_node=TS.mutations_node,
+        mutations_position=TS.sites_position[TS.mutations_site],
+        nodes_order=np.arange(TS.num_nodes, dtype=np.int32),
+        edges_parent=TS.edges_parent,
+        edges_child=TS.edges_child,
+        edges_left=TS.edges_left,
+        edges_right=TS.edges_right,
+        indexes_insert=TS.indexes_edge_insertion_order,
+        indexes_remove=TS.indexes_edge_removal_order,
+    )
+
+
+def constrain_ages_kwargs():
+    return dict(
+        nodes_time=TS.nodes_time,
+        nodes_fixed=SAMPLES,
+        edges_parent=TS.edges_parent,
+        edges_child=TS.edges_child,
+        epsilon=1e-6,
+        max_iterations=2,
+    )
+
+
+def contains_unary_nodes_kwargs():
+    return dict(
+        nodes_mask=SAMPLES,
+        edges_parent=TS.edges_parent,
+        edges_left=TS.edges_left,
+        edges_right=TS.edges_right,
+        indexes_insert=TS.indexes_edge_insertion_order,
+        indexes_remove=TS.indexes_edge_removal_order,
+        sequence_length=TS.sequence_length,
+    )
+
+
+def conditional_coalescent_variance_kwargs():
+    return dict(num_tips=5)
+
+
+def count_mutations_kwargs():
+    return dict(
+        nodes_sample=SAMPLES,
+        mutations_node=TS.mutations_node,
+        mutations_position=TS.sites_position[TS.mutations_site],
+        edges_parent=TS.edges_parent,
+        edges_child=TS.edges_child,
+        edges_left=TS.edges_left,
+        edges_right=TS.edges_right,
+        indexes_insert=TS.indexes_edge_insertion_order,
+        indexes_remove=TS.indexes_edge_removal_order,
+        sequence_length=TS.sequence_length,
+        size_biased=True,
+    )
+
+
+def mutational_area_kwargs():
+    return dict(
+        nodes_time=TS.nodes_time,
+        edges_likelihood=np.ones((TS.num_edges, 2)),
+        edges_parent=TS.edges_parent,
+        edges_child=TS.edges_child,
+    )
+
+
+def mutational_timescale_kwargs():
+    return dict(
+        nodes_time=TS.nodes_time,
+        edges_likelihood=np.ones((TS.num_edges, 2)),
+        nodes_fixed=SAMPLES,
+        edges_parent=TS.edges_parent,
+        edges_child=TS.edges_child,
+        max_intervals=3,
+    )
+
+
+def piecewise_scale_point_estimate_kwargs():
+    return dict(
+        point_estimate=np.array([0.0, 0.5, 5.0]),
+        point_fixed=np.array([True, False, False]),
+        original_breaks=np.array([0.0, 1.0, 10.0]),
+        rescaled_breaks=np.array([0.0, 2.0, 20.0]),
+    )
+
+
+def piecewise_scale_posterior_kwargs():
+    return dict(
+        posteriors=np.ones((3, 2)),
+        posteriors_fixed=np.array([False, False, True]),
+        original_breaks=np.array([0.0, 1.0, 10.0]),
+        rescaled_breaks=np.array([0.0, 2.0, 20.0]),
+        quantile_width=0.5,
+        max_shape=1000.0,
+    )
+
+
+def constraints_are_consistent_kwargs():
+    constraints = np.zeros((TS.num_nodes, 2))
+    constraints[~SAMPLES, 1] = np.inf
+    return dict(
+        constraints=constraints,
+        edges_parent=TS.edges_parent,
+        edges_child=TS.edges_child,
+    )
+
+
+def names(functions):
+    """
+    The names of the functions of a list of (function, make_kwargs), as test ids
+    """
+    return [function.__name__ for function, _ in functions]
+
+
+FUNCTIONS = [
+    (_tsdate.block_singletons, block_singletons_kwargs),
+    (_tsdate.reallocate_unphased, reallocate_unphased_kwargs),
+    (_tsdate.mutation_frequency, mutation_frequency_kwargs),
+    (_tsdate.split_disjoint_nodes, split_disjoint_nodes_kwargs),
+    (_tsdate.relabel_mutations_node, relabel_mutations_node_kwargs),
+    (_tsdate.constrain_ages, constrain_ages_kwargs),
+    (_tsdate.contains_unary_nodes, contains_unary_nodes_kwargs),
+    (_tsdate.conditional_coalescent_variance, conditional_coalescent_variance_kwargs),
+    (_tsdate.count_mutations, count_mutations_kwargs),
+    (_tsdate.mutational_area, mutational_area_kwargs),
+    (_tsdate.mutational_timescale, mutational_timescale_kwargs),
+    (_tsdate.piecewise_scale_point_estimate, piecewise_scale_point_estimate_kwargs),
+    (_tsdate.piecewise_scale_posterior, piecewise_scale_posterior_kwargs),
+    (_tsdate.constraints_are_consistent, constraints_are_consistent_kwargs),
 ]
 
 
-class TestBadTreeArguments:
+@pytest.mark.parametrize(("function", "make_kwargs"), FUNCTIONS, ids=names(FUNCTIONS))
+class TestArguments:
     """
-    The library's errors for ids out of bounds and for edges that cannot be swept
+    The parsing of the arguments of each function: counts, keywords and types
     """
 
-    @pytest.mark.parametrize("name", SWEEPS)
-    def test_valid(self, ts, name):
-        call_sweep(name, ts, sweep_args(ts))
+    def test_keywords(self, function, make_kwargs):
+        function(**make_kwargs())
 
-    @pytest.mark.parametrize("name", sorted(set(SWEEPS) - {"block_singletons"}))
-    @pytest.mark.parametrize("value", [-1, 2**30])
-    def test_parent_out_of_bounds(self, ts, name, value):
-        a = sweep_args(ts, edges_parent=bad_ids(ts.edges_parent, value))
-        with pytest.raises(_tsdate.LibraryError, match="Node id out of bounds"):
-            call_sweep(name, ts, a)
+    def test_positional(self, function, make_kwargs):
+        args = list(make_kwargs().values())
+        function(*args)
 
-    @pytest.mark.parametrize("name", sorted(set(SWEEPS) - {"contains_unary_nodes"}))
-    def test_mutation_node_out_of_bounds(self, ts, name):
-        a = sweep_args(ts, mutations_node=bad_ids(ts.mutations_node, ts.num_nodes))
-        with pytest.raises(_tsdate.LibraryError, match="Node id out of bounds"):
-            call_sweep(name, ts, a)
+    def test_too_few_arguments(self, function, make_kwargs):
+        args = list(make_kwargs().values())
+        with pytest.raises(TypeError):
+            function(*args[:-1])
 
-    @pytest.mark.parametrize("name", SWEEPS)
-    def test_nan_interval(self, ts, name):
-        a = sweep_args(ts, edges_right=bad_ids(ts.edges_right, np.nan))
+    def test_too_many_arguments(self, function, make_kwargs):
+        args = list(make_kwargs().values())
+        with pytest.raises(TypeError):
+            function(*args, args[-1])
+
+    def test_unknown_keyword(self, function, make_kwargs):
+        kwargs = make_kwargs()
+        with pytest.raises(TypeError):
+            function(**kwargs, not_an_argument=1)
+
+    def test_bad_dtype(self, function, make_kwargs):
+        # float arrays as complex numbers, the others as floats: neither casts safely
+        for name, value in make_kwargs().items():
+            if not isinstance(value, np.ndarray):
+                continue
+            kwargs = make_kwargs()
+            if value.dtype == np.float64:
+                kwargs[name] = value.astype(np.complex128)
+            else:
+                kwargs[name] = value.astype(np.float64)
+            with pytest.raises(TypeError):
+                function(**kwargs)
+
+    def test_bad_dimension(self, function, make_kwargs):
+        for name, value in make_kwargs().items():
+            if not isinstance(value, np.ndarray):
+                continue
+            kwargs = make_kwargs()
+            if value.ndim == 2:
+                kwargs[name] = value.reshape(-1)
+            else:
+                kwargs[name] = value.reshape(1, -1)
+            with pytest.raises(ValueError):
+                function(**kwargs)
+
+    def test_not_an_array(self, function, make_kwargs):
+        for name, value in make_kwargs().items():
+            if not isinstance(value, np.ndarray):
+                continue
+            kwargs = make_kwargs()
+            kwargs[name] = "not an array"
+            with pytest.raises((TypeError, ValueError)):
+                function(**kwargs)
+
+    def test_not_a_number(self, function, make_kwargs):
+        # flags are not included: they take any object, as its truth value
+        for name, value in make_kwargs().items():
+            if isinstance(value, (np.ndarray, bool)):
+                continue
+            kwargs = make_kwargs()
+            kwargs[name] = "not a number"
+            with pytest.raises(TypeError):
+                function(**kwargs)
+
+
+SWEEPS_WITH_SEQUENCE_LENGTH = [
+    (_tsdate.block_singletons, block_singletons_kwargs),
+    (_tsdate.mutation_frequency, mutation_frequency_kwargs),
+    (_tsdate.contains_unary_nodes, contains_unary_nodes_kwargs),
+    (_tsdate.count_mutations, count_mutations_kwargs),
+]
+SWEEPS = SWEEPS_WITH_SEQUENCE_LENGTH + [
+    (_tsdate.relabel_mutations_node, relabel_mutations_node_kwargs),
+]
+
+
+class TestEdgeSweep:
+    """
+    The library's errors for edges that a sweep over the trees cannot traverse, through
+    each function that sweeps
+    """
+
+    @pytest.mark.parametrize(("function", "make_kwargs"), SWEEPS, ids=names(SWEEPS))
+    def test_nan_interval(self, function, make_kwargs):
+        kwargs = make_kwargs()
+        kwargs["edges_right"] = with_entry(TS.edges_right, -1, np.nan)
         with pytest.raises(_tsdate.LibraryError, match="Edge interval"):
-            call_sweep(name, ts, a)
+            function(**kwargs)
 
-    @pytest.mark.parametrize("name", sorted(set(SWEEPS) - {"relabel_mutations_node"}))
-    def test_interval_past_end(self, ts, name):
-        right = bad_ids(ts.edges_right, 2 * ts.sequence_length)
+    @pytest.mark.parametrize(("function", "make_kwargs"), SWEEPS, ids=names(SWEEPS))
+    def test_empty_interval(self, function, make_kwargs):
+        kwargs = make_kwargs()
+        kwargs["edges_left"] = with_entry(TS.edges_left, -1, TS.edges_right[-1])
         with pytest.raises(_tsdate.LibraryError, match="Edge interval"):
-            call_sweep(name, ts, sweep_args(ts, edges_right=right))
+            function(**kwargs)
 
-    @pytest.mark.parametrize("name", SWEEPS)
-    def test_empty_interval(self, ts, name):
-        left = ts.edges_left.copy()
-        left[-1] = ts.edges_right[-1]
+    @pytest.mark.parametrize(
+        ("function", "make_kwargs"),
+        SWEEPS_WITH_SEQUENCE_LENGTH,
+        ids=names(SWEEPS_WITH_SEQUENCE_LENGTH),
+    )
+    def test_interval_past_end(self, function, make_kwargs):
+        kwargs = make_kwargs()
+        kwargs["edges_right"] = with_entry(TS.edges_right, -1, 2 * TS.sequence_length)
         with pytest.raises(_tsdate.LibraryError, match="Edge interval"):
-            call_sweep(name, ts, sweep_args(ts, edges_left=left))
+            function(**kwargs)
 
-    @pytest.mark.parametrize("name", SWEEPS)
-    def test_index_out_of_bounds(self, ts, name):
-        insert = bad_ids(ts.indexes_edge_insertion_order, ts.num_edges)
+    @pytest.mark.parametrize(("function", "make_kwargs"), SWEEPS, ids=names(SWEEPS))
+    def test_index_out_of_bounds(self, function, make_kwargs):
+        kwargs = make_kwargs()
+        insert = TS.indexes_edge_insertion_order
+        kwargs["indexes_insert"] = with_entry(insert, -1, TS.num_edges)
         with pytest.raises(_tsdate.LibraryError, match="Edge id out of bounds"):
-            call_sweep(name, ts, sweep_args(ts, insert=insert))
+            function(**kwargs)
 
-    @pytest.mark.parametrize("name", SWEEPS)
-    def test_unsorted_index(self, ts, name):
-        remove = ts.indexes_edge_removal_order[::-1].copy()
+    @pytest.mark.parametrize(("function", "make_kwargs"), SWEEPS, ids=names(SWEEPS))
+    def test_unsorted_index(self, function, make_kwargs):
+        kwargs = make_kwargs()
+        kwargs["indexes_remove"] = TS.indexes_edge_removal_order[::-1].copy()
         with pytest.raises(_tsdate.LibraryError, match="Edge indexes must list"):
-            call_sweep(name, ts, sweep_args(ts, remove=remove))
+            function(**kwargs)
 
-    @pytest.mark.parametrize("name", ["count_mutations", "mutation_frequency"])
-    def test_cycle(self, ts, name):
-        # every edge from node 0 to node 1 and back over the whole sequence
-        num_edges = 2
-        a = {
-            "edges_parent": np.array([1, 0], dtype=np.int32),
-            "edges_child": np.array([0, 1], dtype=np.int32),
-            "edges_left": np.zeros(num_edges),
-            "edges_right": np.full(num_edges, ts.sequence_length),
-            "insert": np.arange(num_edges, dtype=np.int32),
-            "remove": np.arange(num_edges, dtype=np.int32),
-            "mutations_node": ts.mutations_node,
-        }
-        with pytest.raises(_tsdate.LibraryError, match="Edges form a cycle"):
-            call_sweep(name, ts, a)
 
-    def test_individual_out_of_bounds(self, ts):
-        nodes_individual = bad_ids(ts.nodes_individual, ts.num_individuals)
+class TestBlockSingletons:
+    def test_mismatched_edge_arrays(self):
+        for name in [
+            "edges_left",
+            "edges_right",
+            "indexes_insert",
+            "indexes_remove",
+        ]:
+            kwargs = block_singletons_kwargs()
+            kwargs[name] = kwargs[name][:-1]
+            with pytest.raises(ValueError, match="Edge arrays must have the same size"):
+                _tsdate.block_singletons(**kwargs)
+
+    def test_mismatched_mutation_arrays(self):
+        kwargs = block_singletons_kwargs()
+        kwargs["mutations_position"] = kwargs["mutations_position"][:-1]
+        with pytest.raises(ValueError, match="Mutation arrays must have the same size"):
+            _tsdate.block_singletons(**kwargs)
+
+    def test_mutation_node_out_of_bounds(self):
+        kwargs = block_singletons_kwargs()
+        kwargs["mutations_node"] = with_entry(TS.mutations_node, -1, TS.num_nodes)
+        with pytest.raises(_tsdate.LibraryError, match="Node id out of bounds"):
+            _tsdate.block_singletons(**kwargs)
+
+    def test_individual_out_of_bounds(self):
+        kwargs = block_singletons_kwargs()
+        individuals = with_entry(TS.nodes_individual, -1, TS.num_individuals)
+        kwargs["nodes_individual"] = individuals
         with pytest.raises(_tsdate.LibraryError, match="Individual id out of bounds"):
-            _tsdate.block_singletons(
-                np.ones(ts.num_individuals, dtype=bool),
-                nodes_individual,
-                ts.mutations_node,
-                ts.sites_position[ts.mutations_site],
-                ts.edges_child,
-                ts.edges_left,
-                ts.edges_right,
-                ts.indexes_edge_insertion_order,
-                ts.indexes_edge_removal_order,
-                ts.sequence_length,
-            )
+            _tsdate.block_singletons(**kwargs)
+
+    def test_individual_with_three_nodes(self):
+        # nodes 0 and 1 belong to individual 0: give it node 2 as well
+        assert TS.nodes_individual[:3].tolist() == [0, 0, 1]
+        kwargs = block_singletons_kwargs()
+        kwargs["nodes_individual"] = with_entry(TS.nodes_individual, 2, 0)
+        with raises_library_error(ERR_UNPHASED_INDIVIDUAL_EDGES):
+            _tsdate.block_singletons(**kwargs)
+
+
+class TestReallocateUnphased:
+    def test_result(self):
+        # the two mutations give edge 0 their phases and edge 1 the remainders
+        kwargs = reallocate_unphased_kwargs()
+        result = _tsdate.reallocate_unphased(**kwargs)
+        assert result.tolist() == [[0.75, 5.0], [1.25, 5.0], [1.0, 5.0]]
+
+    def test_leaves_input(self):
+        kwargs = reallocate_unphased_kwargs()
+        _tsdate.reallocate_unphased(**kwargs)
+        assert kwargs["edges_likelihood"].tolist() == [[2, 5], [0, 5], [1, 5]]
+
+    def test_mismatched_mutation_arrays(self):
+        kwargs = reallocate_unphased_kwargs()
+        kwargs["mutations_block"] = kwargs["mutations_block"][:-1]
+        with pytest.raises(ValueError, match="Mutation arrays must have the same size"):
+            _tsdate.reallocate_unphased(**kwargs)
+
+    def test_three_columns(self):
+        for name in ["edges_likelihood", "blocks_edges"]:
+            kwargs = reallocate_unphased_kwargs()
+            value = kwargs[name]
+            kwargs[name] = np.hstack((value, value[:, :1]))
+            with pytest.raises(ValueError, match="must have two columns"):
+                _tsdate.reallocate_unphased(**kwargs)
+
+    def test_block_out_of_bounds(self):
+        kwargs = reallocate_unphased_kwargs()
+        kwargs["mutations_block"] = np.array([0, 1, -1], dtype=np.int32)
+        with raises_library_error(ERR_BLOCK_OUT_OF_BOUNDS):
+            _tsdate.reallocate_unphased(**kwargs)
+
+    def test_edge_of_block_out_of_bounds(self):
+        kwargs = reallocate_unphased_kwargs()
+        kwargs["blocks_edges"] = np.array([[0, 3]], dtype=np.int32)
+        with raises_library_error(ERR_BLOCK_OUT_OF_BOUNDS):
+            _tsdate.reallocate_unphased(**kwargs)
+
+    def test_phase_out_of_range(self):
+        kwargs = reallocate_unphased_kwargs()
+        kwargs["mutations_phase"] = np.array([0.25, 1.5, np.nan])
+        with raises_library_error(ERR_PHASE_OUT_OF_RANGE):
+            _tsdate.reallocate_unphased(**kwargs)
+
+    def test_likelihood_not_conserved(self):
+        # a NaN phase is skipped, so one mutation's likelihood is not reallocated
+        kwargs = reallocate_unphased_kwargs()
+        kwargs["mutations_phase"] = np.array([0.25, np.nan, np.nan])
+        with raises_library_error(ERR_UNPHASED_LIKELIHOOD_NOT_CONSERVED):
+            _tsdate.reallocate_unphased(**kwargs)
+
+
+class TestMutationFrequency:
+    def test_mismatched_edge_arrays(self):
+        for name in [
+            "edges_child",
+            "edges_left",
+            "edges_right",
+            "indexes_insert",
+            "indexes_remove",
+        ]:
+            kwargs = mutation_frequency_kwargs()
+            kwargs[name] = kwargs[name][:-1]
+            with pytest.raises(ValueError, match="Edge arrays must have the same size"):
+                _tsdate.mutation_frequency(**kwargs)
+
+    def test_mismatched_mutation_arrays(self):
+        kwargs = mutation_frequency_kwargs()
+        kwargs["mutations_position"] = kwargs["mutations_position"][:-1]
+        with pytest.raises(ValueError, match="Mutation arrays must have the same size"):
+            _tsdate.mutation_frequency(**kwargs)
 
     @pytest.mark.parametrize("value", [-1, 2**30])
-    def test_constrain_ages(self, ts, value):
+    def test_parent_out_of_bounds(self, value):
+        kwargs = mutation_frequency_kwargs()
+        kwargs["edges_parent"] = with_entry(TS.edges_parent, -1, value)
         with pytest.raises(_tsdate.LibraryError, match="Node id out of bounds"):
-            _tsdate.constrain_ages(
-                ts.nodes_time,
-                np.zeros(ts.num_nodes, dtype=bool),
-                ts.edges_parent,
-                bad_ids(ts.edges_child, value),
-                1e-6,
-                3,
-            )
+            _tsdate.mutation_frequency(**kwargs)
 
-    def test_split_disjoint_nodes(self, ts):
+    def test_mutation_node_out_of_bounds(self):
+        kwargs = mutation_frequency_kwargs()
+        kwargs["mutations_node"] = with_entry(TS.mutations_node, -1, TS.num_nodes)
         with pytest.raises(_tsdate.LibraryError, match="Node id out of bounds"):
-            _tsdate.split_disjoint_nodes(
-                bad_ids(ts.edges_parent, ts.num_nodes),
-                ts.edges_child,
-                ts.edges_left,
-                ts.edges_right,
-                np.zeros(ts.num_nodes, dtype=bool),
-            )
+            _tsdate.mutation_frequency(**kwargs)
 
-    def test_relabel_nodes_order(self, ts):
-        nodes_order = bad_ids(np.arange(ts.num_nodes, dtype=np.int32), ts.num_nodes)
+    def test_cycle(self):
+        # an edge from node 0 to node 1 and one back, over the whole sequence
+        kwargs = mutation_frequency_kwargs()
+        kwargs["edges_parent"] = np.array([1, 0], dtype=np.int32)
+        kwargs["edges_child"] = np.array([0, 1], dtype=np.int32)
+        kwargs["edges_left"] = np.array([0.0, 0.0])
+        kwargs["edges_right"] = np.array([TS.sequence_length, TS.sequence_length])
+        kwargs["indexes_insert"] = np.array([0, 1], dtype=np.int32)
+        kwargs["indexes_remove"] = np.array([0, 1], dtype=np.int32)
+        with pytest.raises(_tsdate.LibraryError, match="Edges form a cycle"):
+            _tsdate.mutation_frequency(**kwargs)
+
+
+class TestSplitDisjointNodes:
+    def test_mismatched_edge_arrays(self):
+        for name in ["edges_child", "edges_left", "edges_right"]:
+            kwargs = split_disjoint_nodes_kwargs()
+            kwargs[name] = kwargs[name][:-1]
+            with pytest.raises(ValueError, match="Edge arrays must have the same size"):
+                _tsdate.split_disjoint_nodes(**kwargs)
+
+    def test_parent_out_of_bounds(self):
+        kwargs = split_disjoint_nodes_kwargs()
+        kwargs["edges_parent"] = with_entry(TS.edges_parent, -1, TS.num_nodes)
         with pytest.raises(_tsdate.LibraryError, match="Node id out of bounds"):
-            _tsdate.relabel_mutations_node(
-                ts.mutations_node,
-                ts.sites_position[ts.mutations_site],
-                nodes_order,
-                ts.edges_parent,
-                ts.edges_child,
-                ts.edges_left,
-                ts.edges_right,
-                ts.indexes_edge_insertion_order,
-                ts.indexes_edge_removal_order,
-            )
+            _tsdate.split_disjoint_nodes(**kwargs)
 
-    def test_constraints_are_consistent(self, ts):
-        constraints = np.tile([0.0, np.inf], (ts.num_nodes, 1))
+
+class TestRelabelMutationsNode:
+    def test_mismatched_edge_arrays(self):
+        for name in [
+            "edges_child",
+            "edges_left",
+            "edges_right",
+            "indexes_insert",
+            "indexes_remove",
+        ]:
+            kwargs = relabel_mutations_node_kwargs()
+            kwargs[name] = kwargs[name][:-1]
+            with pytest.raises(ValueError, match="Edge arrays must have the same size"):
+                _tsdate.relabel_mutations_node(**kwargs)
+
+    def test_mismatched_mutation_arrays(self):
+        kwargs = relabel_mutations_node_kwargs()
+        kwargs["mutations_position"] = kwargs["mutations_position"][:-1]
+        with pytest.raises(ValueError, match="Mutation arrays must have the same size"):
+            _tsdate.relabel_mutations_node(**kwargs)
+
+    @pytest.mark.parametrize("value", [-1, 2**30])
+    def test_parent_out_of_bounds(self, value):
+        kwargs = relabel_mutations_node_kwargs()
+        kwargs["edges_parent"] = with_entry(TS.edges_parent, -1, value)
         with pytest.raises(_tsdate.LibraryError, match="Node id out of bounds"):
-            _tsdate.constraints_are_consistent(
-                constraints, bad_ids(ts.edges_parent, -1), ts.edges_child
-            )
+            _tsdate.relabel_mutations_node(**kwargs)
 
-    def test_mutational_area(self, ts):
-        likelihoods = np.ones((ts.num_edges, 2))
+    def test_mutation_node_out_of_bounds(self):
+        kwargs = relabel_mutations_node_kwargs()
+        kwargs["mutations_node"] = with_entry(TS.mutations_node, -1, TS.num_nodes)
         with pytest.raises(_tsdate.LibraryError, match="Node id out of bounds"):
-            _tsdate.mutational_area(
-                ts.nodes_time,
-                likelihoods,
-                ts.edges_parent,
-                bad_ids(ts.edges_child, ts.num_nodes),
-            )
+            _tsdate.relabel_mutations_node(**kwargs)
 
-    def test_mutational_timescale(self, ts):
-        likelihoods = np.ones((ts.num_edges, 2))
+    def test_nodes_order_out_of_bounds(self):
+        kwargs = relabel_mutations_node_kwargs()
+        kwargs["nodes_order"] = with_entry(kwargs["nodes_order"], -1, TS.num_nodes)
         with pytest.raises(_tsdate.LibraryError, match="Node id out of bounds"):
-            _tsdate.mutational_timescale(
-                ts.nodes_time,
-                likelihoods,
-                np.zeros(ts.num_nodes, dtype=bool),
-                ts.edges_parent,
-                bad_ids(ts.edges_child, ts.num_nodes),
-                2,
-            )
+            _tsdate.relabel_mutations_node(**kwargs)
+
+    def test_mutation_node_not_in_tree(self):
+        position = TS.sites_position[TS.mutations_site[0]]
+        absent = set(range(TS.num_nodes)) - set(TS.at(position).nodes())
+        kwargs = relabel_mutations_node_kwargs()
+        kwargs["mutations_node"] = with_entry(TS.mutations_node, 0, min(absent))
+        with raises_library_error(ERR_MUTATION_NODE_NOT_IN_TREE):
+            _tsdate.relabel_mutations_node(**kwargs)
 
 
-class TestTooFew:
-    """
-    The library's errors for too few tips or breakpoints
-    """
+class TestConstrainAges:
+    def test_mismatched_node_arrays(self):
+        kwargs = constrain_ages_kwargs()
+        kwargs["nodes_fixed"] = kwargs["nodes_fixed"][:-1]
+        with pytest.raises(ValueError, match="Node arrays must have the same size"):
+            _tsdate.constrain_ages(**kwargs)
 
-    def test_conditional_coalescent_variance(self):
+    def test_mismatched_edge_arrays(self):
+        kwargs = constrain_ages_kwargs()
+        kwargs["edges_child"] = kwargs["edges_child"][:-1]
+        with pytest.raises(ValueError, match="Edge arrays must have the same size"):
+            _tsdate.constrain_ages(**kwargs)
+
+    @pytest.mark.parametrize("value", [-1, 2**30])
+    def test_child_out_of_bounds(self, value):
+        kwargs = constrain_ages_kwargs()
+        kwargs["edges_child"] = with_entry(TS.edges_child, -1, value)
+        with pytest.raises(_tsdate.LibraryError, match="Node id out of bounds"):
+            _tsdate.constrain_ages(**kwargs)
+
+    def test_fixed_nodes_violate_constraint(self):
+        # every node fixed, at an age that makes every parent younger than its child
+        kwargs = constrain_ages_kwargs()
+        kwargs["nodes_fixed"] = np.ones(TS.num_nodes, dtype=bool)
+        kwargs["nodes_time"] = TS.nodes_time.max() - TS.nodes_time
+        with raises_library_error(ERR_FIXED_NODES_VIOLATE_CONSTRAINT):
+            _tsdate.constrain_ages(**kwargs)
+
+
+class TestContainsUnaryNodes:
+    def test_mismatched_edge_arrays(self):
+        for name in ["edges_left", "edges_right", "indexes_insert", "indexes_remove"]:
+            kwargs = contains_unary_nodes_kwargs()
+            kwargs[name] = kwargs[name][:-1]
+            with pytest.raises(ValueError, match="Edge arrays must have the same size"):
+                _tsdate.contains_unary_nodes(**kwargs)
+
+    @pytest.mark.parametrize("value", [-1, 2**30])
+    def test_parent_out_of_bounds(self, value):
+        kwargs = contains_unary_nodes_kwargs()
+        kwargs["edges_parent"] = with_entry(TS.edges_parent, -1, value)
+        with pytest.raises(_tsdate.LibraryError, match="Node id out of bounds"):
+            _tsdate.contains_unary_nodes(**kwargs)
+
+
+class TestConditionalCoalescentVariance:
+    def test_one_tip(self):
+        # the result is unused by tsdate
+        assert _tsdate.conditional_coalescent_variance(1).tolist() == [0.0, 0.0]
+
+    def test_no_tips(self):
         with pytest.raises(_tsdate.LibraryError, match="Too few tips"):
             _tsdate.conditional_coalescent_variance(0)
 
-    def test_piecewise_scale_point_estimate(self):
-        with pytest.raises(_tsdate.LibraryError, match="No breakpoints"):
-            _tsdate.piecewise_scale_point_estimate(
-                np.zeros(1), np.zeros(1, dtype=bool), np.zeros(0), np.zeros(0)
-            )
+    def test_negative_tips(self):
+        with pytest.raises(ValueError, match="non-negative"):
+            _tsdate.conditional_coalescent_variance(-1)
 
-    def test_piecewise_scale_posterior(self):
+
+class TestCountMutations:
+    def test_not_size_biased(self):
+        kwargs = count_mutations_kwargs()
+        kwargs["size_biased"] = False
+        edges_stats, _ = _tsdate.count_mutations(**kwargs)
+        assert edges_stats.shape == (TS.num_edges, 2)
+
+    def test_mismatched_edge_arrays(self):
+        for name in [
+            "edges_child",
+            "edges_left",
+            "edges_right",
+            "indexes_insert",
+            "indexes_remove",
+        ]:
+            kwargs = count_mutations_kwargs()
+            kwargs[name] = kwargs[name][:-1]
+            with pytest.raises(ValueError, match="Edge arrays must have the same size"):
+                _tsdate.count_mutations(**kwargs)
+
+    def test_mismatched_mutation_arrays(self):
+        kwargs = count_mutations_kwargs()
+        kwargs["mutations_position"] = kwargs["mutations_position"][:-1]
+        with pytest.raises(ValueError, match="Mutation arrays must have the same size"):
+            _tsdate.count_mutations(**kwargs)
+
+    @pytest.mark.parametrize("value", [-1, 2**30])
+    def test_parent_out_of_bounds(self, value):
+        kwargs = count_mutations_kwargs()
+        kwargs["edges_parent"] = with_entry(TS.edges_parent, -1, value)
+        with pytest.raises(_tsdate.LibraryError, match="Node id out of bounds"):
+            _tsdate.count_mutations(**kwargs)
+
+    def test_mutation_node_out_of_bounds(self):
+        kwargs = count_mutations_kwargs()
+        kwargs["mutations_node"] = with_entry(TS.mutations_node, -1, TS.num_nodes)
+        with pytest.raises(_tsdate.LibraryError, match="Node id out of bounds"):
+            _tsdate.count_mutations(**kwargs)
+
+    def test_cycle(self):
+        # an edge from node 0 to node 1 and one back, over the whole sequence
+        kwargs = count_mutations_kwargs()
+        kwargs["edges_parent"] = np.array([1, 0], dtype=np.int32)
+        kwargs["edges_child"] = np.array([0, 1], dtype=np.int32)
+        kwargs["edges_left"] = np.array([0.0, 0.0])
+        kwargs["edges_right"] = np.array([TS.sequence_length, TS.sequence_length])
+        kwargs["indexes_insert"] = np.array([0, 1], dtype=np.int32)
+        kwargs["indexes_remove"] = np.array([0, 1], dtype=np.int32)
+        with pytest.raises(_tsdate.LibraryError, match="Edges form a cycle"):
+            _tsdate.count_mutations(**kwargs)
+
+
+class TestMutationalArea:
+    def test_mismatched_edge_arrays(self):
+        kwargs = mutational_area_kwargs()
+        kwargs["edges_child"] = kwargs["edges_child"][:-1]
+        with pytest.raises(ValueError, match="Edge arrays must have the same size"):
+            _tsdate.mutational_area(**kwargs)
+
+    def test_mismatched_likelihoods(self):
+        kwargs = mutational_area_kwargs()
+        kwargs["edges_likelihood"] = kwargs["edges_likelihood"][:-1]
+        with pytest.raises(ValueError, match="one row of two columns per edge"):
+            _tsdate.mutational_area(**kwargs)
+
+    def test_three_columns(self):
+        kwargs = mutational_area_kwargs()
+        kwargs["edges_likelihood"] = np.ones((TS.num_edges, 3))
+        with pytest.raises(ValueError, match="one row of two columns per edge"):
+            _tsdate.mutational_area(**kwargs)
+
+    def test_child_out_of_bounds(self):
+        kwargs = mutational_area_kwargs()
+        kwargs["edges_child"] = with_entry(TS.edges_child, -1, TS.num_nodes)
+        with pytest.raises(_tsdate.LibraryError, match="Node id out of bounds"):
+            _tsdate.mutational_area(**kwargs)
+
+
+class TestMutationalTimescale:
+    def test_mismatched_edge_arrays(self):
+        kwargs = mutational_timescale_kwargs()
+        kwargs["edges_child"] = kwargs["edges_child"][:-1]
+        with pytest.raises(ValueError, match="Edge arrays must have the same size"):
+            _tsdate.mutational_timescale(**kwargs)
+
+    def test_mismatched_likelihoods(self):
+        kwargs = mutational_timescale_kwargs()
+        kwargs["edges_likelihood"] = kwargs["edges_likelihood"][:-1]
+        with pytest.raises(ValueError, match="one row of two columns per edge"):
+            _tsdate.mutational_timescale(**kwargs)
+
+    def test_three_columns(self):
+        kwargs = mutational_timescale_kwargs()
+        kwargs["edges_likelihood"] = np.ones((TS.num_edges, 3))
+        with pytest.raises(ValueError, match="one row of two columns per edge"):
+            _tsdate.mutational_timescale(**kwargs)
+
+    def test_mismatched_node_arrays(self):
+        kwargs = mutational_timescale_kwargs()
+        kwargs["nodes_fixed"] = kwargs["nodes_fixed"][:-1]
+        with pytest.raises(ValueError, match="nodes_fixed and nodes_time"):
+            _tsdate.mutational_timescale(**kwargs)
+
+    def test_child_out_of_bounds(self):
+        kwargs = mutational_timescale_kwargs()
+        kwargs["edges_child"] = with_entry(TS.edges_child, -1, TS.num_nodes)
+        with pytest.raises(_tsdate.LibraryError, match="Node id out of bounds"):
+            _tsdate.mutational_timescale(**kwargs)
+
+    def test_no_intervals(self):
+        kwargs = mutational_timescale_kwargs()
+        kwargs["max_intervals"] = 0
+        with raises_library_error(ERR_NONPOSITIVE_INTERVALS):
+            _tsdate.mutational_timescale(**kwargs)
+
+    def test_zero_edge_span(self):
+        kwargs = mutational_timescale_kwargs()
+        kwargs["edges_likelihood"] = np.zeros((TS.num_edges, 2))
+        with raises_library_error(ERR_ZERO_EDGE_SPAN):
+            _tsdate.mutational_timescale(**kwargs)
+
+
+class TestPiecewiseScalePointEstimate:
+    def test_mismatched_points(self):
+        kwargs = piecewise_scale_point_estimate_kwargs()
+        kwargs["point_fixed"] = kwargs["point_fixed"][:-1]
+        with pytest.raises(ValueError, match="point_fixed and point_estimate"):
+            _tsdate.piecewise_scale_point_estimate(**kwargs)
+
+    def test_mismatched_breakpoints(self):
+        kwargs = piecewise_scale_point_estimate_kwargs()
+        kwargs["rescaled_breaks"] = kwargs["rescaled_breaks"][:-1]
+        with pytest.raises(ValueError, match="Breakpoints must be of the same size"):
+            _tsdate.piecewise_scale_point_estimate(**kwargs)
+
+    def test_no_breakpoints(self):
+        kwargs = piecewise_scale_point_estimate_kwargs()
+        kwargs["original_breaks"] = np.array([])
+        kwargs["rescaled_breaks"] = np.array([])
         with pytest.raises(_tsdate.LibraryError, match="No breakpoints"):
-            _tsdate.piecewise_scale_posterior(
-                np.ones((1, 2)),
-                np.zeros(1, dtype=bool),
-                np.zeros(0),
-                np.zeros(0),
-                0.5,
-                1000.0,
-            )
+            _tsdate.piecewise_scale_point_estimate(**kwargs)
+
+    def test_decreasing_breakpoints(self):
+        kwargs = piecewise_scale_point_estimate_kwargs()
+        kwargs["original_breaks"] = np.array([10.0, 1.0, 0.0])
+        with raises_library_error(ERR_NON_INCREASING_BREAKPOINTS):
+            _tsdate.piecewise_scale_point_estimate(**kwargs)
+
+
+class TestPiecewiseScalePosterior:
+    def test_mismatched_posteriors(self):
+        kwargs = piecewise_scale_posterior_kwargs()
+        kwargs["posteriors_fixed"] = kwargs["posteriors_fixed"][:-1]
+        with pytest.raises(ValueError, match="one row per fixed flag"):
+            _tsdate.piecewise_scale_posterior(**kwargs)
+
+    def test_three_columns(self):
+        kwargs = piecewise_scale_posterior_kwargs()
+        kwargs["posteriors"] = np.ones((3, 3))
+        with pytest.raises(ValueError, match="must have two columns"):
+            _tsdate.piecewise_scale_posterior(**kwargs)
+
+    def test_mismatched_breakpoints(self):
+        kwargs = piecewise_scale_posterior_kwargs()
+        kwargs["rescaled_breaks"] = kwargs["rescaled_breaks"][:-1]
+        with pytest.raises(ValueError, match="Breakpoints must be of the same size"):
+            _tsdate.piecewise_scale_posterior(**kwargs)
+
+    def test_no_breakpoints(self):
+        kwargs = piecewise_scale_posterior_kwargs()
+        kwargs["original_breaks"] = np.array([])
+        kwargs["rescaled_breaks"] = np.array([])
+        with pytest.raises(_tsdate.LibraryError, match="No breakpoints"):
+            _tsdate.piecewise_scale_posterior(**kwargs)
+
+    def test_decreasing_breakpoints(self):
+        kwargs = piecewise_scale_posterior_kwargs()
+        kwargs["rescaled_breaks"] = np.array([20.0, 2.0, 0.0])
+        with raises_library_error(ERR_NON_INCREASING_BREAKPOINTS):
+            _tsdate.piecewise_scale_posterior(**kwargs)
+
+    def test_quantile_width(self):
+        kwargs = piecewise_scale_posterior_kwargs()
+        kwargs["quantile_width"] = 1.0
+        with raises_library_error(ERR_INVALID_QUANTILE_WIDTH):
+            _tsdate.piecewise_scale_posterior(**kwargs)
+
+    def test_invalid_posterior(self):
+        kwargs = piecewise_scale_posterior_kwargs()
+        kwargs["posteriors"] = np.array([[1.0, 0.0], [1.0, 1.0], [1.0, 1.0]])
+        with raises_library_error(ERR_INVALID_POSTERIOR):
+            _tsdate.piecewise_scale_posterior(**kwargs)
+
+    def test_no_posteriors(self):
+        kwargs = piecewise_scale_posterior_kwargs()
+        kwargs["posteriors"] = np.zeros((0, 2))
+        kwargs["posteriors_fixed"] = np.zeros(0, dtype=bool)
+        with raises_library_error(ERR_NO_POSTERIORS):
+            _tsdate.piecewise_scale_posterior(**kwargs)
+
+    def test_time_below_first_breakpoint(self):
+        kwargs = piecewise_scale_posterior_kwargs()
+        kwargs["original_breaks"] = np.array([50.0, 51.0, 60.0])
+        with raises_library_error(ERR_TIME_BELOW_FIRST_BREAKPOINT):
+            _tsdate.piecewise_scale_posterior(**kwargs)
+
+    def test_zero_quantile(self):
+        kwargs = piecewise_scale_posterior_kwargs()
+        kwargs["posteriors"] = np.array([[1.0, np.inf], [1.0, 1.0], [1.0, 1.0]])
+        with raises_library_error(ERR_ZERO_DIVISION):
+            _tsdate.piecewise_scale_posterior(**kwargs)
+
+    def test_unsorted_quantiles(self):
+        kwargs = piecewise_scale_posterior_kwargs()
+        kwargs["posteriors"] = np.array([[np.inf, 1.0], [1.0, 1.0], [1.0, 1.0]])
+        with raises_library_error(ERR_UNSORTED_QUANTILES):
+            _tsdate.piecewise_scale_posterior(**kwargs)
+
+
+class TestConstraintsAreConsistent:
+    def test_mismatched_edge_arrays(self):
+        kwargs = constraints_are_consistent_kwargs()
+        kwargs["edges_child"] = kwargs["edges_child"][:-1]
+        with pytest.raises(ValueError, match="Edge arrays must have the same size"):
+            _tsdate.constraints_are_consistent(**kwargs)
+
+    def test_three_columns(self):
+        kwargs = constraints_are_consistent_kwargs()
+        kwargs["constraints"] = np.zeros((TS.num_nodes, 3))
+        with pytest.raises(ValueError, match="constraints must have two columns"):
+            _tsdate.constraints_are_consistent(**kwargs)
+
+    def test_parent_out_of_bounds(self):
+        kwargs = constraints_are_consistent_kwargs()
+        kwargs["edges_parent"] = with_entry(TS.edges_parent, -1, -1)
+        with pytest.raises(_tsdate.LibraryError, match="Node id out of bounds"):
+            _tsdate.constraints_are_consistent(**kwargs)
 
 
 def ep_arrays(**replace):
@@ -477,7 +1033,7 @@ class TestExpectationPropagationInit:
     @pytest.mark.parametrize("value", [-1, 3])
     def test_node_out_of_bounds(self, name, value):
         with pytest.raises(_tsdate.LibraryError, match="Node id out of bounds"):
-            new_ep(**{name: bad_ids(ep_arrays()[name], value)})
+            new_ep(**{name: with_entry(ep_arrays()[name], -1, value)})
 
     def test_failed_init_leaves_no_state(self):
         ep = new_ep()
@@ -601,18 +1157,13 @@ class TestExpectationPropagationMethods:
         with pytest.raises(_tsdate.LibraryError, match=match):
             new_ep().propagate_mutations(edges, unphased)
 
-    @pytest.mark.parametrize(
-        ("kwargs", "code"),
-        [
-            (dict(max_shape=0.5), ERR_INVALID_MAX_SHAPE),
-            (dict(min_step=1.0), ERR_INVALID_MIN_STEP),
-        ],
-    )
-    def test_likelihood_parameters(self, kwargs, code):
-        args = dict(order=EDGES, unphased=False, max_shape=1000.0, min_step=0.1)
-        args.update(kwargs)
-        with raises_library_error(code):
-            new_ep().propagate_likelihood(**args)
+    def test_likelihood_max_shape(self):
+        with raises_library_error(ERR_INVALID_MAX_SHAPE):
+            new_ep().propagate_likelihood(EDGES, False, 0.5, 0.1)
+
+    def test_likelihood_min_step(self):
+        with raises_library_error(ERR_INVALID_MIN_STEP):
+            new_ep().propagate_likelihood(EDGES, False, 1000.0, 1.0)
 
     def test_prior_max_shape(self):
         with raises_library_error(ERR_INVALID_MAX_SHAPE):
@@ -637,541 +1188,3 @@ class TestExpectationPropagationMethods:
         )
         with raises_library_error(ERR_ZERO_DIVISION):
             ep.propagate_likelihood(BLOCKS, True, 1000.0, 0.1)
-
-
-def sweep_kwargs(ts, parents=True):
-    """
-    The edge, index and mutation arrays of ``ts`` as keyword arguments
-    """
-    kwargs = {
-        "mutations_node": ts.mutations_node,
-        "mutations_position": ts.sites_position[ts.mutations_site],
-        "edges_parent": ts.edges_parent,
-        "edges_child": ts.edges_child,
-        "edges_left": ts.edges_left,
-        "edges_right": ts.edges_right,
-        "indexes_insert": ts.indexes_edge_insertion_order,
-        "indexes_remove": ts.indexes_edge_removal_order,
-    }
-    if not parents:
-        del kwargs["edges_parent"]
-    return kwargs
-
-
-EDGE_ARRAYS = ["edges_parent", "edges_child", "edges_left", "edges_right"]
-INDEXES = ["indexes_insert", "indexes_remove"]
-MUTATION_ARRAYS = ["mutations_node", "mutations_position"]
-
-
-def function_specs(ts):
-    """
-    For each function of the module that tsdate calls: valid keyword arguments, the
-    groups of arrays that must have the same length, and the arrays of two columns
-    """
-    samples = np.zeros(ts.num_nodes, dtype=bool)
-    samples[ts.samples()] = True
-    unphased = np.ones(ts.num_individuals, dtype=bool)
-    _, blocks_edges, mutations_block = tsdate.phasing.block_singletons(ts, unphased)
-    likelihood, _ = tsdate.rescaling.count_mutations(ts)
-    constraints = np.zeros((ts.num_nodes, 2))
-    constraints[:, 1] = np.inf
-    constraints[samples] = 0.0
-    breaks = np.array([0.0, 1.0, 10.0]), np.array([0.0, 2.0, 20.0])
-    posteriors = np.ones((ts.num_nodes, 2))
-    return {
-        "block_singletons": (
-            dict(
-                individuals_unphased=unphased,
-                nodes_individual=ts.nodes_individual,
-                **sweep_kwargs(ts, parents=False),
-                sequence_length=ts.sequence_length,
-            ),
-            [EDGE_ARRAYS[1:] + INDEXES, MUTATION_ARRAYS],
-            [],
-        ),
-        "reallocate_unphased": (
-            dict(
-                edges_likelihood=likelihood,
-                mutations_phase=np.full(ts.num_mutations, 0.5),
-                mutations_block=mutations_block,
-                blocks_edges=blocks_edges,
-            ),
-            [["mutations_phase", "mutations_block"]],
-            ["edges_likelihood", "blocks_edges"],
-        ),
-        "mutation_frequency": (
-            dict(
-                nodes_sample=samples[:, np.newaxis],
-                **sweep_kwargs(ts),
-                sequence_length=ts.sequence_length,
-            ),
-            [EDGE_ARRAYS + INDEXES, MUTATION_ARRAYS],
-            [],
-        ),
-        "split_disjoint_nodes": (
-            dict(
-                edges_parent=ts.edges_parent,
-                edges_child=ts.edges_child,
-                edges_left=ts.edges_left,
-                edges_right=ts.edges_right,
-                nodes_excluded=samples,
-            ),
-            [EDGE_ARRAYS],
-            [],
-        ),
-        "relabel_mutations_node": (
-            dict(
-                mutations_node=ts.mutations_node,
-                mutations_position=ts.sites_position[ts.mutations_site],
-                nodes_order=np.arange(ts.num_nodes, dtype=np.int32),
-                **{
-                    k: v
-                    for k, v in sweep_kwargs(ts).items()
-                    if k.startswith(("edges", "indexes"))
-                },
-            ),
-            [EDGE_ARRAYS + INDEXES, MUTATION_ARRAYS],
-            [],
-        ),
-        "constrain_ages": (
-            dict(
-                nodes_time=ts.nodes_time,
-                nodes_fixed=samples,
-                edges_parent=ts.edges_parent,
-                edges_child=ts.edges_child,
-                epsilon=1e-6,
-                max_iterations=2,
-            ),
-            [["nodes_time", "nodes_fixed"], ["edges_parent", "edges_child"]],
-            [],
-        ),
-        "contains_unary_nodes": (
-            dict(
-                nodes_mask=samples,
-                edges_parent=ts.edges_parent,
-                edges_left=ts.edges_left,
-                edges_right=ts.edges_right,
-                indexes_insert=ts.indexes_edge_insertion_order,
-                indexes_remove=ts.indexes_edge_removal_order,
-                sequence_length=ts.sequence_length,
-            ),
-            [["edges_parent", "edges_left", "edges_right"] + INDEXES],
-            [],
-        ),
-        "conditional_coalescent_variance": (dict(num_tips=5), [], []),
-        "count_mutations": (
-            dict(
-                nodes_sample=samples,
-                **sweep_kwargs(ts),
-                sequence_length=ts.sequence_length,
-                size_biased=True,
-            ),
-            [EDGE_ARRAYS + INDEXES, MUTATION_ARRAYS],
-            [],
-        ),
-        "mutational_area": (
-            dict(
-                nodes_time=ts.nodes_time,
-                edges_likelihood=likelihood,
-                edges_parent=ts.edges_parent,
-                edges_child=ts.edges_child,
-            ),
-            [["edges_parent", "edges_child", "edges_likelihood"]],
-            ["edges_likelihood"],
-        ),
-        "mutational_timescale": (
-            dict(
-                nodes_time=ts.nodes_time,
-                edges_likelihood=likelihood,
-                nodes_fixed=samples,
-                edges_parent=ts.edges_parent,
-                edges_child=ts.edges_child,
-                max_intervals=3,
-            ),
-            [
-                ["edges_parent", "edges_child", "edges_likelihood"],
-                ["nodes_time", "nodes_fixed"],
-            ],
-            ["edges_likelihood"],
-        ),
-        "piecewise_scale_point_estimate": (
-            dict(
-                point_estimate=ts.nodes_time,
-                point_fixed=samples,
-                original_breaks=breaks[0],
-                rescaled_breaks=breaks[1],
-            ),
-            [["point_estimate", "point_fixed"], ["original_breaks", "rescaled_breaks"]],
-            [],
-        ),
-        "piecewise_scale_posterior": (
-            dict(
-                posteriors=posteriors,
-                posteriors_fixed=samples,
-                original_breaks=breaks[0],
-                rescaled_breaks=breaks[1],
-                quantile_width=0.5,
-                max_shape=1000.0,
-            ),
-            [
-                ["posteriors", "posteriors_fixed"],
-                ["original_breaks", "rescaled_breaks"],
-            ],
-            ["posteriors"],
-        ),
-        "constraints_are_consistent": (
-            dict(
-                constraints=constraints,
-                edges_parent=ts.edges_parent,
-                edges_child=ts.edges_child,
-            ),
-            [["edges_parent", "edges_child"]],
-            ["constraints"],
-        ),
-    }
-
-
-FUNCTIONS = [
-    "block_singletons",
-    "reallocate_unphased",
-    "mutation_frequency",
-    "split_disjoint_nodes",
-    "relabel_mutations_node",
-    "constrain_ages",
-    "contains_unary_nodes",
-    "conditional_coalescent_variance",
-    "count_mutations",
-    "mutational_area",
-    "mutational_timescale",
-    "piecewise_scale_point_estimate",
-    "piecewise_scale_posterior",
-    "constraints_are_consistent",
-]
-
-
-@pytest.fixture(scope="module")
-def specs(ts):
-    return function_specs(ts)
-
-
-def array_arguments():
-    """
-    (function, argument) for every array argument
-    """
-    specs = function_specs(make_ts_for_specs())
-    return [
-        (name, arg)
-        for name in FUNCTIONS
-        for arg, value in specs[name][0].items()
-        if isinstance(value, np.ndarray)
-    ]
-
-
-def scalar_arguments():
-    """
-    (function, argument) for every numerical scalar argument (flags take any object,
-    as Python's truth values)
-    """
-    specs = function_specs(make_ts_for_specs())
-    return [
-        (name, arg)
-        for name in FUNCTIONS
-        for arg, value in specs[name][0].items()
-        if not isinstance(value, (np.ndarray, bool))
-    ]
-
-
-def make_ts_for_specs():
-    """
-    The tree sequence of the ``ts`` fixture, for parametrising tests
-    """
-    ts = msprime.sim_ancestry(
-        2,
-        sequence_length=1e4,
-        recombination_rate=1e-8,
-        population_size=1e4,
-        random_seed=2,
-    )
-    return msprime.sim_mutations(ts, rate=1e-7, random_seed=2)
-
-
-def bad_dtype(value):
-    """
-    An array of a type that cannot be cast safely to the type of ``value``
-    """
-    if value.dtype == np.float64:
-        return value.astype(np.complex128)
-    return value.astype(np.float64)
-
-
-class TestArguments:
-    """
-    Argument handling of each function: counts, keywords, types, dimensions and lengths
-    """
-
-    @pytest.mark.parametrize("name", FUNCTIONS)
-    def test_keywords(self, specs, name):
-        kwargs, _, _ = specs[name]
-        getattr(_tsdate, name)(**kwargs)
-
-    @pytest.mark.parametrize("name", FUNCTIONS)
-    def test_positional(self, specs, name):
-        kwargs, _, _ = specs[name]
-        getattr(_tsdate, name)(*kwargs.values())
-
-    @pytest.mark.parametrize("name", FUNCTIONS)
-    def test_too_few_arguments(self, specs, name):
-        args = list(specs[name][0].values())
-        with pytest.raises(TypeError):
-            getattr(_tsdate, name)(*args[:-1])
-
-    @pytest.mark.parametrize("name", FUNCTIONS)
-    def test_too_many_arguments(self, specs, name):
-        args = list(specs[name][0].values())
-        with pytest.raises(TypeError):
-            getattr(_tsdate, name)(*args, args[-1])
-
-    @pytest.mark.parametrize("name", FUNCTIONS)
-    def test_unknown_keyword(self, specs, name):
-        kwargs = dict(specs[name][0], not_an_argument=1)
-        with pytest.raises(TypeError):
-            getattr(_tsdate, name)(**kwargs)
-
-    @pytest.mark.parametrize(("name", "arg"), array_arguments())
-    def test_bad_dtype(self, specs, name, arg):
-        kwargs = dict(specs[name][0])
-        kwargs[arg] = bad_dtype(kwargs[arg])
-        with pytest.raises(TypeError):
-            getattr(_tsdate, name)(**kwargs)
-
-    @pytest.mark.parametrize(("name", "arg"), array_arguments())
-    def test_bad_dimension(self, specs, name, arg):
-        kwargs = dict(specs[name][0])
-        value = kwargs[arg]
-        kwargs[arg] = value.reshape(-1) if value.ndim == 2 else value[np.newaxis, :]
-        with pytest.raises(ValueError):
-            getattr(_tsdate, name)(**kwargs)
-
-    @pytest.mark.parametrize(("name", "arg"), array_arguments())
-    def test_not_an_array(self, specs, name, arg):
-        kwargs = dict(specs[name][0])
-        kwargs[arg] = "not an array"
-        with pytest.raises((TypeError, ValueError)):
-            getattr(_tsdate, name)(**kwargs)
-
-    @pytest.mark.parametrize(("name", "arg"), scalar_arguments())
-    def test_bad_scalar(self, specs, name, arg):
-        kwargs = dict(specs[name][0])
-        kwargs[arg] = "not a number"
-        with pytest.raises(TypeError):
-            getattr(_tsdate, name)(**kwargs)
-
-    @pytest.mark.parametrize("name", FUNCTIONS)
-    def test_mismatched_lengths(self, specs, name):
-        kwargs, groups, _ = specs[name]
-        for group in groups:
-            for arg in group[1:]:
-                bad = dict(kwargs)
-                bad[arg] = kwargs[arg][:-1]
-                with pytest.raises(ValueError):
-                    getattr(_tsdate, name)(**bad)
-
-    @pytest.mark.parametrize("name", FUNCTIONS)
-    def test_two_columns(self, specs, name):
-        kwargs, _, two_columns = specs[name]
-        for arg in two_columns:
-            bad = dict(kwargs)
-            bad[arg] = np.hstack((kwargs[arg], kwargs[arg][:, :1]))
-            with pytest.raises(ValueError, match="two columns"):
-                getattr(_tsdate, name)(**bad)
-
-
-def first_blocked(kwargs):
-    """
-    The first mutation of ``reallocate_unphased``'s arguments that is in a block
-    """
-    return np.flatnonzero(kwargs["mutations_block"] >= 0)[0]
-
-
-def first_block(kwargs):
-    """
-    The block of the first mutation of ``reallocate_unphased``'s arguments that is in
-    a block
-    """
-    return kwargs["mutations_block"][first_blocked(kwargs)]
-
-
-def edit(arg, change):
-    """
-    An edit of the keyword arguments that sets ``arg`` to ``change(kwargs)``
-    """
-
-    def apply(kwargs):
-        kwargs[arg] = change(kwargs)
-
-    return apply
-
-
-def with_entry(arg, index, value):
-    """
-    An edit that sets entry ``index`` of array ``arg`` to ``value``; either can be a
-    function of the arguments
-    """
-
-    def change(kwargs):
-        array = kwargs[arg].copy()
-        entry = index(kwargs) if callable(index) else index
-        array[entry] = value(kwargs) if callable(value) else value
-        return array
-
-    return edit(arg, change)
-
-
-def node_not_in_tree(kwargs):
-    """
-    A node with no edge over the position of the first mutation
-    """
-    position = kwargs["mutations_position"][0]
-    left, right = kwargs["edges_left"], kwargs["edges_right"]
-    over = (left <= position) & (position < right)
-    present = set(kwargs["edges_parent"][over]) | set(kwargs["edges_child"][over])
-    return min(set(range(kwargs["nodes_order"].size)) - present)
-
-
-def reversed_ages(kwargs):
-    return kwargs["nodes_time"].max() - kwargs["nodes_time"]
-
-
-ERROR_CASES = {
-    "block_singletons_three_edges": (
-        "block_singletons",
-        with_entry("nodes_individual", 2, 0),
-        ERR_UNPHASED_INDIVIDUAL_EDGES,
-    ),
-    "reallocate_block": (
-        "reallocate_unphased",
-        with_entry("mutations_block", first_blocked, 1000),
-        ERR_BLOCK_OUT_OF_BOUNDS,
-    ),
-    "reallocate_edge_of_block": (
-        "reallocate_unphased",
-        with_entry("blocks_edges", first_block, 10**6),
-        ERR_BLOCK_OUT_OF_BOUNDS,
-    ),
-    "reallocate_phase": (
-        "reallocate_unphased",
-        with_entry("mutations_phase", first_blocked, 1.5),
-        ERR_PHASE_OUT_OF_RANGE,
-    ),
-    "reallocate_not_conserved": (
-        "reallocate_unphased",
-        with_entry("mutations_phase", first_blocked, np.nan),
-        ERR_UNPHASED_LIKELIHOOD_NOT_CONSERVED,
-    ),
-    "relabel_node_not_in_tree": (
-        "relabel_mutations_node",
-        with_entry("mutations_node", 0, node_not_in_tree),
-        ERR_MUTATION_NODE_NOT_IN_TREE,
-    ),
-    "constrain_fixed_nodes": (
-        "constrain_ages",
-        lambda kwargs: kwargs.update(
-            nodes_fixed=np.ones_like(kwargs["nodes_fixed"]),
-            nodes_time=reversed_ages(kwargs),
-        ),
-        ERR_FIXED_NODES_VIOLATE_CONSTRAINT,
-    ),
-    "timescale_intervals": (
-        "mutational_timescale",
-        edit("max_intervals", lambda kwargs: 0),
-        ERR_NONPOSITIVE_INTERVALS,
-    ),
-    "timescale_zero_span": (
-        "mutational_timescale",
-        edit("edges_likelihood", lambda kwargs: kwargs["edges_likelihood"] * [1, 0]),
-        ERR_ZERO_EDGE_SPAN,
-    ),
-    "point_estimate_breaks": (
-        "piecewise_scale_point_estimate",
-        edit("original_breaks", lambda kwargs: kwargs["original_breaks"][::-1].copy()),
-        ERR_NON_INCREASING_BREAKPOINTS,
-    ),
-    "posterior_breaks": (
-        "piecewise_scale_posterior",
-        edit("rescaled_breaks", lambda kwargs: kwargs["rescaled_breaks"][::-1].copy()),
-        ERR_NON_INCREASING_BREAKPOINTS,
-    ),
-    "posterior_quantile_width": (
-        "piecewise_scale_posterior",
-        edit("quantile_width", lambda kwargs: 1.0),
-        ERR_INVALID_QUANTILE_WIDTH,
-    ),
-    "posterior_invalid": (
-        "piecewise_scale_posterior",
-        with_entry("posteriors", (0, 1), 0.0),
-        ERR_INVALID_POSTERIOR,
-    ),
-    "posterior_none": (
-        "piecewise_scale_posterior",
-        lambda kwargs: kwargs.update(
-            posteriors=np.zeros((0, 2)), posteriors_fixed=np.zeros(0, dtype=bool)
-        ),
-        ERR_NO_POSTERIORS,
-    ),
-    "posterior_below_first_break": (
-        "piecewise_scale_posterior",
-        edit("original_breaks", lambda kwargs: kwargs["original_breaks"] + 50.0),
-        ERR_TIME_BELOW_FIRST_BREAKPOINT,
-    ),
-    "posterior_zero_quantile": (
-        "piecewise_scale_posterior",
-        with_entry("posteriors", (0, 1), np.inf),
-        ERR_ZERO_DIVISION,
-    ),
-    "posterior_approximation": (
-        "piecewise_scale_posterior",
-        with_entry("posteriors", (0, 0), np.inf),
-        ERR_UNSORTED_QUANTILES,
-    ),
-}
-
-
-class TestLibraryErrors:
-    """
-    Errors of the library, through each function that reports them
-    """
-
-    @pytest.mark.parametrize("case", ERROR_CASES)
-    def test_error(self, specs, case):
-        name, change, code = ERROR_CASES[case]
-        kwargs = dict(specs[name][0])
-        if name == "piecewise_scale_posterior":
-            kwargs["posteriors_fixed"] = np.zeros_like(kwargs["posteriors_fixed"])
-        change(kwargs)
-        with raises_library_error(code):
-            getattr(_tsdate, name)(**kwargs)
-
-
-class TestValues:
-    """
-    Results that the other tests do not check
-    """
-
-    def test_reallocate_unphased_leaves_input(self):
-        likelihood = np.array([[1.0, 5.0], [0.0, 5.0]])
-        result = _tsdate.reallocate_unphased(
-            edges_likelihood=likelihood,
-            mutations_phase=np.array([0.25]),
-            mutations_block=np.array([0], dtype=np.int32),
-            blocks_edges=np.array([[0, 1]], dtype=np.int32),
-        )
-        assert result.tolist() == [[0.25, 5.0], [0.75, 5.0]]
-        assert likelihood.tolist() == [[1.0, 5.0], [0.0, 5.0]]
-
-    def test_variance_one_tip(self):
-        # the result is unused by tsdate
-        assert _tsdate.conditional_coalescent_variance(1).tolist() == [0.0, 0.0]
-
-    def test_variance_negative_tips(self):
-        with pytest.raises(ValueError, match="non-negative"):
-            _tsdate.conditional_coalescent_variance(-1)
