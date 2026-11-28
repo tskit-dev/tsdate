@@ -993,6 +993,14 @@ def first_blocked(kwargs):
     return np.flatnonzero(kwargs["mutations_block"] >= 0)[0]
 
 
+def first_block(kwargs):
+    """
+    The block of the first mutation of ``reallocate_unphased``'s arguments that is in
+    a block
+    """
+    return kwargs["mutations_block"][first_blocked(kwargs)]
+
+
 def edit(arg, change):
     """
     An edit of the keyword arguments that sets ``arg`` to ``change(kwargs)``
@@ -1047,7 +1055,7 @@ ERROR_CASES = {
     ),
     "reallocate_edge_of_block": (
         "reallocate_unphased",
-        with_entry("blocks_edges", 0, 10**6),
+        with_entry("blocks_edges", first_block, 10**6),
         ERR_BLOCK_OUT_OF_BOUNDS,
     ),
     "reallocate_phase": (
