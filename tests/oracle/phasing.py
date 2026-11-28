@@ -14,11 +14,6 @@ def reallocate_unphased(edges_likelihood, mutations_phase, mutations_block, bloc
     The edge likelihoods with a proportion of each unphased singleton mutation added
     to one of the two edges to which it maps
     """
-    if edges_likelihood.shape[1] != 2 or blocks_edges.shape[1] != 2:
-        raise ValueError("edges_likelihood and blocks_edges must have two columns")
-    if mutations_phase.size != mutations_block.size:
-        raise ValueError("Mutation arrays must have the same size")
-
     edges_likelihood = edges_likelihood.copy()
 
     num_edges = edges_likelihood.shape[0]
@@ -63,17 +58,6 @@ def block_singletons(
     Blocks of the singleton mutations of unphased individuals: ``(blocks_stats,
     blocks_edges, mutations_block)``.
     """
-    if not (
-        edges_child.size
-        == edges_left.size
-        == edges_right.size
-        == indexes_insert.size
-        == indexes_remove.size
-    ):
-        raise ValueError("Edge arrays must have the same size")
-    if mutations_node.size != mutations_position.size:
-        raise ValueError("Mutation arrays must have the same size")
-
     num_mutations = mutations_node.size
     num_edges = edges_child.size
     num_individuals = individuals_unphased.size
@@ -182,18 +166,6 @@ def mutation_frequency(
     The number of samples of each sample set below each mutation, as an array of
     shape ``(num_mutations, num_sample_sets)``.
     """
-    if not (
-        edges_parent.size
-        == edges_child.size
-        == edges_left.size
-        == edges_right.size
-        == indexes_insert.size
-        == indexes_remove.size
-    ):
-        raise ValueError("Edge arrays must have the same size")
-    if mutations_node.size != mutations_position.size:
-        raise ValueError("Mutation arrays must have the same size")
-
     num_nodes, num_sample_sets = nodes_sample.shape
     num_mutations = mutations_node.size
     num_edges = edges_parent.size

@@ -18,8 +18,6 @@ def split_disjoint_nodes(
     Returns updated edges_parent, edges_child, mutations_node, and indices indicating
     from which original node the new nodes are derived.
     """
-    if not (edges_parent.size == edges_child.size == edges_left.size == edges_right.size):
-        raise ValueError("Edge arrays must have the same size")
     num_edges = edges_parent.size
     num_nodes = nodes_excluded.size
 
@@ -83,18 +81,6 @@ def relabel_mutations_node(
     Traverse trees, maintaining a mapping between old and new node IDs in the
     current tree.  Update `mutations_node` to reflect new IDs.
     """
-    if not (
-        edges_parent.size
-        == edges_child.size
-        == edges_left.size
-        == edges_right.size
-        == indexes_insert.size
-        == indexes_remove.size
-    ):
-        raise ValueError("Edge arrays must have the same size")
-    if mutations_position.size != mutations_node.size:
-        raise ValueError("Mutation arrays must have the same size")
-
     num_nodes = nodes_order.size
     num_edges = edges_parent.size
     num_mutations = mutations_position.size
@@ -145,11 +131,6 @@ def constrain_ages(
     Dykstra RL, "An algorithm for restricted least squares regression", JASA
     1983
     """
-    if nodes_time.size != nodes_fixed.size:
-        raise ValueError("Node arrays must have the same size")
-    if edges_parent.size != edges_child.size:
-        raise ValueError("Edge arrays must have the same size")
-
     num_edges = edges_parent.size
     nodes_time = nodes_time.copy()
     edges_cavity = np.zeros((num_edges, 2))
@@ -202,15 +183,6 @@ def contains_unary_nodes(
     """
     Whether a node outside ``nodes_mask`` has exactly one child in some tree.
     """
-    if not (
-        edges_parent.size
-        == edges_left.size
-        == edges_right.size
-        == indexes_insert.size
-        == indexes_remove.size
-    ):
-        raise ValueError("Edge arrays must have the same size")
-
     num_edges = edges_parent.size
     nodes_children = np.zeros(nodes_mask.size, dtype=np.int32)
     position_insert = edges_left[indexes_insert]

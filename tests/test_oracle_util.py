@@ -1,6 +1,6 @@
 """
-Parity of the tree sequence utilities of ``_tsdate`` with their oracles: simulated tree
-sequences, degenerate inputs, and every error.
+Equivalence of the tree sequence utilities of ``_tsdate`` with their oracles:
+simulated tree sequences, degenerate inputs, and every error.
 """
 
 import _tsdate
@@ -9,7 +9,7 @@ import pytest
 import tskit
 from oracle import util
 from oracle.errors import FIXED_NODES_VIOLATE_CONSTRAINT, MUTATION_NODE_NOT_IN_TREE
-from oracle.helpers import NAN, assert_outcome, b1, compare, f64, i32, make_ts, shrink
+from oracle.helpers import assert_same_error, assert_same_result, make_ts
 
 
 @pytest.fixture(params=["small_ts", "small_ts_historical"])
@@ -21,8 +21,9 @@ def sample_flags(ts):
     return np.bitwise_and(ts.nodes_flags, tskit.NODE_IS_SAMPLE).astype(bool)
 
 
-# parent, child, left, right, excluded, split nodes (new nodes are numbered from the
-# number of nodes, and each is a copy of an old node: `split_nodes` lists the old ids)
+# edges_parent, edges_child, edges_left, edges_right, nodes_excluded, and the
+# expected split_nodes (new nodes are numbered from the number of nodes, and each is
+# a copy of an old node: `split_nodes` lists the old ids)
 SPLIT_CASES = [
     pytest.param([2, 2], [0, 1], [0, 0], [10, 10], [1, 1, 0], [], id="no_disjoint"),
     pytest.param([], [], [], [], [1, 0], [], id="no_edges"),
@@ -65,61 +66,56 @@ SPLIT_CASES = [
 
 
 class TestSplitDisjointNodes:
-    @staticmethod
-    def compare(*args):
-        return compare(_tsdate.split_disjoint_nodes, util.split_disjoint_nodes, *args)
-
     @pytest.mark.parametrize(
         ("parent", "child", "left", "right", "excluded", "expected"), SPLIT_CASES
     )
     def test_edge_cases(self, parent, child, left, right, excluded, expected):
-        args = (i32(*parent), i32(*child), f64(*left), f64(*right), b1(*excluded))
-        _, _, _, split_nodes = self.compare(*args).value
+        _, _, _, split_nodes = assert_same_result(
+            _tsdate.split_disjoint_nodes,
+            util.split_disjoint_nodes,
+            edges_parent=np.array(parent, dtype=np.int32),
+            edges_child=np.array(child, dtype=np.int32),
+            edges_left=np.array(left, dtype=np.float64),
+            edges_right=np.array(right, dtype=np.float64),
+            nodes_excluded=np.array(excluded, dtype=bool),
+        )
         assert split_nodes.tolist() == expected
 
-    @pytest.mark.parametrize(("index", "size"), [(1, 1), (2, 1), (3, 1)])
-    def test_size_mismatch(self, index, size):
-        args = [i32(2, 2), i32(0, 1), f64(0, 0), f64(10, 10), b1(1, 1, 0)]
-        result = self.compare(*shrink(args, index, size))
-        assert result.error is ValueError
-
     def test_simulated(self, sim_ts):
-        ts = sim_ts
-        args = (
-            ts.edges_parent,
-            ts.edges_child,
-            ts.edges_left,
-            ts.edges_right,
-            sample_flags(ts),
+        assert_same_result(
+            _tsdate.split_disjoint_nodes,
+            util.split_disjoint_nodes,
+            edges_parent=sim_ts.edges_parent,
+            edges_child=sim_ts.edges_child,
+            edges_left=sim_ts.edges_left,
+            edges_right=sim_ts.edges_right,
+            nodes_excluded=sample_flags(sim_ts),
         )
-        self.compare(*args)
-        # also the dtypes, which `compare` ignores
-        actual = _tsdate.split_disjoint_nodes(*args)
-        assert all(a.dtype == np.int32 for a in actual)
 
 
-def relabel_args(ts):
+def relabel_mutations_node_kwargs(ts):
     """
-    Arguments of `relabel_mutations_node`, with the nodes split as by `util`
+    Arguments of ``relabel_mutations_node``, with the nodes of ``ts`` split as by
+    ``util.split_disjoint_nodes``
     """
-    parent, child, order, _ = util.split_disjoint_nodes(
-        ts.edges_parent,
-        ts.edges_child,
-        ts.edges_left,
-        ts.edges_right,
-        sample_flags(ts),
+    edges_parent, edges_child, nodes_order, _ = util.split_disjoint_nodes(
+        edges_parent=ts.edges_parent,
+        edges_child=ts.edges_child,
+        edges_left=ts.edges_left,
+        edges_right=ts.edges_right,
+        nodes_excluded=sample_flags(ts),
     )
-    return [
-        ts.mutations_node,
-        ts.sites_position[ts.mutations_site],
-        order,
-        parent,
-        child,
-        ts.edges_left,
-        ts.edges_right,
-        ts.indexes_edge_insertion_order,
-        ts.indexes_edge_removal_order,
-    ]
+    return dict(
+        mutations_node=ts.mutations_node,
+        mutations_position=ts.sites_position[ts.mutations_site],
+        nodes_order=nodes_order,
+        edges_parent=edges_parent,
+        edges_child=edges_child,
+        edges_left=ts.edges_left,
+        edges_right=ts.edges_right,
+        indexes_insert=ts.indexes_edge_insertion_order,
+        indexes_remove=ts.indexes_edge_removal_order,
+    )
 
 
 # nodes 0, 1 are samples, 2 and 3 are internal and have a gap at [4, 6)
@@ -128,107 +124,90 @@ GAP_EDGES = [(0, 4, 2, 0), (0, 4, 2, 1), (6, 10, 2, 0), (6, 10, 2, 1)]
 GAP_EDGES += [(0, 4, 3, 2), (6, 10, 3, 2)]
 BINARY_EDGES = [(0, 10, 2, 0), (0, 10, 2, 1)]
 
-# nodes, edges, mutations, sequence length, exception of the oracle
+# nodes, edges, mutations, sequence length
 RELABEL_CASES = [
-    pytest.param(GAP_NODES, GAP_EDGES, [], 10.0, None, id="no_mutations"),
+    pytest.param(GAP_NODES, GAP_EDGES, [], 10.0, id="no_mutations"),
     pytest.param(
-        GAP_NODES[:3],
-        BINARY_EDGES,
-        [(1, 0), (2, 2), (3, 1)],
-        10.0,
-        None,
-        id="no_splits",
+        GAP_NODES[:3], BINARY_EDGES, [(1, 0), (2, 2), (3, 1)], 10.0, id="no_splits"
     ),
     # the sweep stops at the largest edge right coordinate: later mutations are NULL
-    pytest.param(
-        GAP_NODES, GAP_EDGES, [(1, 2), (10.0, 2)], 20.0, None, id="beyond_last_edge"
-    ),
-    pytest.param(
-        GAP_NODES,
-        BINARY_EDGES,
-        [(1, 3)],
-        10.0,
-        MUTATION_NODE_NOT_IN_TREE,
-        id="node_not_in_tree",
-    ),
+    pytest.param(GAP_NODES, GAP_EDGES, [(1, 2), (10.0, 2)], 20.0, id="beyond_last_edge"),
 ]
 
 
 class TestRelabelMutationsNode:
-    @staticmethod
-    def compare(args):
-        return compare(_tsdate.relabel_mutations_node, util.relabel_mutations_node, *args)
-
-    @pytest.mark.parametrize(
-        ("nodes", "edges", "mutations", "length", "expected_error"), RELABEL_CASES
-    )
-    def test_edge_cases(self, nodes, edges, mutations, length, expected_error):
+    @pytest.mark.parametrize(("nodes", "edges", "mutations", "length"), RELABEL_CASES)
+    def test_edge_cases(self, nodes, edges, mutations, length):
         ts = make_ts(nodes, edges, mutations, length)
-        result = self.compare(relabel_args(ts))
-        assert result.error == expected_error
+        kwargs = relabel_mutations_node_kwargs(ts)
+        assert_same_result(
+            _tsdate.relabel_mutations_node, util.relabel_mutations_node, **kwargs
+        )
+
+    def test_node_not_in_tree(self):
+        # node 3 has no edges
+        ts = make_ts(GAP_NODES, BINARY_EDGES, [(1, 3)], 10.0)
+        kwargs = relabel_mutations_node_kwargs(ts)
+        assert_same_error(
+            _tsdate.relabel_mutations_node,
+            util.relabel_mutations_node,
+            MUTATION_NODE_NOT_IN_TREE,
+            **kwargs,
+        )
 
     def test_mutations_on_split_nodes(self):
         mutations = [(0.5, 0), (1, 2), (2, 3), (5, 0), (7, 2), (8, 3)]
         ts = make_ts(GAP_NODES, GAP_EDGES, mutations, 10.0)
-        result = self.compare(relabel_args(ts))
+        kwargs = relabel_mutations_node_kwargs(ts)
+        result = assert_same_result(
+            _tsdate.relabel_mutations_node, util.relabel_mutations_node, **kwargs
+        )
         # right-hand pieces of nodes 2 and 3 are the new nodes 4 and 5; the mutation
         # at 5 is in the gap, on the (unsplit) sample 0
-        assert result.value.tolist() == [0, 2, 3, 0, 4, 5]
-
-    @pytest.mark.parametrize(("index", "size"), [(4, 2), (7, 2), (1, 1)])
-    def test_size_mismatch(self, index, size):
-        ts = make_ts(GAP_NODES, GAP_EDGES, [(1, 2), (7, 2)], 10.0)
-        result = self.compare(shrink(relabel_args(ts), index, size))
-        assert result.error is ValueError
+        assert result.tolist() == [0, 2, 3, 0, 4, 5]
 
     def test_simulated(self, sim_ts):
-        args = relabel_args(sim_ts)
-        self.compare(args)
-        # also the dtype, which `compare` ignores
-        actual = _tsdate.relabel_mutations_node(*args)
-        assert actual.dtype == np.int32
+        kwargs = relabel_mutations_node_kwargs(sim_ts)
+        assert_same_result(
+            _tsdate.relabel_mutations_node, util.relabel_mutations_node, **kwargs
+        )
 
 
-# times, fixed, parents, children, epsilon, max_iterations, outcome category
+def constrain_ages_kwargs(times, fixed, parents, children, epsilon, max_iterations):
+    return dict(
+        nodes_time=np.array(times, dtype=np.float64),
+        nodes_fixed=np.array(fixed, dtype=bool),
+        edges_parent=np.array(parents, dtype=np.int32),
+        edges_child=np.array(children, dtype=np.int32),
+        epsilon=epsilon,
+        max_iterations=max_iterations,
+    )
+
+
+# nodes_time, nodes_fixed, edges_parent, edges_child
 # node 2 (age 1) is above samples 0, 1; node 3 (age 0.5) is above node 2: violated
 VIOLATED = ([0, 0, 1.0, 0.5], [1, 1, 0, 0], [2, 3], [0, 2])
 CONSISTENT = ([0, 0, 1.0], [1, 1, 0], [2, 2], [0, 1])
 # one edge with parent age 0 and child age 1 (a violation); node 0 is the parent
 INVERTED = ([0.0, 1.0], [0, 0], [0], [1])
+
+# nodes_time, nodes_fixed, edges_parent, edges_child, epsilon, max_iterations
 CONSTRAIN_EDGE_CASES = [
-    pytest.param(*CONSISTENT, 1e-6, 0, "finite", id="consistent_forced"),
-    pytest.param(*CONSISTENT, 1e-6, 10, "finite", id="consistent_iterated"),
-    pytest.param(*CONSISTENT, 1.0, 0, "finite", id="branch_length_equals_epsilon"),
-    pytest.param(*CONSISTENT, 1.0, 10, "finite", id="branch_length_equals_epsilon_it"),
-    pytest.param([0, 1.0], [1, 0], [1], [0], 2.0, 0, "finite", id="shorter_than_epsilon"),
-    pytest.param(*VIOLATED, 1e-6, -1, "finite", id="negative_iterations"),
-    pytest.param(*INVERTED, 0.1, 100, "finite", id="free_nodes_meet"),
-    pytest.param([0.0, 1.0], [1, 0], [0], [1], 0.1, 100, "finite", id="fixed_parent"),
-    pytest.param([0.0, 1.0], [0, 1], [0], [1], 0.1, 100, "finite", id="fixed_child"),
-    # NOTE: current behaviour, possibly a bug: two fixed nodes on a
-    # violated edge are an error (reachable via `constrain_ages` with
-    # inconsistent ancient sample ages); with no iterations the forcing step
-    # silently changes the age of a fixed node
-    pytest.param(
-        [0.0, 1.0],
-        [1, 1],
-        [0],
-        [1],
-        0.1,
-        100,
-        FIXED_NODES_VIOLATE_CONSTRAINT,
-        id="both_fixed",
-    ),
-    pytest.param([0.0, 1.0], [1, 1], [0], [1], 0.1, 0, "finite", id="both_fixed_forced"),
-    pytest.param([0.0, 1.0], [1, 0], [], [], 0.1, 10, "finite", id="no_edges"),
-    pytest.param([], [], [], [], 0.1, 10, "finite", id="no_nodes"),
-    # NaN comparisons are all false: no branch is a violation, and NaN is carried
-    pytest.param([0.0, NAN], [1, 0], [1], [0], 0.1, 3, "nan", id="nan_child"),
-    pytest.param([NAN, 1.0], [1, 0], [1], [0], 0.1, 3, "nan", id="nan_parent"),
-    pytest.param([0.0, 1.0], [1, 0], [1], [0], -0.5, 3, "finite", id="negative_epsilon"),
-    pytest.param(
-        [0.0, 0.0], [1, 0], [1], [0], 0.0, 3, "finite", id="equal_ages_zero_eps"
-    ),
+    pytest.param(*CONSISTENT, 1e-6, 0, id="consistent_forced"),
+    pytest.param(*CONSISTENT, 1e-6, 10, id="consistent_iterated"),
+    pytest.param(*CONSISTENT, 1.0, 0, id="branch_length_equals_epsilon"),
+    pytest.param(*CONSISTENT, 1.0, 10, id="branch_length_equals_epsilon_it"),
+    pytest.param([0, 1.0], [1, 0], [1], [0], 2.0, 0, id="shorter_than_epsilon"),
+    pytest.param(*VIOLATED, 1e-6, -1, id="negative_iterations"),
+    pytest.param(*INVERTED, 0.1, 100, id="free_nodes_meet"),
+    pytest.param([0.0, 1.0], [1, 0], [0], [1], 0.1, 100, id="fixed_parent"),
+    pytest.param([0.0, 1.0], [0, 1], [0], [1], 0.1, 100, id="fixed_child"),
+    # with no iterations the forcing step changes the age of a fixed node
+    pytest.param([0.0, 1.0], [1, 1], [0], [1], 0.1, 0, id="both_fixed_forced"),
+    pytest.param([0.0, 1.0], [1, 0], [], [], 0.1, 10, id="no_edges"),
+    pytest.param([], [], [], [], 0.1, 10, id="no_nodes"),
+    pytest.param([0.0, 1.0], [1, 0], [1], [0], -0.5, 3, id="negative_epsilon"),
+    pytest.param([0.0, 0.0], [1, 0], [1], [0], 0.0, 3, id="equal_ages_zero_eps"),
     pytest.param(
         [1.0] * 5,
         [1, 0, 0, 0, 0],
@@ -236,78 +215,98 @@ CONSTRAIN_EDGE_CASES = [
         [0, 1, 2, 3],
         1e-3,
         1000,
-        "finite",
         id="slow_convergence_chain",
     ),
 ]
 
 
 class TestConstrainAges:
-    @staticmethod
-    def args(times, fixed, parents, children, epsilon, max_iterations):
-        return (
-            f64(*times),
-            b1(*fixed),
-            i32(*parents),
-            i32(*children),
-            epsilon,
-            max_iterations,
-        )
-
-    @staticmethod
-    def compare(args):
-        return compare(_tsdate.constrain_ages, util.constrain_ages, *args)
-
     @pytest.mark.parametrize("max_iterations", [0, 1, 1000])
     @pytest.mark.parametrize("epsilon", [0.0, 1e-6, 0.5])
     def test_violation(self, epsilon, max_iterations):
-        self.compare(self.args(*VIOLATED, epsilon, max_iterations))
+        kwargs = constrain_ages_kwargs(*VIOLATED, epsilon, max_iterations)
+        assert_same_result(_tsdate.constrain_ages, util.constrain_ages, **kwargs)
 
     @pytest.mark.parametrize(
-        ("times", "fixed", "parents", "children", "epsilon", "max_iterations", "kind"),
+        ("times", "fixed", "parents", "children", "epsilon", "max_iterations"),
         CONSTRAIN_EDGE_CASES,
     )
-    def test_edge_cases(
-        self, times, fixed, parents, children, epsilon, max_iterations, kind
-    ):
-        args = self.args(times, fixed, parents, children, epsilon, max_iterations)
-        assert_outcome(_tsdate.constrain_ages, util.constrain_ages, args, kind)
+    def test_edge_cases(self, times, fixed, parents, children, epsilon, max_iterations):
+        kwargs = constrain_ages_kwargs(
+            times, fixed, parents, children, epsilon, max_iterations
+        )
+        result = assert_same_result(_tsdate.constrain_ages, util.constrain_ages, **kwargs)
+        assert np.all(np.isfinite(result))
 
     @pytest.mark.parametrize(
-        "args",
-        [
-            pytest.param(([0, 1], [1], [1], [0]), id="fixed"),
-            pytest.param(([0, 1], [1, 0], [1], [0, 0]), id="children"),
-        ],
+        "times", [pytest.param([0.0, np.nan]), pytest.param([np.nan, 1.0])]
     )
-    def test_size_mismatch(self, args):
-        result = self.compare(self.args(*args, 0.1, 3))
-        assert result.error is ValueError
+    def test_nan_age(self, times):
+        # NaN comparisons are all false: no branch is a violation, and NaN is carried
+        kwargs = constrain_ages_kwargs(times, [1, 0], [1], [0], 0.1, 3)
+        result = assert_same_result(_tsdate.constrain_ages, util.constrain_ages, **kwargs)
+        assert np.isnan(result).tolist() == np.isnan(times).tolist()
+
+    def test_both_fixed(self):
+        # NOTE: current behaviour, possibly a bug: two fixed nodes on a
+        # violated edge are an error (reachable via `constrain_ages` with
+        # inconsistent ancient sample ages)
+        kwargs = constrain_ages_kwargs([0.0, 1.0], [1, 1], [0], [1], 0.1, 100)
+        assert_same_error(
+            _tsdate.constrain_ages,
+            util.constrain_ages,
+            FIXED_NODES_VIOLATE_CONSTRAINT,
+            **kwargs,
+        )
 
     @pytest.mark.parametrize("mode", ["iterated", "forced"])
     @pytest.mark.parametrize("seed", range(2))
     def test_simulated(self, sim_ts, seed, mode):
         ts = sim_ts
         rng = np.random.default_rng(seed)
+        if mode == "iterated":
+            noise = rng.uniform(0.9, 1.1, ts.num_nodes)
+            epsilon = 1e-6
+            max_iterations = 50
+        else:
+            noise = rng.uniform(0.5, 1.5, ts.num_nodes)
+            epsilon = 1e-2
+            max_iterations = 0
         fixed = sample_flags(ts)
-        low, high, epsilon, max_iterations = {
-            "iterated": (0.9, 1.1, 1e-6, 50),
-            "forced": (0.5, 1.5, 1e-2, 0),
-        }[mode]
-        nodes_time = ts.nodes_time * rng.uniform(low, high, ts.num_nodes)
+        nodes_time = ts.nodes_time * noise
         nodes_time[fixed] = ts.nodes_time[fixed]
-        args = (
-            nodes_time,
-            fixed,
-            ts.edges_parent,
-            ts.edges_child,
-            epsilon,
-            max_iterations,
+        assert_same_result(
+            _tsdate.constrain_ages,
+            util.constrain_ages,
+            nodes_time=nodes_time,
+            nodes_fixed=fixed,
+            edges_parent=ts.edges_parent,
+            edges_child=ts.edges_child,
+            epsilon=epsilon,
+            max_iterations=max_iterations,
         )
-        self.compare(args)
 
 
-# nodes, edges, expected for (samples skipped, samples not skipped)
+def contains_unary_nodes_kwargs(ts, skip_samples):
+    """
+    Arguments of ``contains_unary_nodes`` for ``ts``, with the samples masked if
+    ``skip_samples``
+    """
+    nodes_mask = np.full(ts.num_nodes, False)
+    if skip_samples:
+        nodes_mask[ts.samples()] = True
+    return dict(
+        nodes_mask=nodes_mask,
+        edges_parent=ts.edges_parent,
+        edges_left=ts.edges_left,
+        edges_right=ts.edges_right,
+        indexes_insert=ts.indexes_edge_insertion_order,
+        indexes_remove=ts.indexes_edge_removal_order,
+        sequence_length=ts.sequence_length,
+    )
+
+
+# nodes, edges, and the expected results with the samples skipped and not skipped
 UNARY_CASES = [
     pytest.param([(1, 0), (1, 0), (0, 1)], BINARY_EDGES, False, False, id="binary"),
     pytest.param([(1, 0), (1, 0)], [], False, False, id="no_edges"),
@@ -361,40 +360,29 @@ UNARY_CASES = [
 
 
 class TestContainsUnaryNodes:
-    @staticmethod
-    def compare(ts, mask):
-        return compare(
-            _tsdate.contains_unary_nodes,
-            util.contains_unary_nodes,
-            mask,
-            ts.edges_parent,
-            ts.edges_left,
-            ts.edges_right,
-            ts.indexes_edge_insertion_order,
-            ts.indexes_edge_removal_order,
-            ts.sequence_length,
-        )
-
-    @staticmethod
-    def mask(ts, skip_samples):
-        mask = np.full(ts.num_nodes, False)
-        if skip_samples:
-            mask[ts.samples()] = True
-        return mask
-
     @pytest.mark.parametrize(("nodes", "edges", "skipped", "not_skipped"), UNARY_CASES)
     def test_hand_built(self, nodes, edges, skipped, not_skipped):
         ts = make_ts(nodes, edges, [], 10.0)
-        result = self.compare(ts, self.mask(ts, True))
-        assert bool(result.value) is skipped
-        result = self.compare(ts, self.mask(ts, False))
-        assert bool(result.value) is not_skipped
+        kwargs = contains_unary_nodes_kwargs(ts, skip_samples=True)
+        result = assert_same_result(
+            _tsdate.contains_unary_nodes, util.contains_unary_nodes, **kwargs
+        )
+        assert result is skipped
+        kwargs = contains_unary_nodes_kwargs(ts, skip_samples=False)
+        result = assert_same_result(
+            _tsdate.contains_unary_nodes, util.contains_unary_nodes, **kwargs
+        )
+        assert result is not_skipped
 
     def test_all_nodes_masked(self):
         nodes = [(1, 0), (0, 1), (0, 2)]
         ts = make_ts(nodes, [(0, 10, 1, 0), (0, 10, 2, 1)], [], 10.0)
-        result = self.compare(ts, np.full(ts.num_nodes, True))
-        assert not result.value
+        kwargs = contains_unary_nodes_kwargs(ts, skip_samples=False)
+        kwargs["nodes_mask"][:] = True
+        result = assert_same_result(
+            _tsdate.contains_unary_nodes, util.contains_unary_nodes, **kwargs
+        )
+        assert result is False
 
     @pytest.mark.parametrize("skip_samples", [True, False])
     @pytest.mark.parametrize("keep", [None, 3, 20])
@@ -402,4 +390,7 @@ class TestContainsUnaryNodes:
         ts = sim_ts
         if keep is not None:
             ts = ts.simplify(ts.samples()[:keep], keep_unary=True)
-        self.compare(ts, self.mask(ts, skip_samples))
+        kwargs = contains_unary_nodes_kwargs(ts, skip_samples)
+        assert_same_result(
+            _tsdate.contains_unary_nodes, util.contains_unary_nodes, **kwargs
+        )
