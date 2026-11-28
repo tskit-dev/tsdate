@@ -76,7 +76,6 @@ test = [
     "pytest-cov",
     "msprime",
     "tsinfer",
-    "numdifftools",
     "matplotlib",
 ]
 

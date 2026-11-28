@@ -44,14 +44,6 @@ INF = float("inf")
 NAN = float("nan")
 
 
-def log_uniform(rng, lo, hi, size=None):
-    """
-    ``10 ** U(lo, hi)``: a scalar float if ``size`` is None, else an array.
-    """
-    x = 10.0 ** rng.uniform(lo, hi, size)
-    return float(x) if size is None else x
-
-
 class Outcome:
     """
     What calling a function did: ``value`` (its return value) or ``exception``, and

@@ -64,7 +64,6 @@
 
 /* rescaling */
 #define TSD_ERR_NONPOSITIVE_INTERVALS                               -22
-#define TSD_ERR_NEGATIVE_CHANGEPOINT_PARAMETER                      -23
 #define TSD_ERR_ZERO_EDGE_SPAN                                      -24
 #define TSD_ERR_NON_INCREASING_BREAKPOINTS                          -25
 #define TSD_ERR_INVALID_QUANTILE_WIDTH                              -26

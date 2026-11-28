@@ -281,41 +281,6 @@ out:
 }
 
 int
-tsd_average_gammas(
-    tsd_size_t num_gammas, const double *alpha, const double *beta, double out[2])
-{
-    int ret = 0;
-    tsd_size_t j;
-    double shape, rate, dg;
-    double avg_x = 0.0;
-    double avg_logx = 0.0;
-
-    if (num_gammas == 0) {
-        ret = tsd_trace_error(TSD_ERR_ZERO_DIVISION);
-        goto out;
-    }
-    for (j = 0; j < num_gammas; j++) {
-        shape = alpha[j] + 1.0;
-        rate = beta[j];
-        ret = tsd_digamma(shape, &dg);
-        if (ret != 0) {
-            goto out;
-        }
-        avg_logx += dg - log(rate);
-        if (rate == 0.0) {
-            ret = tsd_trace_error(TSD_ERR_ZERO_DIVISION);
-            goto out;
-        }
-        avg_x += shape / rate;
-    }
-    avg_x /= (double) num_gammas;
-    avg_logx /= (double) num_gammas;
-    ret = tsd_approximate_gamma_kl(avg_x, avg_logx, out);
-out:
-    return ret;
-}
-
-int
 tsd_valid_moments(double mn, double va)
 {
     if (!(isfinite(mn) && isfinite(va))) {

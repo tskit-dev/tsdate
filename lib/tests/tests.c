@@ -23,11 +23,14 @@
  */
 
 /*
- * Smoke tests for the low-level tsdate API: return codes, error paths and memory
- * handling, with coarse sanity checks of results (finite, NaN, simple values).
- * Numerical correctness is tested from Python, except for the expectation
- * propagation passes on states set directly in the library's struct, and the
- * rescaling, prior and damping functions, which have tables of expected values.
+ * Tests of the low-level tsdate library: return codes, error paths and memory
+ * handling, and the values of the numerical functions, as tables of inputs and
+ * expected outputs. The expected values come from the reference implementation of
+ * each function (compared to within a few ulps) or, for the approximations to
+ * special functions and moments, from independent references such as mpmath
+ * (compared to within the accuracy of the approximation). The tree-sweep functions
+ * of phasing.c and util.c are compared with their reference implementations from
+ * Python.
  */
 
 #include <math.h>
@@ -110,11 +113,10 @@ test_strerror(void)
         TSD_ERR_UNPHASED_INDIVIDUAL_EDGES, TSD_ERR_BLOCK_OUT_OF_BOUNDS,
         TSD_ERR_PHASE_OUT_OF_RANGE, TSD_ERR_UNPHASED_LIKELIHOOD_NOT_CONSERVED,
         TSD_ERR_MUTATION_NODE_NOT_IN_TREE, TSD_ERR_FIXED_NODES_VIOLATE_CONSTRAINT,
-        TSD_ERR_NONPOSITIVE_INTERVALS, TSD_ERR_NEGATIVE_CHANGEPOINT_PARAMETER,
-        TSD_ERR_ZERO_EDGE_SPAN, TSD_ERR_NON_INCREASING_BREAKPOINTS,
-        TSD_ERR_INVALID_QUANTILE_WIDTH, TSD_ERR_INVALID_POSTERIOR,
-        TSD_ERR_TIME_BELOW_FIRST_BREAKPOINT, TSD_ERR_NO_POSTERIORS,
-        TSD_ERR_INVALID_MAX_SHAPE, TSD_ERR_INVALID_MIN_STEP,
+        TSD_ERR_NONPOSITIVE_INTERVALS, TSD_ERR_ZERO_EDGE_SPAN,
+        TSD_ERR_NON_INCREASING_BREAKPOINTS, TSD_ERR_INVALID_QUANTILE_WIDTH,
+        TSD_ERR_INVALID_POSTERIOR, TSD_ERR_TIME_BELOW_FIRST_BREAKPOINT,
+        TSD_ERR_NO_POSTERIORS, TSD_ERR_INVALID_MAX_SHAPE, TSD_ERR_INVALID_MIN_STEP,
         TSD_ERR_INVALID_NODE_POSTERIOR, TSD_ERR_INVALID_DAMPING,
         TSD_ERR_TWIN_EDGE_IN_PHASED_PASS, TSD_ERR_NONPOSITIVE_PENALTY,
         TSD_ERR_NODE_OUT_OF_BOUNDS, TSD_ERR_EDGE_OUT_OF_BOUNDS,

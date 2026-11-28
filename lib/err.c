@@ -102,9 +102,6 @@ tsd_strerror(int err)
         case TSD_ERR_NONPOSITIVE_INTERVALS:
             ret = "The number of intervals must be positive";
             break;
-        case TSD_ERR_NEGATIVE_CHANGEPOINT_PARAMETER:
-            ret = "The penalty, minimum counts and minimum offset must not be negative";
-            break;
         case TSD_ERR_ZERO_EDGE_SPAN:
             ret = "Zero edge span in interval";
             break;

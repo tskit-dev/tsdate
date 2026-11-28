@@ -363,10 +363,6 @@ class TestTooFew:
         with pytest.raises(_tsdate.LibraryError, match="Too few tips"):
             _tsdate.conditional_coalescent_variance(0)
 
-    def test_marginalize_over_ancestors(self):
-        with pytest.raises(_tsdate.LibraryError, match="Too few tips"):
-            _tsdate.marginalize_over_ancestors(np.ones((1, 2)))
-
     def test_piecewise_scale_point_estimate(self):
         with pytest.raises(_tsdate.LibraryError, match="No breakpoints"):
             _tsdate.piecewise_scale_point_estimate(
@@ -1171,7 +1167,3 @@ class TestValues:
     def test_variance_negative_tips(self):
         with pytest.raises(ValueError, match="non-negative"):
             _tsdate.conditional_coalescent_variance(-1)
-
-    def test_fixed_changepoints_epochs_beyond_int64(self):
-        with pytest.raises(OverflowError):
-            _tsdate.fixed_changepoints(np.ones(3), 2**70)

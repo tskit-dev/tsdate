@@ -2120,21 +2120,6 @@ wheels = [
 ]
 
 [[package]]
-name = "numdifftools"
-version = "0.11.2"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
-    { name = "numpy", version = "2.5.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
-    { name = "scipy", version = "1.17.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
-    { name = "scipy", version = "1.18.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/c9/9a/cffaad9e8443d4e04f89f44b8ceb3a6886d6fb529737e6dacc0d2d70fbe0/numdifftools-0.11.2.tar.gz", hash = "sha256:0508bbcea72f4706d8f4d518812bec11949d75bd0656047777d4e36357322344", size = 82603, upload-time = "2026-10-25T23:11:52.281Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/ce/7c/9f48699da472a5c5141bdf3f52ae1767a8cee76abfe8f5169705db58a734/numdifftools-0.11.2-py3-none-any.whl", hash = "sha256:1281419f8c63068bc41a0c8b1b52cd644582621f4208e61cbf80eaed5591585f", size = 97817, upload-time = "2026-10-25T23:11:50.92Z" },
-]
-
-[[package]]
 name = "numpy"
 version = "2.4.6"
 source = { registry = "https://pypi.org/simple" }
@@ -3831,7 +3816,6 @@ dev = [
     { name = "jupyter-book" },
     { name = "matplotlib" },
     { name = "msprime" },
-    { name = "numdifftools" },
     { name = "pandas" },
     { name = "prek" },
     { name = "pytest" },
@@ -3877,7 +3861,6 @@ packaging = [
 test = [
     { name = "matplotlib" },
     { name = "msprime" },
-    { name = "numdifftools" },
     { name = "pytest" },
     { name = "pytest-cov" },
     { name = "pytest-xdist" },
@@ -3907,7 +3890,6 @@ dev = [
     { name = "jupyter-book", specifier = "<2" },
     { name = "matplotlib" },
     { name = "msprime" },
-    { name = "numdifftools" },
     { name = "pandas" },
     { name = "prek", specifier = "==0.3.3" },
     { name = "pytest" },
@@ -3953,7 +3935,6 @@ packaging = [
 test = [
     { name = "matplotlib" },
     { name = "msprime" },
-    { name = "numdifftools" },
     { name = "pytest" },
     { name = "pytest-cov" },
     { name = "pytest-xdist" },

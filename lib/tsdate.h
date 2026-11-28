@@ -97,10 +97,6 @@ int tsd_approximate_gamma_kl(double x, double logx, double out[2]);
 int tsd_approximate_gamma_mom(double mean, double variance, double out[2]);
 int tsd_approximate_gamma_iqr(
     double q1, double q2, double x1, double x2, double max_shape, double out[2]);
-/* The natural parameters of the gamma whose mean and mean log are the averages of
- * those of `num_gammas` gammas given by natural parameters `alpha`, `beta`. */
-int tsd_average_gammas(
-    tsd_size_t num_gammas, const double *alpha, const double *beta, double out[2]);
 
 int tsd_valid_moments(double mn, double va);
 int tsd_valid_gamma(double s, double r);
@@ -265,9 +261,6 @@ void tsd_epoch_stats_free(tsd_epoch_stats_t *stats);
 /* Breakpoints (`*num_breaks == epochs + 1` of them) dividing the counts roughly
  * equally between `epochs` epochs. */
 int tsd_fixed_changepoints(tsd_size_t num_counts, const double *counts, int64_t epochs,
-    tsd_id_t **breaks, tsd_size_t *num_breaks);
-int tsd_poisson_changepoints(tsd_size_t num_counts, const double *counts,
-    const double *offset, double penalty, double min_counts, double min_offset,
     tsd_id_t **breaks, tsd_size_t *num_breaks);
 /* `edges_stats` has 2 * num_edges entries and `mutations_edge` num_mutations. */
 int tsd_count_mutations(tsd_size_t num_nodes, const uint8_t *node_is_sample,
