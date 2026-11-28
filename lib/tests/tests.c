@@ -26,8 +26,8 @@
  * Smoke tests for the low-level tsdate API: return codes, error paths and memory
  * handling, with coarse sanity checks of results (finite, NaN, simple values).
  * Numerical correctness is tested from Python, except for the expectation
- * propagation passes on states set directly in the library's struct, which have
- * tables of expected values.
+ * propagation passes on states set directly in the library's struct, and the
+ * rescaling, prior and damping functions, which have tables of expected values.
  */
 
 #include <math.h>
@@ -84,6 +84,16 @@ assert_close_tol(double actual, double expected, double rtol, double atol)
         CU_ASSERT_EQUAL(actual, expected);
     } else {
         CU_ASSERT_TRUE(fabs(actual - expected) <= atol + rtol * fabs(expected));
+    }
+}
+
+static void
+assert_array_close(const double *actual, const double *expected, tsd_size_t n)
+{
+    tsd_size_t j;
+
+    for (j = 0; j < n; j++) {
+        assert_close_ulps(actual[j], expected[j], ULPS);
     }
 }
 
@@ -1500,260 +1510,1441 @@ test_bad_tree_arguments(void)
         TSD_ERR_EDGES_FORM_CYCLE);
 }
 
+/* ---- priors ---- */
+
+#define TABLE_MAX_TIPS          20
+#define TABLE_MAX_MARGINAL_TIPS 10
+#define TABLE_MAX_MOMENTS       3
+
+typedef struct {
+    tsd_size_t num_tips;
+    tsd_size_t num_moments;
+    double val[TABLE_MAX_MARGINAL_TIPS * TABLE_MAX_MOMENTS];
+    double out[(TABLE_MAX_MARGINAL_TIPS + 1) * TABLE_MAX_MOMENTS];
+    int ret;
+} marginalize_row_t;
+
+typedef struct {
+    tsd_size_t num_tips;
+    double variance[TABLE_MAX_TIPS + 1];
+    int ret;
+} variance_row_t;
+
+/* Expected values of the reference implementation */
+static const marginalize_row_t marginalize_rows[] = {
+    { .num_tips = 2,
+        .num_moments = 2,
+        .val = { 1, 2, 3, 4 },
+        .out = { 0, 0, 0, 0, 3, 4 },
+        .ret = 0 },
+    { .num_tips = 3,
+        .num_moments = 2,
+        .val = { 6.405920704482398, 2.770888466262316, 0.5056378869683275,
+            0.26362359173243805, 8.151375368082697, 9.136280215049444 },
+        .out = { 0, 0, 0, 0, 8.151375368082697, 9.136280215049444, 0.5056378869683275,
+            0.26362359173243805 },
+        .ret = 0 },
+    { .num_tips = 6,
+        .num_moments = 1,
+        .val = { 6.105694180095081, 7.322015953741584, 5.481887415507686,
+            9.357216995498906, 8.176950185803168, 0.12711115168446616 },
+        .out = { 0, 0, 4.1943175516834055, 8.11004435562237, 7.419552205503297,
+            5.481887415507686, 7.322015953741584 },
+        .ret = 0 },
+    { .num_tips = 5,
+        .num_moments = 3,
+        .val = { 8.588302338216936, 0.43249719552409716, 7.323588919656446,
+            1.8389906439653343, 8.645471331263877, 5.4604660804660075,
+            3.0671477163201097, 4.284603489856819, 0.3803647443400834,
+            1.3304044373456831, 6.73918170546694, 6.507176164585076, 6.192312603664413,
+            3.8984077871926464, 9.972378364313188 },
+        .out = { 0, 0, 0, 0, 0, 0, 4.421223665034365, 4.789259532941353,
+            7.973616342397445, 2.025101748935454, 5.757350419222893, 4.056451596487079,
+            3.0671477163201097, 4.284603489856819, 0.3803647443400834,
+            1.8389906439653343, 8.645471331263877, 5.4604660804660075 },
+        .ret = 0 },
+    { .num_tips = 10,
+        .num_moments = 2,
+        .val = { 9.810269853884678, 6.886865646358878, 6.5395468350513815,
+            6.9156226326523065, 3.9503220973931277, 1.437455399721871, 7.242734567921409,
+            5.301007792509686, 3.1713945680336613, 4.909770052434712, 8.905929560055103,
+            9.347030807966872, 3.6421724474197954, 5.758145324224633, 3.2865069716518276,
+            5.983570298976998, 3.4453211325206197, 3.9770281052287966, 8.913716084847444,
+            2.3488601759804593 },
+        .out = { 0, 0, 0, 0, 5.623151605758174, 4.568435971625975, 4.799050195244742,
+            5.94494257642139, 5.422355848514381, 5.987743974404029, 5.5903751937122115,
+            5.348623913661779, 5.40321218005653, 4.413497494215927, 5.163430081689842,
+            3.4458516438653746, 4.938045838551611, 2.5965211175582152,
+            3.9503220973931277, 1.437455399721871, 6.5395468350513815,
+            6.9156226326523065 },
+        .ret = 0 },
+    { .num_tips = 8,
+        .num_moments = 2,
+        .val = { 0, 0, 1.75, 4.21937641723356, 0.75, 0.71937641723356,
+            0.41666666666666663, 0.21937641723356005, 0.25, 0.08048752834467121, 0.15,
+            0.0304875283446712, 0.08333333333333333, 0.0104875283446712,
+            0.03571428571428571, 0.002551020408163265 },
+        .out = { 0, 0, 0, 0, 0.125, 0.04243197278911563, 0.25000000000000006,
+            0.12064625850340137, 0.3750000000000001, 0.23028911564625854, 0.5,
+            0.3681859410430839, 0.625, 0.53187641723356, 0.75, 0.71937641723356, 1.75,
+            4.21937641723356 },
+        .ret = 0 },
+    { .num_tips = 6,
+        .num_moments = 2,
+        .val = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 },
+        .out = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 },
+        .ret = 0 },
+    { .num_tips = 6,
+        .num_moments = 2,
+        .val = { NAN, NAN, NAN, NAN, NAN, NAN, NAN, NAN, NAN, NAN, NAN, NAN },
+        .out = { 0, 0, 0, 0, NAN, NAN, NAN, NAN, NAN, NAN, NAN, NAN, NAN, NAN },
+        .ret = 0 },
+    /* NOTE: non-finite values are propagated by the weighted sum, with no checks */
+    { .num_tips = 4,
+        .num_moments = 2,
+        .val = { 1, 2, INFINITY, 1, 3, 3, 1, NAN },
+        .out = { 0, 0, 0, 0, 1.5, NAN, 3, 3, INFINITY, 1 },
+        .ret = 0 },
+    { .num_tips = 1, .num_moments = 2, .val = { 1, 2 }, .ret = TSD_ERR_TOO_FEW_TIPS },
+};
+
+/* Expected values of the reference implementation */
+static const variance_row_t variance_rows[] = {
+    /* a single tip has zero variance */
+    { .num_tips = 1, .variance = { 0, 0 }, .ret = 0 },
+    { .num_tips = 2, .variance = { 0, 0, 1 }, .ret = 0 },
+    { .num_tips = 3,
+        .variance = { 0, 0, 0.1111111111111111, 1.1111111111111112 },
+        .ret = 0 },
+    { .num_tips = 4,
+        .variance = { 0, 0, 0.0763888888888889, 0.1388888888888889, 1.1388888888888888 },
+        .ret = 0 },
+    { .num_tips = 5,
+        .variance = { 0, 0, 0.05555555555555555, 0.10888888888888887,
+            0.14888888888888885, 1.148888888888889 },
+        .ret = 0 },
+    { .num_tips = 7,
+        .variance
+        = { 0, 0, 0.033197278911564626, 0.07034013605442176, 0.10571428571428576,
+            0.13519274376417229, 0.15560090702947849, 1.1556009070294788 },
+        .ret = 0 },
+    { .num_tips = 10,
+        .variance
+        = { 0, 0, 0.018567019400352734, 0.041611237087427574, 0.06639581758629377,
+            0.09089317208364828, 0.11351221970269593, 0.13295666414714036,
+            0.1481418493323255, 0.15814184933232545, 1.158141849332326 },
+        .ret = 0 },
+    { .num_tips = 15,
+        .variance = { 0, 0, 0.009275031033272787, 0.021737639649727542,
+            0.03624521961185298, 0.051927046202770555, 0.06808446902686013,
+            0.0841377367467945, 0.09959413220318991, 0.11402731806494726,
+            0.1270631711007999, 0.13836964240727112, 0.1476492516868806,
+            0.15463337867100768, 0.15907782311545215, 1.1590778231154522 },
+        .ret = 0 },
+    { .num_tips = 20,
+        .variance = { 0, 0, 0.005572819114451828, 0.013375800851143278,
+            0.022807509758699017, 0.033400737695193194, 0.04477484272918324,
+            0.05660993547639791, 0.068631190860954, 0.08059855293878618,
+            0.09229959605553426, 0.10354436416820739, 0.11416151633721722,
+            0.12399537093168672, 0.1329035891897501, 0.14075532637585275,
+            0.1474297329805997, 0.1528147232340108, 0.15680595130418618,
+            0.15930595130418657, 1.1593059513041868 },
+        .ret = 0 },
+    { .num_tips = 0, .ret = TSD_ERR_TOO_FEW_TIPS },
+};
+
+static void
+test_marginalize_over_ancestors(void)
+{
+    const size_t num_rows = sizeof(marginalize_rows) / sizeof(marginalize_rows[0]);
+    const marginalize_row_t *row;
+    double out[(TABLE_MAX_MARGINAL_TIPS + 1) * TABLE_MAX_MOMENTS];
+    size_t j;
+    int ret;
+
+    for (j = 0; j < num_rows; j++) {
+        row = marginalize_rows + j;
+        ret = tsd_marginalize_over_ancestors(
+            row->num_tips, row->num_moments, row->val, out);
+        CU_ASSERT_EQUAL(ret, row->ret);
+        if (ret == 0 && row->ret == 0) {
+            assert_array_close(out, row->out, (row->num_tips + 1) * row->num_moments);
+        }
+    }
+}
+
 static void
 test_conditional_coalescent_variance(void)
 {
-    const double val[] = { 1.0, 2.0, 3.0, 4.0 };
-    double out[6], variance[11];
+    const size_t num_rows = sizeof(variance_rows) / sizeof(variance_rows[0]);
+    const variance_row_t *row;
+    double variance[TABLE_MAX_TIPS + 1];
+    size_t j;
     int ret;
-    int j;
 
-    ret = tsd_marginalize_over_ancestors(2, 2, val, out);
-    CU_ASSERT_EQUAL(ret, 0);
-    CU_ASSERT_EQUAL(out[4], 3.0);
-    ret = tsd_conditional_coalescent_variance(1, variance);
-    CU_ASSERT_EQUAL(ret, 0);
-    CU_ASSERT_EQUAL(variance[1], 0.0);
-    ret = tsd_conditional_coalescent_variance(10, variance);
-    CU_ASSERT_EQUAL(ret, 0);
-    for (j = 2; j <= 10; j++) {
-        CU_ASSERT(variance[j] > 0.0);
+    for (j = 0; j < num_rows; j++) {
+        row = variance_rows + j;
+        ret = tsd_conditional_coalescent_variance(row->num_tips, variance);
+        CU_ASSERT_EQUAL(ret, row->ret);
+        if (ret == 0 && row->ret == 0) {
+            assert_array_close(variance, row->variance, row->num_tips + 1);
+        }
     }
-    ret = tsd_marginalize_over_ancestors(1, 2, val, out);
-    CU_ASSERT_EQUAL(ret, TSD_ERR_TOO_FEW_TIPS);
-    ret = tsd_conditional_coalescent_variance(0, variance);
-    CU_ASSERT_EQUAL(ret, TSD_ERR_TOO_FEW_TIPS);
 }
 
 /* ---- rescaling ---- */
 
+#define TABLE_MAX_COUNTS     8
+#define TABLE_MAX_BREAKS     12
+#define TABLE_MAX_NODES      6
+#define TABLE_MAX_EDGES      4
+#define TABLE_MAX_MUTATIONS  5
+#define TABLE_MAX_POINTS     5
+#define TABLE_MAX_POSTERIORS 4
+
+typedef struct {
+    tsd_size_t num_counts;
+    double counts[TABLE_MAX_COUNTS];
+    int64_t epochs;
+    tsd_size_t num_breaks;
+    tsd_id_t breaks[TABLE_MAX_BREAKS];
+    int ret;
+} changepoints_row_t;
+
+typedef struct {
+    tsd_size_t num_nodes;
+    uint8_t is_sample[TABLE_MAX_NODES];
+    tsd_size_t num_mutations;
+    tsd_id_t mutations_node[TABLE_MAX_MUTATIONS];
+    double mutations_position[TABLE_MAX_MUTATIONS];
+    tsd_size_t num_edges;
+    tsd_id_t edges_parent[TABLE_MAX_EDGES];
+    tsd_id_t edges_child[TABLE_MAX_EDGES];
+    double edges_left[TABLE_MAX_EDGES];
+    double edges_right[TABLE_MAX_EDGES];
+    tsd_id_t indexes_insert[TABLE_MAX_EDGES];
+    tsd_id_t indexes_remove[TABLE_MAX_EDGES];
+    double sequence_length;
+    int size_biased;
+    double edges_stats[TABLE_MAX_EDGES][2];
+    tsd_id_t mutations_edge[TABLE_MAX_MUTATIONS];
+} count_mutations_row_t;
+
+typedef struct {
+    tsd_size_t num_nodes;
+    double nodes_time[TABLE_MAX_NODES];
+    tsd_size_t num_edges;
+    double likelihoods[TABLE_MAX_EDGES][2];
+    tsd_id_t edges_parent[TABLE_MAX_EDGES];
+    tsd_id_t edges_child[TABLE_MAX_EDGES];
+    tsd_size_t num_epochs;
+    double counts[TABLE_MAX_NODES];
+    double offset[TABLE_MAX_NODES];
+    double duration[TABLE_MAX_NODES];
+    tsd_id_t nodes_index[TABLE_MAX_NODES];
+} area_row_t;
+
+typedef struct {
+    tsd_size_t num_nodes;
+    double nodes_time[TABLE_MAX_NODES];
+    tsd_size_t num_edges;
+    double likelihoods[TABLE_MAX_EDGES][2];
+    tsd_id_t edges_parent[TABLE_MAX_EDGES];
+    tsd_id_t edges_child[TABLE_MAX_EDGES];
+    int64_t max_intervals;
+    tsd_size_t num_breaks;
+    double origin[TABLE_MAX_NODES];
+    double adjust[TABLE_MAX_NODES];
+    int ret;
+} timescale_row_t;
+
+typedef struct {
+    tsd_size_t num_points;
+    double estimate[TABLE_MAX_POINTS];
+    uint8_t fixed[TABLE_MAX_POINTS];
+    tsd_size_t num_breaks;
+    double original[TABLE_MAX_BREAKS];
+    double rescaled[TABLE_MAX_BREAKS];
+    double out[TABLE_MAX_POINTS];
+    int ret;
+} point_row_t;
+
+typedef struct {
+    tsd_size_t num_posteriors;
+    double posteriors[TABLE_MAX_POSTERIORS][2];
+    uint8_t fixed[TABLE_MAX_POSTERIORS];
+    tsd_size_t num_breaks;
+    double original[TABLE_MAX_BREAKS];
+    double rescaled[TABLE_MAX_BREAKS];
+    double quantile_width;
+    double max_shape;
+    double out[TABLE_MAX_POSTERIORS][2];
+    int ret;
+} posterior_row_t;
+
+/* Expected values of the reference implementation */
+static const changepoints_row_t changepoints_rows[] = {
+    { .num_counts = 3,
+        .counts = { 1, 2, 3 },
+        .epochs = 1,
+        .num_breaks = 2,
+        .breaks = { 0, 3 },
+        .ret = 0 },
+    { .num_counts = 1,
+        .counts = { 5 },
+        .epochs = 1,
+        .num_breaks = 2,
+        .breaks = { 0, 1 },
+        .ret = 0 },
+    { .num_counts = 4,
+        .counts = { 0, 0, 4, 0 },
+        .epochs = 1,
+        .num_breaks = 2,
+        .breaks = { 0, 4 },
+        .ret = 0 },
+    { .num_counts = 3,
+        .counts = { 1, 2, 3 },
+        .epochs = 10,
+        .num_breaks = 11,
+        .breaks = { 0, 0, 1, 1, 1, 2, 2, 2, 2, 2, 3 },
+        .ret = 0 },
+    { .num_counts = 4,
+        .counts = { 0, 0, 4, 0 },
+        .epochs = 4,
+        .num_breaks = 5,
+        .breaks = { 0, 2, 2, 2, 4 },
+        .ret = 0 },
+    { .num_counts = 4,
+        .counts = { 0, 0, 5, 5 },
+        .epochs = 3,
+        .num_breaks = 4,
+        .breaks = { 0, 2, 3, 4 },
+        .ret = 0 },
+    { .num_counts = 4,
+        .counts = { 5, 5, 0, 0 },
+        .epochs = 3,
+        .num_breaks = 4,
+        .breaks = { 0, 0, 1, 4 },
+        .ret = 0 },
+    { .num_counts = 5,
+        .counts = { 0, 5, 0, 5, 0 },
+        .epochs = 3,
+        .num_breaks = 4,
+        .breaks = { 0, 1, 3, 5 },
+        .ret = 0 },
+    { .num_counts = 4,
+        .counts = { 1, 1, 1, 1 },
+        .epochs = 4,
+        .num_breaks = 5,
+        .breaks = { 0, 1, 2, 3, 4 },
+        .ret = 0 },
+    { .num_counts = 4,
+        .counts = { 1, 1, 1, 1 },
+        .epochs = 2,
+        .num_breaks = 3,
+        .breaks = { 0, 2, 4 },
+        .ret = 0 },
+    { .num_counts = 8,
+        .counts = { 1.0730290263725388, 0.30845314412528435, 5.375436872608127,
+            0.36642711289983193, 0.11536203910680366, 1.7997970856557877,
+            0.498639097854449, 0.5514213768237073 },
+        .epochs = 3,
+        .num_breaks = 4,
+        .breaks = { 0, 2, 2, 8 },
+        .ret = 0 },
+    { .num_counts = 8,
+        .counts = { 2.073029026372539, 0, 5.375436872608127, 0.36642711289983193, 0,
+            1.7997970856557877, 0.498639097854449, 0.5514213768237073 },
+        .epochs = 5,
+        .num_breaks = 6,
+        .breaks = { 0, 2, 2, 2, 5, 8 },
+        .ret = 0 },
+    /* NOTE: current behaviour, possibly a bug: with no counts the cumulative
+       distribution is 0 / 0 = NaN, so every breakpoint but the last is -1 */
+    { .num_counts = 3,
+        .counts = { 0, 0, 0 },
+        .epochs = 3,
+        .num_breaks = 4,
+        .breaks = { -1, -1, -1, 3 },
+        .ret = 0 },
+    { .num_counts = 0,
+        .epochs = 3,
+        .num_breaks = 4,
+        .breaks = { -1, -1, -1, 0 },
+        .ret = 0 },
+    { .num_counts = 2,
+        .counts = { 1, 2 },
+        .epochs = 0,
+        .ret = TSD_ERR_NONPOSITIVE_INTERVALS },
+    { .num_counts = 2,
+        .counts = { 1, 2 },
+        .epochs = -1,
+        .ret = TSD_ERR_NONPOSITIVE_INTERVALS },
+};
+
 static void
 test_fixed_changepoints(void)
 {
-    const double counts[] = { 1.0, 2.0, 3.0, 4.0 };
-    const double zeros[] = { 0.0, 0.0 };
+    const size_t num_rows = sizeof(changepoints_rows) / sizeof(changepoints_rows[0]);
+    const changepoints_row_t *row;
     tsd_id_t *breaks = NULL;
-    tsd_size_t num_breaks;
+    tsd_size_t num_breaks, k;
+    size_t j;
     int ret;
 
-    ret = tsd_fixed_changepoints(4, counts, 2, &breaks, &num_breaks);
-    CU_ASSERT_EQUAL(ret, 0);
-    CU_ASSERT_EQUAL(num_breaks, 3);
-    CU_ASSERT_EQUAL(breaks[0], 0);
-    CU_ASSERT_EQUAL(breaks[2], 4);
-    tsd_safe_free(breaks);
-    /* no counts: NaN cumulative distribution, and no observations at all */
-    ret = tsd_fixed_changepoints(2, zeros, 3, &breaks, &num_breaks);
-    CU_ASSERT_EQUAL(ret, 0);
-    tsd_safe_free(breaks);
-    ret = tsd_fixed_changepoints(0, counts, 1, &breaks, &num_breaks);
-    CU_ASSERT_EQUAL(ret, 0);
-    tsd_safe_free(breaks);
-    ret = tsd_fixed_changepoints(4, counts, 0, &breaks, &num_breaks);
-    CU_ASSERT_EQUAL(ret, TSD_ERR_NONPOSITIVE_INTERVALS);
+    for (j = 0; j < num_rows; j++) {
+        row = changepoints_rows + j;
+        ret = tsd_fixed_changepoints(
+            row->num_counts, row->counts, row->epochs, &breaks, &num_breaks);
+        CU_ASSERT_EQUAL(ret, row->ret);
+        if (ret == 0 && row->ret == 0) {
+            CU_ASSERT_EQUAL_FATAL(num_breaks, row->num_breaks);
+            for (k = 0; k < num_breaks; k++) {
+                CU_ASSERT_EQUAL(breaks[k], row->breaks[k]);
+            }
+        }
+        tsd_safe_free(breaks);
+        breaks = NULL;
+    }
 }
 
-static void
-test_poisson_changepoints(void)
-{
-    const double counts[] = { 5.0, 6.0, 20.0, 22.0, 21.0, 3.0 };
-    const double offset[] = { 1.0, 1.0, 1.0, 1.0, 1.0, 1.0 };
-    tsd_id_t *breaks = NULL;
-    tsd_size_t num_breaks;
-    int ret;
+/* Expected values of the reference implementation */
+static const count_mutations_row_t count_mutations_rows[] = {
+    /* a mutation above the root has no edge */
+    { .num_nodes = 3,
+        .is_sample = { 1, 1, 0 },
+        .num_mutations = 4,
+        .mutations_node = { 0, 0, 1, 2 },
+        .mutations_position = { 1, 2, 3, 5 },
+        .num_edges = 2,
+        .edges_parent = { 2, 2 },
+        .edges_child = { 0, 1 },
+        .edges_left = { 0, 0 },
+        .edges_right = { 10, 10 },
+        .indexes_insert = { 0, 1 },
+        .indexes_remove = { 1, 0 },
+        .sequence_length = 10,
+        .size_biased = 0,
+        .edges_stats = { { 2, 10 }, { 1, 10 } },
+        .mutations_edge = { 0, 0, 1, -1 } },
+    { .num_nodes = 3,
+        .is_sample = { 1, 1, 0 },
+        .num_mutations = 4,
+        .mutations_node = { 0, 0, 1, 2 },
+        .mutations_position = { 1, 2, 3, 5 },
+        .num_edges = 2,
+        .edges_parent = { 2, 2 },
+        .edges_child = { 0, 1 },
+        .edges_left = { 0, 0 },
+        .edges_right = { 10, 10 },
+        .indexes_insert = { 0, 1 },
+        .indexes_remove = { 1, 0 },
+        .sequence_length = 10,
+        .size_biased = 1,
+        .edges_stats = { { 2, 10 }, { 1, 10 } },
+        .mutations_edge = { 0, 0, 1, -1 } },
+    /* no mutations */
+    { .num_nodes = 3,
+        .is_sample = { 1, 1, 0 },
+        .num_mutations = 0,
+        .num_edges = 2,
+        .edges_parent = { 2, 2 },
+        .edges_child = { 0, 1 },
+        .edges_left = { 0, 0 },
+        .edges_right = { 10, 10 },
+        .indexes_insert = { 0, 1 },
+        .indexes_remove = { 1, 0 },
+        .sequence_length = 10,
+        .size_biased = 0,
+        .edges_stats = { { 0, 10 }, { 0, 10 } } },
+    /* no edges */
+    { .num_nodes = 3,
+        .is_sample = { 1, 1, 0 },
+        .num_mutations = 1,
+        .mutations_node = { 0 },
+        .mutations_position = { 1 },
+        .num_edges = 0,
+        .sequence_length = 10,
+        .size_biased = 1,
+        .mutations_edge = { -1 } },
+    /* no edges and no mutations */
+    { .num_nodes = 3,
+        .is_sample = { 1, 1, 0 },
+        .num_mutations = 0,
+        .num_edges = 0,
+        .sequence_length = 10,
+        .size_biased = 0 },
+    /* a mutation beyond the edge */
+    { .num_nodes = 2,
+        .is_sample = { 1, 0 },
+        .num_mutations = 2,
+        .mutations_node = { 0, 0 },
+        .mutations_position = { 1, 5 },
+        .num_edges = 1,
+        .edges_parent = { 1 },
+        .edges_child = { 0 },
+        .edges_left = { 0 },
+        .edges_right = { 4 },
+        .indexes_insert = { 0 },
+        .indexes_remove = { 0 },
+        .sequence_length = 10,
+        .size_biased = 0,
+        .edges_stats = { { 1, 4 } },
+        .mutations_edge = { 0, -1 } },
+    { .num_nodes = 2,
+        .is_sample = { 1, 0 },
+        .num_mutations = 2,
+        .mutations_node = { 0, 0 },
+        .mutations_position = { 1, 5 },
+        .num_edges = 1,
+        .edges_parent = { 1 },
+        .edges_child = { 0 },
+        .edges_left = { 0 },
+        .edges_right = { 4 },
+        .indexes_insert = { 0 },
+        .indexes_remove = { 0 },
+        .sequence_length = 10,
+        .size_biased = 1,
+        .edges_stats = { { 1, 4 } },
+        .mutations_edge = { 0, -1 } },
+    /* a mutation in a gap between the edges of a node */
+    { .num_nodes = 3,
+        .is_sample = { 1, 1, 0 },
+        .num_mutations = 2,
+        .mutations_node = { 0, 0 },
+        .mutations_position = { 4, 5 },
+        .num_edges = 3,
+        .edges_parent = { 2, 2, 2 },
+        .edges_child = { 0, 0, 1 },
+        .edges_left = { 0, 6, 0 },
+        .edges_right = { 4, 10, 10 },
+        .indexes_insert = { 0, 2, 1 },
+        .indexes_remove = { 0, 2, 1 },
+        .sequence_length = 10,
+        .size_biased = 0,
+        .edges_stats = { { 0, 4 }, { 0, 4 }, { 0, 10 } },
+        .mutations_edge = { -1, -1 } },
+    { .num_nodes = 3,
+        .is_sample = { 1, 1, 0 },
+        .num_mutations = 2,
+        .mutations_node = { 0, 0 },
+        .mutations_position = { 4, 5 },
+        .num_edges = 3,
+        .edges_parent = { 2, 2, 2 },
+        .edges_child = { 0, 0, 1 },
+        .edges_left = { 0, 6, 0 },
+        .edges_right = { 4, 10, 10 },
+        .indexes_insert = { 0, 2, 1 },
+        .indexes_remove = { 0, 2, 1 },
+        .sequence_length = 10,
+        .size_biased = 1,
+        .edges_stats = { { 0, 4 }, { 0, 4 }, { 0, 10 } },
+        .mutations_edge = { -1, -1 } },
+    /* a mutation at a breakpoint belongs to the tree on its right */
+    { .num_nodes = 3,
+        .is_sample = { 1, 1, 0 },
+        .num_mutations = 2,
+        .mutations_node = { 0, 0 },
+        .mutations_position = { 4.5, 5 },
+        .num_edges = 3,
+        .edges_parent = { 2, 2, 2 },
+        .edges_child = { 0, 0, 1 },
+        .edges_left = { 0, 5, 0 },
+        .edges_right = { 5, 10, 10 },
+        .indexes_insert = { 0, 2, 1 },
+        .indexes_remove = { 0, 2, 1 },
+        .sequence_length = 10,
+        .size_biased = 0,
+        .edges_stats = { { 1, 5 }, { 1, 5 }, { 0, 10 } },
+        .mutations_edge = { 0, 1 } },
+    { .num_nodes = 3,
+        .is_sample = { 1, 1, 0 },
+        .num_mutations = 2,
+        .mutations_node = { 0, 0 },
+        .mutations_position = { 4.5, 5 },
+        .num_edges = 3,
+        .edges_parent = { 2, 2, 2 },
+        .edges_child = { 0, 0, 1 },
+        .edges_left = { 0, 5, 0 },
+        .edges_right = { 5, 10, 10 },
+        .indexes_insert = { 0, 2, 1 },
+        .indexes_remove = { 0, 2, 1 },
+        .sequence_length = 10,
+        .size_biased = 1,
+        .edges_stats = { { 1, 5 }, { 1, 5 }, { 0, 10 } },
+        .mutations_edge = { 0, 1 } },
+    /* counts weighted by the samples below the edge */
+    { .num_nodes = 5,
+        .is_sample = { 1, 1, 1, 0, 0 },
+        .num_mutations = 3,
+        .mutations_node = { 0, 3, 3 },
+        .mutations_position = { 1, 2, 3 },
+        .num_edges = 4,
+        .edges_parent = { 3, 3, 4, 4 },
+        .edges_child = { 0, 1, 2, 3 },
+        .edges_left = { 0, 0, 0, 0 },
+        .edges_right = { 10, 10, 10, 10 },
+        .indexes_insert = { 0, 1, 2, 3 },
+        .indexes_remove = { 3, 2, 1, 0 },
+        .sequence_length = 10,
+        .size_biased = 0,
+        .edges_stats = { { 1, 10 }, { 0, 10 }, { 0, 10 }, { 2, 10 } },
+        .mutations_edge = { 0, 3, 3 } },
+    { .num_nodes = 5,
+        .is_sample = { 1, 1, 1, 0, 0 },
+        .num_mutations = 3,
+        .mutations_node = { 0, 3, 3 },
+        .mutations_position = { 1, 2, 3 },
+        .num_edges = 4,
+        .edges_parent = { 3, 3, 4, 4 },
+        .edges_child = { 0, 1, 2, 3 },
+        .edges_left = { 0, 0, 0, 0 },
+        .edges_right = { 10, 10, 10, 10 },
+        .indexes_insert = { 0, 1, 2, 3 },
+        .indexes_remove = { 3, 2, 1, 0 },
+        .sequence_length = 10,
+        .size_biased = 1,
+        .edges_stats = { { 1, 10 }, { 0, 10 }, { 0, 10 }, { 4, 20 } },
+        .mutations_edge = { 0, 3, 3 } },
+    /* no samples flagged */
+    { .num_nodes = 3,
+        .is_sample = { 0, 0, 0 },
+        .num_mutations = 1,
+        .mutations_node = { 0 },
+        .mutations_position = { 1 },
+        .num_edges = 2,
+        .edges_parent = { 2, 2 },
+        .edges_child = { 0, 1 },
+        .edges_left = { 0, 0 },
+        .edges_right = { 10, 10 },
+        .indexes_insert = { 0, 1 },
+        .indexes_remove = { 1, 0 },
+        .sequence_length = 10,
+        .size_biased = 1,
+        .edges_stats = { { 0, 0 }, { 0, 0 } },
+        .mutations_edge = { 0 } },
+    /* mutations not in order of position */
+    { .num_nodes = 3,
+        .is_sample = { 1, 1, 0 },
+        .num_mutations = 5,
+        .mutations_node = { 1, 0, 2, 1, 0 },
+        .mutations_position = { 8, 1, 9, 2, 6 },
+        .num_edges = 3,
+        .edges_parent = { 2, 2, 2 },
+        .edges_child = { 0, 0, 1 },
+        .edges_left = { 0, 5, 0 },
+        .edges_right = { 5, 10, 10 },
+        .indexes_insert = { 0, 2, 1 },
+        .indexes_remove = { 0, 2, 1 },
+        .sequence_length = 10,
+        .size_biased = 0,
+        .edges_stats = { { 1, 5 }, { 1, 5 }, { 2, 10 } },
+        .mutations_edge = { 2, 0, -1, 2, 1 } },
+};
 
-    ret = tsd_poisson_changepoints(
-        6, counts, offset, 2.0, 0.0, 0.0, &breaks, &num_breaks);
-    CU_ASSERT_EQUAL(ret, 0);
-    CU_ASSERT(num_breaks >= 2);
-    CU_ASSERT_EQUAL(breaks[0], 0);
-    CU_ASSERT_EQUAL(breaks[num_breaks - 1], 6);
-    tsd_safe_free(breaks);
-    /* thresholds that rule out short segments */
-    ret = tsd_poisson_changepoints(
-        6, counts, offset, 2.0, 21.0, 1.5, &breaks, &num_breaks);
-    CU_ASSERT_EQUAL(ret, 0);
-    tsd_safe_free(breaks);
-    ret = tsd_poisson_changepoints(
-        0, counts, offset, 2.0, 0.0, 0.0, &breaks, &num_breaks);
-    CU_ASSERT_EQUAL(ret, 0);
-    CU_ASSERT_EQUAL(num_breaks, 1);
-    tsd_safe_free(breaks);
-    ret = tsd_poisson_changepoints(
-        6, counts, offset, -1.0, 0.0, 0.0, &breaks, &num_breaks);
-    CU_ASSERT_EQUAL(ret, TSD_ERR_NEGATIVE_CHANGEPOINT_PARAMETER);
-    ret = tsd_poisson_changepoints(
-        6, counts, offset, 2.0, NAN, 0.0, &breaks, &num_breaks);
-    CU_ASSERT_EQUAL(ret, TSD_ERR_NEGATIVE_CHANGEPOINT_PARAMETER);
-}
-
-/*
- * Two samples (nodes 0 and 1) below a root (node 2), with edges over [0, 10), and a
- * mutation on each sample branch and one above the root.
- */
 static void
 test_count_mutations(void)
 {
-    const uint8_t is_sample[] = { 1, 1, 0 };
-    const tsd_id_t mutations_node[] = { 1, 0, 2 };
-    const double mutations_position[] = { 6.0, 1.0, 2.0 };
-    const tsd_id_t parent[] = { 2, 2 };
-    const tsd_id_t child[] = { 0, 1 };
-    const double left[] = { 0.0, 0.0 };
-    const double right[] = { 10.0, 5.0 };
-    const tsd_id_t insert[] = { 0, 1 };
-    const tsd_id_t remove[] = { 1, 0 };
-    double stats[4];
-    tsd_id_t mutations_edge[3];
-    int size_biased;
+    const size_t num_rows
+        = sizeof(count_mutations_rows) / sizeof(count_mutations_rows[0]);
+    const count_mutations_row_t *row;
+    double stats[2 * TABLE_MAX_EDGES];
+    tsd_id_t mutations_edge[TABLE_MAX_MUTATIONS];
+    tsd_size_t k;
+    size_t j;
     int ret;
 
-    for (size_biased = 0; size_biased < 2; size_biased++) {
-        ret = tsd_count_mutations(3, is_sample, 3, mutations_node, mutations_position, 2,
-            parent, child, left, right, insert, remove, 10.0, size_biased, stats,
-            mutations_edge);
+    for (j = 0; j < num_rows; j++) {
+        row = count_mutations_rows + j;
+        ret = tsd_count_mutations(row->num_nodes, row->is_sample, row->num_mutations,
+            row->mutations_node, row->mutations_position, row->num_edges,
+            row->edges_parent, row->edges_child, row->edges_left, row->edges_right,
+            row->indexes_insert, row->indexes_remove, row->sequence_length,
+            row->size_biased, stats, mutations_edge);
         CU_ASSERT_EQUAL(ret, 0);
-        CU_ASSERT_EQUAL(mutations_edge[0], -1);
-        CU_ASSERT_EQUAL(mutations_edge[1], 0);
-        CU_ASSERT_EQUAL(mutations_edge[2], -1);
-        CU_ASSERT_EQUAL(stats[0], 1.0);
-        CU_ASSERT_EQUAL(stats[1], 10.0);
-        CU_ASSERT_EQUAL(stats[3], 5.0);
+        assert_array_close(stats, &row->edges_stats[0][0], 2 * row->num_edges);
+        for (k = 0; k < row->num_mutations; k++) {
+            CU_ASSERT_EQUAL(mutations_edge[k], row->mutations_edge[k]);
+        }
     }
-    /* no edges, no mutations */
-    ret = tsd_count_mutations(3, is_sample, 0, NULL, NULL, 0, NULL, NULL, NULL, NULL,
-        NULL, NULL, 10.0, 0, NULL, NULL);
-    CU_ASSERT_EQUAL(ret, 0);
 }
 
-/* Two samples at time zero, below a node at time 1, below a root at time 2. */
+/* Expected values of the reference implementation */
+static const area_row_t area_rows[] = {
+    /* a single epoch */
+    { .num_nodes = 3,
+        .nodes_time = { 0, 0, 1 },
+        .num_edges = 2,
+        .likelihoods = { { 2, 10 }, { 1, 10 } },
+        .edges_parent = { 2, 2 },
+        .edges_child = { 0, 1 },
+        .num_epochs = 1,
+        .counts = { 3 },
+        .offset = { 20 },
+        .duration = { 1 },
+        .nodes_index = { 0, 0, 1 } },
+    /* all nodes at time zero: no epoch, and every edge has zero length */
+    { .num_nodes = 3,
+        .nodes_time = { 0, 0, 0 },
+        .num_edges = 2,
+        .likelihoods = { { 2, 10 }, { 1, 10 } },
+        .edges_parent = { 2, 2 },
+        .edges_child = { 0, 1 },
+        .num_epochs = 0,
+        .nodes_index = { 0, 0, 0 } },
+    /* no edges */
+    { .num_nodes = 2,
+        .nodes_time = { 0, 1 },
+        .num_edges = 0,
+        .num_epochs = 1,
+        .counts = { 0 },
+        .offset = { 0 },
+        .duration = { 1 },
+        .nodes_index = { 0, 1 } },
+    /* a single node */
+    { .num_nodes = 1,
+        .nodes_time = { 0 },
+        .num_edges = 0,
+        .num_epochs = 0,
+        .nodes_index = { 0 } },
+    /* no nodes */
+    { .num_nodes = 0, .num_edges = 0, .num_epochs = 0 },
+    /* an edge of zero length */
+    { .num_nodes = 5,
+        .nodes_time = { 0, 0, 1, 1, 3 },
+        .num_edges = 3,
+        .likelihoods = { { 2, 10 }, { 1, 10 }, { 4, 5 } },
+        .edges_parent = { 2, 2, 4 },
+        .edges_child = { 0, 1, 3 },
+        .num_epochs = 2,
+        .counts = { 3, 2 },
+        .offset = { 20, 5 },
+        .duration = { 1, 2 },
+        .nodes_index = { 0, 0, 1, 1, 2 } },
+    /* an edge whose parent is younger than its child is skipped */
+    { .num_nodes = 3,
+        .nodes_time = { 0, 1, 0.5 },
+        .num_edges = 2,
+        .likelihoods = { { 2, 10 }, { 1, 10 } },
+        .edges_parent = { 1, 2 },
+        .edges_child = { 0, 1 },
+        .num_epochs = 2,
+        .counts = { 2, 2 },
+        .offset = { 10, 10 },
+        .duration = { 0.5, 0.5 },
+        .nodes_index = { 0, 2, 1 } },
+    /* two epochs */
+    { .num_nodes = 4,
+        .nodes_time = { 0, 0, 1, 3 },
+        .num_edges = 2,
+        .likelihoods = { { 6, 12 }, { 3, 12 } },
+        .edges_parent = { 3, 2 },
+        .edges_child = { 0, 1 },
+        .num_epochs = 2,
+        .counts = { 5, 2 },
+        .offset = { 24, 12 },
+        .duration = { 1, 2 },
+        .nodes_index = { 0, 0, 1, 2 } },
+    /* NOTE: current behaviour, possibly a bug: the first epoch always starts at zero,
+       even if the youngest node is older */
+    { .num_nodes = 2,
+        .nodes_time = { 1, 2 },
+        .num_edges = 1,
+        .likelihoods = { { 2, 10 } },
+        .edges_parent = { 1 },
+        .edges_child = { 0 },
+        .num_epochs = 1,
+        .counts = { 2 },
+        .offset = { 10 },
+        .duration = { 2 },
+        .nodes_index = { 0, 1 } },
+    /* tied and unsorted times */
+    { .num_nodes = 6,
+        .nodes_time = { 3, 0, 1, 0, 1, 5 },
+        .num_edges = 4,
+        .likelihoods = { { 2, 10 }, { 1, 10 }, { 3, 10 }, { 2, 10 } },
+        .edges_parent = { 4, 2, 5, 2 },
+        .edges_child = { 1, 3, 0, 1 },
+        .num_epochs = 3,
+        .counts = { 5, 0, 1.5 },
+        .offset = { 30, 0, 10 },
+        .duration = { 1, 2, 2 },
+        .nodes_index = { 2, 0, 1, 0, 1, 3 } },
+    /* NaN times are ordered last, whichever their position */
+    { .num_nodes = 5,
+        .nodes_time = { 0, NAN, 1, NAN, 2 },
+        .num_edges = 2,
+        .likelihoods = { { 1, 1 }, { 1, 1 } },
+        .edges_parent = { 2, 4 },
+        .edges_child = { 0, 2 },
+        .num_epochs = 2,
+        .counts = { 1, 1 },
+        .offset = { 1, 1 },
+        .duration = { 1, 1 },
+        .nodes_index = { 0, 2, 1, 2, 2 } },
+};
+
 static void
-test_mutational_area_and_timescale(void)
+test_mutational_area(void)
 {
-    const double nodes_time[] = { 0.0, 0.0, 1.0, 2.0 };
-    const double likelihoods[] = { 2.0, 10.0, 1.0, 10.0, 3.0, 10.0 };
-    const double zero_span[] = { 2.0, 0.0, 1.0, 0.0, 3.0, 0.0 };
-    const tsd_id_t parent[] = { 2, 2, 3 };
-    const tsd_id_t child[] = { 0, 1, 2 };
+    const size_t num_rows = sizeof(area_rows) / sizeof(area_rows[0]);
+    const area_row_t *row;
     tsd_epoch_stats_t stats;
-    tsd_id_t nodes_index[4];
-    tsd_size_t num_breaks;
+    tsd_id_t nodes_index[TABLE_MAX_NODES];
+    tsd_size_t k;
+    size_t j;
+    int ret;
+
+    for (j = 0; j < num_rows; j++) {
+        row = area_rows + j;
+        ret = tsd_mutational_area(row->num_nodes, row->nodes_time, row->num_edges,
+            &row->likelihoods[0][0], row->edges_parent, row->edges_child, &stats,
+            nodes_index);
+        CU_ASSERT_EQUAL_FATAL(ret, 0);
+        CU_ASSERT_EQUAL_FATAL(stats.num_epochs, row->num_epochs);
+        assert_array_close(stats.counts, row->counts, row->num_epochs);
+        assert_array_close(stats.offset, row->offset, row->num_epochs);
+        assert_array_close(stats.duration, row->duration, row->num_epochs);
+        for (k = 0; k < row->num_nodes; k++) {
+            CU_ASSERT_EQUAL(nodes_index[k], row->nodes_index[k]);
+        }
+        tsd_epoch_stats_free(&stats);
+    }
+}
+
+/* Expected values of the reference implementation */
+static const timescale_row_t timescale_rows[] = {
+    { .num_nodes = 4,
+        .nodes_time = { 0, 0, 1, 2 },
+        .num_edges = 3,
+        .likelihoods = { { 2, 10 }, { 1, 10 }, { 3, 10 } },
+        .edges_parent = { 2, 2, 3 },
+        .edges_child = { 0, 1, 2 },
+        .max_intervals = 1,
+        .num_breaks = 2,
+        .origin = { 0, 2 },
+        .adjust = { 0, 0.4 },
+        .ret = 0 },
+    { .num_nodes = 4,
+        .nodes_time = { 0, 0, 1, 2 },
+        .num_edges = 3,
+        .likelihoods = { { 2, 10 }, { 1, 10 }, { 3, 10 } },
+        .edges_parent = { 2, 2, 3 },
+        .edges_child = { 0, 1, 2 },
+        .max_intervals = 2,
+        .num_breaks = 2,
+        .origin = { 0, 2 },
+        .adjust = { 0, 0.4 },
+        .ret = 0 },
+    /* as many intervals as epochs */
+    { .num_nodes = 4,
+        .nodes_time = { 0, 0, 1, 2 },
+        .num_edges = 3,
+        .likelihoods = { { 2, 10 }, { 1, 10 }, { 3, 10 } },
+        .edges_parent = { 2, 2, 3 },
+        .edges_child = { 0, 1, 2 },
+        .max_intervals = 3,
+        .num_breaks = 3,
+        .origin = { 0, 1, 2 },
+        .adjust = { 0, 0.15, 0.44999999999999996 },
+        .ret = 0 },
+    /* more intervals than epochs */
+    { .num_nodes = 4,
+        .nodes_time = { 0, 0, 1, 2 },
+        .num_edges = 3,
+        .likelihoods = { { 2, 10 }, { 1, 10 }, { 3, 10 } },
+        .edges_parent = { 2, 2, 3 },
+        .edges_child = { 0, 1, 2 },
+        .max_intervals = 10000,
+        .num_breaks = 3,
+        .origin = { 0, 1, 2 },
+        .adjust = { 0, 0.15, 0.44999999999999996 },
+        .ret = 0 },
+    { .num_nodes = 4,
+        .nodes_time = { 0, 0, 1, 2 },
+        .num_edges = 3,
+        .likelihoods = { { 2, 10 }, { 1, 10 }, { 3, 10 } },
+        .edges_parent = { 2, 2, 3 },
+        .edges_child = { 0, 1, 2 },
+        .max_intervals = 0,
+        .ret = TSD_ERR_NONPOSITIVE_INTERVALS },
+    { .num_nodes = 4,
+        .nodes_time = { 0, 0, 1, 2 },
+        .num_edges = 3,
+        .likelihoods = { { 2, 10 }, { 1, 10 }, { 3, 10 } },
+        .edges_parent = { 2, 2, 3 },
+        .edges_child = { 0, 1, 2 },
+        .max_intervals = -1,
+        .ret = TSD_ERR_NONPOSITIVE_INTERVALS },
+    /* a historical sample */
+    { .num_nodes = 4,
+        .nodes_time = { 0, 500, 100, 700 },
+        .num_edges = 3,
+        .likelihoods = { { 2, 10 }, { 1, 10 }, { 3, 10 } },
+        .edges_parent = { 2, 3, 3 },
+        .edges_child = { 0, 2, 1 },
+        .max_intervals = 1,
+        .num_breaks = 2,
+        .origin = { 0, 700 },
+        .adjust = { 0, 0.6708333333333333 },
+        .ret = 0 },
+    { .num_nodes = 4,
+        .nodes_time = { 0, 500, 100, 700 },
+        .num_edges = 3,
+        .likelihoods = { { 2, 10 }, { 1, 10 }, { 3, 10 } },
+        .edges_parent = { 2, 3, 3 },
+        .edges_child = { 0, 2, 1 },
+        .max_intervals = 3,
+        .num_breaks = 4,
+        .origin = { 0, 100, 500, 700 },
+        .adjust = { 0, 0.2, 0.2666666666666667, 0.4333333333333334 },
+        .ret = 0 },
+    { .num_nodes = 4,
+        .nodes_time = { 0, 500, 100, 700 },
+        .num_edges = 3,
+        .likelihoods = { { 2, 10 }, { 1, 10 }, { 3, 10 } },
+        .edges_parent = { 2, 3, 3 },
+        .edges_child = { 0, 2, 1 },
+        .max_intervals = 100,
+        .num_breaks = 4,
+        .origin = { 0, 100, 500, 700 },
+        .adjust = { 0, 0.2, 0.2666666666666667, 0.4333333333333334 },
+        .ret = 0 },
+    /* the top edge has no span, so the last epoch has no weight and is merged */
+    { .num_nodes = 4,
+        .nodes_time = { 0, 0, 1, 2 },
+        .num_edges = 3,
+        .likelihoods = { { 2, 10 }, { 1, 10 }, { 3, 0 } },
+        .edges_parent = { 2, 2, 3 },
+        .edges_child = { 0, 1, 2 },
+        .max_intervals = 1,
+        .num_breaks = 2,
+        .origin = { 0, 2 },
+        .adjust = { 0, 0.6 },
+        .ret = 0 },
+    /* an edge of negative length is skipped from the totals */
+    { .num_nodes = 4,
+        .nodes_time = { 0, 0, 2, 1 },
+        .num_edges = 3,
+        .likelihoods = { { 2, 10 }, { 1, 10 }, { 5, 10 } },
+        .edges_parent = { 2, 2, 3 },
+        .edges_child = { 0, 1, 2 },
+        .max_intervals = 2,
+        .num_breaks = 3,
+        .origin = { 0, 1, 2 },
+        .adjust = { 0, 0.075, 0.15 },
+        .ret = 0 },
+    /* the total weight is zero, so the first changepoint is -1, which counts from the
+       end */
+    { .num_nodes = 6,
+        .nodes_time = { 0, 0, 1, 2, 3, 4 },
+        .num_edges = 4,
+        .likelihoods = { { 1, 1 }, { 1, 1 }, { 1, -3 }, { 1, 1 } },
+        .edges_parent = { 2, 3, 4, 5 },
+        .edges_child = { 0, 2, 3, 4 },
+        .max_intervals = 2,
+        .num_breaks = 2,
+        .origin = { 4, 4 },
+        .adjust = { 0, 1 },
+        .ret = 0 },
+    /* NOTE: current behaviour, possibly a bug: every edge over an interval has zero span
+       (a zero mutation rate) or there are no edges */
+    { .num_nodes = 3,
+        .nodes_time = { 0, 0, 1 },
+        .num_edges = 2,
+        .likelihoods = { { 2, 0 }, { 1, 0 } },
+        .edges_parent = { 2, 2 },
+        .edges_child = { 0, 1 },
+        .max_intervals = 1,
+        .ret = TSD_ERR_ZERO_EDGE_SPAN },
+    { .num_nodes = 2,
+        .nodes_time = { 0, 1 },
+        .num_edges = 0,
+        .max_intervals = 1,
+        .ret = TSD_ERR_ZERO_EDGE_SPAN },
+    /* all nodes at time zero: no epochs, and the span is zero */
+    { .num_nodes = 3,
+        .nodes_time = { 0, 0, 0 },
+        .num_edges = 2,
+        .likelihoods = { { 1, 10 }, { 1, 10 } },
+        .edges_parent = { 2, 2 },
+        .edges_child = { 0, 1 },
+        .max_intervals = 1,
+        .ret = TSD_ERR_ZERO_EDGE_SPAN },
+};
+
+static void
+test_mutational_timescale(void)
+{
+    const size_t num_rows = sizeof(timescale_rows) / sizeof(timescale_rows[0]);
+    const timescale_row_t *row;
     double *origin = NULL;
     double *adjust = NULL;
+    tsd_size_t num_breaks;
+    size_t j;
     int ret;
 
-    ret = tsd_mutational_area(
-        4, nodes_time, 3, likelihoods, parent, child, &stats, nodes_index);
-    CU_ASSERT_EQUAL(ret, 0);
-    CU_ASSERT_EQUAL(stats.num_epochs, 2);
-    CU_ASSERT_EQUAL(nodes_index[3], 2);
-    tsd_epoch_stats_free(&stats);
-    /* no nodes */
-    ret = tsd_mutational_area(0, NULL, 0, NULL, NULL, NULL, &stats, NULL);
-    CU_ASSERT_EQUAL(ret, 0);
-    CU_ASSERT_EQUAL(stats.num_epochs, 0);
-    tsd_epoch_stats_free(&stats);
-
-    ret = tsd_mutational_timescale(
-        4, nodes_time, 3, likelihoods, parent, child, 2, &num_breaks, &origin, &adjust);
-    CU_ASSERT_EQUAL(ret, 0);
-    CU_ASSERT(num_breaks >= 2);
-    CU_ASSERT_EQUAL(origin[0], 0.0);
-    CU_ASSERT_EQUAL(adjust[0], 0.0);
-    tsd_safe_free(origin);
-    tsd_safe_free(adjust);
-    ret = tsd_mutational_timescale(
-        4, nodes_time, 3, likelihoods, parent, child, 0, &num_breaks, &origin, &adjust);
-    CU_ASSERT_EQUAL(ret, TSD_ERR_NONPOSITIVE_INTERVALS);
-    ret = tsd_mutational_timescale(
-        4, nodes_time, 3, zero_span, parent, child, 2, &num_breaks, &origin, &adjust);
-    CU_ASSERT_EQUAL(ret, TSD_ERR_ZERO_EDGE_SPAN);
-    /* all nodes at time zero: there are no epochs, and the span is zero */
-    ret = tsd_mutational_timescale(
-        2, nodes_time, 0, NULL, NULL, NULL, 1, &num_breaks, &origin, &adjust);
-    CU_ASSERT_EQUAL(ret, TSD_ERR_ZERO_EDGE_SPAN);
+    for (j = 0; j < num_rows; j++) {
+        row = timescale_rows + j;
+        ret = tsd_mutational_timescale(row->num_nodes, row->nodes_time, row->num_edges,
+            &row->likelihoods[0][0], row->edges_parent, row->edges_child,
+            row->max_intervals, &num_breaks, &origin, &adjust);
+        CU_ASSERT_EQUAL(ret, row->ret);
+        if (ret == 0 && row->ret == 0) {
+            CU_ASSERT_EQUAL_FATAL(num_breaks, row->num_breaks);
+            assert_array_close(origin, row->origin, num_breaks);
+            assert_array_close(adjust, row->adjust, num_breaks);
+        }
+        tsd_safe_free(origin);
+        tsd_safe_free(adjust);
+        origin = NULL;
+        adjust = NULL;
+    }
 }
+
+/* Expected values of the reference implementation */
+static const point_row_t point_rows[] = {
+    { .num_points = 5,
+        .estimate = { 0, 0.5, 1, 2, 3 },
+        .fixed = { 0, 0, 0, 0, 0 },
+        .num_breaks = 3,
+        .original = { 0, 1, 3 },
+        .rescaled = { 0, 2, 3.5 },
+        .out = { 0, 1, 2, 2.75, 3.5 },
+        .ret = 0 },
+    /* the last piece is flat, so everything beyond it maps to the last point */
+    { .num_points = 5,
+        .estimate = { 3, 4, 10, 1e+300, INFINITY },
+        .fixed = { 0, 0, 0, 0, 0 },
+        .num_breaks = 3,
+        .original = { 0, 1, 3 },
+        .rescaled = { 0, 2, 3.5 },
+        .out = { 3.5, 3.5, 3.5, 3.5, NAN },
+        .ret = 0 },
+    /* NOTE: current behaviour, possibly a bug: a time below the first break has search
+       index -1, which wraps to the last breakpoint; -inf gives NaN */
+    { .num_points = 4,
+        .estimate = { -1, -1e-09, 0, -INFINITY },
+        .fixed = { 0, 0, 0, 0 },
+        .num_breaks = 3,
+        .original = { 0, 1, 3 },
+        .rescaled = { 0, 2, 3.5 },
+        .out = { 3.5, 3.5, 0, NAN },
+        .ret = 0 },
+    /* NaN, fixed or not */
+    { .num_points = 3,
+        .estimate = { NAN, 1, NAN },
+        .fixed = { 1, 0, 0 },
+        .num_breaks = 3,
+        .original = { 0, 1, 3 },
+        .rescaled = { 0, 2, 3.5 },
+        .out = { NAN, 2, NAN },
+        .ret = 0 },
+    /* some fixed */
+    { .num_points = 4,
+        .estimate = { 0, 0.5, 3, 4 },
+        .fixed = { 1, 0, 1, 1 },
+        .num_breaks = 3,
+        .original = { 0, 1, 3 },
+        .rescaled = { 0, 2, 3.5 },
+        .out = { 0, 1, 3, 4 },
+        .ret = 0 },
+    { .num_points = 0,
+        .num_breaks = 3,
+        .original = { 0, 1, 3 },
+        .rescaled = { 0, 2, 3.5 },
+        .ret = 0 },
+    /* a single breakpoint */
+    { .num_points = 3,
+        .estimate = { 0, 0.5, 7 },
+        .fixed = { 0, 0, 0 },
+        .num_breaks = 1,
+        .original = { 0 },
+        .rescaled = { 2 },
+        .out = { 2, 2, 2 },
+        .ret = 0 },
+    { .num_points = 3,
+        .estimate = { 0, 0.3, 1 },
+        .fixed = { 0, 0, 0 },
+        .num_breaks = 2,
+        .original = { 0, 5 },
+        .rescaled = { 0, 5 },
+        .out = { 0, 0.3, 1 },
+        .ret = 0 },
+    { .num_points = 1,
+        .estimate = { 0.5 },
+        .fixed = { 0 },
+        .num_breaks = 0,
+        .ret = TSD_ERR_NO_BREAKPOINTS },
+    { .num_points = 1,
+        .estimate = { 0.5 },
+        .fixed = { 0 },
+        .num_breaks = 3,
+        .original = { 0, 1, 3 },
+        .rescaled = { 0, 2, 2 },
+        .ret = TSD_ERR_NON_INCREASING_BREAKPOINTS },
+    { .num_points = 1,
+        .estimate = { 0.5 },
+        .fixed = { 0 },
+        .num_breaks = 3,
+        .original = { 0, 1, 3 },
+        .rescaled = { 0, 2, 1 },
+        .ret = TSD_ERR_NON_INCREASING_BREAKPOINTS },
+    { .num_points = 1,
+        .estimate = { 0.5 },
+        .fixed = { 0 },
+        .num_breaks = 3,
+        .original = { 0, 2, 1 },
+        .rescaled = { 0, 1, 2 },
+        .ret = TSD_ERR_NON_INCREASING_BREAKPOINTS },
+    { .num_points = 1,
+        .estimate = { 0.5 },
+        .fixed = { 0 },
+        .num_breaks = 3,
+        .original = { 0, 1, NAN },
+        .rescaled = { 0, 1, 2 },
+        .ret = TSD_ERR_NON_INCREASING_BREAKPOINTS },
+    { .num_points = 1,
+        .estimate = { 0.5 },
+        .fixed = { 0 },
+        .num_breaks = 3,
+        .original = { 0, 1, 2 },
+        .rescaled = { 0, 1, NAN },
+        .ret = TSD_ERR_NON_INCREASING_BREAKPOINTS },
+};
 
 static void
 test_piecewise_scale_point_estimate(void)
 {
-    const double estimate[] = { 0.5, 1.5, 4.0, -1.0, NAN };
-    const uint8_t fixed[] = { 0, 0, 1, 0, 0 };
-    const double original[] = { 0.0, 1.0, 3.0 };
-    const double rescaled[] = { 0.0, 2.0, 3.5 };
-    const double flat[] = { 0.0, 2.0, 2.0 };
-    double out[5];
+    const size_t num_rows = sizeof(point_rows) / sizeof(point_rows[0]);
+    const point_row_t *row;
+    double out[TABLE_MAX_POINTS];
+    size_t j;
     int ret;
 
-    ret = tsd_piecewise_scale_point_estimate(
-        5, estimate, fixed, 3, original, rescaled, out);
-    CU_ASSERT_EQUAL(ret, 0);
-    CU_ASSERT_DOUBLE_EQUAL(out[0], 1.0, 1e-12);
-    CU_ASSERT_DOUBLE_EQUAL(out[1], 2.375, 1e-12);
-    CU_ASSERT_EQUAL(out[2], 4.0);
-    CU_ASSERT(isnan(out[4]));
-    ret = tsd_piecewise_scale_point_estimate(5, estimate, fixed, 3, original, flat, out);
-    CU_ASSERT_EQUAL(ret, TSD_ERR_NON_INCREASING_BREAKPOINTS);
-    ret = tsd_piecewise_scale_point_estimate(5, estimate, fixed, 3, flat, rescaled, out);
-    CU_ASSERT_EQUAL(ret, TSD_ERR_NON_INCREASING_BREAKPOINTS);
-    ret = tsd_piecewise_scale_point_estimate(5, estimate, fixed, 0, NULL, NULL, out);
-    CU_ASSERT_EQUAL(ret, TSD_ERR_NO_BREAKPOINTS);
+    for (j = 0; j < num_rows; j++) {
+        row = point_rows + j;
+        ret = tsd_piecewise_scale_point_estimate(row->num_points, row->estimate,
+            row->fixed, row->num_breaks, row->original, row->rescaled, out);
+        CU_ASSERT_EQUAL(ret, row->ret);
+        if (ret == 0 && row->ret == 0) {
+            assert_array_close(out, row->out, row->num_points);
+        }
+    }
 }
+
+/* Expected values of the reference implementation */
+static const posterior_row_t posterior_rows[] = {
+    { .num_posteriors = 4,
+        .posteriors = { { 1, 1 }, { 2, 3 }, { 0, 1 }, { 5, 2 } },
+        .fixed = { 0, 0, 0, 0 },
+        .num_breaks = 3,
+        .original = { 0, 1, 3 },
+        .rescaled = { 0, 2, 3.5 },
+        .quantile_width = 0.5,
+        .max_shape = 1000,
+        .out = { { 5.752572529118271, 2.455480919679371 },
+            { 3.460836454696765, 2.2304182273483826 },
+            { 0.22573432805250393, 0.612867164026252 },
+            { 39.903223991686914, 11.686635426196261 } },
+        .ret = 0 },
+    { .num_posteriors = 4,
+        .posteriors = { { 1, 1 }, { 2, 3 }, { 0, 1 }, { 5, 2 } },
+        .fixed = { 0, 0, 0, 0 },
+        .num_breaks = 3,
+        .original = { 0, 1, 3 },
+        .rescaled = { 0, 2, 3.5 },
+        .quantile_width = 0.001,
+        .max_shape = 1000,
+        .out = { { 2.471583651492129, 1.2623940550880468 },
+            { 3.210845310401922, 2.105422655200961 },
+            { 0.23603088036204523, 0.6180154401810226 },
+            { 26.04896064141572, 7.72827446897592 } },
+        .ret = 0 },
+    { .num_posteriors = 4,
+        .posteriors = { { 1, 1 }, { 2, 3 }, { 0, 1 }, { 5, 2 } },
+        .fixed = { 0, 0, 0, 0 },
+        .num_breaks = 3,
+        .original = { 0, 1, 3 },
+        .rescaled = { 0, 2, 3.5 },
+        .quantile_width = 0.999999999,
+        .max_shape = 1000,
+        .out = { { 6.175396703307324, 2.609235164839027 },
+            { 1.9999982566565375, 1.4999991283282688 },
+            { -2.6908024519656237e-07, 0.4999998654598774 },
+            { 13.715489108570114, 4.204425459591461 } },
+        .ret = 0 },
+    { .num_posteriors = 4,
+        .posteriors = { { 1, 1 }, { 2, 3 }, { 0, 1 }, { 5, 2 } },
+        .fixed = { 0, 0, 0, 0 },
+        .num_breaks = 3,
+        .original = { 0, 1, 3 },
+        .rescaled = { 0, 2, 3.5 },
+        .quantile_width = 0,
+        .max_shape = 1000,
+        .ret = TSD_ERR_INVALID_QUANTILE_WIDTH },
+    { .num_posteriors = 4,
+        .posteriors = { { 1, 1 }, { 2, 3 }, { 0, 1 }, { 5, 2 } },
+        .fixed = { 0, 0, 0, 0 },
+        .num_breaks = 3,
+        .original = { 0, 1, 3 },
+        .rescaled = { 0, 2, 3.5 },
+        .quantile_width = 1,
+        .max_shape = 1000,
+        .ret = TSD_ERR_INVALID_QUANTILE_WIDTH },
+    { .num_posteriors = 4,
+        .posteriors = { { 1, 1 }, { 2, 3 }, { 0, 1 }, { 5, 2 } },
+        .fixed = { 0, 0, 0, 0 },
+        .num_breaks = 3,
+        .original = { 0, 1, 3 },
+        .rescaled = { 0, 2, 3.5 },
+        .quantile_width = NAN,
+        .max_shape = 1000,
+        .ret = TSD_ERR_INVALID_QUANTILE_WIDTH },
+    { .num_posteriors = 4,
+        .posteriors = { { 1, 1 }, { 2, 3 }, { 0, 1 }, { 5, 2 } },
+        .fixed = { 1, 0, 1, 0 },
+        .num_breaks = 3,
+        .original = { 0, 1, 3 },
+        .rescaled = { 0, 2, 3.5 },
+        .quantile_width = 0.5,
+        .max_shape = 1000,
+        .out = { { NAN, NAN }, { 3.460836454696765, 2.2304182273483826 }, { NAN, NAN },
+            { 39.903223991686914, 11.686635426196261 } },
+        .ret = 0 },
+    /* fixed rows are not validated */
+    { .num_posteriors = 2,
+        .posteriors = { { NAN, NAN }, { 1, 1 } },
+        .fixed = { 1, 0 },
+        .num_breaks = 3,
+        .original = { 0, 1, 3 },
+        .rescaled = { 0, 2, 3.5 },
+        .quantile_width = 0.5,
+        .max_shape = 1000,
+        .out = { { NAN, NAN }, { 5.752572529118271, 2.455480919679371 } },
+        .ret = 0 },
+    /* NOTE: current behaviour, possibly a bug: no posteriors is an error */
+    { .num_posteriors = 0,
+        .num_breaks = 3,
+        .original = { 0, 1, 3 },
+        .rescaled = { 0, 2, 3.5 },
+        .quantile_width = 0.5,
+        .max_shape = 1000,
+        .ret = TSD_ERR_NO_POSTERIORS },
+    { .num_posteriors = 4,
+        .posteriors
+        = { { -0.99, 1 }, { 1, 1e-300 }, { 1, 1e+300 }, { 1000000, 1000000 } },
+        .fixed = { 0, 0, 0, 0 },
+        .num_breaks = 3,
+        .original = { 0, 1, 3 },
+        .rescaled = { 0, 2, 3.5 },
+        .quantile_width = 0.5,
+        .max_shape = 1000,
+        .out = { { -0.99, 0.5 }, { 999, 285.7142857142857 },
+            { 1.000000000000004, 5.00000000000001e+299 }, { 999, 499.99981250007033 } },
+        .ret = 0 },
+    /* NOTE: current behaviour, possibly a bug: for a shape this close to -1 the lower
+       quantile underflows to zero and the division by it is an error (IEEE would give
+       inf), rather than a failed gamma fit */
+    { .num_posteriors = 1,
+        .posteriors = { { -0.9999, 1 } },
+        .fixed = { 0 },
+        .num_breaks = 3,
+        .original = { 0, 1, 3 },
+        .rescaled = { 0, 2, 3.5 },
+        .quantile_width = 0.5,
+        .max_shape = 1000,
+        .ret = TSD_ERR_ZERO_DIVISION },
+    { .num_posteriors = 1,
+        .posteriors = { { 1, INFINITY } },
+        .fixed = { 0 },
+        .num_breaks = 3,
+        .original = { 0, 1, 3 },
+        .rescaled = { 0, 2, 3.5 },
+        .quantile_width = 0.5,
+        .max_shape = 1000,
+        .ret = TSD_ERR_ZERO_DIVISION },
+    /* NOTE: current behaviour, possibly a bug: the error of tsd_approximate_gamma_iqr is
+       passed on */
+    { .num_posteriors = 1,
+        .posteriors = { { INFINITY, 1 } },
+        .fixed = { 0 },
+        .num_breaks = 3,
+        .original = { 0, 1, 3 },
+        .rescaled = { 0, 2, 3.5 },
+        .quantile_width = 0.5,
+        .max_shape = 1000,
+        .ret = TSD_ERR_UNSORTED_QUANTILES },
+    { .num_posteriors = 4,
+        .posteriors = { { 1, 1 }, { 2, 3 }, { 0, 1 }, { -1, 2 } },
+        .fixed = { 0, 0, 0, 0 },
+        .num_breaks = 3,
+        .original = { 0, 1, 3 },
+        .rescaled = { 0, 2, 3.5 },
+        .quantile_width = 0.5,
+        .max_shape = 1000,
+        .ret = TSD_ERR_INVALID_POSTERIOR },
+    { .num_posteriors = 1,
+        .posteriors = { { 1, NAN } },
+        .fixed = { 0 },
+        .num_breaks = 3,
+        .original = { 0, 1, 3 },
+        .rescaled = { 0, 2, 3.5 },
+        .quantile_width = 0.5,
+        .max_shape = 1000,
+        .ret = TSD_ERR_INVALID_POSTERIOR },
+    /* all quantiles map to one point beyond the last break: zero interquantile range */
+    { .num_posteriors = 2,
+        .posteriors = { { 1, 0.001 }, { 1, 1e-09 } },
+        .fixed = { 0, 0 },
+        .num_breaks = 3,
+        .original = { 0, 1, 3 },
+        .rescaled = { 0, 2, 3.5 },
+        .quantile_width = 0.5,
+        .max_shape = 1000,
+        .out = { { 999, 285.7142857142857 }, { 999, 285.7142857142857 } },
+        .ret = 0 },
+    { .num_posteriors = 4,
+        .posteriors = { { 1, 1 }, { 2, 3 }, { 0, 1 }, { 5, 2 } },
+        .fixed = { 0, 0, 0, 0 },
+        .num_breaks = 3,
+        .original = { 0.5, 1, 3 },
+        .rescaled = { 0, 2, 3.5 },
+        .quantile_width = 0.5,
+        .max_shape = 1000,
+        .ret = TSD_ERR_TIME_BELOW_FIRST_BREAKPOINT },
+    /* the lower quantile is below the first breakpoint, the mean is not */
+    { .num_posteriors = 1,
+        .posteriors = { { 1, 1 } },
+        .fixed = { 0 },
+        .num_breaks = 3,
+        .original = { 1.5, 3, 5 },
+        .rescaled = { 0, 1, 2 },
+        .quantile_width = 0.5,
+        .max_shape = 1000,
+        .ret = TSD_ERR_TIME_BELOW_FIRST_BREAKPOINT },
+    /* the rescaled quantiles of fixed posteriors are zero, and are checked too */
+    { .num_posteriors = 1,
+        .posteriors = { { 1, 1 } },
+        .fixed = { 1 },
+        .num_breaks = 3,
+        .original = { 0.5, 2, 5 },
+        .rescaled = { 0, 1, 2 },
+        .quantile_width = 0.5,
+        .max_shape = 1000,
+        .ret = TSD_ERR_TIME_BELOW_FIRST_BREAKPOINT },
+    /* NOTE: current behaviour, possibly a bug: max_shape = 0 gives shape -1 (improper)
+       and zero rate */
+    { .num_posteriors = 4,
+        .posteriors = { { 1, 1 }, { 2, 3 }, { 0, 1 }, { 5, 2 } },
+        .fixed = { 0, 0, 0, 0 },
+        .num_breaks = 3,
+        .original = { 0, 1, 3 },
+        .rescaled = { 0, 2, 3.5 },
+        .quantile_width = 0.5,
+        .max_shape = 0,
+        .out = { { -1, 0 }, { -1, 0 }, { -1, 0 }, { -1, 0 } },
+        .ret = 0 },
+    { .num_posteriors = 4,
+        .posteriors = { { 1, 1 }, { 2, 3 }, { 0, 1 }, { 5, 2 } },
+        .fixed = { 0, 0, 0, 0 },
+        .num_breaks = 3,
+        .original = { 0, 1, 3 },
+        .rescaled = { 0, 2, 3.5 },
+        .quantile_width = 0.5,
+        .max_shape = 1,
+        .out = { { 0, 0.36363636363636365 }, { 0, 0.5 }, { 0, 0.5 },
+            { 0, 0.2857142857142857 } },
+        .ret = 0 },
+    { .num_posteriors = 4,
+        .posteriors = { { 1, 1 }, { 2, 3 }, { 0, 1 }, { 5, 2 } },
+        .fixed = { 0, 0, 0, 0 },
+        .num_breaks = 3,
+        .original = { 0, 1, 3 },
+        .rescaled = { 0, 2, 3.5 },
+        .quantile_width = 0.5,
+        .max_shape = NAN,
+        .out = { { 5.752572529118271, 2.455480919679371 },
+            { 3.460836454696765, 2.2304182273483826 },
+            { 0.22573432805250393, 0.612867164026252 },
+            { 39.903223991686914, 11.686635426196261 } },
+        .ret = 0 },
+    { .num_posteriors = 4,
+        .posteriors = { { 1, 1 }, { 2, 3 }, { 0, 1 }, { 5, 2 } },
+        .fixed = { 0, 0, 0, 0 },
+        .num_breaks = 3,
+        .original = { 0, 1, 1 },
+        .rescaled = { 0, 2, 3.5 },
+        .quantile_width = 0.5,
+        .max_shape = 1000,
+        .ret = TSD_ERR_NON_INCREASING_BREAKPOINTS },
+    { .num_posteriors = 4,
+        .posteriors = { { 1, 1 }, { 2, 3 }, { 0, 1 }, { 5, 2 } },
+        .fixed = { 0, 0, 0, 0 },
+        .num_breaks = 3,
+        .original = { 0, 1, 3 },
+        .rescaled = { 0, 2, 2 },
+        .quantile_width = 0.5,
+        .max_shape = 1000,
+        .ret = TSD_ERR_NON_INCREASING_BREAKPOINTS },
+    /* the breaks are checked before the posteriors */
+    { .num_posteriors = 1,
+        .posteriors = { { -5, 1 } },
+        .fixed = { 0 },
+        .num_breaks = 2,
+        .original = { 0, 0 },
+        .rescaled = { 0, 1 },
+        .quantile_width = 0.5,
+        .max_shape = 1000,
+        .ret = TSD_ERR_NON_INCREASING_BREAKPOINTS },
+    /* a single breakpoint at zero: every quantile maps to zero */
+    { .num_posteriors = 4,
+        .posteriors = { { 1, 1 }, { 2, 3 }, { 0, 1 }, { 5, 2 } },
+        .fixed = { 0, 0, 0, 0 },
+        .num_breaks = 1,
+        .original = { 0 },
+        .rescaled = { 0 },
+        .quantile_width = 0.5,
+        .max_shape = 1000,
+        .ret = TSD_ERR_ZERO_DIVISION },
+    { .num_posteriors = 4,
+        .posteriors = { { 1, 1 }, { 2, 3 }, { 0, 1 }, { 5, 2 } },
+        .fixed = { 0, 0, 0, 0 },
+        .num_breaks = 1,
+        .original = { 0 },
+        .rescaled = { 4 },
+        .quantile_width = 0.5,
+        .max_shape = 1000,
+        .out = { { 999, 250 }, { 999, 250 }, { 999, 250 }, { 999, 250 } },
+        .ret = 0 },
+    { .num_posteriors = 4,
+        .posteriors = { { 1, 1 }, { 2, 3 }, { 0, 1 }, { 5, 2 } },
+        .fixed = { 0, 0, 0, 0 },
+        .num_breaks = 0,
+        .quantile_width = 0.5,
+        .max_shape = 1000,
+        .ret = TSD_ERR_NO_BREAKPOINTS },
+};
 
 static void
 test_piecewise_scale_posterior(void)
 {
-    const double posteriors[] = { 1.0, 1.0, 2.0, 3.0, 0.0, 1.0, 5.0, 2.0 };
-    const uint8_t fixed[] = { 0, 0, 1, 0 };
-    const uint8_t none_fixed[] = { 0, 0, 0, 0 };
-    const double original[] = { 0.0, 1.0, 3.0 };
-    const double rescaled[] = { 0.0, 2.0, 3.5 };
-    const double late_original[] = { 0.5, 1.0, 3.0 };
-    const double flat[] = { 0.0, 2.0, 2.0 };
-    const double bad_posteriors[] = { -1.0, 1.0, 1.0, 1.0 };
-    const double zero_rate[] = { 1.0, INFINITY };
-    const double near_pole[] = { -0.9999, 1.0 };
-    const double large_shape[] = { 1e8, 1e8 };
-    double out[8];
+    const size_t num_rows = sizeof(posterior_rows) / sizeof(posterior_rows[0]);
+    const posterior_row_t *row;
+    double out[2 * TABLE_MAX_POSTERIORS];
+    size_t j;
     int ret;
 
-    ret = tsd_piecewise_scale_posterior(
-        4, posteriors, fixed, 3, original, rescaled, 0.5, 1000.0, out);
-    CU_ASSERT_EQUAL(ret, 0);
-    CU_ASSERT(isnan(out[4]));
-    ret = tsd_piecewise_scale_posterior(
-        4, posteriors, fixed, 0, NULL, NULL, 0.5, 1000.0, out);
-    CU_ASSERT_EQUAL(ret, TSD_ERR_NO_BREAKPOINTS);
-    CU_ASSERT(isfinite(out[0]) && isfinite(out[1]));
-    ret = tsd_piecewise_scale_posterior(
-        4, posteriors, none_fixed, 3, original, rescaled, 0.5, 1000.0, out);
-    CU_ASSERT_EQUAL(ret, 0);
-    ret = tsd_piecewise_scale_posterior(
-        4, posteriors, fixed, 3, original, rescaled, 1.0, 1000.0, out);
-    CU_ASSERT_EQUAL(ret, TSD_ERR_INVALID_QUANTILE_WIDTH);
-    ret = tsd_piecewise_scale_posterior(
-        4, posteriors, fixed, 3, original, flat, 0.5, 1000.0, out);
-    CU_ASSERT_EQUAL(ret, TSD_ERR_NON_INCREASING_BREAKPOINTS);
-    ret = tsd_piecewise_scale_posterior(
-        2, bad_posteriors, none_fixed, 3, original, rescaled, 0.5, 1000.0, out);
-    CU_ASSERT_EQUAL(ret, TSD_ERR_INVALID_POSTERIOR);
-    ret = tsd_piecewise_scale_posterior(
-        4, posteriors, fixed, 3, late_original, rescaled, 0.5, 1000.0, out);
-    CU_ASSERT_EQUAL(ret, TSD_ERR_TIME_BELOW_FIRST_BREAKPOINT);
-    ret = tsd_piecewise_scale_posterior(
-        0, posteriors, fixed, 3, original, rescaled, 0.5, 1000.0, out);
-    CU_ASSERT_EQUAL(ret, TSD_ERR_NO_POSTERIORS);
-    /* an infinite rate, or a shape close to zero, gives a zero lower quantile */
-    ret = tsd_piecewise_scale_posterior(
-        1, zero_rate, none_fixed, 3, original, rescaled, 0.5, 1000.0, out);
-    CU_ASSERT_EQUAL(ret, TSD_ERR_ZERO_DIVISION);
-    ret = tsd_piecewise_scale_posterior(
-        1, near_pole, none_fixed, 3, original, rescaled, 0.5, 1000.0, out);
-    CU_ASSERT_EQUAL(ret, TSD_ERR_ZERO_DIVISION);
-    /* failures of the interquantile approximation are passed on */
-    ret = tsd_piecewise_scale_posterior(
-        1, large_shape, none_fixed, 3, original, rescaled, 0.5, 1e300, out);
-    CU_ASSERT_EQUAL(ret, TSD_ERR_ZERO_DIVISION);
+    for (j = 0; j < num_rows; j++) {
+        row = posterior_rows + j;
+        ret = tsd_piecewise_scale_posterior(row->num_posteriors, &row->posteriors[0][0],
+            row->fixed, row->num_breaks, row->original, row->rescaled,
+            row->quantile_width, row->max_shape, out);
+        CU_ASSERT_EQUAL(ret, row->ret);
+        if (ret == 0 && row->ret == 0) {
+            assert_array_close(out, &row->out[0][0], 2 * row->num_posteriors);
+        }
+    }
 }
 
 static void
@@ -1786,52 +2977,149 @@ ep_init(tsd_ep_t *ep, const tsd_id_t *parent, const tsd_id_t *child,
     memcpy(ep->posterior, post, 8 * sizeof(*post));
 }
 
-static void
-test_damp_and_rescale(void)
-{
-    const double zero[2] = { 0, 0 };
-    const double x[2] = { 1, 2 };
-    const double y[2] = { 4, 8 };
-    const double improper[2] = { -1, 1 };
-    const double infinite[2] = { INFINITY, 1 };
-    const double nan_y[2] = { NAN, 0 };
-    const double small_y[2] = { 0, 1e300 };
-    const double tiny_x[2] = { 1, 1e-300 };
+typedef struct {
+    double x[2];
+    double y[2];
+    double s;
     double d;
+    int ret;
+} damp_row_t;
 
-    CU_ASSERT_EQUAL(tsd_damp(zero, zero, 5.0, &d), 0);
-    CU_ASSERT_EQUAL(d, 1.0);
-    CU_ASSERT_EQUAL(tsd_damp(x, zero, 0.5, &d), 0);
-    CU_ASSERT_EQUAL(d, 1.0);
-    CU_ASSERT_EQUAL(tsd_damp(x, y, 0.5, &d), 0);
-    CU_ASSERT_TRUE(d > 0 && d < 1);
-    CU_ASSERT_EQUAL(tsd_damp(x, y, 1.0, &d), TSD_ERR_INVALID_MIN_STEP);
-    CU_ASSERT_EQUAL(tsd_damp(improper, zero, 0.5, &d), TSD_ERR_INVALID_NODE_POSTERIOR);
-    CU_ASSERT_EQUAL(tsd_damp(infinite, zero, 0.5, &d), TSD_ERR_ZERO_DIVISION);
-    CU_ASSERT_EQUAL(tsd_damp(x, nan_y, 0.5, &d), TSD_ERR_INVALID_DAMPING);
-    CU_ASSERT_EQUAL(tsd_damp(tiny_x, small_y, 0.5, &d), TSD_ERR_INVALID_DAMPING);
-    CU_ASSERT_EQUAL(tsd_damp(tiny_x, y, 0.5, &d), 0);
+typedef struct {
+    double x[2];
+    double s;
+    double d;
+    int ret;
+} rescale_row_t;
 
-    CU_ASSERT_EQUAL(tsd_rescale(zero, 0.5, &d), 0);
-    CU_ASSERT_EQUAL(d, 1.0);
-    CU_ASSERT_EQUAL(tsd_rescale(x, 10.0, &d), 0);
-    CU_ASSERT_EQUAL(d, 1.0);
-    CU_ASSERT_EQUAL(tsd_rescale(x, 1.5, &d), 0);
-    CU_ASSERT_DOUBLE_EQUAL(d, 0.5, 1e-15);
-    CU_ASSERT_EQUAL(tsd_rescale(x, 0.1, &d), 0);
-    CU_ASSERT_EQUAL(tsd_rescale(tiny_x, 1.0, &d), 0);
-    CU_ASSERT_EQUAL(tsd_rescale(improper, 10.0, &d), TSD_ERR_INVALID_NODE_POSTERIOR);
-    CU_ASSERT_EQUAL(tsd_rescale(infinite, 10.0, &d), 0);
-    CU_ASSERT_EQUAL(tsd_rescale(nan_y, 10.0, &d), TSD_ERR_INVALID_NODE_POSTERIOR);
-    {
-        const double zero_shape[2] = { 0, 1 };
-        const double low[2] = { -0.5, 1 };
+/* Expected values of the reference implementation */
+static const damp_row_t damp_rows[] = {
+    { .x = { 0, 0 }, .y = { 0, 0 }, .s = 0.5, .d = 1, .ret = 0 },
+    /* zero x and y: s is not checked */
+    { .x = { 0, 0 }, .y = { 0, 0 }, .s = 5, .d = 1, .ret = 0 },
+    { .x = { 0, 1 }, .y = { 0, 0 }, .s = 0.5, .d = 1, .ret = 0 },
+    { .x = { 1, 2 }, .y = { 0, 0 }, .s = 0.5, .d = 1, .ret = 0 },
+    { .x = { 1, 2 }, .y = { 0.9999999999999999, 0 }, .s = 0.5, .d = 1, .ret = 0 },
+    { .x = { 1, 2 }, .y = { 1, 0 }, .s = 0.5, .d = 1, .ret = 0 },
+    { .x = { 1, 2 },
+        .y = { 1.0000000000000002, 0 },
+        .s = 0.5,
+        .d = 0.9999999999999998,
+        .ret = 0 },
+    { .x = { 1, 2 }, .y = { 4, 0 }, .s = 0.5, .d = 0.25, .ret = 0 },
+    { .x = { 1, 2 }, .y = { -5, 0 }, .s = 0.5, .d = 1, .ret = 0 },
+    { .x = { 1, 2 }, .y = { 0, 0.9999999999999999 }, .s = 0.5, .d = 1, .ret = 0 },
+    { .x = { 1, 2 }, .y = { 0, 1 }, .s = 0.5, .d = 1, .ret = 0 },
+    { .x = { 1, 2 },
+        .y = { 0, 1.0000000000000002 },
+        .s = 0.5,
+        .d = 0.9999999999999998,
+        .ret = 0 },
+    { .x = { 1, 2 }, .y = { 0, 8 }, .s = 0.5, .d = 0.125, .ret = 0 },
+    { .x = { 1, 2 }, .y = { 0, -5 }, .s = 0.5, .d = 1, .ret = 0 },
+    { .x = { 1, 2 }, .y = { 4, 2 }, .s = 0.5, .d = 0.25, .ret = 0 },
+    { .x = { 1, 2 }, .y = { 2, 8 }, .s = 0.5, .d = 0.125, .ret = 0 },
+    { .x = { 1, 2 }, .y = { -1, -1 }, .s = 0.5, .d = 1, .ret = 0 },
+    { .x = { 1, 2 }, .y = { 2, 2 }, .s = 5e-324, .d = 1, .ret = 0 },
+    { .x = { 1, 2 },
+        .y = { 2, 2 },
+        .s = 0.9999999999999999,
+        .d = 1.1102230246251565e-16,
+        .ret = 0 },
+    { .x = { -0.9999999999999999, 1 }, .y = { 0, 0 }, .s = 0.5, .d = 1, .ret = 0 },
+    { .x = { 1, 1e-300 }, .y = { 1, 4 }, .s = 0.5, .d = 1.25e-301, .ret = 0 },
+    /* NOTE: current behaviour, possibly a bug: the minimum swallows a NaN in the second
+       component of y, so the damping is silently skipped */
+    { .x = { 1, 1 }, .y = { 0, NAN }, .s = 0.5, .d = 1, .ret = 0 },
+    { .x = { 1, 1 }, .y = { 8, NAN }, .s = 0.5, .d = 0.125, .ret = 0 },
+    { .x = { 1, 1 }, .y = { -INFINITY, 0 }, .s = 0.5, .d = 1, .ret = 0 },
+    { .x = { 1, 1 }, .y = { 0, -INFINITY }, .s = 0.5, .d = 1, .ret = 0 },
+    { .x = { 1, 1 }, .y = { 0, 0 }, .s = 0, .ret = TSD_ERR_INVALID_MIN_STEP },
+    { .x = { 1, 1 }, .y = { 0, 0 }, .s = 1, .ret = TSD_ERR_INVALID_MIN_STEP },
+    { .x = { 1, 1 }, .y = { 0, 0 }, .s = NAN, .ret = TSD_ERR_INVALID_MIN_STEP },
+    { .x = { -1, 1 }, .y = { 0, 0 }, .s = 0.5, .ret = TSD_ERR_INVALID_NODE_POSTERIOR },
+    { .x = { NAN, 1 }, .y = { 0, 0 }, .s = 0.5, .ret = TSD_ERR_INVALID_NODE_POSTERIOR },
+    { .x = { 1, 0 }, .y = { 0, 0 }, .s = 0.5, .ret = TSD_ERR_INVALID_NODE_POSTERIOR },
+    { .x = { 1, NAN }, .y = { 0, 0 }, .s = 0.5, .ret = TSD_ERR_INVALID_NODE_POSTERIOR },
+    { .x = { 0, 0 }, .y = { 1, 1 }, .s = 0.5, .ret = TSD_ERR_INVALID_NODE_POSTERIOR },
+    /* d underflows */
+    { .x = { 1, 1e-300 }, .y = { 0, 1e+300 }, .s = 0.5, .ret = TSD_ERR_INVALID_DAMPING },
+    { .x = { 1, 1 }, .y = { NAN, 0 }, .s = 0.5, .ret = TSD_ERR_INVALID_DAMPING },
+    /* d is rounded to just above one */
+    { .x = { 24.23005039128842, 15.403466578537675 },
+        .y = { 2.409458061921995, 1.471023884360475 },
+        .s = 0.9045004657321672,
+        .ret = TSD_ERR_INVALID_DAMPING },
+    /* an infinite posterior and a zero message: a division by zero */
+    { .x = { INFINITY, 1 }, .y = { 0, 0 }, .s = 0.5, .ret = TSD_ERR_ZERO_DIVISION },
+    /* an infinite posterior and a zero message: a division by zero */
+    { .x = { 1, INFINITY }, .y = { 0, 0 }, .s = 0.5, .ret = TSD_ERR_ZERO_DIVISION },
+};
 
-        CU_ASSERT_EQUAL(tsd_rescale(zero_shape, 0.5, &d), TSD_ERR_ZERO_DIVISION);
-        CU_ASSERT_EQUAL(tsd_rescale(low, 1.0, &d), 0);
-        CU_ASSERT_EQUAL(tsd_rescale(low, 2.0, &d), 0);
-        CU_ASSERT_EQUAL(tsd_rescale(low, 1.5, &d), 0);
-        CU_ASSERT_DOUBLE_EQUAL(d, 2.0 / 3.0, 1e-12);
+static void
+test_damp(void)
+{
+    const size_t num_rows = sizeof(damp_rows) / sizeof(damp_rows[0]);
+    const damp_row_t *row;
+    double d;
+    size_t j;
+    int ret;
+
+    for (j = 0; j < num_rows; j++) {
+        row = damp_rows + j;
+        ret = tsd_damp(row->x, row->y, row->s, &d);
+        CU_ASSERT_EQUAL(ret, row->ret);
+        if (ret == 0 && row->ret == 0) {
+            assert_close_ulps(d, row->d, ULPS);
+        }
+    }
+}
+
+/* Expected values of the reference implementation */
+static const rescale_row_t rescale_rows[] = {
+    { .x = { 0, 0 }, .s = 10, .d = 1, .ret = 0 },
+    /* zero x: s is not checked */
+    { .x = { 0, 0 }, .s = 0, .d = 1, .ret = 0 },
+    { .x = { 0, 1 }, .s = 10, .d = 1, .ret = 0 },
+    { .x = { 5, 1 }, .s = 10, .d = 1, .ret = 0 },
+    { .x = { -0.5, 1 }, .s = 2, .d = 1, .ret = 0 },
+    { .x = { 8.999999999999998, 1 }, .s = 10, .d = 1, .ret = 0 },
+    { .x = { 9, 1 }, .s = 10, .d = 1, .ret = 0 },
+    { .x = { 9.000000000000002, 1 }, .s = 10, .d = 0.9999999999999998, .ret = 0 },
+    { .x = { -0.49999999999999994, 1 }, .s = 2, .d = 1, .ret = 0 },
+    { .x = { -0.5000000000000001, 1 }, .s = 2, .d = 0.9999999999999998, .ret = 0 },
+    { .x = { -0.95, 1 }, .s = 10, .d = 0.9473684210526316, .ret = 0 },
+    { .x = { 99, INFINITY }, .s = 10, .d = 0.09090909090909091, .ret = 0 },
+    { .x = { INFINITY, 1 }, .s = 10, .d = 0, .ret = 0 },
+    /* NOTE: current behaviour, possibly a bug: with max_shape = 1 the factor is 0 and
+       wipes out the posterior */
+    { .x = { 1, 1 }, .s = 1, .d = 0, .ret = 0 },
+    { .x = { -0.5, 1 }, .s = 1, .d = -0, .ret = 0 },
+    { .x = { -1, 1 }, .s = 10, .ret = TSD_ERR_INVALID_NODE_POSTERIOR },
+    { .x = { NAN, 1 }, .s = 10, .ret = TSD_ERR_INVALID_NODE_POSTERIOR },
+    { .x = { 1, 0 }, .s = 10, .ret = TSD_ERR_INVALID_NODE_POSTERIOR },
+    { .x = { 1, -1 }, .s = 10, .ret = TSD_ERR_INVALID_NODE_POSTERIOR },
+    { .x = { 1, NAN }, .s = 10, .ret = TSD_ERR_INVALID_NODE_POSTERIOR },
+    /* a zero shape with a cap below one: a division by zero */
+    { .x = { 0, 1 }, .s = 0.5, .ret = TSD_ERR_ZERO_DIVISION },
+};
+
+static void
+test_rescale(void)
+{
+    const size_t num_rows = sizeof(rescale_rows) / sizeof(rescale_rows[0]);
+    const rescale_row_t *row;
+    double d;
+    size_t j;
+    int ret;
+
+    for (j = 0; j < num_rows; j++) {
+        row = rescale_rows + j;
+        ret = tsd_rescale(row->x, row->s, &d);
+        CU_ASSERT_EQUAL(ret, row->ret);
+        if (ret == 0 && row->ret == 0) {
+            assert_close_ulps(d, row->d, ULPS);
+        }
     }
 }
 
@@ -1888,27 +3176,120 @@ test_rescale_and_assemble_factors(void)
     tsd_ep_free(&ep);
 }
 
+typedef struct {
+    tsd_size_t num_nodes;
+    double constraints[3][2];
+    tsd_size_t num_edges;
+    tsd_id_t edges_parent[2];
+    tsd_id_t edges_child[2];
+    int consistent;
+} consistency_row_t;
+
+/* Expected values of the reference implementation */
+static const consistency_row_t consistency_rows[] = {
+    { .num_nodes = 0, .num_edges = 0, .consistent = 1 },
+    /* no edges */
+    { .num_nodes = 2,
+        .constraints = { { 0, 1 }, { 0, 1 } },
+        .num_edges = 0,
+        .consistent = 1 },
+    { .num_nodes = 2,
+        .constraints = { { 0, 0 }, { 0, INFINITY } },
+        .num_edges = 1,
+        .edges_parent = { 1 },
+        .edges_child = { 0 },
+        .consistent = 1 },
+    { .num_nodes = 2,
+        .constraints = { { 0, 5 }, { 3, 9 } },
+        .num_edges = 1,
+        .edges_parent = { 1 },
+        .edges_child = { 0 },
+        .consistent = 1 },
+    /* the parent's upper bound equals the child's lower bound */
+    { .num_nodes = 2,
+        .constraints = { { 5, 5 }, { 0, 5 } },
+        .num_edges = 1,
+        .edges_parent = { 1 },
+        .edges_child = { 0 },
+        .consistent = 1 },
+    { .num_nodes = 2,
+        .constraints = { { 5.000000000000001, 6 }, { 0, 5 } },
+        .num_edges = 1,
+        .edges_parent = { 1 },
+        .edges_child = { 0 },
+        .consistent = 0 },
+    { .num_nodes = 2,
+        .constraints = { { 5, 5 }, { 0, 4.999999999999999 } },
+        .num_edges = 1,
+        .edges_parent = { 1 },
+        .edges_child = { 0 },
+        .consistent = 0 },
+    /* the maximum lower bound propagates up a chain */
+    { .num_nodes = 3,
+        .constraints = { { 5, 5 }, { 0, 9 }, { 0, 9 } },
+        .num_edges = 2,
+        .edges_parent = { 1, 2 },
+        .edges_child = { 0, 1 },
+        .consistent = 1 },
+    { .num_nodes = 3,
+        .constraints = { { 5, 5 }, { 0, INFINITY }, { 0, 4 } },
+        .num_edges = 2,
+        .edges_parent = { 1, 2 },
+        .edges_child = { 0, 1 },
+        .consistent = 0 },
+    /* and from every child */
+    { .num_nodes = 3,
+        .constraints = { { 0, 0 }, { 7, 7 }, { 0, 6 } },
+        .num_edges = 2,
+        .edges_parent = { 2, 2 },
+        .edges_child = { 0, 1 },
+        .consistent = 0 },
+    { .num_nodes = 2,
+        .constraints = { { 10, 10 }, { 0, 0 } },
+        .num_edges = 1,
+        .edges_parent = { 1 },
+        .edges_child = { 0 },
+        .consistent = 0 },
+    /* NOTE: current behaviour, possibly a bug: the check is a single pass in edge order,
+       so edges must be sorted children-first */
+    { .num_nodes = 3,
+        .constraints = { { 5, 5 }, { 0, INFINITY }, { 0, 4 } },
+        .num_edges = 2,
+        .edges_parent = { 2, 1 },
+        .edges_child = { 1, 0 },
+        .consistent = 1 },
+    /* NaN bounds are never inconsistent */
+    { .num_nodes = 2,
+        .constraints = { { NAN, NAN }, { 0, 5 } },
+        .num_edges = 1,
+        .edges_parent = { 1 },
+        .edges_child = { 0 },
+        .consistent = 1 },
+    { .num_nodes = 2,
+        .constraints = { { 5, 5 }, { 0, NAN } },
+        .num_edges = 1,
+        .edges_parent = { 1 },
+        .edges_child = { 0 },
+        .consistent = 1 },
+};
+
 static void
 test_constraints_are_consistent(void)
 {
-    const tsd_id_t parent[2] = { 1, 2 };
-    const tsd_id_t child[2] = { 0, 1 };
-    const double valid[6] = { 0, 0, 1, 5, 2, INFINITY };
-    const double invalid[6] = { 3, 3, 1, 2, 2, INFINITY };
+    const size_t num_rows = sizeof(consistency_rows) / sizeof(consistency_rows[0]);
+    const consistency_row_t *row;
     int consistent;
+    size_t j;
+    int ret;
 
-    CU_ASSERT_EQUAL(
-        tsd_constraints_are_consistent(3, 2, valid, parent, child, &consistent), 0);
-    CU_ASSERT_EQUAL(consistent, 1);
-    CU_ASSERT_EQUAL(
-        tsd_constraints_are_consistent(3, 0, valid, parent, child, &consistent), 0);
-    CU_ASSERT_EQUAL(consistent, 1);
-    CU_ASSERT_EQUAL(
-        tsd_constraints_are_consistent(3, 2, invalid, parent, child, &consistent), 0);
-    CU_ASSERT_EQUAL(consistent, 0);
-    CU_ASSERT_EQUAL(
-        tsd_constraints_are_consistent(0, 0, valid, parent, child, &consistent), 0);
-    CU_ASSERT_EQUAL(consistent, 1);
+    for (j = 0; j < num_rows; j++) {
+        row = consistency_rows + j;
+        consistent = -1;
+        ret = tsd_constraints_are_consistent(row->num_nodes, row->num_edges,
+            &row->constraints[0][0], row->edges_parent, row->edges_child, &consistent);
+        CU_ASSERT_EQUAL(ret, 0);
+        CU_ASSERT_EQUAL(consistent, row->consistent);
+    }
 }
 
 /* The branches of an EP pass: fixed child, fixed parent, free, both fixed. */
@@ -1964,6 +3345,8 @@ test_propagate_likelihood(void)
     CU_ASSERT_EQUAL(tsd_ep_propagate_likelihood(&ep, 1, order, 0, 0.5, 0.1),
         TSD_ERR_INVALID_MAX_SHAPE);
     CU_ASSERT_EQUAL(tsd_ep_propagate_likelihood(&ep, 1, order, 0, 1000.0, 1.0),
+        TSD_ERR_INVALID_MIN_STEP);
+    CU_ASSERT_EQUAL(tsd_ep_propagate_likelihood(&ep, 1, order, 0, 1000.0, 0.0),
         TSD_ERR_INVALID_MIN_STEP);
     CU_ASSERT_EQUAL(tsd_ep_propagate_likelihood(&ep, 1, bad, 0, 1000.0, 0.1),
         TSD_ERR_EDGE_OUT_OF_BOUNDS);
@@ -2122,16 +3505,6 @@ typedef struct {
     double posterior[EP_MAX_MUTATIONS][2];
     double phase[EP_MAX_MUTATIONS];
 } ep_mutations_row_t;
-
-static void
-assert_array_close(const double *actual, const double *expected, tsd_size_t n)
-{
-    tsd_size_t j;
-
-    for (j = 0; j < n; j++) {
-        assert_close_ulps(actual[j], expected[j], ULPS);
-    }
-}
 
 static void
 ep_setup(tsd_ep_t *ep, const ep_inputs_t *in, const ep_state_t *state)
@@ -3662,14 +5035,16 @@ main(int argc, char **argv)
         { "test_contains_unary_nodes", test_contains_unary_nodes },
         { "test_check_arguments", test_check_arguments },
         { "test_bad_tree_arguments", test_bad_tree_arguments },
+        { "test_marginalize_over_ancestors", test_marginalize_over_ancestors },
         { "test_conditional_coalescent_variance", test_conditional_coalescent_variance },
         { "test_fixed_changepoints", test_fixed_changepoints },
-        { "test_poisson_changepoints", test_poisson_changepoints },
         { "test_count_mutations", test_count_mutations },
-        { "test_mutational_area_and_timescale", test_mutational_area_and_timescale },
+        { "test_mutational_area", test_mutational_area },
+        { "test_mutational_timescale", test_mutational_timescale },
         { "test_piecewise_scale_point_estimate", test_piecewise_scale_point_estimate },
         { "test_piecewise_scale_posterior", test_piecewise_scale_posterior },
-        { "test_damp_and_rescale", test_damp_and_rescale },
+        { "test_damp", test_damp },
+        { "test_rescale", test_rescale },
         { "test_ep_init", test_ep_init },
         { "test_rescale_and_assemble_factors", test_rescale_and_assemble_factors },
         { "test_constraints_are_consistent", test_constraints_are_consistent },
