@@ -161,221 +161,584 @@ test_safe_free(void)
     CU_ASSERT_PTR_NULL(x);
 }
 
-static void
-test_polygamma(void)
-{
-    const double points[] = { 1e-6, 0.5, 4.9, 8.4, 10.0, 100.0, -0.5, -1.5, -10.5 };
-    const int num_points = (int) (sizeof(points) / sizeof(points[0]));
-    double value;
-    int j, ret;
+/* Special functions: arguments, expected values and return codes */
+typedef struct {
+    double x;
+    double expected;
+    int ret;
+} sf_case1_t;
 
-    for (j = 0; j < num_points; j++) {
-        ret = tsd_digamma(points[j], &value);
-        CU_ASSERT_EQUAL(ret, 0);
-        CU_ASSERT(isfinite(value));
-        ret = tsd_trigamma(points[j], &value);
-        CU_ASSERT_EQUAL(ret, 0);
-        CU_ASSERT(isfinite(value));
+typedef struct {
+    double p, x;
+    double expected;
+    int ret;
+} sf_case2_t;
+
+typedef struct {
+    double a, b, x;
+    double expected;
+    int ret;
+} sf_case3_t;
+
+typedef struct {
+    double a, b, c, x;
+    double expected;
+    int ret;
+} sf_case4_t;
+
+typedef struct {
+    double a, b, x;
+    double value, dvalue;
+    int ret;
+} sf_hyperu_case_t;
+
+/* Special functions: arguments and reference values */
+typedef struct {
+    double x;
+    double expected;
+} sf_ref1_t;
+
+typedef struct {
+    double x, y;
+    double expected;
+} sf_ref2_t;
+
+typedef struct {
+    double a, b, x;
+    double expected;
+} sf_ref3_t;
+
+typedef struct {
+    double a, b, c, x;
+    double expected;
+} sf_ref4_t;
+
+typedef struct {
+    double a, b, x;
+    double value, dvalue;
+} sf_hyperu_ref_t;
+
+/* Tolerances of the comparisons with mpmath */
+#define POLYGAMMA_RTOL 1e-5
+#define POLYGAMMA_ATOL 1e-8
+#define LAPLACE_RTOL   2e-2
+#define LAPLACE_ATOL   1e-8
+/* The unity limit of hyp2f1 is within 1% of the exact value */
+#define UNITY_RTOL 1e-2
+/* The derivative of the Laplace approximation of hyperu is within 2.5% of the exact */
+#define HYPERU_DERIVATIVE_RTOL 2.5e-2
+/* Tolerance of the comparison with SciPy, whose results depend on its build */
+#define GAMMAINCINV_RTOL 1e-10
+
+/* Expected values of the reference implementation */
+static const sf_case1_t digamma_cases[] = {
+    { 0.0, 0.0, TSD_ERR_ZERO_DIVISION },
+    { -0.0, 0.0, TSD_ERR_ZERO_DIVISION },
+    { 4.9406564584124654e-324, -INFINITY, 0 },
+    { 9.9999999999999995e-07, -1000000.5772156649, 0 },
+    { 1.0000000000000001e-05, -100000.57721566489, 0 },
+    { 1.0000000000000003e-05, -100000.57719921565, 0 },
+    { 0.5, -1.9635100260214153, 0 },
+    { 4.9000000000000004, 1.483737793254901, 0 },
+    { 8.4999999999999982, 2.0800908175794208, 0 },
+    { 8.5, 2.0800908175794279, 0 },
+    { 100.0, 4.6001618527380881, 0 },
+    { 1.0000000000000001e+300, 690.77552789821368, 0 },
+    { INFINITY, INFINITY, 0 },
+    { NAN, NAN, 0 },
+    { -0.5, 0.036489973978584861, 0 },
+    { -1.0, -25653050788007548.0, 0 },
+    { -1.5, 0.70315664064525185, 0 },
+    { -10.5, 2.3982391295357801, 0 },
+    { -1e-300, 1.0000000000000001e+300, 0 },
+    { -INFINITY, NAN, 0 },
+};
+
+/* Expected values of the reference implementation */
+static const sf_case1_t trigamma_cases[] = {
+    { 0.0, 0.0, TSD_ERR_ZERO_DIVISION },
+    { -0.0, 0.0, TSD_ERR_ZERO_DIVISION },
+    { -1e-300, 0.0, TSD_ERR_ZERO_DIVISION },
+    { 1e-300, 0.0, TSD_ERR_ZERO_DIVISION },
+    { 4.9406564584124654e-324, 0.0, TSD_ERR_ZERO_DIVISION },
+    { 1e-10, 9.9999999999999984e+19, 0 },
+    { 0.0001, 100000000.0, 0 },
+    { 0.00010000000000000002, 100000001.64469366, 0 },
+    { 0.5, 4.9348022005461569, 0 },
+    { 4.9000000000000004, 0.22631146419213941, 0 },
+    { 5.0, 0.22132295574429867, 0 },
+    { 100.0, 0.010050166663333571, 0 },
+    { 1.0000000000000001e+300, 1e-300, 0 },
+    { INFINITY, 0.0, 0 },
+    { NAN, NAN, 0 },
+    { -0.5, 8.9348022005432011, 0 },
+    { -1.5, 9.3792466449876457, 0 },
+    { -10.5, 9.7787577398148109, 0 },
+    { -INFINITY, NAN, 0 },
+};
+
+/* Expected values of the reference implementation */
+static const sf_ref2_t betaln_cases[] = {
+    { 1.0, 1.0, 0.0 },
+    { 0.5, 0.5, 1.1447298858494002 },
+    { 2.0, 3.0, -2.4849066497880004 },
+    { 1e-10, 10000000000.0, 23.025848388671875 },
+    { 100000.0, 100000.0, -138633.92706134822 },
+    { 1.0000000000000001e+300, 1.0000000000000001e+300, -1.3862943611198268e+300 },
+    { 1e+308, 1e+308, NAN },
+    { 0.0, 1.0, INFINITY },
+    { -0.5, 2.0, 1.3862943611198906 },
+    { NAN, 1.0, NAN },
+    { 1.0, INFINITY, NAN },
+};
+
+/* Expected values of the reference implementation */
+static const sf_case2_t gammainc_der_cases[] = {
+    { 1.0, 0.0, 0.0, 0 },
+    { 5.0, 100000000.00000001, 0.0, 0 },
+    { 5.0, INFINITY, 0.0, 0 },
+    { 2000.0, 2000.0, -0.00892111615358839, 0 },
+    { 1000.0000000000001, 1000.0, -0.012617064253050618, 0 },
+    { 1000.0, 1000.0, -0.012616713994069394, 0 },
+    { 0.5, 1.0, -0.3898372643285174, 0 },
+    { 2.0, 1.5, -0.31348863782508085, 0 },
+    { 1e-10, 1e-10, -22.448635214909299, 0 },
+    { 50.0, 0.001, 0.0, 0 },
+    { 0.5, 1.0000000000000002, -0.3898372643285154, 0 },
+    { 5.0, 50.0, -1.3227071908086766e-16, 0 },
+    { 100.0, 110.0, -0.023808656854890219, 0 },
+    { 0.001, 10.0, -4.1816615862918354e-06, 0 },
+    { 5.0, 800.0, 0.0, 0 },
+    { -1.0, 1.0, 0.0, TSD_ERR_INVALID_HYPERGEO },
+    { 0.0, 1.0, 0.0, TSD_ERR_INVALID_HYPERGEO },
+    { 1.0, -4.9406564584124654e-324, 0.0, TSD_ERR_INVALID_HYPERGEO },
+    { NAN, 1.0, 0.0, TSD_ERR_INVALID_HYPERGEO },
+    { 1.0, NAN, 0.0, TSD_ERR_INVALID_HYPERGEO },
+};
+
+/* Expected values of the reference implementation */
+static const sf_hyperu_case_t hyperu_laplace_cases[] = {
+    { 1.0, 2.0, 1.0, 1.1102230246251565e-16, -1.0, 0 },
+    { 1.0, 1.0, 1.0, -0.5016052919180235, -0.6944271909999159, 0 },
+    { 0.5, 30.0, 0.001, 267.79385089219738, -28998.983352647308, 0 },
+    { 50.0, 51.0, 1000.0, -345.38776394910684, -0.049999999999999996, 0 },
+    { 0.001, 1.0, 100000000.0, -0.018420680743962414, -9.9999999998999994e-12, 0 },
+    { 1.0, INFINITY, 1.0, NAN, NAN, 0 },
+    { 4.9406564584124654e-324, 1.0, 1.0, 0.0, -4.9406564584124654e-324, 0 },
+    { 1.0, 0.99999999999999989, 1.0, 0.0, 0.0, TSD_ERR_INVALID_HYPERGEO },
+    { 0.0, 1.0, 1.0, 0.0, 0.0, TSD_ERR_INVALID_HYPERGEO },
+    { NAN, 2.0, 1.0, 0.0, 0.0, TSD_ERR_INVALID_HYPERGEO },
+    { 1.0, 2.0, 0.0, 0.0, 0.0, TSD_ERR_INVALID_HYPERGEO },
+    { 1.0, 2.0, NAN, 0.0, 0.0, TSD_ERR_INVALID_HYPERGEO },
+    { 1.0, 2.0, 1.0000000000000001e+300, 0.0, 0.0, TSD_ERR_ZERO_DIVISION },
+    { 1.0, 2.0, INFINITY, 0.0, 0.0, TSD_ERR_ZERO_DIVISION },
+    { 1.0, 2.0, 4.9406564584124654e-324, 0.0, 0.0, TSD_ERR_ZERO_DIVISION },
+    { 4.9406564584124654e-324, 1.0, 10.0, 0.0, 0.0, TSD_ERR_ZERO_DIVISION },
+};
+
+/* Expected values of the reference implementation */
+static const sf_case3_t hyp1f1_laplace_cases[] = {
+    { 1.0, 2.0, 1.0, 0.5335775438918825, 0 },
+    { 1.0, 2.0, 0.0, 0.0, 0 },
+    { 1.0, 2.0, -0.0, 0.0, 0 },
+    { 0.5, 30.0, -1000.0, -1.7799338025575939, 0 },
+    { 50.0, 1050.0, 1000.0, 97.194122480810705, 0 },
+    { 0.001, 1.0009999999999999, 1e-10, 9.9826374162340947e-14, 0 },
+    { 1.0, 2.0, NAN, NAN, 0 },
+    { 1.0, 2.0, INFINITY, NAN, 0 },
+    { 1.0, 2.0, 1.0000000000000001e+300, -INFINITY, 0 },
+    { 1.0, 1.0, 1.0, 0.0, TSD_ERR_INVALID_HYPERGEO },
+    { 0.0, 1.0, 0.0, 0.0, TSD_ERR_INVALID_HYPERGEO },
+    { NAN, 2.0, 1.0, 0.0, TSD_ERR_INVALID_HYPERGEO },
+    { 1e-10, 2.0000000000000001e-10, 100000000.0, 0.0, TSD_ERR_ZERO_DIVISION },
+};
+
+/* Expected values of the reference implementation */
+static const sf_case4_t hyp2f1_laplace_cases[] = {
+    { 1.0, 2.0, 3.0, 0.5, 0.43844776148964582, 0 },
+    { 5.0, 7.0, 9.0, 0.90000000000000002, 8.1454130153612532, 0 },
+    { 30.0, 40.0, 35.0, 1e-08, 3.4285713113035854e-07, 0 },
+    { 0.0, 1.0, 1.0, 0.0, 0.0, 0 },
+    { 1.0, 2.0, 3.0, -0.5, -0.27842079965849342, 0 },
+    { 0.5, 30.0, 1.5, -100.0, -4.0851309087682068, 0 },
+    { 2.0, 3.0, 4.0, 0.99999998999999995, 19.519293027595719, 0 },
+    { 1.0, 2.0, 5.0, 0.99999998999999995, 0.69314718055994551, 0 },
+    { 1.0, 2.0, 3.0, 0.99999998999999995, 3.6066211672149588, 0 },
+    { 2.0, 3.0, 4.0, -100000000.0, -35.742749223159137, 0 },
+    { 3.0, 2.0, 5.0, -100000000.0, -35.049602038676674, 0 },
+    { 2.0, 2.0, 5.0, -100000000.0, -31.44298087085901, 0 },
+    { 1.0, 2.0, 3.0, -10000000000000000.0, 0.0, TSD_ERR_INVALID_HYPERGEO },
+    { 1.0, 2.0, 0.0, 0.5, 0.0, TSD_ERR_INVALID_HYPERGEO },
+    { -1.0, 2.0, 3.0, 0.5, 0.0, TSD_ERR_INVALID_HYPERGEO },
+    { 1.0, -1.0, 3.0, 0.5, 0.0, TSD_ERR_INVALID_HYPERGEO },
+    { 2.0, 1.0, 1.0, 0.5, 0.0, TSD_ERR_INVALID_HYPERGEO },
+    { 1.0, 2.0, 3.0, 1.0, 0.0, TSD_ERR_INVALID_HYPERGEO },
+    { 1.0, 2.0, 3.0, NAN, 0.0, TSD_ERR_INVALID_HYPERGEO },
+    { 0.0, 1.0, 1.0, 0.5, 0.0, TSD_ERR_INVALID_HYPERGEO },
+    { 1.0, 2.0, 1.0, 0.5, 0.0, TSD_ERR_INVALID_HYPERGEO },
+    { 0.0, 1.0, 1e-300, 0.5, 0.0, TSD_ERR_ZERO_DIVISION },
+    { 1.1774154985086274, 504.40824624062162, 1.1774154985086274, 0.14271801659243741,
+        0.0, TSD_ERR_ZERO_DIVISION },
+};
+
+/* scipy.special.gammaincinv (SciPy 1.18.1); 0 for p = 0, infinity for p = 1 and NaN
+ * outside the domain */
+static const sf_ref2_t gammaincinv_cases[] = {
+    { 0.99999999999999989, 0.5, 0.69314718055994506 },
+    { 0.0018725572425875394, 0.93432222410629528, 9.8708778280225384e-17 },
+    { 1.4851015014453666e-07, 0.99989259056538193, 4.2708929514115105e-315 },
+    { 9.9999999999999694e-311, 0.95988221384026817, NAN },
+    { 9.9999999999999694e-311, 0.56112084484672486, NAN },
+    { 1.0, 0.64358723829337949, 1.0316657767689139 },
+    { 1.3693230946091463e+32, 0.84677972577643534, 1.3693230946091465e+32 },
+    { 3.3463277181277915, 0.99999999999894673, 34.949768724325295 },
+    { 22.041778641418698, 0.093156553752253735, 16.126803358230266 },
+    { 1e-10, 0.99999999999999989, 11.214230215647511 },
+    { 2.0, 4.9406564584124654e-324, 3.1434555694052403e-162 },
+    { 1000.0, 1e-300, 233.92836429052818 },
+    { 1000.0, 0.999, 1100.5780982933145 },
+    { 0.67948734660549959, 0.7818881580083944, 1.0450131885835172 },
+    { 0.024285952691655305, 0.99728941525830839, 1.4475359182943457 },
+    { 0.033000366354340456, 0.98377018057938537, 0.5706929538725517 },
+    { 32.69007854626318, 0.99999999999999645, 98.692064965782848 },
+    { 1e-300, 0.99999999989999999, 0.0 },
+    { 1.0000000000000001e+300, 4.9406564584124654e-324, 1.0000000000000001e+300 },
+    { 1e-300, 0.0, 0.0 },
+    { 1e-300, 1.0, INFINITY },
+    { 1e-300, 1.0000000000000002, NAN },
+    { 1.0, 4.9406564584124654e-324, 4.9406564584124654e-324 },
+    { 1000000.0, 9.9999999999999995e-21, 990765.90325837862 },
+    { INFINITY, 4.9406564584124654e-324, NAN },
+    { 2907.5441489134673, 0.85784200187994619, 2965.322214703659 },
+    { 64.283331812787964, 0.98660725921411685, 83.323363883964191 },
+    { 0.0024060602718259248, 0.17939292031798137, 4.1575279095986522e-311 },
+    { 1e-300, -0.10000000000000001, NAN },
+    { 1e-10, 0.99999999989999999, 0.2647369819114741 },
+    { 0.5, 0.999, 5.4137830853313664 },
+    { 100.0, 1e-300, 0.038006988916941875 },
+    { 1000.0, 0.99999999989999999, 1214.4995558668779 },
+    { 0.0, 4.9406564584124654e-324, NAN },
+    { -1.0, 0.0, NAN },
+    { NAN, 0.5, NAN },
+    { 2.0, NAN, NAN },
+    { 0.0001, 0.25, 0.0 },
+    { 0.5, 0.25, 0.050765522133810782 },
+    { 3.0, 0.94999999999999996, 6.2957936218719883 },
+};
+
+/* mpmath psi(0, x) at 15 digits */
+static const sf_ref1_t digamma_mpmath[] = {
+    { -0.29999999999999999, 2.113309779635399 },
+    { 1e-10, -10000000000.577215 },
+    { 9.9999999999999995e-07, -1000000.57721402 },
+    { 0.01, -100.56088545786866 },
+    { 10.0, 2.2517525890667209 },
+    { 100.0, 4.6001618527380872 },
+    { 1000.0, 6.907255195648812 },
+    { 100000.0, 11.512920464961896 },
+    { 10000000000.0, 23.025850929890456 },
+};
+
+/* mpmath psi(1, x) at 15 digits */
+static const sf_ref1_t trigamma_mpmath[] = {
+    { -0.29999999999999999, 13.945160267805722 },
+    { 1e-10, 1e+20 },
+    { 9.9999999999999995e-07, 1000000000001.645 },
+    { 0.01, 10001.621213528313 },
+    { 10.0, 0.10516633568168575 },
+    { 100.0, 0.010050166663333571 },
+    { 1000.0, 0.0010005001666666333 },
+    { 100000.0, 1.0000050000166667e-05 },
+    { 10000000000.0, 1.00000000005e-10 },
+};
+
+/* Real part of mpmath log(beta(p, q)) at 15 digits */
+static const sf_ref2_t betaln_mpmath[] = {
+    { -0.29999999999999999, -0.59999999999999998, 0.41427032493334498 },
+    { 1e-10, 2.0000000000000001e-10, 23.431316038048621 },
+    { 9.9999999999999995e-07, 1.9999999999999999e-06, 14.220975666069149 },
+    { 0.01, 0.02, 5.0103133506979862 },
+    { 10.0, 20.0, -19.115327299887046 },
+    { 100.0, 200.0, -192.13419227497894 },
+    { 1000.0, 2000.0, -1911.8746142144516 },
+    { 100000.0, 200000.0, -190958.88527911686 },
+    { 10000000000.0, 20000000000.0, -19095425059.235638 },
+};
+
+/* Log of mpmath hyp2f1 at 15 digits */
+static const sf_ref4_t hyp2f1_laplace_mpmath[] = {
+    { 984.72000000000003, 1954.22, 985.72000000000003, -1.1392534691231597,
+        -1478.1738051381913 },
+    { 936.02999999999997, 1834.8299999999999, 938.02999999999997, -1.0739817123857025,
+        -1330.0059628227482 },
+    { 413.54000000000002, 451.48000000000002, 414.54000000000002, -12.853557923685116,
+        -1181.3138708305196 },
+    { 544.64999999999998, 1292.75, 545.64999999999998, -0.71439839463641541,
+        -693.46877093725595 },
+    { 21.898, 43.078000000000003, 22.898, -1.2310276509604619, -31.917963510674785 },
+    { 1000.0, 1007.931, 1001.0, -129.62015503875969, -4904.8528786755833 },
+    { 42.006999999999998, 119.15700000000001, 43.006999999999998, -0.70922612322041212,
+        -59.975223456559483 },
+    { 130.68000000000001, 1122.1800000000001, 132.68000000000001, -0.1533946760574047,
+        -152.42035404495687 },
+    { 121.70999999999999, 802.61000000000001, 124.70999999999999, -0.80594900849858353,
+        -303.45631195318833 },
+};
+
+/* Log of mpmath hyp2f1 at 15 digits, for z / (z - 1) close to one */
+static const sf_ref4_t hyp2f1_laplace_unity_mpmath[] = {
+    { 0.0012723999999999999, 202.86627240000001, 1.0012724, -6614020190.5935307,
+        -0.036261751566401573 },
+    { 0.0012612000000000001, 1001.9992612000001, 3.0012612000000001, -141574796.04867145,
+        -0.031220448825817738 },
+    { 0.0011992999999999999, 157.77919929999999, 1.0011992999999999, -1146235430.4403243,
+        -0.031774253197474109 },
+    { 0.00097179999999999999, 1000.0009718, 1.0009718000000001, -158137496.57453805,
+        -0.025619221224780213 },
+    { 0.00097110000000000002, 405.48297110000004, 1.0009710999999999,
+        -276526839.68553674, -0.025266157355002965 },
+    { 0.0015548999999999999, 115.7745549, 1.0015548999999999, -31061255169.177708,
+        -0.045842304967148521 },
+    { 0.0010028000000000001, 73.491902799999991, 1.0010028, -53058551695.758659,
+        -0.029644174580337579 },
+    { 0.0015053, 19.999605300000002, 2.0015052999999998, -178245782075.18933,
+        -0.042831241419712583 },
+};
+
+/* Log of mpmath hyperu at 15 digits, and its derivative with respect to x */
+static const sf_hyperu_ref_t hyperu_laplace_mpmath[] = {
+    { 1.0, 4.3380000000000001, 0.7752291021399601, 2.6258894260525927,
+        -3.3991838624960096 },
+    { 1.0, 4.6779999999999999, 0.76981102428276016, 3.1203053508031515,
+        -3.8351394948119681 },
+    { 2.0, 5.9990000000000006, 5.1995955076999998, -2.202169012479116,
+        -0.57735145331711235 },
+    { 9.0, 14.251000000000001, 2.5473150302860001, -1.5490292494382205,
+        -4.9021077003749038 },
+    { 4.0, 18.460000000000001, 11.246026052960001, -3.7214576615414909,
+        -0.90331659933332087 },
+    { 2.0, 2.9990000000000001, 3.7769370770299999, -2.6582253243210303,
+        -0.52944685391153801 },
+};
+
+/* Log of mpmath hyp1f1 at 15 digits */
+static const sf_ref3_t hyp1f1_laplace_mpmath[] = {
+    { 132.47999999999999, 133.47999999999999, 170.98504810547999, 170.15807254764488 },
+    { 997.09000000000003, 999.09000000000003, 1492.6979568568001, 1490.8690564465708 },
+    { 978.24000000000001, 979.24000000000001, 1031.693903284, 1030.9740566223463 },
+    { 713.51999999999998, 722.51999999999998, 739.07796118750002, 732.72108850452321 },
+    { 999.99000000000001, 1003.99, 2916.7083719407506, 2911.2536982489523 },
+    { 989.08000000000004, 992.08000000000004, 1125.8335771375, 1123.5567170478762 },
+    { 28.545999999999999, 29.545999999999999, 38.4316856035, 37.587465253533537 },
+    { 30.956, 31.956, 28.834237509375001, 28.184054387129486 },
+};
+
+static void
+test_digamma(void)
+{
+    const size_t num_cases = sizeof(digamma_cases) / sizeof(*digamma_cases);
+    const size_t num_refs = sizeof(digamma_mpmath) / sizeof(*digamma_mpmath);
+    const sf_case1_t *row;
+    double value;
+    size_t j;
+    int ret;
+
+    for (j = 0; j < num_cases; j++) {
+        row = &digamma_cases[j];
+        ret = tsd_digamma(row->x, &value);
+        CU_ASSERT_EQUAL(ret, row->ret);
+        if (ret == 0) {
+            assert_close_ulps(value, row->expected, ULPS);
+        }
     }
-    /* NaN is in-band */
-    ret = tsd_digamma(NAN, &value);
-    CU_ASSERT_EQUAL(ret, 0);
-    CU_ASSERT(isnan(value));
-    ret = tsd_trigamma(NAN, &value);
-    CU_ASSERT_EQUAL(ret, 0);
-    CU_ASSERT(isnan(value));
+    for (j = 0; j < num_refs; j++) {
+        ret = tsd_digamma(digamma_mpmath[j].x, &value);
+        CU_ASSERT_EQUAL_FATAL(ret, 0);
+        assert_close_tol(
+            value, digamma_mpmath[j].expected, POLYGAMMA_RTOL, POLYGAMMA_ATOL);
+    }
 }
 
 static void
-test_polygamma_poles(void)
+test_trigamma(void)
 {
+    const size_t num_cases = sizeof(trigamma_cases) / sizeof(*trigamma_cases);
+    const size_t num_refs = sizeof(trigamma_mpmath) / sizeof(*trigamma_mpmath);
+    const sf_case1_t *row;
     double value;
+    size_t j;
     int ret;
 
-    ret = tsd_digamma(0.0, &value);
-    CU_ASSERT_EQUAL(ret, TSD_ERR_ZERO_DIVISION);
-    ret = tsd_trigamma(0.0, &value);
-    CU_ASSERT_EQUAL(ret, TSD_ERR_ZERO_DIVISION);
-    /* x ** 2 underflows to zero */
-    ret = tsd_trigamma(1e-300, &value);
-    CU_ASSERT_EQUAL(ret, TSD_ERR_ZERO_DIVISION);
+    for (j = 0; j < num_cases; j++) {
+        row = &trigamma_cases[j];
+        ret = tsd_trigamma(row->x, &value);
+        CU_ASSERT_EQUAL(ret, row->ret);
+        if (ret == 0) {
+            assert_close_ulps(value, row->expected, ULPS);
+        }
+    }
+    for (j = 0; j < num_refs; j++) {
+        ret = tsd_trigamma(trigamma_mpmath[j].x, &value);
+        CU_ASSERT_EQUAL_FATAL(ret, 0);
+        assert_close_tol(
+            value, trigamma_mpmath[j].expected, POLYGAMMA_RTOL, POLYGAMMA_ATOL);
+    }
 }
 
 static void
 test_betaln(void)
 {
-    double value = tsd_betaln(2.0, 3.0);
+    const size_t num_cases = sizeof(betaln_cases) / sizeof(*betaln_cases);
+    const size_t num_refs = sizeof(betaln_mpmath) / sizeof(*betaln_mpmath);
+    const sf_ref2_t *row;
+    double value;
+    size_t j;
 
-    CU_ASSERT_DOUBLE_EQUAL(value, log(1.0 / 12.0), 1e-12);
+    for (j = 0; j < num_cases; j++) {
+        row = &betaln_cases[j];
+        value = tsd_betaln(row->x, row->y);
+        assert_close_ulps(value, row->expected, ULPS);
+    }
+    for (j = 0; j < num_refs; j++) {
+        row = &betaln_mpmath[j];
+        value = tsd_betaln(row->x, row->y);
+        assert_close_tol(value, row->expected, POLYGAMMA_RTOL, POLYGAMMA_ATOL);
+    }
 }
 
 static void
 test_gammainc_der(void)
 {
-    /*
-     * x == 0, x > xbig, gaussian, series and continued fraction regimes, and a
-     * continued fraction that is rescaled to avoid overflow
-     */
-    const double points[][2] = { { 1.0, 0.0 }, { 5.0, 1e9 }, { 2000.0, 2000.0 },
-        { 2.0, 1.5 }, { 5.0, 50.0 }, { 100.0, 110.0 } };
-    const int num_points = (int) (sizeof(points) / sizeof(points[0]));
+    const size_t num_cases = sizeof(gammainc_der_cases) / sizeof(*gammainc_der_cases);
+    const sf_case2_t *row;
     double value;
-    int j, ret;
-
-    for (j = 0; j < num_points; j++) {
-        ret = tsd_gammainc_der(points[j][0], points[j][1], &value);
-        CU_ASSERT_EQUAL(ret, 0);
-        CU_ASSERT(isfinite(value));
-    }
-    /* Series or continued fraction with a very small value: truncated to zero */
-    ret = tsd_gammainc_der(50.0, 1e-3, &value);
-    CU_ASSERT_EQUAL(ret, 0);
-    CU_ASSERT_EQUAL(value, 0.0);
-    ret = tsd_gammainc_der(5.0, 800.0, &value);
-    CU_ASSERT_EQUAL(ret, 0);
-    CU_ASSERT_EQUAL(value, 0.0);
-}
-
-static void
-test_gammainc_der_errors(void)
-{
-    double value;
+    size_t j;
     int ret;
 
-    ret = tsd_gammainc_der(-1.0, 1.0, &value);
-    CU_ASSERT_EQUAL(ret, TSD_ERR_INVALID_HYPERGEO);
-    ret = tsd_gammainc_der(1.0, -1.0, &value);
-    CU_ASSERT_EQUAL(ret, TSD_ERR_INVALID_HYPERGEO);
-    ret = tsd_gammainc_der(NAN, 1.0, &value);
-    CU_ASSERT_EQUAL(ret, TSD_ERR_INVALID_HYPERGEO);
+    for (j = 0; j < num_cases; j++) {
+        row = &gammainc_der_cases[j];
+        ret = tsd_gammainc_der(row->p, row->x, &value);
+        CU_ASSERT_EQUAL(ret, row->ret);
+        if (ret == 0) {
+            assert_close_ulps(value, row->expected, ULPS);
+        }
+    }
 }
 
 static void
 test_hyperu_laplace(void)
 {
+    const size_t num_cases
+        = sizeof(hyperu_laplace_cases) / sizeof(*hyperu_laplace_cases);
+    const size_t num_refs
+        = sizeof(hyperu_laplace_mpmath) / sizeof(*hyperu_laplace_mpmath);
+    const sf_hyperu_case_t *row;
+    const sf_hyperu_ref_t *ref;
     double value, dvalue;
+    size_t j;
     int ret;
 
-    ret = tsd_hyperu_laplace(1.0, 2.0, 1.0, &value, &dvalue);
-    CU_ASSERT_EQUAL(ret, 0);
-    CU_ASSERT(isfinite(value));
-    CU_ASSERT(isfinite(dvalue));
-}
-
-static void
-test_hyperu_laplace_errors(void)
-{
-    double value, dvalue;
-    int ret;
-
-    ret = tsd_hyperu_laplace(1.0, 0.5, 1.0, &value, &dvalue);
-    CU_ASSERT_EQUAL(ret, TSD_ERR_INVALID_HYPERGEO);
-    ret = tsd_hyperu_laplace(0.0, 1.0, 1.0, &value, &dvalue);
-    CU_ASSERT_EQUAL(ret, TSD_ERR_INVALID_HYPERGEO);
-    ret = tsd_hyperu_laplace(1.0, 2.0, 0.0, &value, &dvalue);
-    CU_ASSERT_EQUAL(ret, TSD_ERR_INVALID_HYPERGEO);
-    ret = tsd_hyperu_laplace(1.0, 2.0, NAN, &value, &dvalue);
-    CU_ASSERT_EQUAL(ret, TSD_ERR_INVALID_HYPERGEO);
-    /* The Laplace root divides by zero */
-    ret = tsd_hyperu_laplace(1.0, 2.0, 1e300, &value, &dvalue);
-    CU_ASSERT_EQUAL(ret, TSD_ERR_ZERO_DIVISION);
-    ret = tsd_hyperu_laplace(1.0, 2.0, INFINITY, &value, &dvalue);
-    CU_ASSERT_EQUAL(ret, TSD_ERR_ZERO_DIVISION);
+    for (j = 0; j < num_cases; j++) {
+        row = &hyperu_laplace_cases[j];
+        ret = tsd_hyperu_laplace(row->a, row->b, row->x, &value, &dvalue);
+        CU_ASSERT_EQUAL(ret, row->ret);
+        if (ret == 0) {
+            assert_close_ulps(value, row->value, ULPS);
+            assert_close_ulps(dvalue, row->dvalue, ULPS);
+        }
+    }
+    for (j = 0; j < num_refs; j++) {
+        ref = &hyperu_laplace_mpmath[j];
+        ret = tsd_hyperu_laplace(ref->a, ref->b, ref->x, &value, &dvalue);
+        CU_ASSERT_EQUAL_FATAL(ret, 0);
+        assert_close_tol(value, ref->value, LAPLACE_RTOL, LAPLACE_ATOL);
+        assert_close_tol(dvalue, ref->dvalue, HYPERU_DERIVATIVE_RTOL, LAPLACE_ATOL);
+    }
 }
 
 static void
 test_hyp1f1_laplace(void)
 {
+    const size_t num_cases
+        = sizeof(hyp1f1_laplace_cases) / sizeof(*hyp1f1_laplace_cases);
+    const size_t num_refs
+        = sizeof(hyp1f1_laplace_mpmath) / sizeof(*hyp1f1_laplace_mpmath);
+    const sf_case3_t *row;
+    const sf_ref3_t *ref;
     double value;
+    size_t j;
     int ret;
 
-    ret = tsd_hyp1f1_laplace(1.0, 2.0, 1.0, &value);
-    CU_ASSERT_EQUAL(ret, 0);
-    CU_ASSERT(isfinite(value));
-    ret = tsd_hyp1f1_laplace(1.0, 2.0, 0.0, &value);
-    CU_ASSERT_EQUAL(ret, 0);
-    CU_ASSERT_EQUAL(value, 0.0);
+    for (j = 0; j < num_cases; j++) {
+        row = &hyp1f1_laplace_cases[j];
+        ret = tsd_hyp1f1_laplace(row->a, row->b, row->x, &value);
+        CU_ASSERT_EQUAL(ret, row->ret);
+        if (ret == 0) {
+            assert_close_ulps(value, row->expected, ULPS);
+        }
+    }
+    for (j = 0; j < num_refs; j++) {
+        ref = &hyp1f1_laplace_mpmath[j];
+        ret = tsd_hyp1f1_laplace(ref->a, ref->b, ref->x, &value);
+        CU_ASSERT_EQUAL_FATAL(ret, 0);
+        assert_close_tol(value, ref->expected, LAPLACE_RTOL, LAPLACE_ATOL);
+    }
 }
 
+/* Compare tsd_hyp2f1_laplace with `num_refs` mpmath values to within `rtol`. */
 static void
-test_hyp1f1_laplace_errors(void)
+check_hyp2f1_laplace_mpmath(const sf_ref4_t *refs, size_t num_refs, double rtol)
 {
     double value;
+    size_t j;
     int ret;
 
-    ret = tsd_hyp1f1_laplace(1.0, 1.0, 1.0, &value);
-    CU_ASSERT_EQUAL(ret, TSD_ERR_INVALID_HYPERGEO);
-    ret = tsd_hyp1f1_laplace(0.0, 1.0, 1.0, &value);
-    CU_ASSERT_EQUAL(ret, TSD_ERR_INVALID_HYPERGEO);
-    ret = tsd_hyp1f1_laplace(1e-10, 2e-10, 1e8, &value);
-    CU_ASSERT_EQUAL(ret, TSD_ERR_ZERO_DIVISION);
+    for (j = 0; j < num_refs; j++) {
+        ret = tsd_hyp2f1_laplace(refs[j].a, refs[j].b, refs[j].c, refs[j].x, &value);
+        CU_ASSERT_EQUAL_FATAL(ret, 0);
+        assert_close_tol(value, refs[j].expected, rtol, LAPLACE_ATOL);
+    }
 }
 
 static void
 test_hyp2f1_laplace(void)
 {
-    /* The interior, z < 0 and the three unity limits, including negative z */
-    const double args[][4] = { { 1.0, 2.0, 3.0, 0.5 }, { 1.0, 2.0, 3.0, -0.5 },
-        { 1.0, 2.0, 3.0, 0.0 }, { 2.0, 3.0, 4.0, 1 - 1e-8 }, { 1.0, 2.0, 5.0, 1 - 1e-8 },
-        { 1.0, 2.0, 3.0, 1 - 1e-8 }, { 2.0, 3.0, 4.0, -1e8 }, { 3.0, 2.0, 5.0, -1e8 },
-        { 2.0, 2.0, 5.0, -1e8 } };
-    const int num_args = (int) (sizeof(args) / sizeof(args[0]));
+    const size_t num_cases
+        = sizeof(hyp2f1_laplace_cases) / sizeof(*hyp2f1_laplace_cases);
+    const size_t num_refs
+        = sizeof(hyp2f1_laplace_mpmath) / sizeof(*hyp2f1_laplace_mpmath);
+    const size_t num_unity_refs
+        = sizeof(hyp2f1_laplace_unity_mpmath) / sizeof(*hyp2f1_laplace_unity_mpmath);
+    const sf_case4_t *row;
     double value;
-    int j, ret;
-
-    for (j = 0; j < num_args; j++) {
-        ret = tsd_hyp2f1_laplace(args[j][0], args[j][1], args[j][2], args[j][3], &value);
-        CU_ASSERT_EQUAL(ret, 0);
-        CU_ASSERT(isfinite(value));
-    }
-}
-
-static void
-test_hyp2f1_laplace_errors(void)
-{
-    double value;
+    size_t j;
     int ret;
 
-    /* Each condition of the domain, and the root on the boundary */
-    ret = tsd_hyp2f1_laplace(1.0, 2.0, 0.0, 0.5, &value);
-    CU_ASSERT_EQUAL(ret, TSD_ERR_INVALID_HYPERGEO);
-    ret = tsd_hyp2f1_laplace(-1.0, 2.0, 3.0, 0.5, &value);
-    CU_ASSERT_EQUAL(ret, TSD_ERR_INVALID_HYPERGEO);
-    ret = tsd_hyp2f1_laplace(1.0, -1.0, 3.0, 0.5, &value);
-    CU_ASSERT_EQUAL(ret, TSD_ERR_INVALID_HYPERGEO);
-    ret = tsd_hyp2f1_laplace(2.0, 1.0, 1.0, 0.5, &value);
-    CU_ASSERT_EQUAL(ret, TSD_ERR_INVALID_HYPERGEO);
-    ret = tsd_hyp2f1_laplace(1.0, 2.0, 3.0, 1.0, &value);
-    CU_ASSERT_EQUAL(ret, TSD_ERR_INVALID_HYPERGEO);
-    ret = tsd_hyp2f1_laplace(0.0, 1.0, 1.0, 0.5, &value);
-    CU_ASSERT_EQUAL(ret, TSD_ERR_INVALID_HYPERGEO);
-    /* z / (z - 1) rounds to one, outside the domain of the unity limit */
-    ret = tsd_hyp2f1_laplace(1.0, 2.0, 3.0, -1e16, &value);
-    CU_ASSERT_EQUAL(ret, TSD_ERR_INVALID_HYPERGEO);
-    /* The Laplace root divides by zero */
-    ret = tsd_hyp2f1_laplace(0.0, 1.0, 1e-300, 0.5, &value);
-    CU_ASSERT_EQUAL(ret, TSD_ERR_ZERO_DIVISION);
-    /* c == a, with a root that rounds into (0, 1) */
-    ret = tsd_hyp2f1_laplace(1.1774154985086274, 504.4082462406216, 1.1774154985086274,
-        0.1427180165924374, &value);
-    CU_ASSERT_EQUAL(ret, TSD_ERR_ZERO_DIVISION);
+    for (j = 0; j < num_cases; j++) {
+        row = &hyp2f1_laplace_cases[j];
+        ret = tsd_hyp2f1_laplace(row->a, row->b, row->c, row->x, &value);
+        CU_ASSERT_EQUAL(ret, row->ret);
+        if (ret == 0) {
+            assert_close_ulps(value, row->expected, ULPS);
+        }
+    }
+    check_hyp2f1_laplace_mpmath(hyp2f1_laplace_mpmath, num_refs, LAPLACE_RTOL);
+    check_hyp2f1_laplace_mpmath(hyp2f1_laplace_unity_mpmath, num_unity_refs, UNITY_RTOL);
 }
 
 static void
 test_gammaincinv(void)
 {
-    CU_ASSERT(isfinite(tsd_gammaincinv(0.5, 0.25)));
-    CU_ASSERT(isfinite(tsd_gammaincinv(1.0, 0.5)));
-    CU_ASSERT(isfinite(tsd_gammaincinv(3.0, 0.95)));
-    CU_ASSERT(isfinite(tsd_gammaincinv(1e4, 1e-10)));
-    CU_ASSERT_EQUAL(tsd_gammaincinv(2.0, 0.0), 0.0);
-    CU_ASSERT(isinf(tsd_gammaincinv(2.0, 1.0)));
-    /* p ** (1 / a) underflows */
-    CU_ASSERT_EQUAL(tsd_gammaincinv(1e-4, 0.25), 0.0);
-    CU_ASSERT(isnan(tsd_gammaincinv(NAN, 0.5)));
-    CU_ASSERT(isnan(tsd_gammaincinv(2.0, NAN)));
-    CU_ASSERT(isnan(tsd_gammaincinv(-1.0, 0.5)));
-    CU_ASSERT(isnan(tsd_gammaincinv(2.0, 1.5)));
+    const size_t num_cases = sizeof(gammaincinv_cases) / sizeof(*gammaincinv_cases);
+    const sf_ref2_t *row;
+    double value;
+    size_t j;
+
+    for (j = 0; j < num_cases; j++) {
+        row = &gammaincinv_cases[j];
+        value = tsd_gammaincinv(row->x, row->y);
+        assert_close_tol(value, row->expected, GAMMAINCINV_RTOL, 0);
+    }
 }
 
 static void
@@ -3273,17 +3636,13 @@ main(int argc, char **argv)
         { "test_strerror_unknown", test_strerror_unknown },
         { "test_trace_error", test_trace_error },
         { "test_safe_free", test_safe_free },
-        { "test_polygamma", test_polygamma },
-        { "test_polygamma_poles", test_polygamma_poles },
+        { "test_digamma", test_digamma },
+        { "test_trigamma", test_trigamma },
         { "test_betaln", test_betaln },
         { "test_gammainc_der", test_gammainc_der },
-        { "test_gammainc_der_errors", test_gammainc_der_errors },
         { "test_hyperu_laplace", test_hyperu_laplace },
-        { "test_hyperu_laplace_errors", test_hyperu_laplace_errors },
         { "test_hyp1f1_laplace", test_hyp1f1_laplace },
-        { "test_hyp1f1_laplace_errors", test_hyp1f1_laplace_errors },
         { "test_hyp2f1_laplace", test_hyp2f1_laplace },
-        { "test_hyp2f1_laplace_errors", test_hyp2f1_laplace_errors },
         { "test_gammaincinv", test_gammaincinv },
         { "test_approximate_log_moments", test_approximate_log_moments },
         { "test_approximate_gamma_kl", test_approximate_gamma_kl },
