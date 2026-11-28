@@ -50,7 +50,6 @@ dependencies = [
     "tskit>=1.0.0",
     "numpy",
     "scipy>=1.13.0",
-    "mpmath",
     "tqdm",
     "appdirs",
 ]

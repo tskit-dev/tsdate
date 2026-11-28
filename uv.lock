@@ -1894,15 +1894,6 @@ wheels = [
 ]
 
 [[package]]
-name = "mpmath"
-version = "1.4.1"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/c5/b0/6de8e78014ff1842a90cc9a56da6ccfb598a5390ed0257fcdb7d9680c18b/mpmath-1.4.1.tar.gz", hash = "sha256:efd6d1b75f09d69524a67609949812668b28e81ecbfe0ab449ced8c13e92642e", size = 2093211, upload-time = "2026-03-15T01:17:38.245Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/13/f2/abeec3db71d221ccd3cd89d206be1fabf5a3ee7178862f5fba23a59607e0/mpmath-1.4.1-py3-none-any.whl", hash = "sha256:dc4f0ea2304480d4a9a48a94c1020571558ade522b44a6912efac63a586e140f", size = 567787, upload-time = "2026-03-15T01:17:36.392Z" },
-]
-
-[[package]]
 name = "msprime"
 version = "1.4.4"
 source = { registry = "https://pypi.org/simple" }
@@ -3798,7 +3789,6 @@ name = "tsdate"
 source = { editable = "." }
 dependencies = [
     { name = "appdirs" },
-    { name = "mpmath" },
     { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
     { name = "numpy", version = "2.5.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
     { name = "scipy", version = "1.17.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
@@ -3874,7 +3864,6 @@ wheels = [
 [package.metadata]
 requires-dist = [
     { name = "appdirs" },
-    { name = "mpmath" },
     { name = "numpy" },
     { name = "scipy", specifier = ">=1.13.0" },
     { name = "tqdm" },

@@ -6,3 +6,4 @@ matplotlib
 pandas
 psutil
 scipy
+mpmath
