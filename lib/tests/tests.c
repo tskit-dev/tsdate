@@ -751,137 +751,1417 @@ test_gammaincinv(void)
     }
 }
 
+/*
+ * Tables for the functions of approx.c. Each function is called through an adapter
+ * that takes its inputs and writes its outputs as arrays; the natural parameters of
+ * the projections are consecutive pairs of inputs.
+ */
+typedef int (*approx_func_t)(const double *in, double *out);
+
+/* Inputs, and the expected outputs or (nonzero) return code. */
+typedef struct {
+    double in[6];
+    double out[5];
+    int ret;
+} approx_row_t;
+
+#define NUM_ROWS(rows) (sizeof(rows) / sizeof(*(rows)))
+
+static void
+check_rows(
+    approx_func_t func, const approx_row_t *rows, size_t num_rows, size_t num_outputs)
+{
+    size_t j, k;
+    int ret;
+    double out[5];
+
+    for (j = 0; j < num_rows; j++) {
+        ret = func(rows[j].in, out);
+        CU_ASSERT_EQUAL(ret, rows[j].ret);
+        if (ret == 0 && rows[j].ret == 0) {
+            for (k = 0; k < num_outputs; k++) {
+                assert_close_ulps(out[k], rows[j].out[k], ULPS);
+            }
+        }
+    }
+}
+
+/*
+ * Compare with reference values to within `rtol` (and an absolute tolerance of 1e-8);
+ * the outputs whose bits are set in `sd_mask` are variances, compared as standard
+ * deviations.
+ */
+static void
+check_reference_rows(approx_func_t func, const approx_row_t *rows, size_t num_rows,
+    size_t num_outputs, unsigned int sd_mask, double rtol)
+{
+    size_t j, k;
+    int ret;
+    double out[5];
+    double actual, expected;
+
+    for (j = 0; j < num_rows; j++) {
+        ret = func(rows[j].in, out);
+        CU_ASSERT_EQUAL_FATAL(ret, 0);
+        for (k = 0; k < num_outputs; k++) {
+            actual = out[k];
+            expected = rows[j].out[k];
+            if (sd_mask & (1u << k)) {
+                actual = sqrt(actual);
+                expected = sqrt(expected);
+            }
+            assert_close_tol(actual, expected, rtol, 1e-8);
+        }
+    }
+}
+
+static int
+eval_log_moments(const double *in, double *out)
+{
+    return tsd_approximate_log_moments(in[0], in[1], out, out + 1, out + 2);
+}
+
+static int
+eval_gamma_kl(const double *in, double *out)
+{
+    return tsd_approximate_gamma_kl(in[0], in[1], out);
+}
+
+static int
+eval_gamma_mom(const double *in, double *out)
+{
+    return tsd_approximate_gamma_mom(in[0], in[1], out);
+}
+
+static int
+eval_gamma_iqr(const double *in, double *out)
+{
+    return tsd_approximate_gamma_iqr(in[0], in[1], in[2], in[3], in[4], out);
+}
+
+static int
+eval_valid_moments(const double *in, double *out)
+{
+    out[0] = tsd_valid_moments(in[0], in[1]);
+    return 0;
+}
+
+static int
+eval_valid_gamma(const double *in, double *out)
+{
+    out[0] = tsd_valid_gamma(in[0], in[1]);
+    return 0;
+}
+
+static int
+eval_moments(const double *in, double *out)
+{
+    return tsd_moments(in[0], in[1], in[2], in[3], in[4], in[5], out, out + 1, out + 2,
+        out + 3, out + 4);
+}
+
+static int
+eval_unphased_moments(const double *in, double *out)
+{
+    return tsd_unphased_moments(in[0], in[1], in[2], in[3], in[4], in[5], out, out + 1,
+        out + 2, out + 3, out + 4);
+}
+
+static int
+eval_rootward_moments(const double *in, double *out)
+{
+    return tsd_rootward_moments(
+        in[0], in[1], in[2], in[3], in[4], out, out + 1, out + 2);
+}
+
+static int
+eval_leafward_moments(const double *in, double *out)
+{
+    return tsd_leafward_moments(
+        in[0], in[1], in[2], in[3], in[4], out, out + 1, out + 2);
+}
+
+static int
+eval_sideways_moments(const double *in, double *out)
+{
+    return tsd_sideways_moments(
+        in[0], in[1], in[2], in[3], in[4], out, out + 1, out + 2);
+}
+
+static int
+eval_twin_moments(const double *in, double *out)
+{
+    return tsd_twin_moments(in[0], in[1], in[2], in[3], out, out + 1, out + 2);
+}
+
+static int
+eval_mutation_moments(const double *in, double *out)
+{
+    return tsd_mutation_moments(in[0], in[1], in[2], in[3], in[4], in[5], out, out + 1);
+}
+
+static int
+eval_mutation_rootward_moments(const double *in, double *out)
+{
+    return tsd_mutation_rootward_moments(
+        in[0], in[1], in[2], in[3], in[4], out, out + 1);
+}
+
+static int
+eval_mutation_leafward_moments(const double *in, double *out)
+{
+    return tsd_mutation_leafward_moments(
+        in[0], in[1], in[2], in[3], in[4], out, out + 1);
+}
+
+static int
+eval_mutation_unphased_moments(const double *in, double *out)
+{
+    return tsd_mutation_unphased_moments(
+        in[0], in[1], in[2], in[3], in[4], in[5], out, out + 1, out + 2);
+}
+
+static int
+eval_mutation_twin_moments(const double *in, double *out)
+{
+    return tsd_mutation_twin_moments(in[0], in[1], in[2], in[3], out, out + 1, out + 2);
+}
+
+static int
+eval_mutation_sideways_moments(const double *in, double *out)
+{
+    return tsd_mutation_sideways_moments(
+        in[0], in[1], in[2], in[3], in[4], out, out + 1, out + 2);
+}
+
+static int
+eval_mutation_edge_moments(const double *in, double *out)
+{
+    return tsd_mutation_edge_moments(in[0], in[1], out, out + 1);
+}
+
+static int
+eval_mutation_block_moments(const double *in, double *out)
+{
+    return tsd_mutation_block_moments(in[0], in[1], out, out + 1, out + 2);
+}
+
+static int
+eval_gamma_projection(const double *in, double *out)
+{
+    return tsd_gamma_projection(in, in + 2, in + 4, out, out + 1, out + 3);
+}
+
+static int
+eval_leafward_projection(const double *in, double *out)
+{
+    return tsd_leafward_projection(in[0], in + 1, in + 3, out, out + 1);
+}
+
+static int
+eval_rootward_projection(const double *in, double *out)
+{
+    return tsd_rootward_projection(in[0], in + 1, in + 3, out, out + 1);
+}
+
+static int
+eval_unphased_projection(const double *in, double *out)
+{
+    return tsd_unphased_projection(in, in + 2, in + 4, out, out + 1, out + 3);
+}
+
+static int
+eval_twin_projection(const double *in, double *out)
+{
+    return tsd_twin_projection(in, in + 2, out, out + 1);
+}
+
+static int
+eval_sideways_projection(const double *in, double *out)
+{
+    return tsd_sideways_projection(in[0], in + 1, in + 3, out, out + 1);
+}
+
+static int
+eval_mutation_gamma_projection(const double *in, double *out)
+{
+    return tsd_mutation_gamma_projection(in, in + 2, in + 4, out, out + 1);
+}
+
+static int
+eval_mutation_leafward_projection(const double *in, double *out)
+{
+    return tsd_mutation_leafward_projection(in[0], in + 1, in + 3, out, out + 1);
+}
+
+static int
+eval_mutation_rootward_projection(const double *in, double *out)
+{
+    return tsd_mutation_rootward_projection(in[0], in + 1, in + 3, out, out + 1);
+}
+
+static int
+eval_mutation_edge_projection(const double *in, double *out)
+{
+    return tsd_mutation_edge_projection(in[0], in[1], out, out + 1);
+}
+
+static int
+eval_mutation_unphased_projection(const double *in, double *out)
+{
+    return tsd_mutation_unphased_projection(in, in + 2, in + 4, out, out + 1);
+}
+
+static int
+eval_mutation_twin_projection(const double *in, double *out)
+{
+    return tsd_mutation_twin_projection(in, in + 2, out, out + 1);
+}
+
+static int
+eval_mutation_sideways_projection(const double *in, double *out)
+{
+    return tsd_mutation_sideways_projection(in[0], in + 1, in + 3, out, out + 1);
+}
+
+static int
+eval_mutation_block_projection(const double *in, double *out)
+{
+    return tsd_mutation_block_projection(in[0], in[1], out, out + 1);
+}
+
+/* Expected values of the reference implementation */
+static const approx_row_t log_moments_rows[] = {
+    { .in = { 1.0, 1.0 }, .out = { -0.5, 0.5, 1.0 } },
+    { .in = { 2.0, 0.5 },
+        .out = { 0.6306471805599453, 1.5112943611198906, 0.5188096163482082 } },
+    { .in = { 1e+300, 1e+300 },
+        .out = { 690.7755278982137, 6.907755278982137e+302, 477170.8299430558 } },
+    { .in = { 1e-100, 1e-100 }, .out = { -5e+99, 0.5, 2.312585092994046e+102 } },
+    { .in = { 0.0, 1.0 }, .ret = TSD_ERR_NONPOSITIVE_MOMENTS },
+    { .in = { -1.0, 1.0 }, .ret = TSD_ERR_NONPOSITIVE_MOMENTS },
+    { .in = { 1.0, NAN }, .ret = TSD_ERR_NONPOSITIVE_MOMENTS },
+    { .in = { INFINITY, 1.0 }, .out = { INFINITY, INFINITY, NAN } },
+    { .in = { 1.0, INFINITY }, .out = { -INFINITY, INFINITY, INFINITY } },
+    { .in = { 1e-200, 1.0 }, .ret = TSD_ERR_ZERO_DIVISION },
+    { .in = { 5e-324, 1.0 }, .ret = TSD_ERR_ZERO_DIVISION },
+};
+
+/* Expected values of the reference implementation */
+static const approx_row_t gamma_kl_rows[] = {
+    { .in = { 2.0, 0.5 }, .out = { 1.7439641139785955, 1.3719820569892978 } },
+    { .in = { 1.0, -0.5 }, .out = { 0.13772472714785322, 1.1377247271478532 } },
+    { .in = { 1.0, -1.0 }, .out = { -0.3844432335204093, 0.6155567664795907 } },
+    { .in = { 1.0, -10.0 }, .out = { -0.9169429520050368, 0.08305704799496319 } },
+    { .in = { 1.0, -1e+160 }, .out = { -1.0, 5e-161 } },
+    { .in = { 1e-300, -700.0 }, .out = { -0.9107243662191306, 8.927563378086943e+298 } },
+    { .in = { 1e+308, 709.0 }, .out = { 1.7033875448561395, 2.7033875448561395e-308 } },
+    { .in = { 100.0, 3.605170185988092 },
+        .out = { -0.3844432335204093, 0.0061555676647959065 } },
+    { .in = { 1.0, -1e-06 }, .out = { 499999.0, 500000.0 } },
+    { .in = { 1.0, -5.1e-05 }, .out = { 9803.088232501696, 9804.088232501696 } },
+    { .in = { 1.0, -5e-324 }, .out = { INFINITY, INFINITY } },
+    { .in = { 5e-324, -745.0 }, .out = { 0.02761135468838516, INFINITY } },
+    { .in = { 1.0, 0.0 }, .ret = TSD_ERR_JENSEN_VIOLATION },
+    { .in = { 1.0, NAN }, .ret = TSD_ERR_JENSEN_VIOLATION },
+    { .in = { 1.0, -INFINITY }, .ret = TSD_ERR_NONPOSITIVE_OR_NONFINITE_MOMENTS },
+    { .in = { 1.0, INFINITY }, .ret = TSD_ERR_NONPOSITIVE_OR_NONFINITE_MOMENTS },
+    { .in = { 0.0, -1.0 }, .ret = TSD_ERR_NONPOSITIVE_OR_NONFINITE_MOMENTS },
+    { .in = { INFINITY, -1.0 }, .ret = TSD_ERR_ZERO_DIVISION },
+    { .in = { 1.0, -1e+164 }, .ret = TSD_ERR_ZERO_DIVISION },
+};
+
+/* Expected values of the reference implementation */
+static const approx_row_t gamma_mom_rows[] = {
+    { .in = { 1.0, 1.0 }, .out = { 0.0, 1.0 } },
+    { .in = { 2.0, 4.0 }, .out = { 0.0, 0.5 } },
+    { .in = { 1000.0, 1e-06 }, .out = { 999999999999.0, 1000000000.0 } },
+    { .in = { 5e-324, 5e-324 }, .out = { -1.0, 1.0 } },
+    { .in = { 1.0, 1e-300 }, .out = { 9.999999999999999e+299, 9.999999999999999e+299 } },
+    { .in = { 1.0, 5e-324 }, .out = { INFINITY, INFINITY } },
+    { .in = { INFINITY, 1.0 }, .out = { INFINITY, INFINITY } },
+    { .in = { INFINITY, INFINITY }, .out = { NAN, NAN } },
+    { .in = { 1e-200, 1e-200 }, .out = { -1.0, 1.0 } },
+    { .in = { 1.0, 0.0 }, .ret = TSD_ERR_NONPOSITIVE_CENTRAL_MOMENTS },
+    { .in = { -1.0, 1.0 }, .ret = TSD_ERR_NONPOSITIVE_CENTRAL_MOMENTS },
+    { .in = { NAN, 1.0 }, .ret = TSD_ERR_NONPOSITIVE_CENTRAL_MOMENTS },
+};
+
+/* Expected values of the reference implementation */
+static const approx_row_t gamma_iqr_rows[] = {
+    { .in = { 0.25, 0.75, 1.0, 3.0, 50.0 },
+        .out = { 0.7901246810530893, 0.8091070002056516 } },
+    { .in = { 0.25, 0.75, 7725.886769523864, 11913.846021515428, 50.0 },
+        .out = { 9.00000000000002, 0.0010000000000000022 } },
+    { .in = { 0.25, 0.75, 50.765522133810784, 661.6518484657332, 10.0 },
+        .out = { -0.5000000000000002, 0.0009999999999999998 } },
+    { .in = { 0.25, 0.75, 9932370.564904187, 10067266.062388988, 100000.0 },
+        .out = { 9999.000000001251, 0.0010000000000001258 } },
+    { .in = { 0.25, 0.75, 46018.97506946053, 55618.243378532934, 50.0 },
+        .out = { 49.0, 0.0009793049455175092 } },
+    { .in = { 0.25, 0.75, 3.0, 3.0, 50.0 }, .out = { 49.0, 15.022203291056554 } },
+    { .in = { 0.25, 0.75, 1.0, 1.1, 2.0 }, .out = { 1.0, 0.9612787631147771 } },
+    { .in = { 0.25, 0.75, 0.9612787631147771, 2.692634528889695, 0.0 },
+        .out = { -1.0, NAN } },
+    { .in = { 0.25, 0.75, 2.0, 1.0, 50.0 }, .ret = TSD_ERR_UNSORTED_QUANTILES },
+    { .in = { NAN, 0.75, 1.0, 2.0, 50.0 }, .ret = TSD_ERR_UNSORTED_QUANTILES },
+    { .in = { 0.25, 0.75, 0.0, 0.0, 50.0 }, .ret = TSD_ERR_ZERO_DIVISION },
+    { .in = { 0.25, 0.75, 0.0, 1.0, 50.0 }, .ret = TSD_ERR_ZERO_DIVISION },
+    { .in = { 0.0, 0.75, 1.0, 2.0, 50.0 }, .ret = TSD_ERR_ZERO_DIVISION },
+    { .in = { 0.25, 1.0, 1.0, 2.0, 50.0 }, .ret = TSD_ERR_NEGATIVE_SHAPE },
+    { .in = { 0.25, 0.75, 1.0, INFINITY, 50.0 }, .ret = TSD_ERR_INVALID_HYPERGEO },
+    { .in = { 0.25, 1.5, 1.0, 2.0, 50.0 }, .ret = TSD_ERR_INVALID_HYPERGEO },
+    { .in = { 1e-200, 0.99, 1.0, 1.2, 1e+300 }, .ret = TSD_ERR_QUANTILE_MAX_ITERATIONS },
+    { .in = { 1e-300, 1e-299, 1.0, 1e+30, 50.0 }, .ret = TSD_ERR_ZERO_DIVISION },
+    { .in = { 0.25, 0.75, 5.256386560310826e-218, 9.53e-42, 50.0 },
+        .ret = TSD_ERR_ZERO_DIVISION },
+    { .in = { 0.25, 0.75, 1.0, 1.0001, 1000000.0 }, .ret = TSD_ERR_ZERO_DIVISION },
+};
+
+/* Expected values of the reference implementation */
+static const approx_row_t valid_moments_rows[] = {
+    { .in = { 1.0, 1.0 }, .out = { 1.0 } },
+    { .in = { 5e-324, 5e-324 }, .out = { 1.0 } },
+    { .in = { 1.7976931348623157e+308, 1.7976931348623157e+308 }, .out = { 1.0 } },
+    { .in = { 0.0, 1.0 }, .out = { 0.0 } },
+    { .in = { 1.0, 0.0 }, .out = { 0.0 } },
+    { .in = { -1.0, 1.0 }, .out = { 0.0 } },
+    { .in = { 1.0, -1.0 }, .out = { 0.0 } },
+    { .in = { INFINITY, 1.0 }, .out = { 0.0 } },
+    { .in = { 1.0, INFINITY }, .out = { 0.0 } },
+    { .in = { -INFINITY, 1.0 }, .out = { 0.0 } },
+    { .in = { NAN, 1.0 }, .out = { 0.0 } },
+    { .in = { 1.0, NAN }, .out = { 0.0 } },
+};
+
+/* Expected values of the reference implementation */
+static const approx_row_t valid_gamma_rows[] = {
+    { .in = { 1.0, 1.0 }, .out = { 1.0 } },
+    { .in = { 5e-324, 5e-324 }, .out = { 1.0 } },
+    { .in = { 1.7976931348623157e+308, 1.7976931348623157e+308 }, .out = { 1.0 } },
+    { .in = { 0.0, 1.0 }, .out = { 0.0 } },
+    { .in = { 1.0, 0.0 }, .out = { 0.0 } },
+    { .in = { -1.0, 1.0 }, .out = { 0.0 } },
+    { .in = { 1.0, -1.0 }, .out = { 0.0 } },
+    { .in = { INFINITY, 1.0 }, .out = { 0.0 } },
+    { .in = { 1.0, INFINITY }, .out = { 0.0 } },
+    { .in = { -INFINITY, 1.0 }, .out = { 0.0 } },
+    { .in = { NAN, 1.0 }, .out = { 0.0 } },
+    { .in = { 1.0, NAN }, .out = { 0.0 } },
+};
+
+/* Expected values of the reference implementation */
+static const approx_row_t moments_rows[] = {
+    { .in = { 10.0, 0.01, 10.0, 0.01, 1.0, 0.0001 },
+        .out = { 122.80948170104746, 1325.342857454897, 103491.97326437547,
+            769.094660576317, 48824.51252025319 } },
+    { .in = { 10.0, 0.01, 10.0, 0.01, 0.0, 0.0001 },
+        .out = { 116.94940823258497, 1166.8217386979982, 84456.19337045238,
+            829.8081251666888, 51480.22818100476 } },
+    { .in = { 10.0, 0.01, 10.0, 0.01, 10000.0, 0.001 },
+        .out = { 127387.4510634497, 910499.7977042779, 82752252.49682617,
+            500.247250327001, 25024.723677237344 } },
+    { .in = { 10.0, 0.01, 10.0, 0.01, 0.0, 0.0 },
+        .out = { 116.98310817144016, 1172.1993731606126, 85998.44190601562,
+            827.8006268393875, 51558.56727389339 } },
+    { .in = { 100000000.0, 100000.0, 100000000.0, 100000.0, 1.0, 0.0001 },
+        .out = { 1181551036.2989483, 1000.0872852957206, -0.41215872892644256,
+            999.9127247041049, -0.41216047620400786 } },
+    { .in = { 0.001, 1e-05, 0.001, 1e-05, 1.0, 0.0001 },
+        .out = { 16.039512161262337, 9119.186826812647, 83189097.62379722,
+            12.339454993237442, 292219.6727362964 } },
+    { .in = { 10.0, 100000000.0, 10.0, 100000000.0, 1.0, 100000.0 },
+        .out = { -360.6830669942327, 1.3322053216930383e-07, 1.0517374989732554e-15,
+            7.672297026879568e-08, 4.877419678730164e-16 } },
+    { .in = { 10.0, -0.0001, 10.0, 0.01, 1.0, 0.0001 },
+        .out = { NAN, NAN, NAN, NAN, NAN } },
+    { .in = { 10.0, 0.01, 10.0, -0.01, 1.0, 0.0001 },
+        .out = { NAN, NAN, NAN, NAN, NAN } },
+    { .in = { 10.0, 0.01, 10.0, -0.02, 1.0, 0.0001 },
+        .out = { NAN, NAN, NAN, NAN, NAN } },
+    { .in = { 10.0, 0.01, 10.0, 1000000000.0, 1.0, 0.0001 },
+        .out = { -128.77903467642818, 1089.108910901103, 107832.56543473178,
+            9.99999999989986e-09, 9.999999999796698e-18 } },
+    { .in = { 10.0, 0.01, 0.0, 0.01, 1.0, 0.0001 }, .out = { NAN, NAN, NAN, NAN, NAN } },
+    { .in = { 10.0, 0.01, 10.0, -0.005, 1.0, 0.0001 },
+        .out = { 146.80391572052676, 3936.496779205956, 768709.069610931,
+            3678.160288231403, 765043.3391407449 } },
+    { .in = { 10.0, 0.01, 10.0, INFINITY, 1.0, 0.0001 },
+        .out = { NAN, NAN, NAN, NAN, NAN } },
+    { .in = { 1210672666.2995348, 852947.3207951145, 7951733.774369938,
+          595712303.1396025, -1.5, 2.8337046167584198e-14 },
+        .ret = TSD_ERR_INVALID_HYPERGEO },
+    { .in = { 394.178342527288, 2.415712247192439e-10, 2724.719060396573,
+          0.008288652462722177, -1.0, 6.154356625573251e-06 },
+        .ret = TSD_ERR_ZERO_DIVISION },
+    { .in = { 5411.613776267856, 5038406234.100642, 4.2430562971178696e-09,
+          0.042821205396860865, -1.0, 1163.787749187542 },
+        .ret = TSD_ERR_INVALID_HYPERGEO },
+    { .in = { 14401.04443044055, 18400282.490663443, 7.134225181058526e-10,
+          0.005953404256099466, -1.0, 3.5941767717509845e-12 },
+        .ret = TSD_ERR_INVALID_HYPERGEO },
+};
+
+/* Expected values of the reference implementation */
+static const approx_row_t unphased_moments_rows[] = {
+    { .in = { 10.0, 0.01, 10.0, 0.01, 1.0, 0.0001 },
+        .out = { 125.0990041915503, 1039.6039603960396, 105381.825311244,
+            1039.6039603960396, 105381.825311244 } },
+    { .in = { 10.0, 0.01, 10.0, 0.01, 0.0, 0.0001 },
+        .out = { 117.5080520628614, 990.0990099009902, 98029.60494069196,
+            990.0990099009902, 98029.60494069196 } },
+    { .in = { 10.0, 0.01, 10.0, 0.01, 1.0, 1000000.0 },
+        .out = { -261.5263346935328, 1.0499999895000001e-05, 1.0749999784999992e-11,
+            1.0499999895000001e-05, 1.0749999784999992e-11 } },
+    { .in = { 0.001, 1e-05, 0.001, 1e-05, 1.0, 0.0001 },
+        .out = { 16.733009924901715, 4554.545454545454, 62066115.70247932,
+            4554.545454545454, 62066115.70247932 } },
+    { .in = { 10.0, 0.01, 10.0, 0.0001, 1.0, 0.0001 },
+        .out = { 167.56758070890876, 992.1010384560702, 98428.07930575986,
+            54898.897557968456, 275005184.82919836 } },
+    { .in = { 10.0, 0.01, 10.0, 1000000000.0, 1.0, 0.0001 },
+        .out = { -128.77903467622025, 1089.108910891121, 107832.56543475669,
+            9.999999999998677e-09, 9.999999999996884e-18 } },
+    { .in = { 10.0, -0.001, 10.0, 0.01, 1.0, 0.0001 },
+        .out = { NAN, NAN, NAN, NAN, NAN } },
+    { .in = { 10.0, 0.01, 10.0, -0.01, 1.0, 0.0001 },
+        .out = { NAN, NAN, NAN, NAN, NAN } },
+    { .in = { 10.0, 0.01, 0.0, 0.01, 1.0, 0.0001 }, .out = { NAN, NAN, NAN, NAN, NAN } },
+    { .in = { 10.0, 0.01, 10.0, -0.005, 1.0, 0.0001 },
+        .out = { NAN, NAN, NAN, NAN, NAN } },
+    { .in = { 1.7660035936782157e-09, 670.7541722816065, 72.24709050049042,
+          1.592021596132961e-05, 100000000.0, 627.5241160659726 },
+        .ret = TSD_ERR_INVALID_HYPERGEO },
+    { .in = { 2.1430622617768165e-06, 116952.43478981475, 3.3934123772179934e-07,
+          9526762.492287748, 100000000.0, 1.1701319088974114 },
+        .ret = TSD_ERR_INVALID_HYPERGEO },
+    { .in = { 1.127136132156607e-08, 8599826.4555504, 3.892603570447169e-09,
+          114569.03037514388, 100000000.0, 9.492307871836265e-08 },
+        .ret = TSD_ERR_INVALID_HYPERGEO },
+};
+
+/* Expected values of the reference implementation */
+static const approx_row_t rootward_moments_rows[] = {
+    { .in = { 1000.0, 10.0, 0.01, 1.0, 0.0001 },
+        .out = { 63.61325539024935, 1455.418762370423, 74402.48694603037 } },
+    { .in = { 1000.0, 10.0, 0.01, 0.0, 0.0001 },
+        .out = { 58.00176214728721, 1257.0756375530668, 50989.18526668936 } },
+    { .in = { 1000.0, 100000000.0, 100000.0, 1.0, 0.0001 },
+        .out = { 590775516.345561, 1000.1237501242261, 0.004335264883656005 } },
+    { .in = { 0.0, 10.0, 0.01, 1.0, 0.0001 },
+        .out = { 65.65183097955968, 1089.1089108910892, 107832.5654347613 } },
+    { .in = { -1.0, 10.0, 0.01, 1.0, 0.0001 }, .ret = TSD_ERR_INVALID_FIXED_AGE },
+    { .in = { NAN, 10.0, 0.01, 1.0, 0.0001 }, .ret = TSD_ERR_INVALID_FIXED_AGE },
+    { .in = { INFINITY, 10.0, 0.01, 1.0, 0.0001 }, .out = { NAN, NAN, NAN } },
+    { .in = { 5e-324, 10.0, 0.01, 1.0, 0.0001 }, .out = { NAN, NAN, NAN } },
+    { .in = { 1000.0, 10.0, -0.0001, 1.0, 0.0001 }, .out = { NAN, NAN, NAN } },
+    { .in = { 1000.0, -1.0, 0.01, 1.0, 0.0001 }, .out = { NAN, NAN, NAN } },
+    { .in = { 1000.0, 10.0, 0.01, -1.0, 0.0001 }, .out = { NAN, NAN, NAN } },
+    { .in = { 8.45730940350531e-08, 17123191.868610334, 2.9302830155736855e-05,
+          100000000.0, 7.326444260535366e-08 },
+        .ret = TSD_ERR_ZERO_DIVISION },
+    { .in = { 4.821917030411909e-10, 4.169349483790142e-07, 6.852235429528821e-10, 0.0,
+          1.456098777070529e-12 },
+        .ret = TSD_ERR_ZERO_DIVISION },
+};
+
+/* Expected values of the reference implementation */
+static const approx_row_t leafward_moments_rows[] = {
+    { .in = { 1000.0, 10.0, 0.01, 1.0, 0.0001 },
+        .out = { 63.63521858348348, 670.1964376749686, 22340.35255159228 } },
+    { .in = { 1000.0, 10.0, 0.01, 0.0, 0.0001 },
+        .out = { 58.18323329851714, 777.4330182308169, 23337.819922300754 } },
+    { .in = { 5e-324, 10.0, 0.01, 1.0, 0.0001 },
+        .out = { -8193.541271500986, 5e-324, 0.0 } },
+    { .in = { 1000.0, 10.0, 0.01, 0.0, 0.0 },
+        .out = { 58.20531612967109, 775.058535890135, 23627.901122838375 } },
+    { .in = { 1000.0, 10.0, -0.001, 1.0, 0.0001 },
+        .out = { 72.10770342368787, 844.497150879899, 9617.330910037155 } },
+    { .in = { 0.0, 10.0, 0.01, 1.0, 0.0001 }, .ret = TSD_ERR_INVALID_FIXED_AGE },
+    { .in = { NAN, 10.0, 0.01, 1.0, 0.0001 }, .ret = TSD_ERR_INVALID_FIXED_AGE },
+    { .in = { INFINITY, 10.0, 0.01, 1.0, 0.0001 }, .out = { NAN, NAN, NAN } },
+    { .in = { 1000.0, 0.0, 0.01, 1.0, 0.0001 }, .out = { NAN, NAN, NAN } },
+    { .in = { 1000.0, 10.0, 0.01, -1.0, 0.0001 }, .ret = TSD_ERR_INVALID_HYPERGEO },
+    { .in = { 330585155.6728075, 1.7609486342004178e-07, -25365.04126587679, -1.0,
+          7.750515488516166e-07 },
+        .ret = TSD_ERR_ZERO_DIVISION },
+    { .in = { 4.74294373446301e-05, 1.4259421729061415e-08, 0.0006672649725106216, -1.0,
+          6.017038390421106e-14 },
+        .ret = TSD_ERR_INVALID_HYPERGEO },
+    { .in = { 0.00011848982522731698, 3.0738172972482273e-07, 0.0033569587369897754,
+          -1.0, 0.02896515217052944 },
+        .ret = TSD_ERR_INVALID_HYPERGEO },
+};
+
+/* Expected values of the reference implementation */
+static const approx_row_t sideways_moments_rows[] = {
+    { .in = { 1000.0, 10.0, 0.01, 1.0, 0.0001 },
+        .out = { 66.24960717136513, 1039.3289310811742, 105361.4400384126 } },
+    { .in = { 1000.0, 10.0, 0.01, 0.0, 0.0001 },
+        .out = { 58.6540260314307, 990.0990099009899, 98029.60494069227 } },
+    { .in = { 10000000000.0, 10.0, 0.01, 1.0, 0.0001 },
+        .out = { -999918.2201229396, 990.0990197039497, 98029.60688187221 } },
+    { .in = { 1000.0, 0.001, 1e-05, 1.0, 0.0001 },
+        .out = { 11.711002789755941, 6980.512954646106, 73216544.51397169 } },
+    { .in = { 0.0, 10.0, 0.01, 1.0, 0.0001 }, .ret = TSD_ERR_INVALID_FIXED_AGE },
+    { .in = { INFINITY, 10.0, 0.01, 1.0, 0.0001 }, .out = { NAN, NAN, NAN } },
+    { .in = { 1000.0, 10.0, -0.001, 1.0, 0.0001 }, .out = { NAN, NAN, NAN } },
+    { .in = { 1000.0, 0.0, 0.01, 1.0, 0.0001 }, .out = { NAN, NAN, NAN } },
+    { .in = { 7951733.774369938, 2.83370461675842e-10, 2.3019958853100635e-08,
+          100000000.0, 1.604270854947341e-07 },
+        .ret = TSD_ERR_ZERO_DIVISION },
+    { .in = { 4.821917030411909e-10, 4.169349483790142e-07, 6.852235429528821e-10, 0.0,
+          1.456098777070529e-12 },
+        .ret = TSD_ERR_ZERO_DIVISION },
+};
+
+/* Expected values of the reference implementation */
+static const approx_row_t twin_moments_rows[] = {
+    { .in = { 10.0, 0.01, 1.0, 0.0001 },
+        .out = { 66.23660289924649, 1078.4313725490194, 105728.56593617838 } },
+    { .in = { 10.0, 0.01, 0.0, 0.0001 },
+        .out = { 58.65550306700058, 980.3921568627451, 96116.87812379852 } },
+    { .in = { 10.0, 0.01, 0.0, 0.0 }, .out = { 58.85352933996238, 1000.0, 100000.0 } },
+    { .in = { 0.001, 1e-05, 1.0, 0.0001 },
+        .out = { 9.169442217235714, 4766.666666666666, 22698412.698412694 } },
+    { .in = { 10.0, -0.0002, 1.0, 0.0001 }, .ret = TSD_ERR_ZERO_DIVISION },
+    { .in = { 10.0, 1e-300, 1.0, 0.0 }, .ret = TSD_ERR_ZERO_DIVISION },
+    { .in = { 10.0, -0.001, 1.0, 0.0001 }, .out = { NAN, -13750.0, 17187500.0 } },
+    { .in = { 0.0, 0.01, 0.0, 0.0001 }, .out = { INFINITY, 0.0, 0.0 } },
+    { .in = { NAN, 0.01, 1.0, 0.0001 }, .out = { NAN, NAN, NAN } },
+    { .in = { 10.0, 0.01, 1e+300, 0.0001 },
+        .out
+        = { 6.950540426374656e+302, 9.80392156862745e+301, 9.611687812379853e+303 } },
+};
+
+/* Expected values of the reference implementation */
+static const approx_row_t mutation_moments_rows[] = {
+    { .in = { 10.0, 0.01, 10.0, 0.01, 1.0, 0.0001 },
+        .out = { 1047.218759015607, 84537.65971991606 } },
+    { .in = { 10.0, 0.01, 10.0, 0.01, 0.0, 0.0001 },
+        .out = { 998.3149319323435, 62090.58297391038 } },
+    { .in = { 10.0, 0.01, 10.0, 0.01, 100.0, 0.001 },
+        .out = { 5502.047266948612, 8593441.597390726 } },
+    { .in = { 10.0, 0.01, 10.0, 0.01, 0.0, 0.0 }, .out = { 1000.0, 62985.06423178315 } },
+    { .in = { 10000.0, 10.0, 10000.0, 10.0, 1.0, 0.0001 },
+        .out = { 1000.0499125037055, 81.2219550292939 } },
+    { .in = { 10.0, 0.01, 1e-08, 0.01, 1.0, 0.0001 },
+        .out = { 544.5544559496102, 134790.70668813813 } },
+    { .in = { 10.0, 0.01, 10.0, -0.005, 1.0, 0.0001 },
+        .out = { 3807.328533718679, 767088.4841929078 } },
+    { .in = { 10.0, -0.0001, 10.0, 0.01, 1.0, 0.0001 }, .out = { NAN, NAN } },
+    { .in = { 10.0, 0.01, 10.0, -0.02, 1.0, 0.0001 }, .out = { NAN, NAN } },
+    { .in = { 10.0, 0.01, 10.0, 1000.0, 1.0, 0.0001 },
+        .out = { 544.3849588249741, 135333.42707343184 } },
+    { .in = { 1210672666.2995348, 852947.3207951145, 7951733.774369938,
+          595712303.1396025, -1.5, 2.8337046167584198e-14 },
+        .ret = TSD_ERR_INVALID_HYPERGEO },
+    { .in = { 1582171.4459529708, 300601562.7452449, 0.0001303504890295087,
+          -1852940.2349876668, -1.0, 38.337696337086264 },
+        .ret = TSD_ERR_INVALID_HYPERGEO },
+    { .in = { 5411.613776267856, 5038406234.100642, 4.2430562971178696e-09,
+          0.042821205396860865, -1.0, 1163.787749187542 },
+        .ret = TSD_ERR_INVALID_HYPERGEO },
+    { .in = { 634745702.2698317, 329.06825010605945, 0.038930042876279006,
+          1.3003726540202816, -0.5, 871.1707853483364 },
+        .ret = TSD_ERR_INVALID_HYPERGEO },
+    { .in = { 14401.04443044055, 18400282.490663443, 7.134225181058526e-10,
+          0.005953404256099466, -1.0, 3.5941767717509845e-12 },
+        .ret = TSD_ERR_INVALID_HYPERGEO },
+};
+
+/* Expected values of the reference implementation */
+static const approx_row_t mutation_rootward_moments_rows[] = {
+    { .in = { 1000.0, 10.0, 0.01, 1.0, 0.0001 },
+        .out = { 1227.7093811852114, 42084.6830752613 } },
+    { .in = { 0.0, 10.0, 0.01, 1.0, 0.0001 },
+        .out = { 544.5544554455446, 134790.70679345162 } },
+    { .in = { 10000000000.0, 10.0, 0.01, 1.0, 0.0001 },
+        .out = { 10000000099.00991, 0.0 } },
+    { .in = { 1000.0, 10.0, 0.01, 1.0, 100000.0 }, .out = { 1000.00001, 0.0 } },
+    { .in = { 1000.0, 0.001, 1e-05, 1.0, 0.0001 },
+        .out = { 6236.530310629031, 38372903.84425615 } },
+    { .in = { 1000.0, 10.0, 0.01, -0.5, 0.0001 },
+        .out = { 1061.7041169771032, 11122.429033691995 } },
+    { .in = { -1.0, 10.0, 0.01, 1.0, 0.0001 }, .ret = TSD_ERR_INVALID_FIXED_AGE },
+    { .in = { 1000.0, 10.0, -0.0001, 1.0, 0.0001 }, .out = { NAN, NAN } },
+    { .in = { 1000.0, 0.0, 0.01, 1.0, 0.0001 }, .out = { NAN, NAN } },
+    { .in = { 8.45730940350531e-08, 17123191.868610334, 2.9302830155736855e-05,
+          100000000.0, 7.326444260535366e-08 },
+        .ret = TSD_ERR_ZERO_DIVISION },
+};
+
+/* Expected values of the reference implementation */
+static const approx_row_t mutation_leafward_moments_rows[] = {
+    { .in = { 1000.0, 10.0, 0.01, 1.0, 0.0001 },
+        .out = { 835.0982188374843, 16510.9833273876 } },
+    { .in = { 1000.0, 10.0, 0.01, 0.0, 0.0001 },
+        .out = { 888.7165091154084, 11907.278421920608 } },
+    { .in = { 1e-10, 10.0, 0.01, 1.0, 0.0001 },
+        .out = { 9.166666666666644e-11, 5.876068376064695e-23 } },
+    { .in = { 1000.0, 10.0, 0.01, 1.0, 100000.0 },
+        .out = { 999.7437094147001, 206.32833492441569 } },
+    { .in = { 1000.0, 100000000.0, 100000.0, 1.0, 0.0001 },
+        .out = { 999.9383327981366, -0.20729712094180286 } },
+    { .in = { 1000.0, 10.0, -0.001, 1.0, 0.0001 },
+        .out = { 922.2485754399495, 5220.871643718099 } },
+    { .in = { 0.0, 10.0, 0.01, 1.0, 0.0001 }, .ret = TSD_ERR_INVALID_FIXED_AGE },
+    { .in = { INFINITY, 10.0, 0.01, 1.0, 0.0001 }, .out = { NAN, NAN } },
+    { .in = { 1000.0, -1.0, 0.01, 1.0, 0.0001 }, .out = { NAN, NAN } },
+    { .in = { 1000.0, 10.0, 0.01, -1.0, 0.0001 }, .ret = TSD_ERR_INVALID_HYPERGEO },
+    { .in = { 330585155.6728075, 1.7609486342004178e-07, -25365.04126587679, -1.0,
+          7.750515488516166e-07 },
+        .ret = TSD_ERR_ZERO_DIVISION },
+};
+
+/* Expected values of the reference implementation */
+static const approx_row_t mutation_unphased_moments_rows[] = {
+    { .in = { 10.0, 0.01, 10.0, 0.01, 1.0, 0.0001 },
+        .out = { 0.5, 544.5544554455446, 134790.70679345162 } },
+    { .in = { 10.0, 0.01, 10.0, 0.01, 0.0, 0.0001 },
+        .out = { 0.5, 518.6232909005187, 123148.30189828435 } },
+    { .in = { 10.0, 0.01, 10.0, 0.01, 0.0, 0.0 },
+        .out = { 0.5, 523.8095238095239, 125623.58276643988 } },
+    { .in = { 10.0, 0.01, 10.0, 1000000000.0, 1.0, 0.0001 },
+        .out = { 1.0000000000000018, 544.5527343394893, 134789.85476212116 } },
+    { .in = { 10.0, 0.01, 10.0, 1000.0, 1.0, 0.0001 },
+        .out = { 0.9994316225667118, 544.2449430101359, 134882.545335442 } },
+    { .in = { 1289.8261024396659, 2.1161296052067344, 0.15552864791315738,
+          0.0007984796762152916, 1.0, 4.811169071413665e-07 },
+        .out = { 1.0305283005758967, 552.3102881259031, 250943.13466915407 } },
+    { .in = { 10.0, -0.001, 10.0, 0.01, 1.0, 0.0001 }, .out = { NAN, NAN, NAN } },
+    { .in = { 10.0, 0.01, 0.0, 0.01, 1.0, 0.0001 }, .out = { NAN, NAN, NAN } },
+    { .in = { 1.7660035936782157e-09, 670.7541722816065, 72.24709050049042,
+          1.592021596132961e-05, 100000000.0, 627.5241160659726 },
+        .ret = TSD_ERR_INVALID_HYPERGEO },
+    { .in = { 2.1430622617768165e-06, 116952.43478981475, 3.3934123772179934e-07,
+          9526762.492287748, 100000000.0, 1.1701319088974114 },
+        .ret = TSD_ERR_INVALID_HYPERGEO },
+    { .in = { 0.03147408814983863, -3.572097767193457e-06, 6.968397736253467e-05,
+          0.0003977607105897399, 100000000.0, 0.00014045130994169163 },
+        .ret = TSD_ERR_INVALID_HYPERGEO },
+    { .in = { 0.8357818401616357, 1.3209477340917621e-09, 0.002340461703952937,
+          0.00025633858557600413, 100000000.0, 0.0006572496535582051 },
+        .ret = TSD_ERR_INVALID_HYPERGEO },
+    { .in = { 8.487509248373367e-05, 993617.5506944145, 44356376.30250234,
+          12.330141147550119, 100000000.0, 1.5394974045964461e-09 },
+        .ret = TSD_ERR_INVALID_HYPERGEO },
+    { .in = { 8.411928444767107e-07, 5.338254701078075e-06, 7363270781.288286,
+          -0.012693009987637643, 2.0, 2.6034067423152516 },
+        .ret = TSD_ERR_INVALID_HYPERGEO },
+};
+
+/* Expected values of the reference implementation */
+static const approx_row_t mutation_twin_moments_rows[] = {
+    { .in = { 10.0, 0.01, 1.0, 0.0001 },
+        .out = { 0.5, 539.2156862745097, 132160.70742022299 } },
+    { .in = { 10.0, 0.01, 0.0, 0.0001 },
+        .out = { 0.5, 490.19607843137254, 112136.35781109825 } },
+    { .in = { 0.001, 1e-05, 1.0, 0.0001 },
+        .out = { 0.5, 2383.333333333333, 9459563.49206349 } },
+    { .in = { 10.0, -0.001, 1.0, 0.0001 }, .out = { 0.5, -6875.0, 21484375.0 } },
+    { .in = { -1.0, 0.01, 0.0, 0.0001 },
+        .out = { 0.5, -49.01960784313725, -2402.921953094963 } },
+    { .in = { 10.0, -0.0002, 1.0, 0.0001 }, .ret = TSD_ERR_ZERO_DIVISION },
+    { .in = { 10.0, 1e-300, 1.0, 0.0 }, .ret = TSD_ERR_ZERO_DIVISION },
+    { .in = { NAN, 0.01, 1.0, 0.0001 }, .out = { 0.5, NAN, NAN } },
+    { .in = { 10.0, 0.01, 1e+300, 0.0001 },
+        .out = { 0.5, 4.901960784313725e+301, NAN } },
+    { .in = { 10.0, 0.01, 1.0, 1e+300 }, .out = { 0.5, 2.75e-300, 0.0 } },
+};
+
+/* Expected values of the reference implementation */
+static const approx_row_t mutation_sideways_moments_rows[] = {
+    { .in = { 1000.0, 10.0, 0.01, 1.0, 0.0001 },
+        .out = { 0.5023091569426977, 522.1743444926516, 109439.4612022693 } },
+    { .in = { 1000.0, 10.0, 0.01, 0.0, 0.0001 },
+        .out = { 0.5144541526611798, 509.6511047608551, 102996.39823434927 } },
+    { .in = { 1e-10, 10.0, 0.01, 1.0, 0.0001 },
+        .out = { 0.0007564619471360778, 544.1407948153603, 134914.7638092785 } },
+    { .in = { 0.0, 10.0, 0.01, 1.0, 0.0001 }, .ret = TSD_ERR_INVALID_FIXED_AGE },
+    { .in = { INFINITY, 10.0, 0.01, 1.0, 0.0001 }, .out = { NAN, NAN, NAN } },
+    { .in = { 1000.0, 10.0, -0.0001, 1.0, 0.0001 }, .out = { NAN, NAN, NAN } },
+    { .in = { 1000.0, 0.0, 0.01, 1.0, 0.0001 }, .out = { NAN, NAN, NAN } },
+    { .in = { 1000.0, 10.0, 0.01, -0.5, 0.0001 }, .ret = TSD_ERR_INVALID_HYPERGEO },
+    { .in = { 7951733.774369938, 2.83370461675842e-10, 2.3019958853100635e-08,
+          100000000.0, 1.604270854947341e-07 },
+        .ret = TSD_ERR_ZERO_DIVISION },
+    { .in = { 3439589.3148461175, 51334026.94161953, -8.147893520675203e-06, -0.5,
+          23.460646619971012 },
+        .ret = TSD_ERR_INVALID_HYPERGEO },
+    { .in = { 17.77466115825119, 8.850693381150145e-07, 1.2068705882784672e-08, 0.0,
+          7.490387184896008e-07 },
+        .ret = TSD_ERR_INVALID_HYPERGEO },
+    { .in = { 3.785982048609923e-06, 8.363428340996249, 0.0001149777112112498, 10000.0,
+          9.903472470733758e-13 },
+        .ret = TSD_ERR_ZERO_DIVISION },
+};
+
+/* Expected values of the reference implementation */
+static const approx_row_t mutation_edge_moments_rows[] = {
+    { .in = { 3.0, 1.0 }, .out = { 2.0, 0.3333333333333333 } },
+    { .in = { 1.0, 3.0 }, .out = { 2.0, 0.3333333333333333 } },
+    { .in = { 1.0, 1.0 }, .out = { 1.0, 0.0 } },
+    { .in = { 0.0, 0.0 }, .out = { 0.0, 0.0 } },
+    { .in = { -1.0, 1.0 }, .out = { 0.0, 0.3333333333333333 } },
+    { .in = { 1e+300, 1.0 }, .out = { 5e+299, INFINITY } },
+    { .in = { 1e-200, 1e-210 }, .out = { 5.0000000005e-201, 0.0 } },
+    { .in = { 1.0, 0.9999999999999999 }, .out = { 1.0, 1.0271626370065257e-33 } },
+    { .in = { NAN, 1.0 }, .out = { NAN, NAN } },
+    { .in = { INFINITY, INFINITY }, .out = { INFINITY, NAN } },
+};
+
+/* Expected values of the reference implementation */
+static const approx_row_t mutation_block_moments_rows[] = {
+    { .in = { 3.0, 1.0 }, .out = { 0.75, 1.25, 0.7708333333333335 } },
+    { .in = { 1.0, 3.0 }, .out = { 0.25, 1.25, 0.7708333333333335 } },
+    { .in = { 1.0, 1.0 }, .out = { 0.5, 0.5, 0.08333333333333331 } },
+    { .in = { 1e-160, 1e-170 }, .out = { 0.9999999999, 4.9999999995e-161, 8.35e-322 } },
+    { .in = { 1e+300, 1.0 }, .out = { 1.0, 5e+299, NAN } },
+    { .in = { INFINITY, 1.0 }, .out = { NAN, NAN, NAN } },
+    { .in = { 0.0, 1.0 }, .ret = TSD_ERR_INVALID_FIXED_AGE },
+    { .in = { 1.0, 0.0 }, .ret = TSD_ERR_INVALID_FIXED_AGE },
+    { .in = { -1.0, 1.0 }, .ret = TSD_ERR_INVALID_FIXED_AGE },
+    { .in = { NAN, 1.0 }, .ret = TSD_ERR_INVALID_FIXED_AGE },
+};
+
+/* Expected values of the reference implementation */
+static const approx_row_t gamma_projection_rows[] = {
+    { .in = { 9.0, 0.01, 9.0, 0.01, 1.0, 0.0001 },
+        .out = { 122.80948170104746, 15.972656278565271, 0.012806238161767791,
+            11.11495141260517, 0.015752224054613635 } },
+    { .in = { 9.0, 0.01, 9.0, 0.01, 0.0, 0.0001 },
+        .out = { 116.94940823258497, 15.12046334987365, 0.0138157036462671,
+            12.375650204416319, 0.016118967504360683 } },
+    { .in = { 9.0, 0.01, 9.0, 0.01, 10000.0, 0.001 },
+        .out = { 127387.4510634497, 10016.973609254037, 0.011002719203796883,
+            9.000002984542515, 0.01999012084125545 } },
+    { .in = { 9.0, 0.01, 9.0, 0.01, 0.0, 0.0 },
+        .out = { 116.98310817144016, 14.977630989405377, 0.013630472217643944,
+            12.29078587764909, 0.01605553976009227 } },
+    { .in = { 99999999.0, 100000.0, 99999999.0, 100000.0, 1.0, 0.0001 },
+        .out = { NAN, 99999999.0, 100000.0, 99999999.0, 100000.0 } },
+    { .in = { -0.999, 1e-05, -0.999, 1e-05, 1.0, 0.0001 },
+        .out = { 16.039512161262337, -0.0003549652818382043, 0.00010961997530075378,
+            -0.9994789462731773, 4.222664024530874e-05 } },
+    { .in = { 9.0, 100000000.0, 9.0, 100000000.0, 1.0, 100000.0 },
+        .out = { -360.6830669942327, 15.874657610666617, 126667093.54697211,
+            11.068705493063154, 157302375.68724146 } },
+    { .in = { 9.0, -0.0001, 9.0, 0.01, 1.0, 0.0001 },
+        .out = { NAN, 9.0, -0.0001, 9.0, 0.01 } },
+    { .in = { 9.0, 0.01, 9.0, -0.01, 1.0, 0.0001 },
+        .out = { NAN, 9.0, 0.01, 9.0, -0.01 } },
+    { .in = { 9.0, 0.01, 9.0, -0.02, 1.0, 0.0001 },
+        .out = { NAN, 9.0, 0.01, 9.0, -0.02 } },
+    { .in = { 9.0, 0.01, 9.0, 1000000000.0, 1.0, 0.0001 },
+        .out = { -128.77903467642818, 10.000000000205292, 0.01010000000009563,
+            9.000000000003022, 1000000000.0103163 } },
+    { .in = { 9.0, 0.01, -1.0, 0.01, 1.0, 0.0001 },
+        .out = { NAN, 9.0, 0.01, -1.0, 0.01 } },
+    { .in = { 9.0, 0.01, 9.0, -0.005, 1.0, 0.0001 },
+        .out = { 146.80391572052676, 19.158480633696577, 0.005120918868822957,
+            16.68378654354066, 0.004807780291718522 } },
+    { .in = { 9.0, 0.01, 9.0, INFINITY, 1.0, 0.0001 },
+        .out = { NAN, 9.0, 0.01, 9.0, INFINITY } },
+    { .in = { 1210672665.2995348, 852947.3207951145, 7951732.774369938,
+          595712303.1396025, -1.5, 2.8337046167584198e-14 },
+        .ret = TSD_ERR_INVALID_HYPERGEO },
+    { .in = { 393.178342527288, 2.415712247192439e-10, 2723.719060396573,
+          0.008288652462722177, -1.0, 6.154356625573251e-06 },
+        .ret = TSD_ERR_ZERO_DIVISION },
+    { .in = { 5410.613776267856, 5038406234.100642, -0.9999999957569436,
+          0.042821205396860865, -1.0, 1163.787749187542 },
+        .ret = TSD_ERR_INVALID_HYPERGEO },
+    { .in = { 14400.04443044055, 18400282.490663443, -0.9999999992865775,
+          0.005953404256099466, -1.0, 3.5941767717509845e-12 },
+        .ret = TSD_ERR_ZERO_DIVISION },
+    { .in = { 36.27758386050227, 12.719368036205545, 26317363.808861483,
+          1.6898146193313483e-07, 2.0, 3.273276230928174e-07 },
+        .out = { NAN, 36.27758386050227, 12.719368036205545, 26317363.808861483,
+            1.6898146193313483e-07 } },
+};
+
+/* Expected values of the reference implementation */
+static const approx_row_t leafward_projection_rows[] = {
+    { .in = { 1000.0, 9.0, 0.01, 1.0, 0.0001 },
+        .out = { 63.63521858348348, 19.105468973013345, 0.029999367115054822 } },
+    { .in = { 1000.0, 9.0, 0.01, 0.0, 0.0001 },
+        .out = { 58.18323329851714, 24.897967327185235, 0.033312152584052235 } },
+    { .in = { 5e-324, 9.0, 0.01, 1.0, 0.0001 }, .out = { NAN, 9.0, 0.01 } },
+    { .in = { 1000.0, 9.0, 0.01, 0.0, 0.0 },
+        .out = { 58.20531612967109, 24.42399898040528, 0.032802682382184804 } },
+    { .in = { 1000.0, 9.0, -0.001, 1.0, 0.0001 },
+        .out = { 72.10770342368787, 73.15523543023349, 0.08780992967586641 } },
+    { .in = { 0.0, 9.0, 0.01, 1.0, 0.0001 }, .ret = TSD_ERR_INVALID_FIXED_AGE },
+    { .in = { NAN, 9.0, 0.01, 1.0, 0.0001 }, .ret = TSD_ERR_INVALID_FIXED_AGE },
+    { .in = { INFINITY, 9.0, 0.01, 1.0, 0.0001 }, .out = { NAN, 9.0, 0.01 } },
+    { .in = { 1000.0, -1.0, 0.01, 1.0, 0.0001 }, .out = { NAN, -1.0, 0.01 } },
+    { .in = { 1000.0, 9.0, 0.01, -1.0, 0.0001 }, .ret = TSD_ERR_INVALID_HYPERGEO },
+    { .in = { 330585155.6728075, -0.9999998239051365, -25365.04126587679, -1.0,
+          7.750515488516166e-07 },
+        .ret = TSD_ERR_INVALID_HYPERGEO },
+    { .in = { 4.74294373446301e-05, -0.9999999857405782, 0.0006672649725106216, -1.0,
+          6.017038390421106e-14 },
+        .ret = TSD_ERR_INVALID_HYPERGEO },
+    { .in = { 0.00011848982522731698, -0.9999996926182703, 0.0033569587369897754, -1.0,
+          0.02896515217052944 },
+        .ret = TSD_ERR_INVALID_HYPERGEO },
+};
+
+/* Expected values of the reference implementation */
+static const approx_row_t rootward_projection_rows[] = {
+    { .in = { 1000.0, 9.0, 0.01, 1.0, 0.0001 },
+        .out = { 63.61325539024935, 27.47006680564822, 0.01956142626557827 } },
+    { .in = { 1000.0, 9.0, 0.01, 0.0, 0.0001 },
+        .out = { 58.00176214728721, 29.991653431297348, 0.024653769833312078 } },
+    { .in = { 1000.0, 99999999.0, 100000.0, 1.0, 0.0001 },
+        .out = { 590775516.345561, 230723505.49979642, 230694.95797008928 } },
+    { .in = { 0.0, 9.0, 0.01, 1.0, 0.0001 },
+        .out = { 65.65183097955968, 10.0, 0.0101 } },
+    { .in = { -1.0, 9.0, 0.01, 1.0, 0.0001 }, .ret = TSD_ERR_INVALID_FIXED_AGE },
+    { .in = { NAN, 9.0, 0.01, 1.0, 0.0001 }, .ret = TSD_ERR_INVALID_FIXED_AGE },
+    { .in = { INFINITY, 9.0, 0.01, 1.0, 0.0001 }, .out = { NAN, 9.0, 0.01 } },
+    { .in = { 5e-324, 9.0, 0.01, 1.0, 0.0001 }, .out = { NAN, 9.0, 0.01 } },
+    { .in = { 1000.0, 9.0, -0.0001, 1.0, 0.0001 }, .out = { NAN, 9.0, -0.0001 } },
+    { .in = { 1000.0, -2.0, 0.01, 1.0, 0.0001 }, .out = { NAN, -2.0, 0.01 } },
+    { .in = { 1000.0, 9.0, 0.01, -1.0, 0.0001 }, .out = { NAN, 9.0, 0.01 } },
+    { .in = { 8.45730940350531e-08, 17123190.868610334, 2.9302830155736855e-05,
+          100000000.0, 7.326444260535366e-08 },
+        .ret = TSD_ERR_ZERO_DIVISION },
+    { .in = { 4.821917030411909e-10, -0.9999995830650517, 6.852235429528821e-10, 0.0,
+          1.456098777070529e-12 },
+        .ret = TSD_ERR_ZERO_DIVISION },
+};
+
+/* Expected values of the reference implementation */
+static const approx_row_t unphased_projection_rows[] = {
+    { .in = { 9.0, 0.01, 9.0, 0.01, 1.0, 0.0001 },
+        .out = { 125.0990041915503, 9.255813953488373, 0.009865116279069767,
+            9.255813953488373, 0.009865116279069767 } },
+    { .in = { 9.0, 0.01, 9.0, 0.01, 0.0, 0.0001 },
+        .out = { 117.5080520628614, 9.000000000000014, 0.010100000000000013,
+            9.000000000000014, 0.010100000000000013 } },
+    { .in = { 9.0, 0.01, 9.0, 0.01, 1.0, 1000000.0 },
+        .out = { -261.5263346935328, 9.255813953488383, 976744.1958139545,
+            9.255813953488383, 976744.1958139545 } },
+    { .in = { -0.999, 1e-05, -0.999, 1e-05, 1.0, 0.0001 },
+        .out = { 16.733009924901715, -0.6657776298268974, 7.338215712383491e-05,
+            -0.6657776298268974, 7.338215712383491e-05 } },
+    { .in = { 9.0, 0.01, 9.0, 0.0001, 1.0, 0.0001 },
+        .out = { 167.56758070890876, 8.999834167728347, 0.010079451366455893,
+            9.959389565517451, 0.00019962859097389507 } },
+    { .in = { 9.0, 0.01, 9.0, 1000000000.0, 1.0, 0.0001 },
+        .out = { -128.77903467622025, 10.000000000001114, 0.010100000000000728,
+            9.000000000000469, 1000000000.0001793 } },
+    { .in = { 9.0, -0.001, 9.0, 0.01, 1.0, 0.0001 },
+        .out = { NAN, 9.0, -0.001, 9.0, 0.01 } },
+    { .in = { 9.0, 0.01, 9.0, -0.01, 1.0, 0.0001 },
+        .out = { NAN, 9.0, 0.01, 9.0, -0.01 } },
+    { .in = { 9.0, 0.01, -1.0, 0.01, 1.0, 0.0001 },
+        .out = { NAN, 9.0, 0.01, -1.0, 0.01 } },
+    { .in = { 9.0, 0.01, 9.0, -0.005, 1.0, 0.0001 },
+        .out = { NAN, 9.0, 0.01, 9.0, -0.005 } },
+    { .in = { -0.9999999982339964, 670.7541722816065, 71.24709050049042,
+          1.592021596132961e-05, 100000000.0, 627.5241160659726 },
+        .ret = TSD_ERR_INVALID_HYPERGEO },
+    { .in = { -0.9999978569377382, 116952.43478981475, -0.9999996606587622,
+          9526762.492287748, 100000000.0, 1.1701319088974114 },
+        .ret = TSD_ERR_INVALID_HYPERGEO },
+    { .in = { -0.9999999887286387, 8599826.4555504, -0.9999999961073964,
+          114569.03037514388, 100000000.0, 9.492307871836265e-08 },
+        .ret = TSD_ERR_INVALID_HYPERGEO },
+    { .in = { 24464916.038703892, 183.8190229856431, 15606407.365774523,
+          29.436886993709617, 100.0, 0.036593097704101483 },
+        .out = { NAN, 24464916.038703892, 183.8190229856431, 15606407.365774523,
+            29.436886993709617 } },
+};
+
+/* Expected values of the reference implementation */
+static const approx_row_t twin_projection_rows[] = {
+    { .in = { 9.0, 0.01, 1.0, 0.0001 }, .out = { 66.23660289924649, 10.0, 0.0102 } },
+    { .in = { 9.0, 0.01, 0.0, 0.0001 },
+        .out = { 58.65550306700058, 9.000000000000002, 0.0102 } },
+    { .in = { 9.0, 0.01, 0.0, 0.0 }, .out = { 58.85352933996238, 9.0, 0.01 } },
+    { .in = { -0.999, 1e-05, 1.0, 0.0001 },
+        .out = { 9.169442217235714, 0.0009999999999998899, 0.00021 } },
+    { .in = { 9.0, -0.0002, 1.0, 0.0001 }, .ret = TSD_ERR_ZERO_DIVISION },
+    { .in = { 9.0, 1e-300, 1.0, 0.0 }, .ret = TSD_ERR_ZERO_DIVISION },
+    { .in = { 9.0, -0.001, 1.0, 0.0001 }, .out = { NAN, 9.0, -0.001 } },
+    { .in = { -1.0, 0.01, 0.0, 0.0001 }, .out = { NAN, -1.0, 0.01 } },
+    { .in = { NAN, 0.01, 1.0, 0.0001 }, .out = { NAN, NAN, 0.01 } },
+    { .in = { 9.0, 0.01, 1e+300, 0.0001 },
+        .out = { 6.950540426374656e+302, INFINITY, 0.0102 } },
+};
+
+/* Expected values of the reference implementation */
+static const approx_row_t sideways_projection_rows[] = {
+    { .in = { 1000.0, 9.0, 0.01, 1.0, 0.0001 },
+        .out = { 66.24960717136513, 9.252371518351646, 0.009864414635015015 } },
+    { .in = { 1000.0, 9.0, 0.01, 0.0, 0.0001 },
+        .out = { 58.6540260314307, 8.999999999999979, 0.01009999999999998 } },
+    { .in = { 10000000000.0, 9.0, 0.01, 1.0, 0.0001 },
+        .out = { -999918.2201229396, 9.0, 0.01009999990000001 } },
+    { .in = { 1000.0, -0.999, 1e-05, 1.0, 0.0001 },
+        .out = { 11.711002789755941, -0.3344733566238761, 9.534065013562661e-05 } },
+    { .in = { 0.0, 9.0, 0.01, 1.0, 0.0001 }, .ret = TSD_ERR_INVALID_FIXED_AGE },
+    { .in = { INFINITY, 9.0, 0.01, 1.0, 0.0001 }, .out = { NAN, 9.0, 0.01 } },
+    { .in = { 1000.0, 9.0, -0.001, 1.0, 0.0001 }, .out = { NAN, 9.0, -0.001 } },
+    { .in = { 1000.0, -1.0, 0.01, 1.0, 0.0001 }, .out = { NAN, -1.0, 0.01 } },
+    { .in = { 7951733.774369938, -0.9999999997166296, 2.3019958853100635e-08,
+          100000000.0, 1.604270854947341e-07 },
+        .ret = TSD_ERR_ZERO_DIVISION },
+    { .in = { 4.821917030411909e-10, -0.9999995830650517, 6.852235429528821e-10, 0.0,
+          1.456098777070529e-12 },
+        .ret = TSD_ERR_ZERO_DIVISION },
+};
+
+/* Expected values of the reference implementation */
+static const approx_row_t mutation_gamma_projection_rows[] = {
+    { .in = { 9.0, 0.01, 9.0, 0.01, 1.0, 0.0001 },
+        .out = { 1.0, 11.972527662435708, 0.012387600537857034 } },
+    { .in = { 9.0, 0.01, 9.0, 0.01, 0.0, 0.0001 },
+        .out = { 1.0, 15.051269863867297, 0.016078362999938683 } },
+    { .in = { 9.0, 0.01, 9.0, 0.01, 100.0, 0.001 },
+        .out = { 1.0, 2.5227474097139964, 0.0006402612043839605 } },
+    { .in = { 9.0, 0.01, 9.0, 0.01, 0.0, 0.0 },
+        .out = { 1.0, 14.876779871495089, 0.01587677987149509 } },
+    { .in = { 9999.0, 10.0, 9999.0, 10.0, 1.0, 0.0001 },
+        .out = { 1.0, 12312.171077179419, 12.312556526656158 } },
+    { .in = { 9.0, 0.01, -0.99999999, 0.01, 1.0, 0.0001 },
+        .out = { 1.0, 1.2000000057917348, 0.004040000006896114 } },
+    { .in = { 9.0, 0.01, 9.0, -0.005, 1.0, 0.0001 },
+        .out = { 1.0, 17.89710360978777, 0.004963349877067389 } },
+    { .in = { 9.0, -0.0001, 9.0, 0.01, 1.0, 0.0001 }, .out = { NAN, NAN, NAN } },
+    { .in = { 9.0, 0.01, 9.0, -0.02, 1.0, 0.0001 }, .out = { NAN, NAN, NAN } },
+    { .in = { 9.0, 0.01, 9.0, 1000.0, 1.0, 0.0001 },
+        .out = { 1.0, 1.1898136314398267, 0.004022546170574629 } },
+    { .in = { 1210672665.2995348, 852947.3207951145, 7951732.774369938,
+          595712303.1396025, -1.5, 2.8337046167584198e-14 },
+        .ret = TSD_ERR_INVALID_HYPERGEO },
+    { .in = { 1582170.4459529708, 300601562.7452449, -0.9998696495109705,
+          -1852940.2349876668, -1.0, 38.337696337086264 },
+        .ret = TSD_ERR_ZERO_DIVISION },
+    { .in = { 5410.613776267856, 5038406234.100642, -0.9999999957569436,
+          0.042821205396860865, -1.0, 1163.787749187542 },
+        .ret = TSD_ERR_INVALID_HYPERGEO },
+    { .in = { 634745701.2698317, 329.06825010605945, -0.961069957123721,
+          1.3003726540202816, -0.5, 871.1707853483364 },
+        .ret = TSD_ERR_INVALID_HYPERGEO },
+    { .in = { 14400.04443044055, 18400282.490663443, -0.9999999992865775,
+          0.005953404256099466, -1.0, 3.5941767717509845e-12 },
+        .ret = TSD_ERR_ZERO_DIVISION },
+};
+
+/* Expected values of the reference implementation */
+static const approx_row_t mutation_leafward_projection_rows[] = {
+    { .in = { 1000.0, 9.0, 0.01, 1.0, 0.0001 },
+        .out = { 1.0, 41.23788621654923, 0.05057834547335923 } },
+    { .in = { 1000.0, 9.0, 0.01, 0.0, 0.0001 },
+        .out = { 1.0, 65.33060936244428, 0.074636409566046 } },
+    { .in = { 1e-10, 9.0, 0.01, 1.0, 0.0001 },
+        .out = { 1.0, 142.00000000008887, 1560000000000.9734 } },
+    { .in = { 1000.0, 9.0, 0.01, 1.0, 100000.0 },
+        .out = { 1.0, 4843.160085333926, 4.845401916227049 } },
+    { .in = { 1000.0, 99999999.0, 100000.0, 1.0, 0.0001 }, .out = { NAN, NAN, NAN } },
+    { .in = { 1000.0, 9.0, -0.001, 1.0, 0.0001 },
+        .out = { 1.0, 161.91196048162053, 0.17664647560328842 } },
+    { .in = { 0.0, 9.0, 0.01, 1.0, 0.0001 }, .ret = TSD_ERR_INVALID_FIXED_AGE },
+    { .in = { INFINITY, 9.0, 0.01, 1.0, 0.0001 }, .out = { NAN, NAN, NAN } },
+    { .in = { 1000.0, -2.0, 0.01, 1.0, 0.0001 }, .out = { NAN, NAN, NAN } },
+    { .in = { 1000.0, 9.0, 0.01, -1.0, 0.0001 }, .ret = TSD_ERR_INVALID_HYPERGEO },
+    { .in = { 330585155.6728075, -0.9999998239051365, -25365.04126587679, -1.0,
+          7.750515488516166e-07 },
+        .ret = TSD_ERR_INVALID_HYPERGEO },
+};
+
+/* Expected values of the reference implementation */
+static const approx_row_t mutation_rootward_projection_rows[] = {
+    { .in = { 1000.0, 9.0, 0.01, 1.0, 0.0001 },
+        .out = { 1.0, 34.81517584330332, 0.0291723565789877 } },
+    { .in = { 0.0, 9.0, 0.01, 1.0, 0.0001 },
+        .out = { 1.0, 1.2000000000000002, 0.00404 } },
+    { .in = { 10000000000.0, 9.0, 0.01, 1.0, 0.0001 }, .out = { NAN, NAN, NAN } },
+    { .in = { 1000.0, 9.0, 0.01, 1.0, 100000.0 }, .out = { NAN, NAN, NAN } },
+    { .in = { 1000.0, -0.999, 1e-05, 1.0, 0.0001 },
+        .out = { 1.0, 0.01358788152324153, 0.00016252432539224022 } },
+    { .in = { 1000.0, 9.0, 0.01, -0.5, 0.0001 },
+        .out = { 1.0, 100.34617434659063, 0.0954561376621056 } },
+    { .in = { -1.0, 9.0, 0.01, 1.0, 0.0001 }, .ret = TSD_ERR_INVALID_FIXED_AGE },
+    { .in = { 1000.0, 9.0, -0.0001, 1.0, 0.0001 }, .out = { NAN, NAN, NAN } },
+    { .in = { 1000.0, -1.0, 0.01, 1.0, 0.0001 }, .out = { NAN, NAN, NAN } },
+    { .in = { 8.45730940350531e-08, 17123190.868610334, 2.9302830155736855e-05,
+          100000000.0, 7.326444260535366e-08 },
+        .ret = TSD_ERR_ZERO_DIVISION },
+};
+
+/* Expected values of the reference implementation */
+static const approx_row_t mutation_edge_projection_rows[] = {
+    { .in = { 3.0, 1.0 }, .out = { 1.0, 11.0, 6.0 } },
+    { .in = { 1.0, 3.0 }, .out = { 1.0, 11.0, 6.0 } },
+    { .in = { 1.0, 1.0 }, .out = { NAN, NAN, NAN } },
+    { .in = { 0.0, 0.0 }, .out = { NAN, NAN, NAN } },
+    { .in = { -1.0, 1.0 }, .out = { NAN, NAN, NAN } },
+    { .in = { 1e+300, 1.0 }, .out = { NAN, NAN, NAN } },
+    { .in = { 1e-200, 1e-210 }, .out = { NAN, NAN, NAN } },
+    { .in = { 1.0, 0.9999999999999999 },
+        .out = { 1.0, 9.735556609752802e+32, 9.735556609752802e+32 } },
+    { .in = { NAN, 1.0 }, .out = { NAN, NAN, NAN } },
+    { .in = { INFINITY, INFINITY }, .out = { NAN, NAN, NAN } },
+};
+
+/* Expected values of the reference implementation */
+static const approx_row_t mutation_unphased_projection_rows[] = {
+    { .in = { 9.0, 0.01, 9.0, 0.01, 1.0, 0.0001 },
+        .out = { 0.5, 1.2000000000000002, 0.00404 } },
+    { .in = { 9.0, 0.01, 9.0, 0.01, 0.0, 0.0001 },
+        .out = { 0.5, 1.1841155234657053, 0.004211371841155237 } },
+    { .in = { 9.0, 0.01, 9.0, 0.01, 0.0, 0.0 },
+        .out = { 0.5, 1.1841155234657048, 0.004169675090252709 } },
+    { .in = { 9.0, 0.01, 9.0, 1000000000.0, 1.0, 0.0001 }, .out = { NAN, NAN, NAN } },
+    { .in = { 9.0, 0.01, 9.0, 1000.0, 1.0, 0.0001 },
+        .out = { 0.9994316225667118, 1.19600362119112, 0.004034954572191996 } },
+    { .in = { 1288.8261024396659, 2.1161296052067344, -0.8444713520868427,
+          0.0007984796762152916, 1.0, 4.811169071413665e-07 },
+        .out = { NAN, NAN, NAN } },
+    { .in = { 9.0, -0.001, 9.0, 0.01, 1.0, 0.0001 }, .out = { NAN, NAN, NAN } },
+    { .in = { 9.0, 0.01, -1.0, 0.01, 1.0, 0.0001 }, .out = { NAN, NAN, NAN } },
+    { .in = { -0.9999999982339964, 670.7541722816065, 71.24709050049042,
+          1.592021596132961e-05, 100000000.0, 627.5241160659726 },
+        .ret = TSD_ERR_INVALID_HYPERGEO },
+    { .in = { -0.9999978569377382, 116952.43478981475, -0.9999996606587622,
+          9526762.492287748, 100000000.0, 1.1701319088974114 },
+        .ret = TSD_ERR_INVALID_HYPERGEO },
+    { .in = { -0.9685259118501613, -3.572097767193457e-06, -0.9999303160226375,
+          0.0003977607105897399, 100000000.0, 0.00014045130994169163 },
+        .ret = TSD_ERR_INVALID_HYPERGEO },
+    { .in = { -0.1642181598383643, 1.3209477340917621e-09, -0.997659538296047,
+          0.00025633858557600413, 100000000.0, 0.0006572496535582051 },
+        .ret = TSD_ERR_INVALID_HYPERGEO },
+    { .in = { -0.9999151249075162, 993617.5506944145, 44356375.30250234,
+          12.330141147550119, 100000000.0, 1.5394974045964461e-09 },
+        .ret = TSD_ERR_INVALID_HYPERGEO },
+    { .in = { -0.9999991588071555, 5.338254701078075e-06, 7363270780.288286,
+          -0.012693009987637643, 2.0, 2.6034067423152516 },
+        .ret = TSD_ERR_INVALID_HYPERGEO },
+};
+
+/* Expected values of the reference implementation */
+static const approx_row_t mutation_twin_projection_rows[] = {
+    { .in = { 9.0, 0.01, 1.0, 0.0001 },
+        .out = { 0.5, 1.1999999999999997, 0.004079999999999999 } },
+    { .in = { 9.0, 0.01, 0.0, 0.0001 },
+        .out = { 0.5, 1.1428571428571437, 0.004371428571428573 } },
+    { .in = { -0.999, 1e-05, 1.0, 0.0001 },
+        .out = { 0.5, -0.39952009598080396, 0.0002519496100779844 } },
+    { .in = { 9.0, -0.001, 1.0, 0.0001 }, .out = { NAN, NAN, NAN } },
+    { .in = { -2.0, 0.01, 0.0, 0.0001 }, .out = { NAN, NAN, NAN } },
+    { .in = { 9.0, -0.0002, 1.0, 0.0001 }, .ret = TSD_ERR_ZERO_DIVISION },
+    { .in = { 9.0, 1e-300, 1.0, 0.0 }, .ret = TSD_ERR_ZERO_DIVISION },
+    { .in = { NAN, 0.01, 1.0, 0.0001 }, .out = { NAN, NAN, NAN } },
+    { .in = { 9.0, 0.01, 1e+300, 0.0001 }, .out = { NAN, NAN, NAN } },
+    { .in = { 9.0, 0.01, 1.0, 1e+300 }, .out = { NAN, NAN, NAN } },
+};
+
+/* Expected values of the reference implementation */
+static const approx_row_t mutation_sideways_projection_rows[] = {
+    { .in = { 1000.0, 9.0, 0.01, 1.0, 0.0001 },
+        .out = { 0.5023091569426977, 1.4914783301279306, 0.0047713533926081126 } },
+    { .in = { 1000.0, 9.0, 0.01, 0.0, 0.0001 },
+        .out = { 0.5144541526611798, 1.5218770077081731, 0.004948242011349156 } },
+    { .in = { 1e-10, 9.0, 0.01, 1.0, 0.0001 },
+        .out = { 0.0007564619471360778, 1.1946390166820953, 0.004033219044763566 } },
+    { .in = { 0.0, 9.0, 0.01, 1.0, 0.0001 }, .ret = TSD_ERR_INVALID_FIXED_AGE },
+    { .in = { INFINITY, 9.0, 0.01, 1.0, 0.0001 }, .out = { NAN, NAN, NAN } },
+    { .in = { 1000.0, 9.0, -0.0001, 1.0, 0.0001 }, .out = { NAN, NAN, NAN } },
+    { .in = { 1000.0, -1.0, 0.01, 1.0, 0.0001 }, .out = { NAN, NAN, NAN } },
+    { .in = { 1000.0, 9.0, 0.01, -0.5, 0.0001 }, .ret = TSD_ERR_INVALID_HYPERGEO },
+    { .in = { 7951733.774369938, -0.9999999997166296, 2.3019958853100635e-08,
+          100000000.0, 1.604270854947341e-07 },
+        .ret = TSD_ERR_ZERO_DIVISION },
+    { .in = { 3439589.3148461175, 51334025.94161953, -8.147893520675203e-06, -0.5,
+          23.460646619971012 },
+        .ret = TSD_ERR_INVALID_HYPERGEO },
+    { .in = { 17.77466115825119, -0.9999991149306618, 1.2068705882784672e-08, 0.0,
+          7.490387184896008e-07 },
+        .out = { 0.9999721035237816, -0.9998224001070971, 1.8801875677074958e-05 } },
+    { .in = { 3.785982048609923e-06, 7.363428340996249, 0.0001149777112112498, 10000.0,
+          9.903472470733758e-13 },
+        .ret = TSD_ERR_ZERO_DIVISION },
+};
+
+/* Expected values of the reference implementation */
+static const approx_row_t mutation_block_projection_rows[] = {
+    { .in = { 3.0, 1.0 }, .out = { 0.75, 1.0270270270270268, 1.6216216216216213 } },
+    { .in = { 1.0, 3.0 }, .out = { 0.25, 1.0270270270270268, 1.6216216216216213 } },
+    { .in = { 1.0, 1.0 }, .out = { 0.5, 2.000000000000001, 6.000000000000002 } },
+    { .in = { 1e-160, 1e-170 },
+        .out = { 0.9999999999, 1.9940828402366866, 5.988232345771314e+160 } },
+    { .in = { 1e+300, 1.0 }, .out = { NAN, NAN, NAN } },
+    { .in = { INFINITY, 1.0 }, .out = { NAN, NAN, NAN } },
+    { .in = { 0.0, 1.0 }, .ret = TSD_ERR_INVALID_FIXED_AGE },
+    { .in = { 1.0, 0.0 }, .ret = TSD_ERR_INVALID_FIXED_AGE },
+    { .in = { -1.0, 1.0 }, .ret = TSD_ERR_INVALID_FIXED_AGE },
+    { .in = { NAN, 1.0 }, .ret = TSD_ERR_INVALID_FIXED_AGE },
+};
+
+/* Moments with exact hypergeometric functions (mpmath) */
+static const approx_row_t moments_reference_rows[] = {
+    { .in = { 2.0, 0.0005, 1.5, 0.005, 0.0, 0.001 },
+        .out = { 21.031253635355096, 1465.2981427174977, 867475.244355388,
+            325.5131964809384, 65995.30447794562 } },
+    { .in = { 2.0, 0.0005, 1.5, 0.005, 1.0, 0.001 },
+        .out = { 28.069848515296044, 2190.3945111492285, 1346202.2405353924,
+            303.6020583190394, 59860.71923480909 } },
+    { .in = { 2.0, 0.0005, 1.5, 0.005, 2.0, 0.001 },
+        .out = { 35.61248206671415, 2881.212121212121, 1802822.4058769522,
+            294.5454545454545, 57044.62809917363 } },
+    { .in = { 2.0, 0.0005, 1.5, 0.005, 3.0, 0.001 },
+        .out = { 43.470607391223304, 3561.0746641674477, 2253426.739788929,
+            289.5970009372071, 55436.63575142145 } },
+};
+
+/* Moments with exact hypergeometric functions (mpmath) */
+static const approx_row_t rootward_moments_reference_rows[] = {
+    { .in = { 0.0, 2.0, 0.0005, 0.0, 0.001 },
+        .out = { 13.004580341747944, 1333.3333333333333, 888888.8888888889 } },
+    { .in = { 300.0, 2.0, 0.0005, 0.0, 0.001 },
+        .out = { 13.226143898180428, 1426.4367816091954, 846082.7057735494 } },
+    { .in = { 0.0, 2.0, 0.0005, 1.0, 0.001 },
+        .out = { 20.20001769318186, 2000.0, 1333333.3333333333 } },
+    { .in = { 300.0, 2.0, 0.0005, 1.0, 0.001 },
+        .out = { 20.252958537178554, 2177.551020408163, 1318339.5807302524 } },
+    { .in = { 0.0, 2.0, 0.0005, 2.0, 0.001 },
+        .out = { 27.800920152723943, 2666.6666666666665, 1777777.7777777778 } },
+    { .in = { 300.0, 2.0, 0.0005, 2.0, 0.001 },
+        .out = { 27.7906820950991, 2879.7101449275365, 1770216.3411048136 } },
+    { .in = { 0.0, 2.0, 0.0005, 3.0, 0.001 },
+        .out = { 35.689504684717804, 3333.3333333333335, 2222222.222222222 } },
+    { .in = { 300.0, 2.0, 0.0005, 3.0, 0.001 },
+        .out = { 35.64611441977607, 3565.9176029962564, 2217677.341525332 } },
+};
+
+/* Moments with exact hypergeometric functions (mpmath) */
+static const approx_row_t leafward_moments_reference_rows[] = {
+    { .in = { 4000.0, 1.5, 0.005, 0.0, 0.001 },
+        .out = { 4.161408615811342, 374.9979682813893, 93742.12708625503 } },
+    { .in = { 4000.0, 1.5, 0.005, 1.0, 0.001 },
+        .out = { 12.357018743574061, 349.13808564794067, 80150.76468380277 } },
+    { .in = { 4000.0, 1.5, 0.005, 2.0, 0.001 },
+        .out = { 20.55973730319209, 327.1841562569884, 69769.3287114679 } },
+    { .in = { 4000.0, 1.5, 0.005, 3.0, 0.001 },
+        .out = { 28.7684512099228, 308.1880149638367, 61530.72786327265 } },
+};
+
+/* Moments with exact hypergeometric functions (mpmath) */
+static const approx_row_t unphased_moments_reference_rows[] = {
+    { .in = { 2.0, 0.0005, 1.5, 0.005, 0.0, 0.001 },
+        .out = { 20.557791818743823, 1333.333333333334, 888888.8888888899,
+            249.99999999999991, 41666.6666666667 } },
+    { .in = { 2.0, 0.0005, 1.5, 0.005, 1.0, 0.001 },
+        .out = { 27.925079427104397, 1894.7368421052631, 1322253.0009233607,
+            276.3157894736842, 49746.07571560478 } },
+    { .in = { 2.0, 0.0005, 1.5, 0.005, 2.0, 0.001 },
+        .out = { 35.60804683970079, 2496.969696969697, 1775916.7431894708,
+            292.4242424242424, 55691.766146311726 } },
+    { .in = { 2.0, 0.0005, 1.5, 0.005, 3.0, 0.001 },
+        .out = { 43.54162646489553, 3123.6646749954734, 2233786.6546523217,
+            302.4171645844649, 59861.8318883694 } },
+};
+
+/* Moments with exact hypergeometric functions (mpmath) */
+static const approx_row_t twin_moments_reference_rows[] = {
+    { .in = { 2.0, 0.0005, 0.0, 0.001 },
+        .out = { 11.982929094215963, 800.0, 320000.0 } },
+    { .in = { 2.0, 0.0005, 1.0, 0.001 },
+        .out = { 19.360688002443837, 1200.0, 480000.0 } },
+    { .in = { 2.0, 0.0005, 2.0, 0.001 },
+        .out = { 27.143912018779872, 1600.0, 640000.0 } },
+    { .in = { 2.0, 0.0005, 3.0, 0.001 },
+        .out = { 35.21481810756769, 2000.0, 800000.0 } },
+};
+
+/* Moments with exact hypergeometric functions (mpmath) */
+static const approx_row_t sideways_moments_reference_rows[] = {
+    { .in = { 4000.0, 1.5, 0.005, 0.0, 0.001 },
+        .out = { 3.5532114769958763, 250.00000000000006, 41666.6666666666 } },
+    { .in = { 4000.0, 1.5, 0.005, 1.0, 0.001 },
+        .out = { 11.907885738914343, 259.80392156862735, 44838.52364475213 } },
+    { .in = { 4000.0, 1.5, 0.005, 2.0, 0.001 },
+        .out = { 20.26486414931765, 270.32988108937496, 48349.64184973649 } },
+    { .in = { 4000.0, 1.5, 0.005, 3.0, 0.001 },
+        .out = { 28.62431050808071, 281.6521075206035, 52244.75880734118 } },
+};
+
+/* Moments with exact hypergeometric functions (mpmath) */
+static const approx_row_t mutation_moments_reference_rows[] = {
+    { .in = { 2.0, 0.0005, 1.5, 0.005, 0.0, 0.001 },
+        .out = { 895.4056695992181, 433089.7662654356 } },
+    { .in = { 2.0, 0.0005, 1.5, 0.005, 1.0, 0.001 },
+        .out = { 1246.998284734134, 779610.7291236585 } },
+    { .in = { 2.0, 0.0005, 1.5, 0.005, 2.0, 0.001 },
+        .out = { 1587.8787878787878, 1192274.2577288034 } },
+    { .in = { 2.0, 0.0005, 1.5, 0.005, 3.0, 0.001 },
+        .out = { 1925.3358325523272, 1676579.5131383222 } },
+};
+
+/* Moments with exact hypergeometric functions (mpmath) */
+static const approx_row_t mutation_rootward_moments_reference_rows[] = {
+    { .in = { 0.0, 2.0, 0.0005, 0.0, 0.001 },
+        .out = { 666.6666666666666, 444444.4444444445 } },
+    { .in = { 300.0, 2.0, 0.0005, 0.0, 0.001 },
+        .out = { 863.2183908045977, 387765.8871713566 } },
+    { .in = { 0.0, 2.0, 0.0005, 1.0, 0.001 }, .out = { 1000.0, 777777.7777777778 } },
+    { .in = { 300.0, 2.0, 0.0005, 1.0, 0.001 },
+        .out = { 1238.7755102040815, 733213.0130963952 } },
+    { .in = { 0.0, 2.0, 0.0005, 2.0, 0.001 },
+        .out = { 1333.3333333333333, 1185185.1851851852 } },
+    { .in = { 300.0, 2.0, 0.0005, 2.0, 0.001 },
+        .out = { 1589.8550724637682, 1144647.4830217757 } },
+    { .in = { 0.0, 2.0, 0.0005, 3.0, 0.001 },
+        .out = { 1666.6666666666667, 1666666.666666667 } },
+    { .in = { 300.0, 2.0, 0.0005, 3.0, 0.001 },
+        .out = { 1932.9588014981282, 1628077.262971844 } },
+};
+
+/* Moments with exact hypergeometric functions (mpmath) */
+static const approx_row_t mutation_leafward_moments_reference_rows[] = {
+    { .in = { 4000.0, 1.5, 0.005, 0.0, 0.001 },
+        .out = { 2187.4989841406946, 1126300.6865257565 } },
+    { .in = { 4000.0, 1.5, 0.005, 1.0, 0.001 },
+        .out = { 2174.5690428239704, 1137449.6480334653 } },
+    { .in = { 4000.0, 1.5, 0.005, 2.0, 0.001 },
+        .out = { 2163.592078128494, 1147387.794741298 } },
+    { .in = { 4000.0, 1.5, 0.005, 3.0, 0.001 },
+        .out = { 2154.094007481918, 1156299.8870258126 } },
+};
+
+/* Moments with exact hypergeometric functions (mpmath) */
+static const approx_row_t mutation_unphased_moments_reference_rows[] = {
+    { .in = { 2.0, 0.0005, 1.5, 0.005, 0.0, 0.001 },
+        .out = { 0.8007688806687693, 613.2908705909567, 436374.30804978625 } },
+    { .in = { 2.0, 0.0005, 1.5, 0.005, 1.0, 0.001 },
+        .out = { 0.8421052631578948, 875.0000000000001, 744243.4210526317 } },
+    { .in = { 2.0, 0.0005, 1.5, 0.005, 2.0, 0.001 },
+        .out = { 0.8727272727272726, 1160.3535353535353, 1136786.7436996226 } },
+    { .in = { 2.0, 0.0005, 1.5, 0.005, 3.0, 0.001 },
+        .out = { 0.8951656708310697, 1461.2453980324701, 1609952.4534499124 } },
+};
+
+/* Moments with exact hypergeometric functions (mpmath) */
+static const approx_row_t mutation_twin_moments_reference_rows[] = {
+    { .in = { 2.0, 0.0005, 0.0, 0.001 }, .out = { 0.5, 400.0, 160000.0 } },
+    { .in = { 2.0, 0.0005, 1.0, 0.001 }, .out = { 0.5, 600.0, 280000.0 } },
+    { .in = { 2.0, 0.0005, 2.0, 0.001 }, .out = { 0.5, 800.0, 426666.66666666674 } },
+    { .in = { 2.0, 0.0005, 3.0, 0.001 }, .out = { 0.5, 1000.0, 600000.0 } },
+};
+
+/* Moments with exact hypergeometric functions (mpmath) */
+static const approx_row_t mutation_sideways_moments_reference_rows[] = {
+    { .in = { 4000.0, 1.5, 0.005, 0.0, 0.001 },
+        .out = { 0.9432066834365437, 1897.8267337461748, 1432975.9109005476 } },
+    { .in = { 4000.0, 1.5, 0.005, 1.0, 0.001 },
+        .out = { 0.9411764705882353, 1894.6078431372548, 1434834.7590670255 } },
+    { .in = { 4000.0, 1.5, 0.005, 2.0, 0.001 },
+        .out = { 0.9390103567318757, 1891.2063674721903, 1436707.9296666533 } },
+    { .in = { 4000.0, 1.5, 0.005, 3.0, 0.001 },
+        .out = { 0.9366957849587928, 1887.609193595473, 1438586.278385757 } },
+};
+
+/* Moments with exact hypergeometric functions (mpmath) */
+static const approx_row_t mutation_edge_moments_reference_rows[] = {
+    { .in = { 4000.0, 300.0 }, .out = { 2150.0, 1140833.3333333333 } },
+};
+
+/* Moments with exact hypergeometric functions (mpmath) */
+static const approx_row_t mutation_block_moments_reference_rows[] = {
+    { .in = { 4000.0, 300.0 },
+        .out = { 0.9302325581395349, 1870.9302325581393, 1462953.3982332796 } },
+};
+
+/* E[x] and E[log x] of gammas, to be matched by the fitted gamma */
+static const approx_row_t gamma_kl_reference_rows[] = {
+    { .in = { 4000.0, 8.023686794640554 } },
+    { .in = { 300.0, 5.334807340526621 } },
+};
+
+/* Means and variances, to be matched by the fitted gamma */
+static const approx_row_t gamma_mom_reference_rows[] = {
+    { .in = { 1468.0830957704875, 872665.4081509365 } },
+    { .in = { 324.4688390860673, 66202.99256425913 } },
+    { .in = { 2191.550649932301, 1347335.0097574154 } },
+    { .in = { 303.16850627538713, 59803.23888483012 } },
+    { .in = { 2881.7094765803945, 1803178.2179688085 } },
+    { .in = { 294.35894628235206, 57001.41004303977 } },
+    { .in = { 3561.3208124108723, 2253566.347481519 } },
+    { .in = { 289.5046953459227, 55410.11528755033 } },
+};
+
 static void
 test_approximate_log_moments(void)
 {
-    double logx, xlogx, logx2;
-    int ret;
-
-    ret = tsd_approximate_log_moments(2.0, 0.5, &logx, &xlogx, &logx2);
-    CU_ASSERT_EQUAL(ret, 0);
-    CU_ASSERT(isfinite(logx) && isfinite(xlogx) && isfinite(logx2));
-    ret = tsd_approximate_log_moments(0.0, 0.5, &logx, &xlogx, &logx2);
-    CU_ASSERT_EQUAL(ret, TSD_ERR_NONPOSITIVE_MOMENTS);
-    ret = tsd_approximate_log_moments(1.0, NAN, &logx, &xlogx, &logx2);
-    CU_ASSERT_EQUAL(ret, TSD_ERR_NONPOSITIVE_MOMENTS);
-    /* mean ** 2 underflows */
-    ret = tsd_approximate_log_moments(1e-200, 1.0, &logx, &xlogx, &logx2);
-    CU_ASSERT_EQUAL(ret, TSD_ERR_ZERO_DIVISION);
+    check_rows(eval_log_moments, log_moments_rows, NUM_ROWS(log_moments_rows), 3);
 }
 
 static void
 test_approximate_gamma_kl(void)
 {
-    double out[2];
+    size_t j;
     int ret;
+    double x, logx, shape, rate, dg;
+    double out[2];
 
-    ret = tsd_approximate_gamma_kl(2.0, 0.5, out);
-    CU_ASSERT_EQUAL(ret, 0);
-    CU_ASSERT(isfinite(out[0]) && isfinite(out[1]));
-    /* the asymptotic lower bound */
-    ret = tsd_approximate_gamma_kl(1.0, -1e-10, out);
-    CU_ASSERT_EQUAL(ret, 0);
-    ret = tsd_approximate_gamma_kl(0.0, -1.0, out);
-    CU_ASSERT_EQUAL(ret, TSD_ERR_NONPOSITIVE_OR_NONFINITE_MOMENTS);
-    ret = tsd_approximate_gamma_kl(1.0, 0.0, out);
-    CU_ASSERT_EQUAL(ret, TSD_ERR_JENSEN_VIOLATION);
-    /* the lower bound on the shape is zero */
-    ret = tsd_approximate_gamma_kl(INFINITY, -1.0, out);
-    CU_ASSERT_EQUAL(ret, TSD_ERR_ZERO_DIVISION);
-    /* the trigamma function divides by zero */
-    ret = tsd_approximate_gamma_kl(1.0, -1e164, out);
-    CU_ASSERT_EQUAL(ret, TSD_ERR_ZERO_DIVISION);
+    check_rows(eval_gamma_kl, gamma_kl_rows, NUM_ROWS(gamma_kl_rows), 2);
+    for (j = 0; j < NUM_ROWS(gamma_kl_reference_rows); j++) {
+        x = gamma_kl_reference_rows[j].in[0];
+        logx = gamma_kl_reference_rows[j].in[1];
+        ret = tsd_approximate_gamma_kl(x, logx, out);
+        CU_ASSERT_EQUAL_FATAL(ret, 0);
+        shape = out[0] + 1;
+        rate = out[1];
+        ret = tsd_digamma(shape, &dg);
+        CU_ASSERT_EQUAL_FATAL(ret, 0);
+        assert_close_tol(shape / rate, x, 1e-5, 1e-8);
+        assert_close_tol(dg - log(rate), logx, 1e-5, 1e-8);
+    }
 }
 
 static void
 test_approximate_gamma_mom(void)
 {
-    double out[2];
+    size_t j;
     int ret;
+    double mean, variance, shape, rate;
+    double out[2];
 
-    ret = tsd_approximate_gamma_mom(2.0, 4.0, out);
-    CU_ASSERT_EQUAL(ret, 0);
-    CU_ASSERT_EQUAL(out[0], 0.0);
-    CU_ASSERT_EQUAL(out[1], 0.5);
-    ret = tsd_approximate_gamma_mom(2.0, 0.0, out);
-    CU_ASSERT_EQUAL(ret, TSD_ERR_NONPOSITIVE_CENTRAL_MOMENTS);
-    ret = tsd_approximate_gamma_mom(NAN, 1.0, out);
-    CU_ASSERT_EQUAL(ret, TSD_ERR_NONPOSITIVE_CENTRAL_MOMENTS);
+    check_rows(eval_gamma_mom, gamma_mom_rows, NUM_ROWS(gamma_mom_rows), 2);
+    for (j = 0; j < NUM_ROWS(gamma_mom_reference_rows); j++) {
+        mean = gamma_mom_reference_rows[j].in[0];
+        variance = gamma_mom_reference_rows[j].in[1];
+        ret = tsd_approximate_gamma_mom(mean, variance, out);
+        CU_ASSERT_EQUAL_FATAL(ret, 0);
+        shape = out[0] + 1;
+        rate = out[1];
+        assert_close_tol(shape / rate, mean, 1e-5, 1e-8);
+        assert_close_tol(shape / (rate * rate), variance, 1e-5, 1e-8);
+    }
 }
 
 static void
 test_approximate_gamma_iqr(void)
 {
-    double out[2];
-    int ret;
-
-    /* Newton iteration */
-    ret = tsd_approximate_gamma_iqr(0.25, 0.75, 1.0, 3.0, 50.0, out);
-    CU_ASSERT_EQUAL(ret, 0);
-    CU_ASSERT(isfinite(out[0]) && isfinite(out[1]));
-    /* capped shape: equal quantiles, or a lower bound above the cap */
-    ret = tsd_approximate_gamma_iqr(0.25, 0.75, 3.0, 3.0, 50.0, out);
-    CU_ASSERT_EQUAL(ret, 0);
-    CU_ASSERT_EQUAL(out[0], 49.0);
-    ret = tsd_approximate_gamma_iqr(0.25, 0.75, 1.0, 1.1, 2.0, out);
-    CU_ASSERT_EQUAL(ret, 0);
-    CU_ASSERT_EQUAL(out[0], 1.0);
-    /* errors */
-    ret = tsd_approximate_gamma_iqr(0.25, 0.75, 2.0, 1.0, 50.0, out);
-    CU_ASSERT_EQUAL(ret, TSD_ERR_UNSORTED_QUANTILES);
-    ret = tsd_approximate_gamma_iqr(0.25, 0.75, 0.0, 0.0, 50.0, out);
-    CU_ASSERT_EQUAL(ret, TSD_ERR_ZERO_DIVISION);
-    ret = tsd_approximate_gamma_iqr(0.0, 0.75, 1.0, 2.0, 50.0, out);
-    CU_ASSERT_EQUAL(ret, TSD_ERR_ZERO_DIVISION);
-    ret = tsd_approximate_gamma_iqr(0.25, 0.75, 0.0, 1.0, 50.0, out);
-    CU_ASSERT_EQUAL(ret, TSD_ERR_ZERO_DIVISION);
-    /* no convergence, or a step outside the domain of the incomplete gamma
-     * derivative */
-    ret = tsd_approximate_gamma_iqr(1e-200, 0.99, 1.0, 1.2, 1e300, out);
-    CU_ASSERT_EQUAL(ret, TSD_ERR_QUANTILE_MAX_ITERATIONS);
-    ret = tsd_approximate_gamma_iqr(1e-250, 0.5, 1.0, 1e100, 1e300, out);
-    CU_ASSERT_EQUAL(ret, TSD_ERR_INVALID_HYPERGEO);
-    /* the lower quantile is zero, or underflows when squared */
-    ret = tsd_approximate_gamma_iqr(1e-10, 0.01, 1.0, 1e300, 50.0, out);
-    CU_ASSERT_EQUAL(ret, TSD_ERR_ZERO_DIVISION);
-    ret = tsd_approximate_gamma_iqr(1e-200, 0.5, 1.0, 5e199, 50.0, out);
-    CU_ASSERT_EQUAL(ret, TSD_ERR_ZERO_DIVISION);
-    /* the gradient is zero */
-    ret = tsd_approximate_gamma_iqr(0.1, 0.9, 1.0, 1.0000001, 1e20, out);
-    CU_ASSERT_EQUAL(ret, TSD_ERR_ZERO_DIVISION);
+    check_rows(eval_gamma_iqr, gamma_iqr_rows, NUM_ROWS(gamma_iqr_rows), 2);
 }
 
 static void
-test_average_gammas(void)
+test_valid_moments_and_gamma(void)
 {
-    const double alpha[] = { 0.5, 3.0 };
-    const double beta[] = { 1.0, 2.0 };
-    const double zero_rate[] = { 1.0, 0.0 };
-    const double pole[] = { -1.0, 3.0 };
-    double out[2];
-    int ret;
-
-    ret = tsd_average_gammas(2, alpha, beta, out);
-    CU_ASSERT_EQUAL(ret, 0);
-    CU_ASSERT(isfinite(out[0]) && isfinite(out[1]));
-    ret = tsd_average_gammas(0, alpha, beta, out);
-    CU_ASSERT_EQUAL(ret, TSD_ERR_ZERO_DIVISION);
-    ret = tsd_average_gammas(2, alpha, zero_rate, out);
-    CU_ASSERT_EQUAL(ret, TSD_ERR_ZERO_DIVISION);
-    /* digamma has a pole at shape 0 */
-    ret = tsd_average_gammas(2, pole, beta, out);
-    CU_ASSERT_EQUAL(ret, TSD_ERR_ZERO_DIVISION);
+    check_rows(eval_valid_moments, valid_moments_rows, NUM_ROWS(valid_moments_rows), 1);
+    check_rows(eval_valid_gamma, valid_gamma_rows, NUM_ROWS(valid_gamma_rows), 1);
 }
 
 static void
 test_valid(void)
 {
-    CU_ASSERT_TRUE(tsd_valid_moments(1.0, 1.0));
-    CU_ASSERT_FALSE(tsd_valid_moments(NAN, 1.0));
-    CU_ASSERT_FALSE(tsd_valid_moments(1.0, 0.0));
-    CU_ASSERT_TRUE(tsd_valid_gamma(1.0, 1.0));
-    CU_ASSERT_FALSE(tsd_valid_gamma(1.0, INFINITY));
-    CU_ASSERT_FALSE(tsd_valid_gamma(0.0, 1.0));
     CU_ASSERT_TRUE(tsd_valid_hyp1f1(1.0, 2.0, 0.5));
     CU_ASSERT_FALSE(tsd_valid_hyp1f1(1.0, NAN, 0.5));
     CU_ASSERT_FALSE(tsd_valid_hyp1f1(2.0, 1.0, 0.5));
@@ -897,188 +2177,128 @@ test_valid(void)
     CU_ASSERT_FALSE(tsd_valid_hyp2f1(0.0, 2.0, 3.0, 0.5));
 }
 
-/* approx: node moments */
 static void
 test_node_moments(void)
 {
-    int ret;
-    double v[5];
-
-    ret = tsd_moments(10, 0.01, 10, 0.01, 1, 1e-4, v, v + 1, v + 2, v + 3, v + 4);
-    CU_ASSERT_EQUAL(ret, 0);
-    CU_ASSERT_TRUE(isfinite(v[0]));
-    ret = tsd_moments(10, 0.01, 10, -0.02, 1, 1e-4, v, v + 1, v + 2, v + 3, v + 4);
-    CU_ASSERT_EQUAL(ret, 0);
-    CU_ASSERT_TRUE(isnan(v[0]));
-    ret = tsd_moments(10, 0.01, 10, 0.01, 1, 1e-4, v, v + 1, v + 2, v + 3, v + 4);
-    CU_ASSERT_EQUAL(ret, 0);
-
-    ret = tsd_unphased_moments(
-        10, 0.01, 10, 0.01, 1, 1e-4, v, v + 1, v + 2, v + 3, v + 4);
-    CU_ASSERT_EQUAL(ret, 0);
-    CU_ASSERT_TRUE(isfinite(v[0]));
-    ret = tsd_unphased_moments(
-        10, -1.0, 10, 0.01, 1, 1e-4, v, v + 1, v + 2, v + 3, v + 4);
-    CU_ASSERT_EQUAL(ret, 0);
-    CU_ASSERT_TRUE(isnan(v[0]));
-
-    /* a positive, a zero and an invalid child age; negative and NaN ages are errors */
-    ret = tsd_rootward_moments(1000, 10, 0.01, 1, 1e-4, v, v + 1, v + 2);
-    CU_ASSERT_EQUAL(ret, 0);
-    CU_ASSERT_TRUE(isfinite(v[0]));
-    ret = tsd_rootward_moments(0, 10, 0.01, 1, 1e-4, v, v + 1, v + 2);
-    CU_ASSERT_EQUAL(ret, 0);
-    CU_ASSERT_TRUE(isfinite(v[0]));
-    ret = tsd_rootward_moments(1000, 10, -1.0, 1, 1e-4, v, v + 1, v + 2);
-    CU_ASSERT_EQUAL(ret, 0);
-    CU_ASSERT_TRUE(isnan(v[0]));
-    ret = tsd_rootward_moments(1e308, 10, 1e10, 1, 1e-4, v, v + 1, v + 2);
-    CU_ASSERT_EQUAL(ret, 0);
-    CU_ASSERT_TRUE(isnan(v[0]));
-    ret = tsd_rootward_moments(-1.0, 10, 0.01, 1, 1e-4, v, v + 1, v + 2);
-    CU_ASSERT_EQUAL(ret, TSD_ERR_INVALID_FIXED_AGE);
-    ret = tsd_rootward_moments(NAN, 10, 0.01, 1, 1e-4, v, v + 1, v + 2);
-    CU_ASSERT_EQUAL(ret, TSD_ERR_INVALID_FIXED_AGE);
-
-    ret = tsd_leafward_moments(1000, 10, 0.01, 1, 1e-4, v, v + 1, v + 2);
-    CU_ASSERT_EQUAL(ret, 0);
-    CU_ASSERT_TRUE(isfinite(v[0]));
-    ret = tsd_leafward_moments(1000, 0, 0.01, 1, 1e-4, v, v + 1, v + 2);
-    CU_ASSERT_EQUAL(ret, 0);
-    CU_ASSERT_TRUE(isnan(v[0]));
-    ret = tsd_leafward_moments(0, 10, 0.01, 1, 1e-4, v, v + 1, v + 2);
-    CU_ASSERT_EQUAL(ret, TSD_ERR_INVALID_FIXED_AGE);
-
-    ret = tsd_sideways_moments(1000, 10, 0.01, 1, 1e-4, v, v + 1, v + 2);
-    CU_ASSERT_EQUAL(ret, 0);
-    CU_ASSERT_TRUE(isfinite(v[0]));
-    ret = tsd_sideways_moments(1000, 10, -1.0, 1, 1e-4, v, v + 1, v + 2);
-    CU_ASSERT_EQUAL(ret, 0);
-    CU_ASSERT_TRUE(isnan(v[0]));
-    ret = tsd_sideways_moments(0, 10, 0.01, 1, 1e-4, v, v + 1, v + 2);
-    CU_ASSERT_EQUAL(ret, TSD_ERR_INVALID_FIXED_AGE);
-
-    ret = tsd_twin_moments(10, 0.01, 1, 1e-4, v, v + 1, v + 2);
-    CU_ASSERT_EQUAL(ret, 0);
-    CU_ASSERT_TRUE(isfinite(v[0]));
-    ret = tsd_twin_moments(10, -2e-4, 1, 1e-4, v, v + 1, v + 2);
-    CU_ASSERT_EQUAL(ret, TSD_ERR_ZERO_DIVISION);
-    ret = tsd_twin_moments(10, 1e-300, 1, 0.0, v, v + 1, v + 2);
-    CU_ASSERT_EQUAL(ret, TSD_ERR_ZERO_DIVISION);
+    check_rows(eval_moments, moments_rows, NUM_ROWS(moments_rows), 5);
+    check_rows(eval_unphased_moments, unphased_moments_rows,
+        NUM_ROWS(unphased_moments_rows), 5);
+    check_rows(eval_rootward_moments, rootward_moments_rows,
+        NUM_ROWS(rootward_moments_rows), 3);
+    check_rows(eval_leafward_moments, leafward_moments_rows,
+        NUM_ROWS(leafward_moments_rows), 3);
+    check_rows(eval_sideways_moments, sideways_moments_rows,
+        NUM_ROWS(sideways_moments_rows), 3);
+    check_rows(eval_twin_moments, twin_moments_rows, NUM_ROWS(twin_moments_rows), 3);
 }
 
-/* Each projection once with usable moments, and once with unusable ones (NaN). */
+/* The Laplace approximations against exact moments, with the tolerances of each. */
 static void
-test_mutation_projections(void)
+test_node_moments_reference(void)
 {
-    const double pars_i[2] = { 2.0, 1.0 };
-    const double pars_j[2] = { 1.0, 2.0 };
-    const double pars_ij[2] = { 1.0, 1.0 };
-    double pr_m;
-    double proj[2];
+    const unsigned int sd_two_node = (1u << 2) | (1u << 4);
+    const unsigned int sd_one_node = 1u << 2;
 
-    CU_ASSERT_EQUAL(
-        tsd_mutation_gamma_projection(pars_i, pars_j, pars_ij, &pr_m, proj), 0);
-    CU_ASSERT_EQUAL(pr_m, 1.0);
-    CU_ASSERT_EQUAL(
-        tsd_mutation_leafward_projection(2.0, pars_j, pars_ij, &pr_m, proj), 0);
-    CU_ASSERT_EQUAL(
-        tsd_mutation_rootward_projection(1.0, pars_i, pars_ij, &pr_m, proj), 0);
-    CU_ASSERT_EQUAL(tsd_mutation_edge_projection(2.0, 1.0, &pr_m, proj), 0);
-    CU_ASSERT_EQUAL(pr_m, 1.0);
-    CU_ASSERT_EQUAL(
-        tsd_mutation_unphased_projection(pars_i, pars_j, pars_ij, &pr_m, proj), 0);
-    CU_ASSERT_EQUAL(tsd_mutation_twin_projection(pars_i, pars_ij, &pr_m, proj), 0);
-    CU_ASSERT_EQUAL(
-        tsd_mutation_sideways_projection(2.0, pars_j, pars_ij, &pr_m, proj), 0);
-    CU_ASSERT_EQUAL(tsd_mutation_block_projection(2.0, 1.0, &pr_m, proj), 0);
-    CU_ASSERT_TRUE(pr_m > 0.0 && pr_m < 1.0);
-
-    /* Zero variance: the moments are unusable, which is in-band. */
-    CU_ASSERT_EQUAL(tsd_mutation_edge_projection(1.0, 1.0, &pr_m, proj), 0);
-    CU_ASSERT_TRUE(isnan(pr_m));
-    CU_ASSERT_TRUE(isnan(proj[0]));
-    CU_ASSERT_TRUE(isnan(proj[1]));
+    check_reference_rows(eval_moments, moments_reference_rows,
+        NUM_ROWS(moments_reference_rows), 5, sd_two_node, 1e-2);
+    check_reference_rows(eval_rootward_moments, rootward_moments_reference_rows,
+        NUM_ROWS(rootward_moments_reference_rows), 3, sd_one_node, 2e-2);
+    check_reference_rows(eval_leafward_moments, leafward_moments_reference_rows,
+        NUM_ROWS(leafward_moments_reference_rows), 3, sd_one_node, 1e-2);
+    check_reference_rows(eval_unphased_moments, unphased_moments_reference_rows,
+        NUM_ROWS(unphased_moments_reference_rows), 5, sd_two_node, 1e-2);
+    check_reference_rows(eval_twin_moments, twin_moments_reference_rows,
+        NUM_ROWS(twin_moments_reference_rows), 3, sd_one_node, 1e-5);
+    check_reference_rows(eval_sideways_moments, sideways_moments_reference_rows,
+        NUM_ROWS(sideways_moments_reference_rows), 3, sd_one_node, 1e-2);
 }
 
-/* The node projections: usable moments, and unusable ones (NaN, input copied). */
 static void
 test_node_projections(void)
 {
-    const double pars[2] = { 1.0, 2.0 };
-    const double bad[2] = { -5.0, 1.0 };
-    const double edge[2] = { 2.0, 0.5 };
-    double logl;
-    double proj_i[2];
-    double proj_j[2];
-
-    CU_ASSERT_EQUAL(tsd_gamma_projection(pars, pars, edge, &logl, proj_i, proj_j), 0);
-    CU_ASSERT_TRUE(isfinite(logl));
-    CU_ASSERT_EQUAL(tsd_gamma_projection(bad, pars, edge, &logl, proj_i, proj_j), 0);
-    CU_ASSERT_TRUE(isnan(logl));
-    CU_ASSERT_EQUAL(proj_i[0], bad[0]);
-    CU_ASSERT_EQUAL(proj_j[1], pars[1]);
-
-    CU_ASSERT_EQUAL(tsd_unphased_projection(pars, pars, edge, &logl, proj_i, proj_j), 0);
-    CU_ASSERT_TRUE(isfinite(logl));
-    CU_ASSERT_EQUAL(tsd_unphased_projection(bad, pars, edge, &logl, proj_i, proj_j), 0);
-    CU_ASSERT_TRUE(isnan(logl));
-
-    CU_ASSERT_EQUAL(tsd_leafward_projection(2.0, pars, edge, &logl, proj_j), 0);
-    CU_ASSERT_TRUE(isfinite(logl));
-    CU_ASSERT_EQUAL(tsd_leafward_projection(2.0, bad, edge, &logl, proj_j), 0);
-    CU_ASSERT_TRUE(isnan(logl));
-    CU_ASSERT_EQUAL(proj_j[0], bad[0]);
-
-    CU_ASSERT_EQUAL(tsd_rootward_projection(0.5, pars, edge, &logl, proj_i), 0);
-    CU_ASSERT_TRUE(isfinite(logl));
-    CU_ASSERT_EQUAL(tsd_rootward_projection(0.5, bad, edge, &logl, proj_i), 0);
-    CU_ASSERT_TRUE(isnan(logl));
-
-    CU_ASSERT_EQUAL(tsd_twin_projection(pars, edge, &logl, proj_i), 0);
-    CU_ASSERT_TRUE(isfinite(logl));
-    CU_ASSERT_EQUAL(tsd_twin_projection(bad, edge, &logl, proj_i), 0);
-    CU_ASSERT_TRUE(isnan(logl));
-
-    CU_ASSERT_EQUAL(tsd_sideways_projection(1.0, pars, edge, &logl, proj_j), 0);
-    CU_ASSERT_TRUE(isfinite(logl));
-    CU_ASSERT_EQUAL(tsd_sideways_projection(1.0, bad, edge, &logl, proj_j), 0);
-    CU_ASSERT_TRUE(isnan(logl));
+    check_rows(eval_gamma_projection, gamma_projection_rows,
+        NUM_ROWS(gamma_projection_rows), 5);
+    check_rows(eval_leafward_projection, leafward_projection_rows,
+        NUM_ROWS(leafward_projection_rows), 3);
+    check_rows(eval_rootward_projection, rootward_projection_rows,
+        NUM_ROWS(rootward_projection_rows), 3);
+    check_rows(eval_unphased_projection, unphased_projection_rows,
+        NUM_ROWS(unphased_projection_rows), 5);
+    check_rows(
+        eval_twin_projection, twin_projection_rows, NUM_ROWS(twin_projection_rows), 3);
+    check_rows(eval_sideways_projection, sideways_projection_rows,
+        NUM_ROWS(sideways_projection_rows), 3);
 }
 
-/* approx: mutation moments */
 static void
 test_mutation_moments(void)
 {
-    double pr, mn, va;
+    check_rows(eval_mutation_moments, mutation_moments_rows,
+        NUM_ROWS(mutation_moments_rows), 2);
+    check_rows(eval_mutation_rootward_moments, mutation_rootward_moments_rows,
+        NUM_ROWS(mutation_rootward_moments_rows), 2);
+    check_rows(eval_mutation_leafward_moments, mutation_leafward_moments_rows,
+        NUM_ROWS(mutation_leafward_moments_rows), 2);
+    check_rows(eval_mutation_unphased_moments, mutation_unphased_moments_rows,
+        NUM_ROWS(mutation_unphased_moments_rows), 3);
+    check_rows(eval_mutation_twin_moments, mutation_twin_moments_rows,
+        NUM_ROWS(mutation_twin_moments_rows), 3);
+    check_rows(eval_mutation_sideways_moments, mutation_sideways_moments_rows,
+        NUM_ROWS(mutation_sideways_moments_rows), 3);
+    check_rows(eval_mutation_edge_moments, mutation_edge_moments_rows,
+        NUM_ROWS(mutation_edge_moments_rows), 2);
+    check_rows(eval_mutation_block_moments, mutation_block_moments_rows,
+        NUM_ROWS(mutation_block_moments_rows), 3);
+}
 
-    CU_ASSERT_EQUAL(tsd_mutation_moments(5, 0.01, 6, 0.02, 2, 0.001, &mn, &va), 0);
-    CU_ASSERT_TRUE(mn > 0);
-    /* t <= 0: the hypergeometric domain check fails, in-band */
-    CU_ASSERT_EQUAL(tsd_mutation_moments(5, -1, 6, 0.02, 2, 0.5, &mn, &va), 0);
-    CU_ASSERT_TRUE(isnan(mn));
-    CU_ASSERT_EQUAL(tsd_mutation_rootward_moments(1, 5, 0.01, 2, 0.001, &mn, &va), 0);
-    CU_ASSERT_EQUAL(tsd_mutation_leafward_moments(50, 5, 0.01, 2, 0.001, &mn, &va), 0);
-    CU_ASSERT_EQUAL(
-        tsd_mutation_unphased_moments(5, 0.01, 6, 0.02, 2, 0.001, &pr, &mn, &va), 0);
-    CU_ASSERT_TRUE(pr > 0);
-    CU_ASSERT_EQUAL(
-        tsd_mutation_unphased_moments(5, -1, 6, 0.02, 2, 0.5, &pr, &mn, &va), 0);
-    CU_ASSERT_TRUE(isnan(pr));
-    CU_ASSERT_EQUAL(tsd_mutation_twin_moments(5, 0.01, 2, 0.001, &pr, &mn, &va), 0);
-    CU_ASSERT_EQUAL(
-        tsd_mutation_sideways_moments(10, 5, 0.01, 2, 0.001, &pr, &mn, &va), 0);
-    CU_ASSERT_EQUAL(
-        tsd_mutation_sideways_moments(10, -5, 0.01, 2, 0.001, &pr, &mn, &va), 0);
-    CU_ASSERT_TRUE(isnan(pr));
-    CU_ASSERT_EQUAL(tsd_mutation_sideways_moments(0, 5, 0.01, 2, 0.001, &pr, &mn, &va),
-        TSD_ERR_INVALID_FIXED_AGE);
-    CU_ASSERT_EQUAL(tsd_mutation_edge_moments(10, 2, &mn, &va), 0);
-    CU_ASSERT_EQUAL(tsd_mutation_block_moments(10, 2, &pr, &mn, &va), 0);
-    CU_ASSERT_EQUAL(
-        tsd_mutation_block_moments(0, 2, &pr, &mn, &va), TSD_ERR_INVALID_FIXED_AGE);
-    CU_ASSERT_EQUAL(
-        tsd_mutation_block_moments(2, 0, &pr, &mn, &va), TSD_ERR_INVALID_FIXED_AGE);
+/* The Laplace approximations against exact moments, with the tolerances of each. */
+static void
+test_mutation_moments_reference(void)
+{
+    check_reference_rows(eval_mutation_moments, mutation_moments_reference_rows,
+        NUM_ROWS(mutation_moments_reference_rows), 2, 1u << 1, 2e-2);
+    check_reference_rows(eval_mutation_rootward_moments,
+        mutation_rootward_moments_reference_rows,
+        NUM_ROWS(mutation_rootward_moments_reference_rows), 2, 1u << 1, 1e-2);
+    check_reference_rows(eval_mutation_leafward_moments,
+        mutation_leafward_moments_reference_rows,
+        NUM_ROWS(mutation_leafward_moments_reference_rows), 2, 1u << 1, 1e-2);
+    check_reference_rows(eval_mutation_unphased_moments,
+        mutation_unphased_moments_reference_rows,
+        NUM_ROWS(mutation_unphased_moments_reference_rows), 3, 1u << 2, 1e-2);
+    check_reference_rows(eval_mutation_twin_moments,
+        mutation_twin_moments_reference_rows,
+        NUM_ROWS(mutation_twin_moments_reference_rows), 3, 1u << 2, 1e-5);
+    check_reference_rows(eval_mutation_sideways_moments,
+        mutation_sideways_moments_reference_rows,
+        NUM_ROWS(mutation_sideways_moments_reference_rows), 3, 1u << 2, 1e-2);
+    check_reference_rows(eval_mutation_edge_moments,
+        mutation_edge_moments_reference_rows,
+        NUM_ROWS(mutation_edge_moments_reference_rows), 2, 1u << 1, 1e-5);
+    check_reference_rows(eval_mutation_block_moments,
+        mutation_block_moments_reference_rows,
+        NUM_ROWS(mutation_block_moments_reference_rows), 3, 1u << 2, 1e-5);
+}
+
+static void
+test_mutation_projections(void)
+{
+    check_rows(eval_mutation_gamma_projection, mutation_gamma_projection_rows,
+        NUM_ROWS(mutation_gamma_projection_rows), 3);
+    check_rows(eval_mutation_leafward_projection, mutation_leafward_projection_rows,
+        NUM_ROWS(mutation_leafward_projection_rows), 3);
+    check_rows(eval_mutation_rootward_projection, mutation_rootward_projection_rows,
+        NUM_ROWS(mutation_rootward_projection_rows), 3);
+    check_rows(eval_mutation_edge_projection, mutation_edge_projection_rows,
+        NUM_ROWS(mutation_edge_projection_rows), 3);
+    check_rows(eval_mutation_unphased_projection, mutation_unphased_projection_rows,
+        NUM_ROWS(mutation_unphased_projection_rows), 3);
+    check_rows(eval_mutation_twin_projection, mutation_twin_projection_rows,
+        NUM_ROWS(mutation_twin_projection_rows), 3);
+    check_rows(eval_mutation_sideways_projection, mutation_sideways_projection_rows,
+        NUM_ROWS(mutation_sideways_projection_rows), 3);
+    check_rows(eval_mutation_block_projection, mutation_block_projection_rows,
+        NUM_ROWS(mutation_block_projection_rows), 3);
 }
 
 /* Two samples in each of two individuals below a root: 0, 1 | 2, 3 | root 4 */
@@ -5021,11 +6241,13 @@ main(int argc, char **argv)
         { "test_approximate_gamma_kl", test_approximate_gamma_kl },
         { "test_approximate_gamma_mom", test_approximate_gamma_mom },
         { "test_approximate_gamma_iqr", test_approximate_gamma_iqr },
-        { "test_average_gammas", test_average_gammas },
+        { "test_valid_moments_and_gamma", test_valid_moments_and_gamma },
         { "test_valid", test_valid },
         { "test_node_moments", test_node_moments },
+        { "test_node_moments_reference", test_node_moments_reference },
         { "test_node_projections", test_node_projections },
         { "test_mutation_moments", test_mutation_moments },
+        { "test_mutation_moments_reference", test_mutation_moments_reference },
         { "test_mutation_projections", test_mutation_projections },
         { "test_block_singletons", test_block_singletons },
         { "test_reallocate_unphased", test_reallocate_unphased },
