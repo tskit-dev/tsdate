@@ -11,14 +11,20 @@ extra_c_args = [
     '-Wcast-qual', '-Wwrite-strings', '-Wnested-externs',
     '-fshort-enums', '-fno-common', '-ffp-contract=off']
 
+test_c_args = extra_c_args
 if get_option('buildtype') == 'debug'
-    extra_c_args += ['-DTSD_TRACE_ERRORS']
+    test_c_args += ['-DTSD_TRACE_ERRORS']
 endif
 
 tsdate_sources = ['err.c', 'gammaincinv.c', 'hypergeo.c', 'approx.c', 'rescaling.c',
     'phasing.c', 'util.c', 'prior.c', 'variational.c']
 
 tsdate_lib = static_library('tsdate',
+    sources: tsdate_sources, dependencies: [m_dep],
+    c_args: test_c_args)
+
+# For calling the library from Python with ctypes (evaluation/clib.py)
+tsdate_shared = shared_library('tsdate',
     sources: tsdate_sources, dependencies: [m_dep],
     c_args: extra_c_args)
 

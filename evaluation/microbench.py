@@ -1,15 +1,14 @@
 """
-Microbenchmarks of the array-level entry points of the `_tsdate` extension in tsdate
-(the functions that take and return arrays). Inputs are built from simulated
-tree sequences at several sizes, mirroring how the functions are called in
-production. Scalar functions (approx, hypergeo) are not timed on their own: they are
-exercised through the EP passes. Writes a table to stdout and, with --output, a CSV
-to results/.
+Microbenchmarks of the functions of the `_tsdate` extension in tsdate. Inputs are built
+from simulated tree sequences at several sizes, mirroring how the functions are called
+in production. Scalar functions (approx, hypergeo) are not timed on their own: they are
+exercised through the EP passes. Writes a table to stdout and, with --output, a CSV to
+results/.
 
-Timing: each function is warmed up (one untimed call), then called `--repeats` times
-on identical, freshly copied inputs (copies are made outside the timed region); the
-median of `time.perf_counter` is reported. Very fast calls are batched, so that a
-timed block lasts at least a few ms (reported times are per call).
+Timing: each function is warmed up (one untimed call), then called `--repeats` times on
+identical inputs (a new EP state for each call of an EP pass, made outside the timed
+region); the median of `time.perf_counter` is reported. Very fast calls are batched, so
+that a timed block lasts at least a few ms (reported times are per call).
 
 Example:
   python evaluation/microbench.py --repeats 7 --output microbench.csv
@@ -38,48 +37,6 @@ MIN_BLOCK_S = 5e-3  # batch fast calls until a timed block lasts this long
 MAX_BATCH = 1000
 
 
-def _with_factors(func, position):
-    """
-    Wrap a `_tsdate` function so that it takes an ``EPFactors`` at `position`.
-    """
-
-    def wrapped(*args):
-        factors = args[position].arrays()
-        return func(*args[:position], factors, *args[position + 1 :])
-
-    return wrapped
-
-
-def _functions():
-    """
-    The benchmarked functions of `_tsdate`, by the name the benchmarks use.
-    """
-    import _tsdate
-
-    return {
-        "propagate_likelihood": _with_factors(_tsdate.propagate_likelihood, 6),
-        "propagate_prior": _with_factors(_tsdate.propagate_prior, 2),
-        "propagate_mutations": _with_factors(_tsdate.propagate_mutations, 9),
-        "_block_singletons": _tsdate.block_singletons,
-        "reallocate_unphased": _tsdate.reallocate_unphased,
-        "_mutation_frequency": _tsdate.mutation_frequency,
-        "_split_disjoint_nodes": _tsdate.split_disjoint_nodes,
-        "_relabel_mutations_node": _tsdate.relabel_mutations_node,
-        "_constrain_ages": _tsdate.constrain_ages,
-        "_contains_unary_nodes": _tsdate.contains_unary_nodes,
-        "_marginalize_over_ancestors": _tsdate.marginalize_over_ancestors,
-        "conditional_coalescent_variance": _tsdate.conditional_coalescent_variance,
-        # rescaling
-        "mutational_area": _tsdate.mutational_area,
-        "mutational_timescale": _tsdate.mutational_timescale,
-        "piecewise_scale_point_estimate": _tsdate.piecewise_scale_point_estimate,
-        "piecewise_scale_posterior": _tsdate.piecewise_scale_posterior,
-        "_fixed_changepoints": _tsdate.fixed_changepoints,
-        "_poisson_changepoints": _tsdate.poisson_changepoints,
-        "_count_mutations": _tsdate.count_mutations,
-    }
-
-
 # ---------------------------------------------------------------------------
 # Inputs
 # ---------------------------------------------------------------------------
@@ -104,19 +61,6 @@ def _with_ancient_samples(ts, fraction=0.1, seed=1):
     return tables.tree_sequence()
 
 
-def _copy_factors(f):
-    from tsdate.variational import EPFactors
-
-    g = EPFactors(
-        np.zeros((f.scale.size, 2)), f._p, f._c, f._j, f._k
-    )  # constraints only give the shape
-    g.node[:] = f.node
-    g.edge[:] = f.edge
-    g.block[:] = f.block
-    g.scale[:] = f.scale
-    return g
-
-
 def _run_ep(ts, singletons_phased, iterations):
     from tsdate.variational import ExpectationPropagation
 
@@ -134,34 +78,93 @@ def _run_ep(ts, singletons_phased, iterations):
     return ep
 
 
-@dataclasses.dataclass
-class Bench:
+def _iterated_state(ep, iterations, max_shape):
     """
-    One benchmark: `make_args()` returns a fresh argument tuple (copying anything
-    mutated in place) for the function called `func` in the implementation.
+    A new ``_tsdate.ExpectationPropagation`` with the inputs of `ep` (a
+    ``tsdate.variational.ExpectationPropagation``), after `iterations` iterations
+    as in ``ExpectationPropagation.iterate``
     """
+    import _tsdate
 
-    name: str
-    func: str
-    make_args: callable
-    note: str = ""
-
-
-def _const(*args):
-    return lambda: args
-
-
-def build_benchmarks(n, length, iterations):
-    """
-    Build all benchmarks (and a dict describing the inputs) for one size.
-    """
-    from tsdate import phasing, rescaling, util
     from tsdate.variational import (
         LEAFWARD,
         ROOTWARD,
         USE_BLOCK_LIKELIHOOD,
         USE_EDGE_LIKELIHOOD,
     )
+
+    state = _tsdate.ExpectationPropagation(
+        constraints=ep.node_constraints,
+        edges_parent=ep.edge_parents,
+        edges_child=ep.edge_children,
+        edges_likelihood=ep.edge_likelihoods,
+        blocks_left=ep.block_nodes[ROOTWARD],
+        blocks_right=ep.block_nodes[LEAFWARD],
+        blocks_likelihood=ep.block_likelihoods,
+    )
+    for _ in range(iterations):
+        for order, unphased in [
+            (ep.block_order, USE_BLOCK_LIKELIHOOD),
+            (ep.edge_order, USE_EDGE_LIKELIHOOD),
+        ]:
+            state.propagate_likelihood(
+                order=order, unphased=unphased, max_shape=max_shape, min_step=0.1
+            )
+        state.propagate_prior(
+            free=ep.unconstrained_roots, max_shape=max_shape, em_maxitt=10, em_reltol=1e-8
+        )
+        state.rescale_factors()
+    return state
+
+
+@dataclasses.dataclass
+class Bench:
+    """
+    One benchmark: `call(**make_kwargs())`, where `make_kwargs()` returns fresh
+    keyword arguments (with new copies of anything that the call changes).
+    """
+
+    name: str
+    call: callable
+    make_kwargs: callable
+    note: str = ""
+
+
+def _const(**kwargs):
+    return lambda: kwargs
+
+
+def _module_function(name):
+    import _tsdate
+
+    return getattr(_tsdate, name)
+
+
+def _sweep_kwargs(ts, parents=True):
+    """
+    The edge, index and mutation arrays of `ts` as keyword arguments
+    """
+    kwargs = dict(
+        mutations_node=ts.mutations_node,
+        mutations_position=ts.sites_position[ts.mutations_site],
+        edges_parent=ts.edges_parent,
+        edges_child=ts.edges_child,
+        edges_left=ts.edges_left,
+        edges_right=ts.edges_right,
+        indexes_insert=ts.indexes_edge_insertion_order,
+        indexes_remove=ts.indexes_edge_removal_order,
+    )
+    if not parents:
+        del kwargs["edges_parent"]
+    return kwargs
+
+
+def build_benchmarks(n, length, iterations):
+    """
+    Build all benchmarks (and a dict describing the inputs) for one size.
+    """
+    from tsdate import rescaling
+    from tsdate.variational import USE_BLOCK_LIKELIHOOD, USE_EDGE_LIKELIHOOD
 
     ts_flat = common.simulate(n, length, MUTATION_RATE, seed=1)  # contemporary
     ts_old = _with_ancient_samples(ts_flat)  # some samples with nonzero age
@@ -176,197 +179,147 @@ def build_benchmarks(n, length, iterations):
     )
     benches = []
     add = benches.append
+    func = _module_function
 
     # --- variational.py, as in ExpectationPropagation.iterate/infer ---
+    # The passes update the state, so each call gets a new state, iterated outside
+    # the timed region.
     max_shape, min_step = 1000, 0.1
-    for tag, ep, order, par, chi, lik, logc, unph in [
-        (
-            "edges",
-            ep_old,
-            ep_old.edge_order,
-            ep_old.edge_parents,
-            ep_old.edge_children,
-            ep_old.edge_likelihoods,
-            ep_old.edge_logconst,
-            USE_EDGE_LIKELIHOOD,
-        ),
-        (
-            "blocks",
-            ep_flat,
-            ep_flat.block_order,
-            ep_flat.block_nodes[ROOTWARD],
-            ep_flat.block_nodes[LEAFWARD],
-            ep_flat.block_likelihoods,
-            ep_flat.block_logconst,
-            USE_BLOCK_LIKELIHOOD,
-        ),
+
+    def propagate_likelihood(state, **kwargs):
+        state.propagate_likelihood(**kwargs)
+
+    def propagate_prior(state, **kwargs):
+        state.propagate_prior(**kwargs)
+
+    def propagate_mutations(state, **kwargs):
+        state.propagate_mutations(**kwargs)
+
+    for tag, ep, order, unphased in [
+        ("edges", ep_old, ep_old.edge_order, USE_EDGE_LIKELIHOOD),
+        ("blocks", ep_flat, ep_flat.block_order, USE_BLOCK_LIKELIHOOD),
     ]:
 
-        def likelihood_args(
-            ep=ep, order=order, par=par, chi=chi, lik=lik, logc=logc, unph=unph
-        ):
-            return (
-                order,
-                par,
-                chi,
-                lik,
-                ep.node_constraints,
-                ep.node_posterior.copy(),
-                _copy_factors(ep.factors),
-                logc.copy(),
-                max_shape,
-                min_step,
-                unph,
+        def likelihood_kwargs(ep=ep, order=order, unphased=unphased):
+            return dict(
+                state=_iterated_state(ep, iterations, max_shape),
+                order=order,
+                unphased=unphased,
+                max_shape=max_shape,
+                min_step=min_step,
             )
 
         add(
-            Bench(f"propagate_likelihood[{tag}]", "propagate_likelihood", likelihood_args)
+            Bench(f"propagate_likelihood[{tag}]", propagate_likelihood, likelihood_kwargs)
         )
 
-    def prior_args():
-        return (
-            ep_old.unconstrained_roots,
-            ep_old.node_posterior.copy(),
-            _copy_factors(ep_old.factors),
-            max_shape,
-            10,
-            1e-8,
+    def prior_kwargs():
+        return dict(
+            state=_iterated_state(ep_old, iterations, max_shape),
+            free=ep_old.unconstrained_roots,
+            max_shape=max_shape,
+            em_maxitt=10,
+            em_reltol=1e-8,
         )
 
-    add(Bench("propagate_prior", "propagate_prior", prior_args))
+    add(Bench("propagate_prior", propagate_prior, prior_kwargs))
 
-    for tag, ep, unph in [
+    # propagate_mutations does not change the state
+    for tag, ep, unphased in [
         ("edges", ep_old, USE_EDGE_LIKELIHOOD),
         ("blocks", ep_flat, USE_BLOCK_LIKELIHOOD),
     ]:
-        phased = ep.mutation_blocks == tskit.NULL
-        if unph:
-            sel = ~phased
-            m_edges, par, chi = (
-                ep.mutation_blocks,
-                ep.block_nodes[ROOTWARD],
-                ep.block_nodes[LEAFWARD],
-            )
-            lik = ep.block_likelihoods
+        blocked = ep.mutation_blocks != tskit.NULL
+        if unphased:
+            mutations_edge = ep.mutation_blocks[blocked]
         else:
-            sel = phased
-            m_edges, par, chi = ep.mutation_edges, ep.edge_parents, ep.edge_children
-            lik = ep.edge_likelihoods
-
-        def mutation_args(
-            ep=ep, sel=sel, m_edges=m_edges, par=par, chi=chi, lik=lik, unph=unph
-        ):
-            return (
-                ep.mutation_order[sel],
-                ep.mutation_posterior.copy(),
-                ep.mutation_phase.copy(),
-                m_edges,
-                par,
-                chi,
-                lik,
-                ep.node_constraints,
-                ep.node_posterior,
-                ep.factors,
-                unph,
+            mutations_edge = ep.mutation_edges[~blocked]
+        add(
+            Bench(
+                f"propagate_mutations[{tag}]",
+                propagate_mutations,
+                _const(state=ep._ep, mutations_edge=mutations_edge, unphased=unphased),
             )
-
-        add(Bench(f"propagate_mutations[{tag}]", "propagate_mutations", mutation_args))
+        )
 
     # --- phasing.py ---
-    likelihoods = ep_flat.sizebiased_likelihoods
+    reallocate_kwargs = dict(
+        edges_likelihood=ep_flat.sizebiased_likelihoods,
+        mutations_phase=ep_flat.mutation_phase,
+        mutations_block=ep_flat.mutation_blocks,
+        blocks_edges=ep_flat.block_edges,
+    )
     add(
         Bench(
             "reallocate_unphased",
-            "reallocate_unphased",
-            lambda: (
-                likelihoods.copy(),
-                ep_flat.mutation_phase,
-                ep_flat.mutation_blocks,
-                ep_flat.block_edges,
-            ),
+            func("reallocate_unphased"),
+            _const(**reallocate_kwargs),
         )
     )
-    tree_args = (
-        ts_flat.edges_parent,
-        ts_flat.edges_child,
-        ts_flat.edges_left,
-        ts_flat.edges_right,
-    )
-    index_args = (
-        ts_flat.indexes_edge_insertion_order,
-        ts_flat.indexes_edge_removal_order,
-    )
-    muts_pos = ts_flat.sites_position[ts_flat.mutations_site]
-    nodes_individual = ts_flat.nodes_individual
     add(
         Bench(
-            "_block_singletons",
-            "_block_singletons",
+            "block_singletons",
+            func("block_singletons"),
             _const(
-                np.full(ts_flat.num_individuals, True),
-                nodes_individual,
-                ts_flat.mutations_node,
-                muts_pos,
-                *tree_args,
-                *index_args,
-                ts_flat.sequence_length,
+                individuals_unphased=np.full(ts_flat.num_individuals, True),
+                nodes_individual=ts_flat.nodes_individual,
+                **_sweep_kwargs(ts_flat, parents=False),
+                sequence_length=ts_flat.sequence_length,
             ),
         )
     )
-    nodes_sample = np.full((ts_flat.num_nodes, 1), False)
-    nodes_sample[list(ts_flat.samples()), 0] = True
+    nodes_sample = np.full(ts_flat.num_nodes, False)
+    nodes_sample[list(ts_flat.samples())] = True
     add(
         Bench(
-            "_mutation_frequency",
-            "_mutation_frequency",
+            "mutation_frequency",
+            func("mutation_frequency"),
             _const(
-                nodes_sample,
-                ts_flat.mutations_node,
-                muts_pos,
-                *tree_args,
-                *index_args,
-                ts_flat.sequence_length,
+                nodes_sample=nodes_sample[:, np.newaxis],
+                **_sweep_kwargs(ts_flat),
+                sequence_length=ts_flat.sequence_length,
             ),
         )
     )
-
-    node_is_sample = np.full(ts_flat.num_nodes, False)
-    node_is_sample[list(ts_flat.samples())] = True
 
     # --- rescaling.py, as in ExpectationPropagation.rescale ---
-    rescale_lik = ep_flat.sizebiased_likelihoods.copy()
-    phasing.reallocate_unphased(
-        rescale_lik,
-        ep_flat.mutation_phase,
-        ep_flat.mutation_blocks,
-        ep_flat.block_edges,
-    )
+    rescale_lik = func("reallocate_unphased")(**reallocate_kwargs)
     nodes_fixed = ep_flat.node_constraints[:, 0] == ep_flat.node_constraints[:, 1]
     nodes_time, _ = ep_flat.node_moments()
-    par, chi = ep_flat.edge_parents, ep_flat.edge_children
+    edges = dict(edges_parent=ep_flat.edge_parents, edges_child=ep_flat.edge_children)
     intervals = 1000
     add(
         Bench(
             "mutational_area",
-            "mutational_area",
-            _const(nodes_time, rescale_lik, par, chi),
+            func("mutational_area"),
+            _const(nodes_time=nodes_time, edges_likelihood=rescale_lik, **edges),
         )
+    )
+    timescale_kwargs = dict(
+        nodes_time=nodes_time,
+        edges_likelihood=rescale_lik,
+        nodes_fixed=nodes_fixed,
+        **edges,
+        max_intervals=intervals,
     )
     add(
         Bench(
             "mutational_timescale",
-            "mutational_timescale",
-            _const(nodes_time, rescale_lik, nodes_fixed, par, chi, intervals),
+            func("mutational_timescale"),
+            _const(**timescale_kwargs),
         )
     )
-    original_breaks, rescaled_breaks = rescaling.mutational_timescale(
-        nodes_time, rescale_lik, nodes_fixed, par, chi, intervals
-    )
+    original_breaks, rescaled_breaks = rescaling.mutational_timescale(**timescale_kwargs)
     add(
         Bench(
             "piecewise_scale_point_estimate",
-            "piecewise_scale_point_estimate",
-            _const(nodes_time, nodes_fixed, original_breaks, rescaled_breaks),
+            func("piecewise_scale_point_estimate"),
+            _const(
+                point_estimate=nodes_time,
+                point_fixed=nodes_fixed,
+                original_breaks=original_breaks,
+                rescaled_breaks=rescaled_breaks,
+            ),
         )
     )
     rescaled_time = rescaling.piecewise_scale_point_estimate(
@@ -382,123 +335,98 @@ def build_benchmarks(n, length, iterations):
     add(
         Bench(
             "piecewise_scale_posterior",
-            "piecewise_scale_posterior",
+            func("piecewise_scale_posterior"),
             _const(
-                ep_flat.node_posterior, nodes_fixed, orig, rescaled_breaks, 0.5, max_shape
+                posteriors=ep_flat.node_posterior,
+                posteriors_fixed=nodes_fixed,
+                original_breaks=orig,
+                rescaled_breaks=rescaled_breaks,
+                quantile_width=0.5,
+                max_shape=max_shape,
             ),
         )
     )
-    counts, offset, duration, _ = rescaling.mutational_area(
-        nodes_time, rescale_lik, par, chi
-    )
     add(
         Bench(
-            "_fixed_changepoints",
-            "_fixed_changepoints",
-            _const(offset * duration, intervals),
-        )
-    )
-    # Unused in production (only referenced in a TODO); cap its size as it is slow.
-    cap = 2000
-    add(
-        Bench(
-            "_poisson_changepoints",
-            "_poisson_changepoints",
-            _const(counts[:cap], offset[:cap], 2.0, 0.0, 0.0),
-            note=f"unused in production; first {cap} intervals",
-        )
-    )
-    add(
-        Bench(
-            "_count_mutations",
-            "_count_mutations",
+            "count_mutations",
+            func("count_mutations"),
             _const(
-                node_is_sample,
-                ts_flat.mutations_node,
-                muts_pos,
-                *tree_args,
-                *index_args,
-                ts_flat.sequence_length,
-                True,
+                nodes_sample=nodes_sample,
+                **_sweep_kwargs(ts_flat),
+                sequence_length=ts_flat.sequence_length,
+                size_biased=True,
             ),
         )
     )
 
     # --- util.py ---
-    split_args = (*tree_args, node_is_sample)
-    add(Bench("_split_disjoint_nodes", "_split_disjoint_nodes", _const(*split_args)))
-    new_parent, new_child, nodes_order, split_nodes = util._split_disjoint_nodes(
-        *split_args
+    tree = dict(
+        edges_parent=ts_flat.edges_parent,
+        edges_child=ts_flat.edges_child,
+        edges_left=ts_flat.edges_left,
+        edges_right=ts_flat.edges_right,
     )
-    info["num_split_nodes"] = len(split_nodes)
+    split_kwargs = dict(**tree, nodes_excluded=nodes_sample)
     add(
         Bench(
-            "_relabel_mutations_node",
-            "_relabel_mutations_node",
-            _const(
-                ts_flat.mutations_node,
-                muts_pos,
-                nodes_order,
-                new_parent,
-                new_child,
-                ts_flat.edges_left,
-                ts_flat.edges_right,
-                *index_args,
-            ),
+            "split_disjoint_nodes",
+            func("split_disjoint_nodes"),
+            _const(**split_kwargs),
+        )
+    )
+    new_parent, new_child, nodes_order, split_nodes = func("split_disjoint_nodes")(
+        **split_kwargs
+    )
+    info["num_split_nodes"] = len(split_nodes)
+    sweep = _sweep_kwargs(ts_flat)
+    sweep.update(edges_parent=new_parent, edges_child=new_child)
+    add(
+        Bench(
+            "relabel_mutations_node",
+            func("relabel_mutations_node"),
+            _const(nodes_order=nodes_order, **sweep),
         )
     )
     rng = np.random.default_rng(1)
     noisy_time = ts_flat.nodes_time * np.exp(rng.normal(0, 0.3, ts_flat.num_nodes))
-    noisy_time[node_is_sample] = ts_flat.nodes_time[node_is_sample]
+    noisy_time[nodes_sample] = ts_flat.nodes_time[nodes_sample]
     add(
         Bench(
-            "_constrain_ages",
-            "_constrain_ages",
+            "constrain_ages",
+            func("constrain_ages"),
             _const(
-                noisy_time,
-                node_is_sample,
-                ts_flat.edges_parent,
-                ts_flat.edges_child,
-                1e-6,
-                20,
+                nodes_time=noisy_time,
+                nodes_fixed=nodes_sample,
+                edges_parent=ts_flat.edges_parent,
+                edges_child=ts_flat.edges_child,
+                epsilon=1e-6,
+                max_iterations=20,
             ),
             note="noisy times violate constraints; 20 iterations",
         )
     )
     add(
         Bench(
-            "_contains_unary_nodes",
-            "_contains_unary_nodes",
+            "contains_unary_nodes",
+            func("contains_unary_nodes"),
             _const(
-                node_is_sample,
-                ts_flat.edges_parent,
-                ts_flat.edges_left,
-                ts_flat.edges_right,
-                *index_args,
-                ts_flat.sequence_length,
-                ts_flat.num_nodes,
+                nodes_mask=nodes_sample,
+                edges_parent=ts_flat.edges_parent,
+                edges_left=ts_flat.edges_left,
+                edges_right=ts_flat.edges_right,
+                indexes_insert=ts_flat.indexes_edge_insertion_order,
+                indexes_remove=ts_flat.indexes_edge_removal_order,
+                sequence_length=ts_flat.sequence_length,
             ),
         )
     )
 
-    # --- prior.py (prior tables are built for up to a few thousand tips) ---
-    num_tips = ts_flat.num_samples
-    coal_rates = np.array(
-        [2 / (i * (i - 1)) if i > 1 else 0.0 for i in range(1, num_tips + 1)]
-    )
-    moments = np.stack((coal_rates, 2 * coal_rates**2), 1)  # mean, second moment
-    add(
-        Bench(
-            "_marginalize_over_ancestors",
-            "_marginalize_over_ancestors",
-            _const(moments),
-        )
-    )
+    # --- prior.py ---
     add(
         Bench(
             "conditional_coalescent_variance",
-            "conditional_coalescent_variance",
-            _const(np.uint64(num_tips)),
+            func("conditional_coalescent_variance"),
+            _const(num_tips=ts_flat.num_samples),
         )
     )
 
@@ -510,25 +438,25 @@ def build_benchmarks(n, length, iterations):
 # ---------------------------------------------------------------------------
 
 
-def time_bench(func, bench, repeats):
+def time_bench(bench, repeats):
     """
     Warm up, then return per-call times (seconds) for `repeats` timed blocks.
     """
     t0 = time.perf_counter()
-    func(*bench.make_args())  # warm up (also the first-call cost)
+    bench.call(**bench.make_kwargs())  # warm up (also the first-call cost)
     first_call = time.perf_counter() - t0
     # estimate the cost of one call to choose a batch size
-    args = bench.make_args()
+    kwargs = bench.make_kwargs()
     t0 = time.perf_counter()
-    func(*args)
+    bench.call(**kwargs)
     one = time.perf_counter() - t0
     batch = int(min(MAX_BATCH, max(1, math.ceil(MIN_BLOCK_S / max(one, 1e-9)))))
     times = []
     for _ in range(repeats):
-        batch_args = [bench.make_args() for _ in range(batch)]
+        batch_kwargs = [bench.make_kwargs() for _ in range(batch)]
         t0 = time.perf_counter()
-        for a in batch_args:
-            func(*a)
+        for kwargs in batch_kwargs:
+            bench.call(**kwargs)
         times.append((time.perf_counter() - t0) / batch)
     return times, first_call, batch
 
@@ -575,8 +503,6 @@ def main():
     if args.quick:
         sizes, args.repeats, args.ep_iterations = QUICK_SIZES, 1, 1
 
-    funcs = _functions()
-
     prov = common.provenance()
     rows = []
     for size, (n, length) in sizes.items():
@@ -590,7 +516,7 @@ def main():
         for bench in benches:
             if args.only and not any(s in bench.name for s in args.only):
                 continue
-            times, first, batch = time_bench(funcs[bench.func], bench, args.repeats)
+            times, first, batch = time_bench(bench, args.repeats)
             row = dict(
                 function=bench.name,
                 size=size,
