@@ -227,6 +227,20 @@ class TestCountMutations:
         np.testing.assert_array_almost_equal(ck_edge_stats, edge_stats)
         np.testing.assert_array_equal(ck_muts_edge, muts_edge)
 
+    def test_count_with_sample_mask(self, inferred_ts):
+        node_is_sample = np.full(inferred_ts.num_nodes, False)
+        node_is_sample[inferred_ts.samples()] = True
+        edge_stats, muts_edge = count_mutations(
+            inferred_ts, node_is_sample=node_is_sample, size_biased=True
+        )
+        ck_edge_stats, ck_muts_edge = self.naive_count_sizebiased(inferred_ts)
+        np.testing.assert_array_almost_equal(ck_edge_stats, edge_stats)
+        np.testing.assert_array_equal(ck_muts_edge, muts_edge)
+
+    def test_count_with_wrong_size_mask(self, inferred_ts):
+        with pytest.raises(AssertionError):
+            count_mutations(inferred_ts, node_is_sample=np.full(1, True))
+
     @pytest.mark.skip("Ancient samples not implemented")
     def test_count_sizebiased_with_ancient(self, inferred_ts):
         # TODO: if there are ancestral samples, these should not be used as weights.

@@ -4,6 +4,17 @@
 
 In development
 
+- The numerical core (the special functions, gamma approximations, expectation
+  propagation passes, rescaling and utilities) is now a C extension instead of
+  numba-compiled Python. Results are identical on x86-64 Linux; elsewhere they can
+  differ in the last few digits. numba is no longer a dependency,
+  so importing tsdate no longer takes tens of seconds to compile, and
+  `TSDATE_ENABLE_NUMBA_CACHE` is gone. Wheels are now tested on macOS x86_64 and
+  built for musllinux.
+
+- The inside-outside method sums likelihoods in log space with numpy, which can
+  change results in the last few digits.
+
 - `preprocess_ts` now always sorts the tree sequence, which may change the order
   of mutations
 
@@ -11,10 +22,23 @@ In development
   diagnostics are superseded by the scripts in `evaluation/`, the AFS diagnostics
   moved to `evaluation/afs.py`, and the polytomy test helpers to `tests/`.
 
+- Removed the internal `tsdate.approx` and `tsdate.hypergeo` modules; the special
+  functions and gamma approximations are now part of the `_tsdate` C extension.
+
+- The state of `ExpectationPropagation` (the factors, posteriors and normalising
+  constants) is held by the C extension: the `factors` attribute and the
+  `EPFactors` class are gone, and `node_posterior`, `edge_logconst` and
+  `block_logconst` are copies updated by `iterate`.
+  `tsdate.phasing.reallocate_unphased` returns the reallocated likelihoods instead
+  of updating its first argument.
+
 **Bugfixes**
 
 - Removed an assertion in `split_disjoint_nodes` that is not guarenteed
   to hold since table sorting changes the order of mutations in tskit 1.0.0 onwards
+
+- `tsdate.rescaling.count_mutations` rejected sample masks of the right size and
+  accepted those of the wrong size.
 
 ## [0.2.6] - 2026-03-06
 

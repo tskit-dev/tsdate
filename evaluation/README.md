@@ -15,6 +15,9 @@ standard coalescent.
 | `accuracy.py` | Sweep a parameter (`sample_size`, `length`, `mutation_rate`, `max_iterations`) for `variational_gamma`, comparing estimated to true node times. `--modes true` dates the true topology; `inferred` dates a tsinfer topology and compares to best-matching true nodes via [tscompare](https://github.com/tskit-dev/tscompare) (see issue #301). Writes one row per node (`accuracy_*.csv`). It also compares mutation times (`mutations_*.csv`): sites with a single mutation are matched by position, and tsdate's posterior mean mutation time is compared with the midpoint of the true edge the mutation sits on (the best any method can do; the exact simulated time is also saved as `true_time_exact`). `plot.py` scores scatter, RMSE and bias against the midpoint but PIT and interval coverage against the exact time, since the posterior is for the realised mutation time; `--mutation-truth midpoint` or `exact` forces one truth everywhere. Mutation comparison needs no node matching in either mode. |
 | `afs.py` | Compare the observed site allele frequency spectrum with the expected one from branch lengths (branch AFS x mutation rate) in genomic windows, for the true times, the true topology dated by tsdate, and a tsinfer topology dated by tsdate. Writes `afs_*.csv`. |
 | `performance.py` | Wall time and peak RSS, each case in a fresh process. |
+| `microbench.py` | Microbenchmarks of the functions of `_tsdate` (EP passes, rescaling, phasing, `util`, `prior`), on simulated inputs at three sizes (see below). |
+| `numerical_accuracy.py` | Accuracy of the special functions and gamma approximations (the scalar functions of the C library, through `clib.py`) per function and regime: worst error against mpmath, SciPy or closed forms, and violations of properties such as symmetry, monotonicity and continuity at switch points (see below). Not to be confused with `accuracy.py`, which scores dating. |
+| `clib.py` | The scalar functions of the C library, called with ctypes from the shared library that meson builds (see below). |
 | `compare.py` | Compares two `performance.py` CSVs case by case (see below). |
 | `plot.py` | Reads `results/*.csv` and writes PNGs: error/bias/interval coverage vs parameter (`accuracy_*_summary.png`: top row node times, bottom row mutation times), estimated-vs-true scatter (`accuracy_*_scatter.png`: columns are swept values, rows are node/mutation times for true/tsinferred topology), PIT calibration histograms (`accuracy_*_calibration.png`: node row, mutation row), AFS observed-vs-expected (`afs_*.png`), time and memory scaling. |
 | `validation.py` | Stub: numerical checks too slow for the unit tests (issue #384). |
@@ -73,3 +76,51 @@ repeats (use 5 or more for a reference run).
 Add `--quick` to `accuracy.py` / `performance.py` for a fast smoke test. Quick runs write
 to separate `*_quick.csv` files (so they never overwrite full results), and `plot.py`
 labels their figures "quick run" and names them `*_quick*.png`.
+
+### Microbenchmarks of the C extension
+
+`microbench.py` times each function of the `_tsdate` extension on inputs built from
+simulated tree sequences (small/medium/large; the large case has ~560k edges, so the
+EP edge pass takes about a second). The EP state is produced by running
+`ExpectationPropagation.infer` for two iterations, and the functions are called as
+`iterate`/`infer`/`rescale` call them (edges with some nonzero-age samples, and
+unphased singleton blocks). The EP passes update their state, so each repeat of a
+pass gets a new `_tsdate.ExpectationPropagation`, iterated outside the timed region.
+Scalar functions (`approx`, `hypergeo`) are timed only through the EP passes.
+
+```
+python evaluation/microbench.py --quick                       # smoke test
+python evaluation/microbench.py --repeats 7 --output mb.csv   # table + results/mb.csv
+python evaluation/microbench.py --sizes medium --only propagate mutational
+```
+
+Each function is warmed up, then the median of `--repeats` timed calls is reported
+(fast calls are batched so each timed block lasts a few ms; times are per call).
+The CSV also records provenance. Timings are only comparable between runs on a quiet
+machine.
+
+### Accuracy of the special functions
+
+`numerical_accuracy.py` measures the approximation error of the special functions of
+the C library (digamma, trigamma, `betaln`, the incomplete gamma derivative and
+inverse, and the Laplace approximations to U, 1F1 and 2F1, including the
+unity limit of 2F1) and the gamma approximations (moment matching, gamma fits, closed forms of
+the moment functions) against mpmath, SciPy and closed forms. It also reports how often
+properties that the exact functions have are violated: symmetry, monotonicity, the Kummer
+transformation, continuity across a switch point. One row per function and regime gives
+the worst error (`rel`, `abs`, `ulp`) or a violation `count`. The unit tests check the
+library only at fixed points, so the table is where inaccurate regimes show up.
+
+The scalar functions are not part of the `_tsdate` module: `clib.py` calls them with
+ctypes from the shared library that meson builds, so build it first
+(`cd lib && meson setup build && ninja -C build`). `clib.py` names each function as in
+C without the `tsd_` prefix; arguments are numbers (a two-element array is given as two
+numbers), and the outputs come back as a float or a tuple, for example
+`clib.hyp2f1_laplace(1.0, 2.0, 3.0, 0.5)`. Its table of signatures must match
+`lib/tsdate.h`.
+
+```
+python evaluation/numerical_accuracy.py --quick                   # the computation takes seconds
+python evaluation/numerical_accuracy.py --only hyp2f1 gammainc    # groups: polygamma betaln gammainc hyperu hyp1f1 hyp2f1 approx
+python evaluation/numerical_accuracy.py --output acc.csv          # also writes results/acc.csv
+```

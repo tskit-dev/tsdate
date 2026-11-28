@@ -44,6 +44,130 @@ tsd_strerror(int err)
         case TSD_ERR_BAD_PARAM:
             ret = "Bad parameter value provided";
             break;
+        case TSD_ERR_ZERO_DIVISION:
+            ret = "Floating-point division by zero";
+            break;
+        case TSD_ERR_INVALID_HYPERGEO:
+            ret = "Parameters outside the domain of the hypergeometric function";
+            break;
+        case TSD_ERR_NONPOSITIVE_OR_NONFINITE_MOMENTS:
+            ret = "Nonpositive or nonfinite moments";
+            break;
+        case TSD_ERR_JENSEN_VIOLATION:
+            ret = "log E[t] <= E[log t] violates Jensen's inequality";
+            break;
+        case TSD_ERR_KL_MAX_ITERATIONS:
+            ret = "Maximum iterations reached in KL minimization";
+            break;
+        case TSD_ERR_KL_INVALID_SHAPE:
+            ret = "Invalid shape parameter in KL minimization";
+            break;
+        case TSD_ERR_NONPOSITIVE_CENTRAL_MOMENTS:
+            ret = "Nonpositive central moments";
+            break;
+        case TSD_ERR_UNSORTED_QUANTILES:
+            ret = "Quantiles must be sorted";
+            break;
+        case TSD_ERR_QUANTILE_MAX_ITERATIONS:
+            ret = "Maximum iterations reached in quantile matching";
+            break;
+        case TSD_ERR_NEGATIVE_SHAPE:
+            ret = "Negative shape parameter";
+            break;
+        case TSD_ERR_NONPOSITIVE_MOMENTS:
+            ret = "The mean and variance must be positive";
+            break;
+        case TSD_ERR_INVALID_FIXED_AGE:
+            ret = "The age of a fixed node is outside the domain of the function";
+            break;
+        case TSD_ERR_UNPHASED_INDIVIDUAL_EDGES:
+            ret = "An unphased individual does not have exactly two edges over each "
+                  "of its blocks";
+            break;
+        case TSD_ERR_BLOCK_OUT_OF_BOUNDS:
+            ret = "Block id, or an edge of a block, out of bounds";
+            break;
+        case TSD_ERR_PHASE_OUT_OF_RANGE:
+            ret = "The phase of a mutation is not between zero and one";
+            break;
+        case TSD_ERR_UNPHASED_LIKELIHOOD_NOT_CONSERVED:
+            ret = "The total likelihood of the unphased edges is not conserved";
+            break;
+        case TSD_ERR_MUTATION_NODE_NOT_IN_TREE:
+            ret = "A mutation is above a node that is not in any tree before it";
+            break;
+        case TSD_ERR_FIXED_NODES_VIOLATE_CONSTRAINT:
+            ret = "An edge between two fixed nodes violates the age constraint";
+            break;
+        case TSD_ERR_NONPOSITIVE_INTERVALS:
+            ret = "The number of intervals must be positive";
+            break;
+        case TSD_ERR_ZERO_EDGE_SPAN:
+            ret = "Zero edge span in interval";
+            break;
+        case TSD_ERR_NON_INCREASING_BREAKPOINTS:
+            ret = "Rescaling produced non-increasing time breakpoints. "
+                  "Try setting `rescaling_intervals` to a smaller value "
+                  "(e.g. half its current value).";
+            break;
+        case TSD_ERR_INVALID_QUANTILE_WIDTH:
+            ret = "The quantile width must be greater than zero and less than one";
+            break;
+        case TSD_ERR_INVALID_POSTERIOR:
+            ret = "A posterior to be rescaled has shape not greater than -1 or rate "
+                  "not greater than zero";
+            break;
+        case TSD_ERR_TIME_BELOW_FIRST_BREAKPOINT:
+            ret = "A time to be rescaled is below the first time breakpoint";
+            break;
+        case TSD_ERR_NO_POSTERIORS:
+            ret = "zero-size array to reduction operation minimum which has no "
+                  "identity";
+            break;
+        case TSD_ERR_INVALID_MAX_SHAPE:
+            ret = "The maximum shape must be at least one";
+            break;
+        case TSD_ERR_INVALID_MIN_STEP:
+            ret = "The minimum step size must be greater than zero and less than one";
+            break;
+        case TSD_ERR_INVALID_NODE_POSTERIOR:
+            ret = "A node posterior has shape not greater than -1 or rate not greater "
+                  "than zero";
+            break;
+        case TSD_ERR_INVALID_DAMPING:
+            ret = "The damping factor is not greater than zero and at most one";
+            break;
+        case TSD_ERR_TWIN_EDGE_IN_PHASED_PASS:
+            ret = "An edge with the same parent and child can only be updated in an "
+                  "unphased pass";
+            break;
+        case TSD_ERR_NONPOSITIVE_PENALTY:
+            ret = "The fitted regularisation penalty is not positive";
+            break;
+        case TSD_ERR_NODE_OUT_OF_BOUNDS:
+            ret = "Node id out of bounds";
+            break;
+        case TSD_ERR_EDGE_OUT_OF_BOUNDS:
+            ret = "Edge id out of bounds";
+            break;
+        case TSD_ERR_INDIVIDUAL_OUT_OF_BOUNDS:
+            ret = "Individual id out of bounds";
+            break;
+        case TSD_ERR_BAD_EDGE_INTERVAL:
+            ret = "Edge interval is empty or outside [0, sequence_length]";
+            break;
+        case TSD_ERR_BAD_EDGE_INDEXES:
+            ret = "Edge indexes must list every edge once, in order of position";
+            break;
+        case TSD_ERR_EDGES_FORM_CYCLE:
+            ret = "Edges form a cycle";
+            break;
+        case TSD_ERR_TOO_FEW_TIPS:
+            ret = "Too few tips";
+            break;
+        case TSD_ERR_NO_BREAKPOINTS:
+            ret = "No breakpoints";
+            break;
         default:
             break;
     }

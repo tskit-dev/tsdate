@@ -248,7 +248,6 @@ class EstimationMethod:
             f"Set ages of {num_root_muts} nonsegregating mutations to root times."
         )
         if self.provenance_params is not None:
-            # Note that the time recorded in provenance excludes numba compilation time
             provenance.record_provenance(
                 tables, self.name, self.start_time, **self.provenance_params
             )

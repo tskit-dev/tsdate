@@ -320,12 +320,6 @@ As the time taken to date a tree sequence using _tsdate_ is only a fraction of t
 required to infer the initial tree sequence, the core _tsdate_ algorithm
 has not been parallelised to allow running on many CPU cores. 
 
-:::{note}
-Extensive use of just-in-time compilation via [numba](https://numba.pydata.org)
-means that it can take tens of seconds to load the _tsdate_ module into python.
-See {ref}`here <sec_installation_testing>` for a workaround if this is causing you problems.
-:::
-
 ## CLI use
 
 Computationally-intensive uses of _tsdate_ are likely to involve

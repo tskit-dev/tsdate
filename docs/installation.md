@@ -49,14 +49,3 @@ Install development dependencies with `uv sync` and run the tests with:
 
 `uv sync` also (re)builds the C extension. After editing C code, run `uv sync`
 (or `make`) again to rebuild it.
-
-_Tsdate_ makes extensive use of [numba](https://numba.pydata.org)'s
-"just in time" (jit) compilation to speed up time-consuming numerical functions.
-Because of the need to compile these functions, loading the tsdate package can take
-tens of seconds. To speed up loading time, you can set the environment variable
-
-    TSDATE_ENABLE_NUMBA_CACHE=1
-
-The compiled code is not cached by default as it can be problematic when
-e.g. running the same installation on different CPU types in a cluster,
-and can occassionally lead to unexpected crashes.
