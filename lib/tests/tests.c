@@ -39,6 +39,54 @@
 
 #include "tsdate.h"
 
+/* Tolerance of the comparisons with the reference implementation */
+#define ULPS 4
+
+/* The bits of `x` as an integer that increases with `x` (with -0 equal to 0). */
+static int64_t
+ordered_bits(double x)
+{
+    int64_t bits;
+
+    memcpy(&bits, &x, sizeof(bits));
+    if (bits < 0) {
+        bits = INT64_MIN - bits;
+    }
+    return bits;
+}
+
+/* `actual` is within `ulps` units in the last place of `expected`; NaNs are equal. */
+static void
+assert_close_ulps(double actual, double expected, int ulps)
+{
+    int64_t a, b;
+    uint64_t distance;
+
+    if (isnan(expected)) {
+        CU_ASSERT_TRUE(isnan(actual));
+    } else if (!isfinite(expected) || !isfinite(actual)) {
+        CU_ASSERT_EQUAL(actual, expected);
+    } else {
+        a = ordered_bits(actual);
+        b = ordered_bits(expected);
+        distance = a > b ? (uint64_t) a - (uint64_t) b : (uint64_t) b - (uint64_t) a;
+        CU_ASSERT_TRUE(distance <= (uint64_t) ulps);
+    }
+}
+
+/* |actual - expected| <= atol + rtol * |expected|, as numpy.isclose; NaNs are equal. */
+static void
+assert_close_tol(double actual, double expected, double rtol, double atol)
+{
+    if (isnan(expected)) {
+        CU_ASSERT_TRUE(isnan(actual));
+    } else if (!isfinite(expected)) {
+        CU_ASSERT_EQUAL(actual, expected);
+    } else {
+        CU_ASSERT_TRUE(fabs(actual - expected) <= atol + rtol * fabs(expected));
+    }
+}
+
 static void
 test_strerror(void)
 {
@@ -1647,7 +1695,6 @@ test_propagate_mutations(void)
 #define EP_MAX_EDGES     8
 #define EP_MAX_ORDER     8
 #define EP_MAX_MUTATIONS 4
-#define EP_ULPS          4
 
 typedef struct {
     tsd_size_t num_nodes;
@@ -1713,45 +1760,13 @@ typedef struct {
     double phase[EP_MAX_MUTATIONS];
 } ep_mutations_row_t;
 
-/* The bits of `x` as an integer that increases with `x` (with -0 equal to 0). */
-static int64_t
-ordered_bits(double x)
-{
-    int64_t bits;
-
-    memcpy(&bits, &x, sizeof(bits));
-    if (bits < 0) {
-        bits = INT64_MIN - bits;
-    }
-    return bits;
-}
-
-/* `actual` is within `ulps` units in the last place of `expected`; NaNs are equal. */
-static void
-assert_close_ulps(double actual, double expected, int ulps)
-{
-    int64_t a, b;
-    uint64_t distance;
-
-    if (isnan(expected)) {
-        CU_ASSERT_TRUE(isnan(actual));
-    } else if (!isfinite(expected) || !isfinite(actual)) {
-        CU_ASSERT_EQUAL(actual, expected);
-    } else {
-        a = ordered_bits(actual);
-        b = ordered_bits(expected);
-        distance = a > b ? (uint64_t) a - (uint64_t) b : (uint64_t) b - (uint64_t) a;
-        CU_ASSERT_TRUE(distance <= (uint64_t) ulps);
-    }
-}
-
 static void
 assert_array_close(const double *actual, const double *expected, tsd_size_t n)
 {
     tsd_size_t j;
 
     for (j = 0; j < n; j++) {
-        assert_close_ulps(actual[j], expected[j], EP_ULPS);
+        assert_close_ulps(actual[j], expected[j], ULPS);
     }
 }
 
